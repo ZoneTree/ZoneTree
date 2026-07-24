@@ -12,7 +12,8 @@ Common causes:
 * key/value type mismatch,
 * comparer or serializer type mismatch,
 * incompatible persisted comparer behavior,
-* a case-insensitive string comparer paired with an incompatible hasher,
+* with Bloom filtering enabled, a case-insensitive string comparer paired with
+  an incompatible hasher,
 * metadata or WAL corruption.
 
 First actions:

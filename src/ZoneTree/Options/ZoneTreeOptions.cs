@@ -46,7 +46,8 @@ public sealed class ZoneTreeOptions<TKey, TValue>
   /// Requested Bloom-filter bits per mutable-segment item. Higher values reduce
   /// false positives but use more memory. The allocation is rounded up to a
   /// power of two. Setting this value to zero disables the mutable-segment
-  /// Bloom filter. Valid values are between 0 and 64. Default value is 8.
+  /// Bloom filter. A key hasher is required when this value is greater than
+  /// zero. Valid values are between 0 and 64. Default value is 8.
   /// </summary>
   public int MutableSegmentBloomFilterBitsPerItem { get; set; } =
       DefaultValues.MutableSegmentBloomFilterBitsPerItem;
@@ -65,7 +66,8 @@ public sealed class ZoneTreeOptions<TKey, TValue>
 
   /// <summary>
   /// The key hasher. Keys considered equal by <see cref="Comparer"/> must
-  /// produce the same hash code.
+  /// produce the same hash code. Required when
+  /// <see cref="MutableSegmentBloomFilterBitsPerItem"/> is greater than zero.
   /// </summary>
   public IKeyHasher<TKey> KeyHasher { get; set; }
 

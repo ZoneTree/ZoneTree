@@ -46,6 +46,10 @@ public interface IKeyHasher<TKey>
 }
 ```
 
+A key hasher is required when the mutable-segment Bloom filter is enabled.
+Setting `MutableSegmentBloomFilterBitsPerItem` to `0` disables the filter and
+removes this requirement.
+
 The required invariant is:
 
 > If the configured comparer considers two keys equal, the configured hasher
@@ -103,7 +107,7 @@ ZoneTree metadata records:
 
 * key and value types,
 * comparer type,
-* key-hasher type,
+* key-hasher type, when configured,
 * key- and value-serializer types,
 * mutable-segment Bloom-filter density.
 
@@ -113,6 +117,5 @@ type, comparer type, key-serializer type, and value-serializer type.
 Type checks cannot detect a behavioral change inside the same .NET type.
 Changing comparer ordering or serializer bytes is a storage migration: create
 a new ZoneTree and copy or rebuild the data. A hasher can be changed without
-rewriting persisted data, but the replacement must still satisfy the comparer
-equality invariant because in-memory Bloom filters are built with the active
-hasher.
+rewriting persisted data. When the mutable-segment Bloom filter is enabled,
+the replacement must still satisfy the comparer equality invariant.

@@ -63,8 +63,8 @@ using var zoneTree = new ZoneTreeFactory<int, string>()
 ```
 
 ZoneTree fills serializers, comparers, and hashers for supported known types.
-When supplying a custom comparer, ensure comparer-equal keys produce the same
-hash.
+When Bloom filtering is enabled with a custom comparer, ensure comparer-equal
+keys produce the same hash.
 
 ## Dispose
 

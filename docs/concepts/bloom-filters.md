@@ -23,8 +23,9 @@ using var zoneTree = new ZoneTreeFactory<long, string>()
 The default is `8`. Valid values are `0` through `64`; `0` disables the
 filter. Higher values generally reduce false positives at the cost of a larger
 allocation. They do not eliminate the ordinary lookup after a possible match.
-Disabling the filter does not remove the current requirement for a configured
-key hasher; the factory supplies one automatically for supported key types.
+An enabled filter requires a key hasher. The factory supplies one automatically
+for supported key types. For other key types, configure a compatible hasher or
+set the value to `0` to disable the filter.
 
 Filter size also depends on `MutableSegmentMaxItemCount`. ZoneTree multiplies
 that configured capacity by the requested bits per item, uses at least 64

@@ -249,7 +249,7 @@ public sealed class BenchmarkRunner(BenchmarkConfig config)
     runStopwatch.Stop();
     await memorySampler.StopAsync();
 
-    return new BenchmarkResult(
+    var result = new BenchmarkResult(
         engineName,
         durability,
         startedAt,
@@ -271,6 +271,20 @@ public sealed class BenchmarkRunner(BenchmarkConfig config)
     {
       InterruptedPhase = interruptedPhase
     };
+
+    PrintRunSummary(result);
+    return result;
+  }
+
+  static void PrintRunSummary(BenchmarkResult result)
+  {
+    var completedPhaseMs = result.Phases.Sum(x => x.ElapsedMs);
+    Console.WriteLine();
+    Console.WriteLine($"  run time: {result.RunElapsedMs / 1000:N2}s");
+    Console.WriteLine($"  completed phase time: {completedPhaseMs / 1000:N2}s");
+    Console.WriteLine(
+        $"  process peak memory: {ResultWriter.FormatBytes(result.PeakProcessWorkingSetBytes)}");
+    Console.WriteLine();
   }
 
   BenchmarkWorkloadConfig CreateWorkloadConfig()
