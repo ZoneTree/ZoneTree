@@ -8,5 +8,11 @@ public sealed class MissingOptionException : ZoneTreeException
     MissingOption = missingOption;
   }
 
+  public MissingOptionException(string missingOption, string resolution)
+      : base($"ZoneTree {missingOption} option is not provided. {resolution}")
+  {
+    MissingOption = missingOption;
+  }
+
   public string MissingOption { get; }
 }

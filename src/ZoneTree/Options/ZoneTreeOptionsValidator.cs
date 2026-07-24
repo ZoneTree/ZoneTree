@@ -23,8 +23,16 @@ internal static class ZoneTreeOptionsValidator
     if (options.Comparer == null)
       return new MissingOptionException(nameof(options.Comparer));
 
-    if (options.KeyHasher == null)
-      return new MissingOptionException(nameof(options.KeyHasher));
+    var mutableSegmentBloomFilterEnabled =
+        options.MutableSegmentBloomFilterBitsPerItem > 0;
+    if (mutableSegmentBloomFilterEnabled && options.KeyHasher == null)
+    {
+      return new MissingOptionException(
+          nameof(options.KeyHasher),
+          $"Configure a compatible key hasher or set " +
+          $"{nameof(options.MutableSegmentBloomFilterBitsPerItem)} to 0 " +
+          "to disable the mutable-segment Bloom filter.");
+    }
 
     if (options.IsDeleted == null)
       return new MissingOptionException(nameof(options.IsDeleted));
@@ -47,9 +55,13 @@ internal static class ZoneTreeOptionsValidator
     if (options.DiskSegmentOptions == null)
       return new MissingOptionException(nameof(options.DiskSegmentOptions));
 
-    Exception exception = ValidateCommonKeyHasherCompatibility(options);
-    if (exception != null)
-      return exception;
+    Exception exception = null;
+    if (mutableSegmentBloomFilterEnabled)
+    {
+      exception = ValidateCommonKeyHasherCompatibility(options);
+      if (exception != null)
+        return exception;
+    }
 
     exception = ValidateDefinedEnum(
         nameof(options.BTreeLockMode),

@@ -80,6 +80,30 @@ public sealed class ZoneTreeOptionsValidationTests
   }
 
   [Test]
+  public void MissingKeyHasherPassesValidationWhenBloomFilterIsDisabled()
+  {
+    var options = CreateValidOptions();
+    options.KeyHasher = null;
+    options.MutableSegmentBloomFilterBitsPerItem = 0;
+
+    Assert.That(options.TryValidate(out var exception), Is.True);
+    Assert.That(exception, Is.Null);
+  }
+
+  [Test]
+  public void MissingKeyHasherExplainsHowToDisableBloomFilter()
+  {
+    var options = CreateValidOptions();
+    options.KeyHasher = null;
+
+    var exception = Assert.Throws<MissingOptionException>(options.Validate);
+
+    Assert.That(
+        exception.Message,
+        Does.Contain($"set {nameof(options.MutableSegmentBloomFilterBitsPerItem)} to 0"));
+  }
+
+  [Test]
   public void AllowUnsafeOptionValuesSkipsNumericRanges()
   {
     var options = CreateValidOptions();

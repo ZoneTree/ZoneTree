@@ -17,7 +17,8 @@ tree. Configure components and options before calling an open method.
 | opening | `Create`, `Open`, `OpenOrCreate`, transactional variants |
 
 Known key/value types receive default serializers and, where applicable,
-comparers and key hashers. Custom types require explicit compatible components.
+comparers and key hashers. Custom types require explicit compatible components;
+a key hasher is required only when the mutable-segment Bloom filter is enabled.
 
 ## Core Defaults
 
@@ -45,13 +46,6 @@ The public property identifiers `BTreeLockMode`, `BTreeNodeSize`, and
 | `ValueSerializer` | defines persisted value bytes |
 | deletion delegates | define and create deletion markers |
 
-Metadata records all four component type names. On open, ZoneTree validates
-the comparer and serializer types, but it does not currently reject a changed
-key-hasher type. A comparer-order or serializer-format change is a storage
-migration even when the .NET type name stays the same. A replacement hasher
-does not change persisted data, but it must remain compatible with comparer
-equality.
-
 ## Mutable-Segment Bloom Filter
 
 The filter is sized from `MutableSegmentMaxItemCount` and
@@ -65,9 +59,9 @@ using var zoneTree = new ZoneTreeFactory<long, string>()
     .OpenOrCreate();
 ```
 
-Use `0` bits per item to disable the filter. A larger value is not free: it
-increases memory and does not eliminate comparer-based lookup after a possible
-match.
+Use `0` bits per item to disable the filter and remove the key-hasher
+requirement. A larger value is not free: it increases memory and does not
+eliminate comparer-based lookup after a possible match.
 
 See [mutable-segment Bloom filters](../concepts/bloom-filters.md) for sizing,
 false-positive behavior, and hasher requirements.

@@ -272,6 +272,8 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
   ConcurrentBloomFilter CreateBloomFilter(
       ZoneTreeOptions<TKey, TValue> options)
   {
+    if (options.KeyHasher == null)
+      return null;
     var bitsPerItem = options.MutableSegmentBloomFilterBitsPerItem;
     return bitsPerItem == 0 ?
         null :
