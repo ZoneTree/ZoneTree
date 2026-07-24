@@ -236,7 +236,10 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
     CompressedBlockLengths.Add(compressedBytes.Length);
     DecompressedBlockLengths.Add(nextBlock.Length);
     FileStream.Write(compressedBytes.Span);
-    FileStream.Flush(true);
+    // Avoid forcing every compression block to stable storage. A compressed
+    // device is not valid or publishable until SealDevice writes its terminal
+    // block metadata and durably flushes the complete file.
+    FileStream.Flush(false);
     BlockCache.RemoveBlock(nextBlock.BlockIndex);
     ++NextBlockIndex;
     LastBlockLength = 0;
