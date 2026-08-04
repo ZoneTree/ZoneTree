@@ -1,11 +1,10 @@
-using System.Text.Json;
 using System.Reflection;
-using ZoneTree.Collections;
 using ZoneTree.AbstractFileStream;
+using ZoneTree.Collections;
 using ZoneTree.Comparers;
 using ZoneTree.Core;
-using ZoneTree.Logger;
 using ZoneTree.Hashers;
+using ZoneTree.Logger;
 using ZoneTree.Options;
 using ZoneTree.Segments;
 using ZoneTree.Segments.Disk;
@@ -446,8 +445,7 @@ public sealed class BottomSegmentMergeTests
         .Concat(bottomSegments)
         .ToArray();
     var newQueue =
-        new SingleProducerSingleConsumerQueue<IDiskSegment<int, int>>(
-            newBottomSegments.Reverse());
+        new SingleProducerSingleConsumerQueue<IDiskSegment<int, int>>(Enumerable.Reverse(newBottomSegments));
     var field = typeof(ZoneTree<int, int>).GetField(
         "BottomSegmentQueue",
         BindingFlags.Instance | BindingFlags.NonPublic);
