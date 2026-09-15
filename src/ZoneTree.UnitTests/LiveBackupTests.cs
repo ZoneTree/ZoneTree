@@ -579,6 +579,79 @@ public sealed class LiveBackupTests
   }
 
   [Test]
+  public void LocalLiveBackupReadsLegacyJsonMetadata()
+  {
+    var backupPath = "data/LocalLiveBackupReadsLegacyJsonMetadata.Backup";
+    DeleteDirectory(backupPath);
+    try
+    {
+      var generationsPath = Path.Combine(backupPath, "generations");
+      Directory.CreateDirectory(generationsPath);
+      File.WriteAllText(
+          Path.Combine(backupPath, "manifest.json"),
+          """
+          {
+            "Version": 1,
+            "CreatedAtUtc": "2024-01-02T03:04:05.0000000Z",
+            "UpdatedAtUtc": "2024-01-02T03:05:06.0000000Z",
+            "CurrentGenerationId": 7
+          }
+          """);
+      File.WriteAllText(
+          Path.Combine(generationsPath, "00000000000000000007.json"),
+          """
+          {
+            "GenerationId": 7,
+            "LastOpIndex": 42,
+            "StartedAtUtc": "2024-01-02T03:04:10.0000000Z",
+            "SegmentIds": [101, 102],
+            "Files": [
+              {
+                "SegmentId": 101,
+                "Order": 0,
+                "FileName": "segment-101.dat",
+                "BackupPath": "data/segment-101.dat",
+                "RecordCount": 12,
+                "ByteLength": 3456,
+                "CopiedAtUtc": "2024-01-02T03:04:11.0000000Z"
+              }
+            ],
+            "RecordBatch": {
+              "BatchId": 9,
+              "BackupPath": "records/00000000000000000009.bin",
+              "RecordCount": 2,
+              "CompressionMethod": 1,
+              "CompressionLevel": 3,
+              "CompressionBlockSize": 4096,
+              "UncompressedLength": 100,
+              "StoredLength": 80,
+              "StartedAtUtc": "2024-01-02T03:04:12.0000000Z",
+              "CompletedAtUtc": "2024-01-02T03:04:13.0000000Z",
+              "Completed": true
+            }
+          }
+          """);
+
+      var provider = new LocalLiveBackupProvider(backupPath);
+      var catalog = provider.ReadCurrentGeneration();
+
+      Assert.That(catalog.GenerationId, Is.EqualTo(7));
+      Assert.That(catalog.LastOpIndex, Is.EqualTo(42));
+      Assert.That(catalog.SegmentIds, Is.EqualTo(new[] { 101L, 102L }));
+      Assert.That(catalog.Files, Has.Count.EqualTo(1));
+      Assert.That(catalog.Files[0].BackupPath, Is.EqualTo("data/segment-101.dat"));
+      Assert.That(catalog.RecordBatch, Is.Not.Null);
+      Assert.That(catalog.RecordBatch.CompressionMethod, Is.EqualTo(CompressionMethod.Zstd));
+      Assert.That(catalog.RecordBatch.Completed, Is.True);
+      Assert.That(provider.ReadGeneration(7).RecordBatch.StoredLength, Is.EqualTo(80));
+    }
+    finally
+    {
+      DeleteDirectory(backupPath);
+    }
+  }
+
+  [Test]
   public void LiveBackupEveryScheduleCreatesAdditionalGenerations()
   {
     var dataPath = "data/LiveBackupEveryScheduleCreatesAdditionalGenerations";
