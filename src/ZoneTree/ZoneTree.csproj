@@ -24,6 +24,10 @@
     <RunAnalyzersDuringLiveAnalysis>False</RunAnalyzersDuringLiveAnalysis>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(TargetFramework)' != 'net6.0'">
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(Configuration)' == 'ReleaseWithDoc'">
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
   </PropertyGroup>

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using ZoneTree.Options;
 using ZoneTree.Segments.Disk;
 
@@ -20,11 +21,6 @@ public sealed class LocalLiveBackupProvider
   const string RecordsDirectory = "records";
 
   const string GenerationsDirectory = "generations";
-
-  static readonly JsonSerializerOptions IndentedJsonOptions = new()
-  {
-    WriteIndented = true
-  };
 
   readonly Lock SyncRoot = new();
 
@@ -329,8 +325,9 @@ public sealed class LocalLiveBackupProvider
     var path = GetFullPath(ManifestFileName);
     if (File.Exists(path))
     {
-      var loaded = JsonSerializer.Deserialize<LocalDirectoryManifest>(
-          File.ReadAllText(path));
+      var loaded = JsonSerializer.Deserialize(
+          File.ReadAllText(path),
+          BackupJsonSerializerContext.Default.LocalDirectoryManifest);
       if (loaded != null)
       {
         Manifest.Version = loaded.Version;
@@ -350,8 +347,8 @@ public sealed class LocalLiveBackupProvider
     SortCatalog(catalog);
     var path = GetFullPath(GetGenerationPath(catalog.GenerationId));
     var bytes = JsonSerializer.SerializeToUtf8Bytes(
-        catalog,
-        IndentedJsonOptions);
+        ToJsonModel(catalog),
+        BackupJsonSerializerContext.Default.LocalLiveBackupGenerationCatalogJsonModel);
     await WriteFileAtomicallyAsync(
         path,
         destination => destination.WriteAsync(bytes, cancellationToken).AsTask(),
@@ -363,7 +360,7 @@ public sealed class LocalLiveBackupProvider
     var path = GetFullPath(ManifestFileName);
     var bytes = JsonSerializer.SerializeToUtf8Bytes(
         Manifest,
-        IndentedJsonOptions);
+        BackupJsonSerializerContext.Default.LocalDirectoryManifest);
     await WriteFileAtomicallyAsync(
         path,
         destination => destination.WriteAsync(bytes, cancellationToken).AsTask(),
@@ -520,8 +517,7 @@ public sealed class LocalLiveBackupProvider
     var result = new List<LocalLiveBackupGenerationCatalog>();
     foreach (var path in Directory.GetFiles(directory, "*.json"))
     {
-      var catalog = JsonSerializer.Deserialize<LocalLiveBackupGenerationCatalog>(
-          File.ReadAllText(path));
+      var catalog = DeserializeGenerationCatalog(File.ReadAllText(path));
       if (catalog != null)
         result.Add(catalog);
     }
@@ -535,8 +531,42 @@ public sealed class LocalLiveBackupProvider
       throw new FileNotFoundException(
           "Local live backup generation catalog was not found.",
           path);
-    return JsonSerializer.Deserialize<LocalLiveBackupGenerationCatalog>(
-        File.ReadAllText(path));
+    return DeserializeGenerationCatalog(File.ReadAllText(path));
+  }
+
+  static LocalLiveBackupGenerationCatalog DeserializeGenerationCatalog(
+      string json)
+  {
+    var model = JsonSerializer.Deserialize(
+        json,
+        BackupJsonSerializerContext.Default.LocalLiveBackupGenerationCatalogJsonModel);
+    if (model == null)
+      return null;
+    var catalog = new LocalLiveBackupGenerationCatalog
+    {
+      GenerationId = model.GenerationId,
+      LastOpIndex = model.LastOpIndex,
+      StartedAtUtc = model.StartedAtUtc,
+      Files = model.Files,
+      RecordBatch = model.RecordBatch
+    };
+    if (model.SegmentIds != null)
+      catalog.SegmentIds.AddRange(model.SegmentIds);
+    return catalog;
+  }
+
+  static LocalLiveBackupGenerationCatalogJsonModel ToJsonModel(
+      LocalLiveBackupGenerationCatalog catalog)
+  {
+    return new LocalLiveBackupGenerationCatalogJsonModel
+    {
+      GenerationId = catalog.GenerationId,
+      LastOpIndex = catalog.LastOpIndex,
+      StartedAtUtc = catalog.StartedAtUtc,
+      SegmentIds = catalog.SegmentIds,
+      Files = catalog.Files,
+      RecordBatch = catalog.RecordBatch
+    };
   }
 
   LocalLiveBackupGenerationCatalog GetActiveGeneration(long generationId)
@@ -700,16 +730,39 @@ public sealed class LocalLiveBackupProvider
       }
     }
   }
-  sealed class LocalDirectoryManifest
-  {
-    public int Version { get; set; } = 1;
+}
 
-    public string CreatedAtUtc { get; set; } = DateTime.UtcNow.ToString("O");
+internal sealed class LocalDirectoryManifest
+{
+  public int Version { get; set; } = 1;
 
-    public string UpdatedAtUtc { get; set; } = DateTime.UtcNow.ToString("O");
+  public string CreatedAtUtc { get; set; } = DateTime.UtcNow.ToString("O");
 
-    public long CurrentGenerationId { get; set; }
-  }
+  public string UpdatedAtUtc { get; set; } = DateTime.UtcNow.ToString("O");
+
+  public long CurrentGenerationId { get; set; }
+}
+
+[JsonSourceGenerationOptions(WriteIndented = true)]
+[JsonSerializable(typeof(LocalDirectoryManifest))]
+[JsonSerializable(typeof(LocalLiveBackupGenerationCatalogJsonModel))]
+internal sealed partial class BackupJsonSerializerContext : JsonSerializerContext
+{
+}
+
+internal sealed class LocalLiveBackupGenerationCatalogJsonModel
+{
+  public long GenerationId { get; set; }
+
+  public long LastOpIndex { get; set; }
+
+  public string StartedAtUtc { get; set; }
+
+  public List<long> SegmentIds { get; set; } = [];
+
+  public List<LocalLiveBackupFile> Files { get; set; } = [];
+
+  public LocalLiveBackupRecordBatch RecordBatch { get; set; }
 }
 
 public sealed class LocalLiveBackupGenerationCatalog
