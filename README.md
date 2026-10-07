@@ -20,7 +20,7 @@ ZoneTree is a high-performance storage engine for ordered, persistent data. It i
 Modern data systems are not built on features alone.
 They are built on storage layers that shape performance, reliability, and product architecture.
 
-![2M profile store benchmark execution time](docs/benchmark/reference/2m/latest-execution-time.svg)
+![2M profile store benchmark execution time](zonetree-dev/content/docs/benchmark/reference/2m/latest-execution-time.svg)
 
 In a live 2M-profile benchmark with individual writes, secondary indexes, point reads, ordered scans, queries, and updates, ZoneTree completes the measured workload phases substantially faster than RocksDB, SQLite, and MySQL for this embedded profile-store scenario. See the full benchmark explanation and reference reports at [zonetree.dev/docs/benchmark](https://zonetree.dev/docs/benchmark/).
 
@@ -305,13 +305,13 @@ Repository:
 
 Official documentation:
 
-* [Docs home](docs/index.md)
-* [Getting started](docs/getting-started.md)
-* [Reads and writes](docs/usage/reads-and-writes.md)
-* [Value mutability](docs/concepts/value-mutability.md)
-* [Memory usage](docs/storage/memory-usage.md)
-* [WAL modes](docs/durability/wal-modes.md)
-* [Production checklist](docs/operations/production-checklist.md)
+* [Docs home](zonetree-dev/content/docs/index.md)
+* [Getting started](zonetree-dev/content/docs/getting-started.md)
+* [Reads and writes](zonetree-dev/content/docs/usage/reads-and-writes.md)
+* [Value mutability](zonetree-dev/content/docs/concepts/value-mutability.md)
+* [Memory usage](zonetree-dev/content/docs/storage/memory-usage.md)
+* [WAL modes](zonetree-dev/content/docs/durability/wal-modes.md)
+* [Production checklist](zonetree-dev/content/docs/operations/production-checklist.md)
 * [zonetree.dev](https://zonetree.dev)
 
 ---

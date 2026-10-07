@@ -19,7 +19,7 @@ ZoneTree is a high-performance storage engine for ordered, persistent data. It i
 Modern data systems are not built on features alone.
 They are built on storage layers that shape performance, reliability, and product architecture.
 
-![2M profile store benchmark execution time](https://raw.githubusercontent.com/ZoneTree/ZoneTree/main/docs/benchmark/reference/2m/latest-execution-time.svg)
+![2M profile store benchmark execution time](https://raw.githubusercontent.com/ZoneTree/ZoneTree/main/zonetree-dev/content/docs/benchmark/reference/2m/latest-execution-time.svg)
 
 In a live 2M-profile benchmark with individual writes, secondary indexes, point reads, ordered scans, queries, and updates, ZoneTree completes the measured workload phases substantially faster than RocksDB, SQLite, and MySQL for this embedded profile-store scenario. See the full benchmark explanation and reference reports at [zonetree.dev/docs/benchmark](https://zonetree.dev/docs/benchmark/).
 
@@ -306,13 +306,13 @@ Repository:
 
 Official documentation:
 
-* [Docs home](https://github.com/ZoneTree/ZoneTree/tree/main/docs)
-* [Getting started](https://github.com/ZoneTree/ZoneTree/blob/main/docs/getting-started.md)
-* [Reads and writes](https://github.com/ZoneTree/ZoneTree/blob/main/docs/usage/reads-and-writes.md)
-* [Value mutability](https://github.com/ZoneTree/ZoneTree/blob/main/docs/concepts/value-mutability.md)
-* [Memory usage](https://github.com/ZoneTree/ZoneTree/blob/main/docs/storage/memory-usage.md)
-* [WAL modes](https://github.com/ZoneTree/ZoneTree/blob/main/docs/durability/wal-modes.md)
-* [Production checklist](https://github.com/ZoneTree/ZoneTree/blob/main/docs/operations/production-checklist.md)
+* [Docs home](https://github.com/ZoneTree/ZoneTree/tree/main/zonetree-dev/content/docs)
+* [Getting started](https://github.com/ZoneTree/ZoneTree/blob/main/zonetree-dev/content/docs/getting-started.md)
+* [Reads and writes](https://github.com/ZoneTree/ZoneTree/blob/main/zonetree-dev/content/docs/usage/reads-and-writes.md)
+* [Value mutability](https://github.com/ZoneTree/ZoneTree/blob/main/zonetree-dev/content/docs/concepts/value-mutability.md)
+* [Memory usage](https://github.com/ZoneTree/ZoneTree/blob/main/zonetree-dev/content/docs/storage/memory-usage.md)
+* [WAL modes](https://github.com/ZoneTree/ZoneTree/blob/main/zonetree-dev/content/docs/durability/wal-modes.md)
+* [Production checklist](https://github.com/ZoneTree/ZoneTree/blob/main/zonetree-dev/content/docs/operations/production-checklist.md)
 * [zonetree.dev](https://zonetree.dev)
 
 ---

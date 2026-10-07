@@ -9,7 +9,10 @@ foreach (var markdownFile in markdownFiles)
   ValidateMarkdownLinks(repositoryRoot, markdownFile, errors);
 
 var navigationFiles = Directory
-  .EnumerateFiles(Path.Combine(repositoryRoot, "docs"), "_nav.json", SearchOption.AllDirectories)
+  .EnumerateFiles(
+    Path.Combine(repositoryRoot, "zonetree-dev", "content", "docs"),
+    "_nav.json",
+    SearchOption.AllDirectories)
   .Order(StringComparer.Ordinal)
   .ToArray();
 
@@ -40,7 +43,7 @@ static string FindRepositoryRoot(string[] args)
        directory = directory.Parent)
   {
     if (File.Exists(Path.Combine(directory.FullName, "README.md")) &&
-        Directory.Exists(Path.Combine(directory.FullName, "docs")))
+        Directory.Exists(Path.Combine(directory.FullName, "zonetree-dev", "content", "docs")))
       return directory.FullName;
   }
 
@@ -53,7 +56,7 @@ static List<string> GetMarkdownFiles(string repositoryRoot, List<string> errors)
   var files = new List<string>();
   AddRequiredFile(Path.Combine(repositoryRoot, "README.md"));
 
-  var docsDirectory = Path.Combine(repositoryRoot, "docs");
+  var docsDirectory = Path.Combine(repositoryRoot, "zonetree-dev", "content", "docs");
   if (Directory.Exists(docsDirectory))
   {
     files.AddRange(Directory.EnumerateFiles(
@@ -63,7 +66,7 @@ static List<string> GetMarkdownFiles(string repositoryRoot, List<string> errors)
   }
   else
   {
-    errors.Add("Missing documentation directory: docs");
+    errors.Add("Missing documentation directory: zonetree-dev/content/docs");
   }
 
   AddRequiredFile(Path.Combine(

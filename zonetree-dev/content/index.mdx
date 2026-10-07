@@ -1,0 +1,1480 @@
+---
+title: ZoneTree - Fastest Ordered Storage engine for .NET
+description: A high-performance ordered key-value storage engine for serious .NET data systems.
+template: doc
+layout:
+  fullWidth: true
+  showNav: false
+  showToc: false
+  showFooter: true
+nav:
+  hidden: true
+---
+
+<main
+  class="zonetree-landing overflow-x-visible"
+  aria-label="ZoneTree landing page"
+>
+  <section class="zt-hero" aria-labelledby="zonetree-title">
+    <div class="zt-hero__copy">
+      <p class="zt-kicker">Ordered storage engine for .NET</p>
+      <h1 id="zonetree-title">ZoneTree</h1>
+      <p class="zt-hero__line">The engine beneath serious .NET data systems.</p>
+      <p class="zt-hero__body">
+        ZoneTree is a high-performance storage engine for ordered, persistent
+        data, built for teams creating databases, indexes, search systems,
+        queues, and data platforms in the .NET ecosystem.
+      </p>
+      <div class="zt-actions flex mt-6 gap-3" aria-label="Primary actions">
+        <BtnLink
+          href="/docs/getting-started/"
+          tone="accent"
+          class="py-3 px-4 fw-700"
+        >
+          Get Started
+        </BtnLink>
+        <BtnLink
+          href="https://www.nuget.org/packages/ZoneTree"
+          target="_blank"
+          icon="tabler:download"
+          tone="neutral"
+          variant="surface"
+          class="py-3 px-4 fw-700"
+        >
+          Install from NuGet
+        </BtnLink>
+        <BtnLink
+          href="https://github.com/koculu/ZoneTree"
+          target="_blank"
+          icon="tabler:brand-github"
+          tone="neutral"
+          variant="surface"
+          class="py-3 px-4 fw-700"
+        >
+          Source
+        </BtnLink>
+      </div>
+    </div>
+
+    <div class="zt-storage" aria-label="ZoneTree LSM storage cutaway">
+      <div class="zt-storage__grid"></div>
+      <div class="zt-storage__halo"></div>
+
+      <div class="zt-storage__hud">
+        <span>ZoneTree engine</span>
+        <strong>ordered key-value core</strong>
+      </div>
+
+      <div class="zt-storage__intake" aria-label="Incoming writes">
+        <span>incoming writes</span>
+        <i class="zt-key zt-key--one">k:039</i>
+        <i class="zt-key zt-key--two">k:814</i>
+        <i class="zt-key zt-key--three">k:127</i>
+      </div>
+
+      <svg class="zt-storage__paths" viewBox="0 0 720 520" aria-hidden="true">
+        <defs>
+          <linearGradient id="zt-write-line" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0" stop-color="var(--zt-accent)" stop-opacity="0"/>
+            <stop
+              offset="0.5"
+              stop-color="var(--zt-accent)"
+              stop-opacity="0.9"/>
+            <stop offset="1" stop-color="var(--zt-blue)" stop-opacity="0.45"/>
+          </linearGradient>
+          <linearGradient id="zt-merge-line" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0" stop-color="var(--zt-gold)" stop-opacity="0.85"/>
+            <stop
+              offset="1"
+              stop-color="var(--zt-accent)"
+              stop-opacity="0.35"/>
+          </linearGradient>
+        </defs>
+        <path
+          class="zt-storage__write-path"
+          d="M64 108 C180 108 214 164 316 164"/>
+        <path
+          class="zt-storage__flush-path"
+          d="M318 186 C358 248 420 282 542 282"/>
+        <path
+          class="zt-storage__merge-path"
+          d="M486 322 C414 372 350 405 232 405"/>
+        <path
+          class="zt-storage__scan-path"
+          d="M160 430 C292 454 462 454 600 408"/>
+      </svg>
+
+      <div class="zt-module zt-module--wal">
+        <small>WAL</small>
+        <strong>durability rail</strong>
+        <span></span>
+      </div>
+
+      <div class="zt-module zt-module--mutable">
+        <small>mutable segment</small>
+        <strong>hot writes</strong>
+        <div class="zt-bars" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+      </div>
+
+      <div class="zt-module zt-module--sealed">
+        <small>read-only segments</small>
+        <strong>ordered runs</strong>
+        <div class="zt-runs" aria-hidden="true">
+          <i></i><i></i><i></i><i></i>
+        </div>
+      </div>
+
+      <div class="zt-module zt-module--disk">
+        <small>disk layer</small>
+        <strong>persistent data</strong>
+        <div class="zt-plates" aria-hidden="true"><i></i><i></i><i></i></div>
+      </div>
+
+      <div class="zt-module zt-module--query">
+        <small>seek + range</small>
+        <strong>iterator window</strong>
+        <div class="zt-window" aria-hidden="true"></div>
+      </div>
+
+      <div class="zt-storage__badge zt-storage__badge--left">
+        <span>write</span>
+        <strong>append + flush</strong>
+      </div>
+      <div class="zt-storage__badge zt-storage__badge--right">
+        <span>read</span>
+        <strong>ordered scan</strong>
+      </div>
+    </div>
+  </section>
+
+  <section class="zt-statement" aria-label="ZoneTree statement">
+    <p>
+      Every serious data product depends on a storage layer. Sometimes it stays
+      invisible. Sometimes it becomes the product. Sometimes it decides how far
+      the product can go.
+    </p>
+  </section>
+
+  <section class="zt-foundation" aria-labelledby="zt-foundation-title">
+    <div>
+      <p class="zt-kicker">Foundation layer</p>
+      <h2 id="zt-foundation-title">
+        Fast, programmable storage for systems where the data model matters.
+      </h2>
+    </div>
+    <p>
+      ZoneTree gives .NET systems a foundation for data that must be written
+      quickly, read in order, persisted reliably, and shaped around the product
+      instead of forced into someone else's database model.
+    </p>
+  </section>
+
+  <section class="zt-capabilities" aria-label="ZoneTree capabilities">
+    <article>
+      <IconFrame
+        name="lucide:database"
+        tone="accent"
+        variant="surface"
+        size="lg"/>
+      <p>Build your model</p>
+      <h2>Databases, indexes, queues, search layers, event systems.</h2>
+      <span>
+        ZoneTree supplies the ordered persistent core. Your product defines the
+        behavior above it.
+      </span>
+    </article>
+
+    <article>
+      <IconFrame
+        name="lucide:gauge"
+        tone="accent"
+        variant="surface"
+        size="lg"/>
+      <p>Move serious volume</p>
+      <h2>High-throughput writes, fast loads, controlled persistence.</h2>
+      <span>
+        Speed changes architecture: larger workloads, lower latency, simpler
+        systems, and more room to grow.
+      </span>
+    </article>
+
+    <article>
+      <IconFrame
+        name="lucide:git-merge"
+        tone="accent"
+        variant="surface"
+        size="lg"/>
+      <p>Own the engine</p>
+      <h2>LSM behavior exposed where product teams need control.</h2>
+      <span>
+        Iteration, compaction, durability options, transactions, and storage
+        shape stay close to the code that depends on them.
+      </span>
+    </article>
+  </section>
+
+  <section
+    id="performance"
+    class="zt-performance"
+    aria-labelledby="zt-performance-title"
+  >
+    <div>
+      <p class="zt-kicker">Performance with purpose</p>
+      <h2 id="zt-performance-title">
+        Fast writes. Ordered access. Room to build.
+      </h2>
+      <p>
+        ZoneTree is built for high-throughput workloads and benchmarked across
+        large insert, load, merge, and iteration scenarios.
+      </p>
+    </div>
+    <dl>
+      <div>
+        <dt><Icon name="lucide:upload"/> Inserts</dt>
+        <dd>Large ordered write workloads with configurable durability.</dd>
+      </div>
+      <div>
+        <dt><Icon name="lucide:search"/> Iteration</dt>
+        <dd>Forward, reverse, seek, and range access over ordered keys.</dd>
+      </div>
+      <div>
+        <dt><Icon name="lucide:layers"/> Merge</dt>
+        <dd>Compaction and segment behavior designed for persistent scale.</dd>
+      </div>
+      <div>
+        <dt><Icon name="lucide:shield-check"/> Durability</dt>
+        <dd>
+          WAL modes and transactional behavior for different product needs.
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="zt-native" aria-label=".NET native foundation">
+    <div class="zt-native__copy">
+      <p class="zt-kicker">Native to .NET</p>
+      <h2>No extra server boundary. No foreign storage stack.</h2>
+      <p>
+        ZoneTree belongs inside the .NET world: a direct foundation for teams
+        building serious infrastructure without leaving their runtime,
+        deployment model, or language ecosystem.
+      </p>
+    </div>
+    <div class="zt-native__code" aria-label="ZoneTree quick start">
+      <div>
+        <span>PackageReference</span>
+        <strong>ZoneTree</strong>
+      </div>
+
+```csharp
+using ZoneTree;
+
+using var zoneTree =
+  new ZoneTreeFactory<int, string>()
+  .OpenOrCreate();
+
+zoneTree.Upsert(39, "Hello ZoneTree");
+```
+    </div>
+  </section>
+
+  <section class="zt-product-map" aria-label="Data products ZoneTree can power">
+    <p class="zt-kicker">Built for systems with ambition</p>
+    <h2>
+      The engine provides the ordered, persistent core. The product decides what
+      comes above it.
+    </h2>
+    <ul>
+      <li><Icon name="lucide:table"/> Custom databases</li>
+      <li><Icon name="lucide:list-tree"/> Indexing layers</li>
+      <li><Icon name="lucide:search"/> Search infrastructure</li>
+      <li><Icon name="lucide:braces"/> Document stores</li>
+      <li><Icon name="lucide:share-2"/> Graph stores</li>
+      <li><Icon name="lucide:radio"/> Event systems</li>
+      <li><Icon name="lucide:list"/> Persistent queues</li>
+      <li><Icon name="lucide:hard-drive"/> Local-first applications</li>
+    </ul>
+  </section>
+
+  <section class="zt-proof" aria-label="ZoneTree proof">
+    <p>Proven beyond theory</p>
+    <h2>
+      ZoneTree is already used in live production software, where storage
+      behavior, performance, and reliability matter.
+    </h2>
+    <strong>Build the system. ZoneTree handles the storage foundation.</strong>
+  </section>
+
+  <section id="support" class="zt-support" aria-label="ZoneTree support">
+    <article>
+      <IconFrame
+        name="lucide:life-buoy"
+        tone="accent"
+        variant="surface"
+        size="lg"/>
+      <p>Official support</p>
+      <h2>Architecture, performance, reliability, and production readiness.</h2>
+      <span>
+        Support engagements can include prioritized issue handling, confirmed
+        defect fixes, private technical communication, upgrade guidance, and
+        scheduled advisory sessions.
+      </span>
+      <BtnLink
+        href="mailto:contact@zonetree.dev"
+        tone="accent"
+        class="zt-support__button fw-700"
+      >
+        Start a Conversation
+      </BtnLink>
+    </article>
+
+    <article>
+      <IconFrame
+        name="lucide:file-text"
+        tone="accent"
+        variant="surface"
+        size="lg"/>
+      <p>Commercial agreements</p>
+      <h2>MIT open source, with formal terms when procurement needs them.</h2>
+      <span>
+        Commercial agreements are available for organizations that require
+        private contractual arrangements, redistribution rights, or a direct
+        commercial relationship with the project.
+      </span>
+      <BtnLink
+        href="mailto:contact@zonetree.dev"
+        tone="neutral"
+        variant="surface"
+        class="zt-support__button fw-700"
+      >
+        Request Terms
+      </BtnLink>
+    </article>
+
+    <article>
+      <IconFrame
+        name="lucide:heart"
+        tone="accent"
+        variant="surface"
+        size="lg"/>
+      <p>Sponsor the foundation</p>
+      <h2>Help sustain native data infrastructure for the .NET world.</h2>
+      <span>
+        Sponsorship supports performance work, testing, documentation,
+        benchmarks, integrations, and long-term project stability.
+      </span>
+      <BtnLink
+        href="/sponsor/"
+        tone="neutral"
+        variant="surface"
+        class="zt-support__button fw-700"
+      >
+        Sponsor ZoneTree
+      </BtnLink>
+    </article>
+  </section>
+
+  <section class="zt-close" aria-label="ZoneTree closing statement">
+    <p>Build the data system your product actually needs.</p>
+    <div class="zt-close__actions">
+      <BtnLink
+        href="https://www.nuget.org/packages/ZoneTree"
+        target="_blank"
+        tone="accent"
+        class="py-3 px-4 fw-700"
+      >
+        Install from NuGet
+      </BtnLink>
+      <BtnLink
+        href="/docs"
+        tone="neutral"
+        variant="surface"
+        class="py-3 px-4 fw-700"
+      >
+        Read Docs
+      </BtnLink>
+    </div>
+  </section>
+</main>
+<style>
+  @scope (html[data-theme]) {
+    body {
+      --zt-bg: var(--ps-current-canvas);
+      --zt-line: color-mix(
+        in srgb,
+        var(--ps-current-border-subtle) 78%,
+        transparent
+      );
+      background: var(--zt-bg);
+    }
+
+    .doc-shell {
+      padding: 0;
+    }
+
+    .doc-content:has(.zonetree-landing) {
+      max-width: none;
+      padding: 0;
+    }
+
+    .doc-content:has(.zonetree-landing) > main {
+      margin: 0;
+    }
+
+    body:has(.zonetree-landing) .topbar {
+      background: color-mix(in srgb, var(--zt-bg) 76%, transparent);
+      border-bottom-color: var(--zt-line) !important;
+    }
+
+    .zonetree-landing {
+      --zt-bg: var(--ps-current-canvas);
+      --zt-panel: var(--ps-current-surface-rest-background);
+      --zt-panel-alt: var(--ps-current-surface-alt-rest-background);
+      --zt-line: color-mix(
+        in srgb,
+        var(--ps-current-border-subtle) 78%,
+        transparent
+      );
+      --zt-line-strong: color-mix(
+        in srgb,
+        var(--ps-current-border-default) 82%,
+        transparent
+      );
+      --zt-text: var(--ps-current-text-default);
+      --zt-muted: var(--ps-current-text-subtle);
+      --zt-soft: color-mix(
+        in srgb,
+        var(--ps-current-text-default) 68%,
+        var(--ps-current-text-subtle)
+      );
+      --zt-accent: var(--ps-semantic-tone-success-tone);
+      --zt-blue: var(--ps-semantic-tone-info-tone);
+      --zt-gold: var(--ps-semantic-tone-warning-tone);
+      --zt-danger: var(--ps-semantic-tone-danger-tone);
+      --zt-radius: 8px;
+      --zt-grid-opacity: 0.24;
+      --zt-storage-grid-opacity: 0.36;
+      color: var(--zt-text);
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    :scope[data-theme="light"] .zonetree-landing {
+      --zt-grid-opacity: 0.52;
+      --zt-storage-grid-opacity: 0.62;
+    }
+
+    .zonetree-landing * {
+      box-sizing: border-box;
+    }
+
+    .zt-hero {
+      align-items: center;
+      display: grid;
+      gap: 4rem;
+      grid-template-columns: minmax(0, 0.86fr) minmax(22rem, 1.14fr);
+      padding: 4rem max(2rem, calc((100vw - 1180px) / 2)) 4rem;
+      position: relative;
+    }
+
+    .zt-hero::before,
+    .zt-product-map::before {
+      background-image:
+        linear-gradient(var(--zt-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--zt-line) 1px, transparent 1px);
+      background-size: 72px 72px;
+      content: "";
+      inset: 0;
+      mask-image: linear-gradient(to bottom, #000 0%, transparent 86%);
+      opacity: var(--zt-grid-opacity);
+      pointer-events: none;
+      position: absolute;
+    }
+
+    .zt-hero__copy {
+      max-width: 35rem;
+      position: relative;
+      z-index: 2;
+    }
+
+    .zt-kicker {
+      color: var(--zt-muted);
+      font-size: 0.82rem;
+      font-weight: 750;
+      letter-spacing: 0;
+      margin: 0 0 1.2rem;
+      text-transform: uppercase;
+    }
+
+    .zt-hero h1 {
+      color: var(--zt-text);
+      font-size: 4.8rem;
+      font-weight: 850;
+      letter-spacing: 0;
+      line-height: 0.96;
+      margin: 0;
+    }
+
+    .zt-hero__line {
+      color: var(--zt-text);
+      font-size: 1.58rem;
+      font-weight: 700;
+      letter-spacing: 0;
+      line-height: 1.3;
+      margin: 1.35rem 0 0;
+    }
+
+    .zt-hero__body {
+      color: var(--zt-soft);
+      font-size: 1.08rem;
+      line-height: 1.75;
+      margin: 1.4rem 0 0;
+      max-width: 32rem;
+    }
+
+    .zt-storage {
+      aspect-ratio: 1 / 0.82;
+      background:
+        radial-gradient(
+          circle at 22% 22%,
+          color-mix(in srgb, var(--zt-accent) 20%, transparent),
+          transparent 28%
+        ),
+        radial-gradient(
+          circle at 82% 78%,
+          color-mix(in srgb, var(--zt-gold) 18%, transparent),
+          transparent 30%
+        ),
+        linear-gradient(
+          145deg,
+          color-mix(in srgb, var(--zt-panel) 94%, var(--zt-accent)) 0%,
+          var(--zt-bg) 54%,
+          color-mix(in srgb, var(--zt-panel-alt) 90%, var(--zt-blue)) 100%
+        );
+      border: 1px solid var(--zt-line);
+      border-radius: var(--zt-radius);
+      box-shadow:
+        inset 0 0 0 1px
+          color-mix(
+            in srgb,
+            var(--ps-current-surface-rest-text) 4%,
+            transparent
+          ),
+        var(--ps-effect-floating-shadow);
+      min-height: 30rem;
+      overflow: hidden;
+      position: relative;
+      z-index: 1;
+    }
+
+    .zt-storage__grid {
+      background-image:
+        linear-gradient(
+          color-mix(in srgb, var(--zt-muted) 16%, transparent) 1px,
+          transparent 1px
+        ),
+        linear-gradient(
+          90deg,
+          color-mix(in srgb, var(--zt-muted) 16%, transparent) 1px,
+          transparent 1px
+        );
+      background-size: 40px 40px;
+      inset: 0;
+      opacity: var(--zt-storage-grid-opacity);
+      position: absolute;
+    }
+
+    .zt-storage__halo {
+      border: 1px solid color-mix(in srgb, var(--zt-accent) 38%, transparent);
+      border-radius: 999px;
+      height: 24rem;
+      left: 50%;
+      opacity: 0.55;
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -48%) rotate(-12deg);
+      width: 38rem;
+    }
+
+    .zt-storage__hud,
+    .zt-storage__badge {
+      border-left: 1px solid var(--zt-line-strong);
+      color: var(--zt-muted);
+      display: grid;
+      gap: 0.25rem;
+      font-size: 0.76rem;
+      padding-left: 0.75rem;
+      position: absolute;
+      text-transform: uppercase;
+      z-index: 3;
+    }
+
+    .zt-storage__hud {
+      left: 1.2rem;
+      top: 1.2rem;
+    }
+
+    .zt-storage__badge--left {
+      bottom: 1.2rem;
+      left: 1.2rem;
+    }
+
+    .zt-storage__badge--right {
+      bottom: 1.2rem;
+      right: 1.2rem;
+    }
+
+    .zt-storage__hud strong,
+    .zt-storage__badge strong {
+      color: var(--zt-text);
+      font-size: 0.9rem;
+    }
+
+    .zt-storage__intake {
+      align-items: center;
+      border-bottom: 1px solid var(--zt-line);
+      color: var(--zt-muted);
+      display: flex;
+      gap: 0.5rem;
+      left: 8%;
+      min-height: 2.75rem;
+      padding-bottom: 0.6rem;
+      position: absolute;
+      right: 46%;
+      text-transform: uppercase;
+      top: 4.5rem;
+      z-index: 3;
+    }
+
+    .zt-storage__intake > span {
+      font-size: 0.72rem;
+      font-weight: 800;
+      margin-right: auto;
+    }
+
+    .zt-key {
+      animation: zt-key-ingest 4.8s linear infinite;
+      background: color-mix(in srgb, var(--zt-bg) 78%, transparent);
+      border: 1px solid color-mix(in srgb, var(--zt-accent) 62%, transparent);
+      border-radius: 999px;
+      color: var(--zt-text);
+      display: block;
+      font-size: 0.66rem;
+      font-style: normal;
+      font-weight: 850;
+      min-width: 3.3rem;
+      opacity: 0;
+      padding: 0.28rem 0.48rem;
+      text-align: center;
+    }
+
+    .zt-key--two {
+      animation-delay: 1.55s;
+    }
+
+    .zt-key--three {
+      animation-delay: 3.1s;
+    }
+
+    .zt-storage__paths {
+      height: 100%;
+      inset: 0;
+      overflow: visible;
+      position: absolute;
+      width: 100%;
+      z-index: 1;
+    }
+
+    .zt-storage__paths path {
+      fill: none;
+      stroke-linecap: round;
+      stroke-width: 2.5;
+    }
+
+    .zt-storage__write-path {
+      animation: zt-path-flow 4.8s linear infinite;
+      stroke: url(#zt-write-line);
+      stroke-dasharray: 22 18;
+    }
+
+    .zt-storage__flush-path {
+      animation: zt-path-flow 5.6s linear infinite;
+      stroke: color-mix(in srgb, var(--zt-blue) 75%, transparent);
+      stroke-dasharray: 16 16;
+    }
+
+    .zt-storage__merge-path {
+      animation: zt-path-flow 6.6s linear infinite reverse;
+      stroke: url(#zt-merge-line);
+      stroke-dasharray: 18 20;
+    }
+
+    .zt-storage__scan-path {
+      animation: zt-path-flow 7.2s linear infinite;
+      stroke: color-mix(in srgb, var(--zt-accent) 58%, transparent);
+      stroke-dasharray: 7 15;
+    }
+
+    .zt-module {
+      background: color-mix(in srgb, var(--zt-panel) 86%, transparent);
+      border: 1px solid var(--zt-line-strong);
+      border-radius: var(--zt-radius);
+      box-shadow:
+        inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent),
+        0 16px 34px color-mix(in srgb, #000 18%, transparent);
+      color: var(--zt-text);
+      display: grid;
+      gap: 0.25rem;
+      padding: 0.85rem;
+      position: absolute;
+      z-index: 2;
+    }
+
+    .zt-module small {
+      color: var(--zt-muted);
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    .zt-module strong {
+      font-size: 0.98rem;
+      line-height: 1.15;
+    }
+
+    .zt-module--wal {
+      left: 8%;
+      min-height: 6.3rem;
+      top: 34%;
+      width: 11.5rem;
+    }
+
+    .zt-module--wal span {
+      background: repeating-linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--zt-accent) 70%, transparent) 0 12px,
+        color-mix(in srgb, var(--zt-blue) 58%, transparent) 12px 24px
+      );
+      border-radius: 999px;
+      height: 0.42rem;
+      margin-top: 0.45rem;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .zt-module--wal span::after {
+      animation: zt-wal-sweep 2.4s linear infinite;
+      background: linear-gradient(90deg, transparent, #fff, transparent);
+      content: "";
+      inset: 0;
+      opacity: 0.36;
+      position: absolute;
+      transform: translateX(-100%);
+    }
+
+    .zt-module--mutable {
+      left: 40%;
+      top: 22%;
+      transform: none;
+      width: 10.6rem;
+    }
+
+    .zt-bars {
+      align-items: end;
+      display: grid;
+      gap: 0.32rem;
+      grid-template-columns: repeat(6, 1fr);
+      height: 3.4rem;
+      margin-top: 0.55rem;
+    }
+
+    .zt-bars i {
+      animation: zt-bar-rise 2.8s ease-in-out infinite;
+      background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--zt-accent) 82%, transparent),
+        color-mix(in srgb, var(--zt-blue) 48%, transparent)
+      );
+      border-radius: 3px 3px 0 0;
+      display: block;
+      min-height: 22%;
+    }
+
+    .zt-bars i:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+
+    .zt-bars i:nth-child(3) {
+      animation-delay: 0.45s;
+    }
+
+    .zt-bars i:nth-child(4) {
+      animation-delay: 0.7s;
+    }
+
+    .zt-bars i:nth-child(5) {
+      animation-delay: 0.95s;
+    }
+
+    .zt-bars i:nth-child(6) {
+      animation-delay: 1.2s;
+    }
+
+    .zt-module--sealed {
+      right: 6%;
+      top: 45%;
+      width: 10.6rem;
+    }
+
+    .zt-runs,
+    .zt-plates {
+      display: grid;
+      gap: 0.4rem;
+      margin-top: 0.6rem;
+    }
+
+    .zt-runs i,
+    .zt-plates i {
+      background: color-mix(in srgb, var(--zt-bg) 76%, transparent);
+      border: 1px solid var(--zt-line);
+      border-radius: 5px;
+      display: block;
+      height: 0.7rem;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .zt-runs i::after,
+    .zt-plates i::after {
+      animation: zt-segment-scan 3.4s linear infinite;
+      background: linear-gradient(
+        90deg,
+        transparent,
+        color-mix(in srgb, var(--zt-accent) 72%, transparent),
+        transparent
+      );
+      content: "";
+      inset: 0;
+      position: absolute;
+      transform: translateX(-100%);
+    }
+
+    .zt-runs i:nth-child(2)::after,
+    .zt-plates i:nth-child(2)::after {
+      animation-delay: 0.7s;
+    }
+
+    .zt-runs i:nth-child(3)::after,
+    .zt-plates i:nth-child(3)::after {
+      animation-delay: 1.4s;
+    }
+
+    .zt-runs i:nth-child(4)::after {
+      animation-delay: 2.1s;
+    }
+
+    .zt-module--disk {
+      bottom: 7%;
+      left: 12%;
+      width: 12.5rem;
+    }
+
+    .zt-plates i {
+      height: 1.05rem;
+    }
+
+    .zt-module--query {
+      bottom: 5%;
+      right: 10%;
+      width: 12.5rem;
+    }
+
+    .zt-window {
+      border: 1px solid color-mix(in srgb, var(--zt-accent) 50%, transparent);
+      border-radius: 5px;
+      height: 3.2rem;
+      margin-top: 0.55rem;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .zt-window::before {
+      background-image:
+        linear-gradient(var(--zt-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--zt-line) 1px, transparent 1px);
+      background-size: 18px 18px;
+      content: "";
+      inset: 0;
+      opacity: 0.55;
+      position: absolute;
+    }
+
+    .zt-window::after {
+      animation: zt-query-window 3.8s ease-in-out infinite;
+      background: color-mix(in srgb, var(--zt-accent) 28%, transparent);
+      border-inline: 1px solid
+        color-mix(in srgb, var(--zt-accent) 70%, transparent);
+      content: "";
+      inset-block: 0;
+      position: absolute;
+      width: 34%;
+    }
+
+    .zt-statement,
+    .zt-foundation,
+    .zt-capabilities,
+    .zt-performance,
+    .zt-native,
+    .zt-product-map,
+    .zt-proof,
+    .zt-support,
+    .zt-close {
+      padding-left: max(2rem, calc((100vw - 1180px) / 2));
+      padding-right: max(2rem, calc((100vw - 1180px) / 2));
+    }
+
+    .zt-statement {
+      border-block: 1px solid var(--zt-line);
+      padding-bottom: 5rem;
+      padding-top: 5rem;
+    }
+
+    .zt-statement p {
+      color: var(--zt-text);
+      font-size: 2rem;
+      font-weight: 650;
+      line-height: 1.35;
+      margin: 0;
+      max-width: 62rem;
+    }
+
+    .zt-foundation,
+    .zt-performance,
+    .zt-native {
+      align-items: start;
+      display: grid;
+      gap: 3rem;
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      padding-bottom: 6rem;
+      padding-top: 6rem;
+    }
+
+    .zt-foundation h2,
+    .zt-performance h2,
+    .zt-native h2,
+    .zt-product-map h2 {
+      color: var(--zt-text);
+      font-size: 2.45rem;
+      line-height: 1.16;
+      margin: 1rem 0 0;
+      max-width: 36rem;
+    }
+
+    .zt-foundation > p,
+    .zt-performance p,
+    .zt-native p {
+      color: var(--zt-soft);
+      font-size: 1.08rem;
+      line-height: 1.75;
+      margin: 0;
+    }
+
+    .zt-capabilities,
+    .zt-support {
+      border-top: 1px solid var(--zt-line);
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      padding-bottom: 6rem;
+      padding-top: 6rem;
+    }
+
+    .zt-capabilities article,
+    .zt-support article {
+      align-items: flex-start;
+      border: 1px solid var(--zt-line);
+      border-radius: var(--zt-radius);
+      display: flex;
+      flex-direction: column;
+      min-height: 23rem;
+      padding: 1.35rem;
+    }
+
+    .zt-support article {
+      background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--zt-panel) 78%, transparent),
+        color-mix(in srgb, var(--zt-bg) 92%, transparent)
+      );
+      gap: 0;
+      min-height: 25.5rem;
+      padding: 1.75rem;
+    }
+
+    .zt-capabilities .icon-frame,
+    .zt-support .icon-frame {
+      margin-bottom: 1rem;
+    }
+
+    .zt-support .icon-frame {
+      align-items: center;
+      display: inline-flex;
+      flex: 0 0 auto;
+      height: 3.75rem;
+      justify-content: center;
+      line-height: 1;
+      margin-bottom: 1.35rem;
+      min-height: 0;
+      padding: 0 !important;
+      width: 3.75rem;
+    }
+
+    .zt-support .icon-frame svg,
+    .zt-support .icon-frame .icon {
+      display: block;
+      margin: 0;
+    }
+
+    .zt-capabilities p,
+    .zt-performance dt,
+    .zt-product-map li,
+    .zt-proof p,
+    .zt-support p {
+      color: var(--zt-accent);
+      font-size: 0.86rem;
+      font-weight: 800;
+      letter-spacing: 0;
+      margin: 0;
+      text-transform: uppercase;
+    }
+
+    .zt-capabilities h2,
+    .zt-support h2 {
+      color: var(--zt-text);
+      font-size: 1.5rem;
+      line-height: 1.25;
+      margin: 3.5rem 0 1rem;
+    }
+
+    .zt-support h2 {
+      font-size: 1.36rem;
+      line-height: 1.28;
+      margin: 1.05rem 0 0.9rem;
+      max-width: 24rem;
+    }
+
+    .zt-capabilities span,
+    .zt-support span {
+      color: var(--zt-soft);
+      display: block;
+      font-size: 1rem;
+      line-height: 1.7;
+    }
+
+    .zt-support span {
+      flex: 1;
+      line-height: 1.62;
+      margin-bottom: 1.15rem;
+    }
+
+    .zt-support p {
+      background: transparent;
+      display: inline-flex;
+      line-height: 1.2;
+    }
+
+    .zt-support .zt-support__button {
+      align-items: center;
+      align-self: flex-start;
+      display: inline-grid;
+      justify-content: center;
+      justify-items: center;
+      line-height: 1;
+      margin-top: auto;
+      min-height: 2.75rem;
+      padding: 0 1.1rem !important;
+      place-items: center;
+    }
+
+    .zt-support .zt-support__button > * {
+      line-height: 1;
+      margin: 0;
+      padding: 0;
+    }
+
+    .zt-performance {
+      border-top: 1px solid var(--zt-line);
+    }
+
+    .zt-performance dl {
+      border-top: 1px solid var(--zt-line);
+      margin: 0;
+    }
+
+    .zt-performance dl > div {
+      align-items: center;
+      border-bottom: 1px solid var(--zt-line);
+      display: grid;
+      gap: 1.5rem;
+      grid-template-columns: minmax(8rem, 0.32fr) minmax(0, 1fr);
+      padding: 1.2rem 0;
+    }
+
+    .zt-performance dt,
+    .zt-product-map li {
+      align-items: center;
+      display: flex;
+      gap: 0.55rem;
+    }
+
+    .zt-performance dd {
+      color: var(--zt-soft);
+      font-size: 1rem;
+      line-height: 1.55;
+      margin: 0;
+    }
+
+    .zt-native {
+      border-block: 1px solid var(--zt-line);
+    }
+
+    .zt-native__code {
+      background: var(--zt-panel);
+      border: 1px solid var(--zt-line);
+      border-radius: var(--zt-radius);
+      box-shadow: var(--ps-effect-floating-shadow);
+      overflow: hidden;
+    }
+
+    .zt-native__code > div {
+      align-items: center;
+      border-bottom: 1px solid var(--zt-line);
+      display: flex;
+      justify-content: space-between;
+      padding: 0.9rem 1rem;
+    }
+
+    .zt-native__code span {
+      font-size: 0.8rem;
+      font-weight: 800;
+    }
+
+    .zt-native__code strong {
+      color: var(--zt-accent);
+      font-size: 0.9rem;
+    }
+
+    .zt-native__code pre {
+      font-size: 0.92rem;
+      line-height: 1.7;
+      margin: 0;
+      overflow-x: auto;
+      padding: 1rem;
+    }
+
+    .zt-product-map {
+      padding-bottom: 6rem;
+      padding-top: 6rem;
+      position: relative;
+    }
+
+    .zt-product-map > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    .zt-product-map h2 {
+      max-width: 56rem;
+    }
+
+    .zt-product-map ul {
+      display: grid;
+      gap: 0.75rem;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      list-style: none;
+      margin: 3rem 0 0;
+      padding: 0;
+    }
+
+    .zt-product-map li {
+      background: color-mix(in srgb, var(--zt-panel) 82%, transparent);
+      border: 1px solid var(--zt-line);
+      border-radius: var(--zt-radius);
+      min-height: 4.5rem;
+      padding: 1rem;
+    }
+
+    .zt-product-map li:nth-child(3n + 1) {
+      color: var(--zt-accent);
+    }
+
+    .zt-product-map li:nth-child(3n + 2) {
+      color: var(--zt-blue);
+    }
+
+    .zt-product-map li:nth-child(3n) {
+      color: var(--zt-gold);
+    }
+
+    .zt-proof {
+      border-block: 1px solid var(--zt-line);
+      padding-bottom: 5rem;
+      padding-top: 5rem;
+    }
+
+    .zt-proof h2 {
+      color: var(--zt-text);
+      font-size: 2.15rem;
+      font-weight: 650;
+      line-height: 1.32;
+      margin: 1rem 0 0;
+      max-width: 60rem;
+    }
+
+    .zt-proof strong {
+      color: var(--zt-accent);
+      display: block;
+      font-size: 1.2rem;
+      margin-top: 1.5rem;
+    }
+
+    .zt-close {
+      align-items: flex-start;
+      display: flex;
+      flex-direction: column;
+      min-height: 42vh;
+      padding-bottom: 5rem;
+      padding-top: 6rem;
+    }
+
+    .zt-close p {
+      color: var(--zt-text);
+      font-size: 3.4rem;
+      font-weight: 800;
+      letter-spacing: 0;
+      line-height: 1.06;
+      margin: 0;
+      max-width: 48rem;
+    }
+
+    .zt-close__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 2rem;
+    }
+  }
+
+  @keyframes zt-key-ingest {
+    0% {
+      opacity: 0;
+      transform: translateX(-1.4rem);
+    }
+    16%,
+    72% {
+      opacity: 1;
+      transform: translateX(0);
+    }
+    100% {
+      opacity: 0;
+      transform: translateX(2rem);
+    }
+  }
+
+  @keyframes zt-path-flow {
+    100% {
+      stroke-dashoffset: -160;
+    }
+  }
+
+  @keyframes zt-wal-sweep {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  @keyframes zt-bar-rise {
+    0%,
+    100% {
+      height: 24%;
+    }
+    45% {
+      height: 92%;
+    }
+    70% {
+      height: 48%;
+    }
+  }
+
+  @keyframes zt-segment-scan {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  @keyframes zt-query-window {
+    0%,
+    100% {
+      left: 6%;
+    }
+    50% {
+      left: 60%;
+    }
+  }
+
+  @scope (html[data-theme]) {
+    @media (max-width: 980px) {
+      .zt-hero,
+      .zt-foundation,
+      .zt-performance,
+      .zt-native {
+        grid-template-columns: 1fr;
+      }
+
+      .zt-hero {
+        gap: 3rem;
+        padding-top: 4rem;
+      }
+
+      .zt-hero__copy {
+        justify-self: center;
+        text-align: center;
+      }
+
+      .zt-hero__body {
+        margin-left: auto;
+        margin-right: auto;
+      }
+
+      .zt-actions {
+        justify-content: center;
+      }
+
+      .zt-storage {
+        min-height: 24rem;
+      }
+
+      .zt-capabilities,
+      .zt-support {
+        grid-template-columns: 1fr;
+      }
+
+      .zt-capabilities article,
+      .zt-support article {
+        min-height: auto;
+      }
+
+      .zt-product-map ul {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 640px) {
+      .zt-hero,
+      .zt-statement,
+      .zt-foundation,
+      .zt-capabilities,
+      .zt-performance,
+      .zt-native,
+      .zt-product-map,
+      .zt-proof,
+      .zt-support,
+      .zt-close {
+        padding-left: 1rem;
+        padding-right: 1rem;
+      }
+
+      .zt-hero h1 {
+        font-size: 3.1rem;
+      }
+
+      .zt-hero__line {
+        font-size: 1.25rem;
+      }
+
+      .zt-actions {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .zt-statement p,
+      .zt-foundation h2,
+      .zt-performance h2,
+      .zt-native h2,
+      .zt-product-map h2,
+      .zt-proof h2 {
+        font-size: 1.65rem;
+      }
+
+      .zt-close p {
+        font-size: 2.45rem;
+      }
+
+      .zt-storage {
+        aspect-ratio: auto;
+        min-height: 44rem;
+      }
+
+      .zt-storage__intake {
+        left: 6%;
+        right: 6%;
+        top: 4.75rem;
+      }
+
+      .zt-key {
+        min-width: 2.8rem;
+        padding-left: 0.3rem;
+        padding-right: 0.3rem;
+      }
+
+      .zt-storage__halo,
+      .zt-storage__paths,
+      .zt-storage__badge {
+        display: none;
+      }
+
+      .zt-module {
+        left: 6%;
+        right: 6%;
+        transform: none;
+        width: auto;
+      }
+
+      .zt-module--wal {
+        top: 8.8rem;
+      }
+
+      .zt-module--mutable {
+        top: 16.6rem;
+      }
+
+      .zt-module--sealed {
+        top: 25.6rem;
+      }
+
+      .zt-module--disk {
+        bottom: auto;
+        top: 34.8rem;
+      }
+
+      .zt-module--query {
+        display: none;
+      }
+
+      .zt-performance dl > div {
+        gap: 0.55rem;
+        grid-template-columns: 1fr;
+      }
+
+      .zt-product-map ul {
+        grid-template-columns: 1fr;
+      }
+    }
+  }
+</style>

@@ -1,6 +1,10 @@
 {
   "mode": "merge",
+  "icons": {
+    "zonetree-doc": "iconoir:home"
+  },
   "sequence": [
+    "zonetree-doc",
     "benchmark",
     "100k/",
     "500k/",
@@ -13,6 +17,11 @@
     "100m/"
   ],
   "items": [
+    {
+      "id": "zonetree-doc",
+      "title": "ZoneTree Documentation",
+      "path": "../../"
+    },
     {
       "id": "benchmark",
       "title": "Performance Benchmark",
