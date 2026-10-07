@@ -8,6 +8,6 @@
     "deploy": "pgdeploy deploy --host https://zonetree.dev --package ./dist/web --allow-path 'pagefind/*,.ts-ssg/manifest.json'"
   },
   "dependencies": {
-    "purestack": "1.1.6"
+    "purestack": "1.1.7"
   }
 }
