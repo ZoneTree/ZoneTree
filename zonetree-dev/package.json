@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "name": "zonetree.dev",
+  "packageManager": "yarn@4.18.1",
+  "scripts": {
+    "serve": "purestack serve --content ./content --port 4900 --clean",
+    "publish": "purestack publish --content ./content",
+    "deploy": "pgdeploy deploy --host https://zonetree.dev --package ./dist/web --allow-path 'pagefind/*,.ts-ssg/manifest.json'"
+  },
+  "dependencies": {
+    "purestack": "1.1.6"
+  }
+}
