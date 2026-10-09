@@ -4,15 +4,28 @@ namespace ZoneTree.Options;
 
 internal static class ZoneTreeOptionsValidator
 {
+  /// <summary>
+  /// Validates the options.
+  /// </summary>
+  /// <param name="options">The options.</param>
+  /// <param name="exception">The validation error, or null.</param>
+  /// <param name="requireStorageComponents">
+  /// False skips the <see cref="ZoneTreeOptions{TKey, TValue}.RandomAccessDeviceManager"/>
+  /// and <see cref="ZoneTreeOptions{TKey, TValue}.WriteAheadLogProvider"/> checks. These
+  /// components touch the file system, so the factory creates them only when a tree is opened.
+  /// </param>
   public static bool TryValidate<TKey, TValue>(
       ZoneTreeOptions<TKey, TValue> options,
-      out Exception exception)
+      out Exception exception,
+      bool requireStorageComponents = true)
   {
-    exception = Validate(options);
+    exception = Validate(options, requireStorageComponents);
     return exception == null;
   }
 
-  static Exception Validate<TKey, TValue>(ZoneTreeOptions<TKey, TValue> options)
+  static Exception Validate<TKey, TValue>(
+      ZoneTreeOptions<TKey, TValue> options,
+      bool requireStorageComponents)
   {
     if (options.KeySerializer == null)
       return new MissingOptionException(nameof(options.KeySerializer));
@@ -43,10 +56,10 @@ internal static class ZoneTreeOptionsValidator
     if (options.Logger == null)
       return new MissingOptionException(nameof(options.Logger));
 
-    if (options.RandomAccessDeviceManager == null)
+    if (requireStorageComponents && options.RandomAccessDeviceManager == null)
       return new MissingOptionException(nameof(options.RandomAccessDeviceManager));
 
-    if (options.WriteAheadLogProvider == null)
+    if (requireStorageComponents && options.WriteAheadLogProvider == null)
       return new MissingOptionException(nameof(options.WriteAheadLogProvider));
 
     if (options.WriteAheadLogOptions == null)
