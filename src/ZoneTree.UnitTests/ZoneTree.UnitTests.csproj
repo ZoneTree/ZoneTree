@@ -30,4 +30,8 @@
     <ProjectReference Include="..\ZoneTree\ZoneTree.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Fixtures\LegacyCrcWals\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

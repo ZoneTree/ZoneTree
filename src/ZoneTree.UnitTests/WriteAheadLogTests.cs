@@ -3,6 +3,7 @@ using ZoneTree.Collections;
 using ZoneTree.Comparers;
 using ZoneTree.Core;
 using ZoneTree.Exceptions;
+using ZoneTree.Exceptions.WAL;
 using ZoneTree.Logger;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
@@ -12,6 +13,98 @@ namespace ZoneTree.UnitTests;
 
 public sealed class WriteAheadLogTests
 {
+  [Test]
+  public void WalReaderQueriesStreamLengthOnceForMultipleRecords()
+  {
+    using var stream = new LengthCountingMemoryStream();
+    using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true);
+    for (var i = 0; i < 32; ++i)
+      LogEntry.AppendLogEntry(writer, new byte[] { 1, 2 }, new byte[] { 3 }, i);
+    stream.LengthReadCount = 0;
+
+    var result = WriteAheadLogEntryReader.ReadLogEntries<Memory<byte>, Memory<byte>, LogEntry>(
+        new ConsoleLogger(),
+        stream,
+        true,
+        true,
+        LogEntry.ReadLogEntryWithStreamLength,
+        (in LogEntry entry) => (entry.ValidateChecksum(), entry.Key, entry.Value, entry.OpIndex),
+        false);
+
+    Assert.That(result.Success, Is.True);
+    Assert.That(result.Keys.Count, Is.EqualTo(32));
+    Assert.That(stream.LengthReadCount, Is.EqualTo(1));
+  }
+
+  [Test]
+  public void WalReaderPreservesValidPrefixWhenTailClaimsOversizedPayload()
+  {
+    using var stream = new MemoryStream();
+    using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true);
+    LogEntry.AppendLogEntry(writer, new byte[] { 1, 2 }, new byte[] { 3 }, 1);
+    var tailPosition = stream.Position;
+    writer.Write(2L);
+    writer.Write(int.MaxValue);
+    writer.Write(int.MaxValue);
+    writer.Flush();
+
+    var result = WriteAheadLogEntryReader.ReadLogEntries<Memory<byte>, Memory<byte>, LogEntry>(
+        new ConsoleLogger(),
+        stream,
+        true,
+        true,
+        LogEntry.ReadLogEntryWithStreamLength,
+        (in LogEntry entry) => (entry.ValidateChecksum(), entry.Key, entry.Value, entry.OpIndex),
+        false);
+
+    Assert.That(result.Success, Is.False);
+    Assert.That(result.Keys.Count, Is.EqualTo(1));
+    Assert.That(result.Values.Count, Is.EqualTo(1));
+    Assert.That(result.Keys[0].ToArray(), Is.EqualTo(new byte[] { 1, 2 }));
+    Assert.That(result.Values[0].ToArray(), Is.EqualTo(new byte[] { 3 }));
+    Assert.That(result.MaximumOpIndex, Is.EqualTo(1));
+    Assert.That(result.Exceptions.Count, Is.EqualTo(1));
+    Assert.That(result.Exceptions[1], Is.TypeOf<IncompleteTailRecordFoundException>());
+    var exception = (IncompleteTailRecordFoundException)result.Exceptions[1];
+    Assert.That(exception.RecordPosition, Is.EqualTo(tailPosition));
+    Assert.That(exception.RecordIndex, Is.EqualTo(1));
+  }
+
+  [TestCase(WriteAheadLogMode.Sync)]
+  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  public void WalReloadsRecordsWith32BitChecksums(WriteAheadLogMode mode)
+  {
+    const string category = "WalReloadsRecordsWith32BitChecksums";
+    var provider = new InMemoryFileStreamProvider();
+    var options = new WriteAheadLogOptions
+    {
+      WriteAheadLogMode = mode,
+      CompressionBlockSize = 128
+    };
+    options.SyncCompressedModeOptions.EnableTailWriterJob = false;
+    var serializer = new UnicodeStringSerializer();
+    var keys = new[] { "", "small", "large", "tail" };
+    var values = new[] { "", "value", new string('x', 4096), "last" };
+    var walProvider = new WriteAheadLogProvider(new ConsoleLogger(), provider);
+    walProvider.InitCategory(category);
+    using (var wal = walProvider.GetOrCreateWAL(0, category, options, serializer, serializer))
+    {
+      for (var i = 0; i < keys.Length; ++i)
+        wal.Append(keys[i], values[i], i + 1);
+    }
+
+    walProvider = new WriteAheadLogProvider(new ConsoleLogger(), provider);
+    using var reopened = walProvider.GetOrCreateWAL(0, category, options, serializer, serializer);
+    var result = reopened.ReadLogEntries(true, true, false);
+
+    Assert.That(result.Success, Is.True);
+    Assert.That(result.Exceptions, Is.Empty);
+    Assert.That(result.Keys, Is.EqualTo(keys));
+    Assert.That(result.Values, Is.EqualTo(values));
+    Assert.That(result.MaximumOpIndex, Is.EqualTo(keys.Length));
+  }
+
   [Test]
   public void WalBasicTest()
   {
@@ -332,5 +425,19 @@ public sealed class WriteAheadLogTests
   static void MarkStringDeleted(ref string value)
   {
     value = null;
+  }
+
+  sealed class LengthCountingMemoryStream : MemoryStream
+  {
+    public int LengthReadCount;
+
+    public override long Length
+    {
+      get
+      {
+        ++LengthReadCount;
+        return base.Length;
+      }
+    }
   }
 }

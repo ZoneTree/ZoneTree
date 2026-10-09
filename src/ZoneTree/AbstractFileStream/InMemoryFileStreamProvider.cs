@@ -250,4 +250,27 @@ public sealed class InMemoryFileStreamProvider : IFileStreamProvider
   {
     return NormalizePath(Path.Combine(path1, path2));
   }
+
+  public IReadOnlyList<string> GetFiles(string path)
+  {
+    path = NormalizePath(path);
+    lock (SyncRoot)
+      return Files.Keys.Where(x => GetParentDirectory(x) == path).ToArray();
+  }
+
+  public void MoveFile(string sourcePath, string destinationPath)
+  {
+    sourcePath = NormalizePath(sourcePath);
+    destinationPath = NormalizePath(destinationPath);
+    lock (SyncRoot)
+    {
+      if (!Files.TryGetValue(sourcePath, out var file))
+        throw new FileNotFoundException(sourcePath);
+      if (Files.ContainsKey(destinationPath))
+        throw new IOException($"File {destinationPath} already exists.");
+      EnsureParentDirectories(destinationPath);
+      Files.Add(destinationPath, file);
+      Files.Remove(sourcePath);
+    }
+  }
 }

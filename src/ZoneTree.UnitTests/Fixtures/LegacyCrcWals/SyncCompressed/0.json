@@ -1,0 +1,47 @@
+{
+  "Version": "1.9.9.0",
+  "ComparerType": "ZoneTree.Comparers.Int32ComparerAscending",
+  "KeyHasherType": "ZoneTree.Hashers.DefaultKeyHasher\u003CSystem.Int32\u003E",
+  "KeyType": "System.Int32",
+  "ValueType": "System.Int32",
+  "KeySerializerType": "ZoneTree.Serializers.Int32Serializer",
+  "ValueSerializerType": "ZoneTree.Serializers.Int32Serializer",
+  "MutableSegmentMaxItemCount": 1000000,
+  "MutableSegmentBloomFilterBitsPerItem": 8,
+  "DiskSegmentMaxItemCount": 20000000,
+  "WriteAheadLogOptions": {
+    "WriteAheadLogMode": 1,
+    "CustomOptions": null,
+    "CompressionBlockSize": 128,
+    "CompressionMethod": 4,
+    "CompressionLevel": 0,
+    "SyncCompressedModeOptions": {
+      "EnableTailWriterJob": false,
+      "TailWriterJobInterval": 500
+    },
+    "AsyncCompressedModeOptions": {
+      "EmptyQueuePollInterval": 100
+    },
+    "EnableIncrementalBackup": false
+  },
+  "DiskSegmentOptions": {
+    "DiskSegmentMode": 1,
+    "CompressionBlockSize": 4194304,
+    "CompressionMethod": 1,
+    "CompressionLevel": 0,
+    "MaximumRecordCount": 3000000,
+    "MinimumRecordCount": 1500000,
+    "KeyCacheSize": 1024,
+    "ValueCacheSize": 1024,
+    "MaterializedEntryCacheSize": 4096,
+    "SearchHintPrefetchSize": 16,
+    "KeyCacheRecordLifeTimeInMillisecond": 10000,
+    "ValueCacheRecordLifeTimeInMillisecond": 10000,
+    "DefaultSparseArrayStepSize": 1024
+  },
+  "MutableSegment": 1,
+  "ReadOnlySegments": [],
+  "DiskSegment": 0,
+  "BottomSegments": [],
+  "MaximumOpIndex": 0
+}

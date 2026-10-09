@@ -111,4 +111,8 @@ public sealed class LocalFileStreamProvider : IFileStreamProvider
   {
     return Path.Combine(path1, path2);
   }
+
+  public IReadOnlyList<string> GetFiles(string path) => Directory.GetFiles(path);
+
+  public void MoveFile(string sourcePath, string destinationPath) => File.Move(sourcePath, destinationPath);
 }

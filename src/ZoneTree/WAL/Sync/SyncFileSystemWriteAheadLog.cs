@@ -33,6 +33,8 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
 
   public string FilePath { get; }
 
+  readonly bool IsLegacyFormat;
+
   public bool EnableIncrementalBackup { get; set; }
 
   public int InitialLength { get; private set; }
@@ -47,6 +49,7 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
   {
     Logger = logger;
     FilePath = filePath;
+    IsLegacyFormat = Path.GetFileNameWithoutExtension(filePath).EndsWith(WriteAheadLogProvider.LegacyWalExtension, StringComparison.Ordinal);
     FileStreamBufferSize = fileStreamBufferSize;
     FileStreamProvider = fileStreamProvider;
     KeySerializer = keySerializer;
@@ -70,7 +73,7 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
     var valueBytes = ValueSerializer.Serialize(value);
     lock (SyncRoot)
     {
-      LogEntry.AppendLogEntry(BinaryWriter, keyBytes, valueBytes, opIndex);
+      LogEntry.AppendLogEntry(BinaryWriter, keyBytes, valueBytes, opIndex, IsLegacyFormat);
     }
   }
 
@@ -97,7 +100,7 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
         FileStream.ToStream(),
         stopReadOnException,
         stopReadOnChecksumFailure,
-        LogEntry.ReadLogEntry,
+        LogEntry.ReadLogEntryWithStreamLength,
         DeserializeLogEntry,
         sortByOpIndexes);
     InitialLength = result.Keys.Count;
@@ -106,7 +109,7 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
 
   (bool isValid, TKey key, TValue value, long opIndex) DeserializeLogEntry(in LogEntry logEntry)
   {
-    var isValid = logEntry.ValidateChecksum();
+    var isValid = IsLegacyFormat || logEntry.ValidateChecksum();
     var key = KeySerializer.Deserialize(logEntry.Key);
     var value = ValueSerializer.Deserialize(logEntry.Value);
     return (isValid, key, value, logEntry.OpIndex);
@@ -173,7 +176,7 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
         {
           var keyBytes = KeySerializer.Serialize(keys[i]);
           var valueBytes = ValueSerializer.Serialize(values[i]);
-          LogEntry.AppendLogEntry(binaryWriter, keyBytes, valueBytes, i);
+          LogEntry.AppendLogEntry(binaryWriter, keyBytes, valueBytes, i, IsLegacyFormat);
         }
 
         FileStream.Dispose();
@@ -188,6 +191,7 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
         {
           FileStream = tmpFileStream;
           tmpFileStream.SetLength(0);
+          memoryStream.Position = 0;
           memoryStream.CopyTo(tmpFileStream.ToStream());
           diff = existingLength - FileStream.Length;
           FileStream = null;

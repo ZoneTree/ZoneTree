@@ -28,6 +28,8 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
 
   public string FilePath { get; }
 
+  readonly bool IsLegacyFormat;
+
   public int CompressionBlockSize { get; }
 
   public CompressionMethod CompressionMethod { get; }
@@ -53,6 +55,7 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
     Logger = logger;
     FileStreamProvider = fileStreamProvider;
     FilePath = filePath;
+    IsLegacyFormat = Path.GetFileNameWithoutExtension(filePath).EndsWith(WriteAheadLogProvider.LegacyWalExtension, StringComparison.Ordinal);
     CompressionBlockSize = options.CompressionBlockSize;
     CompressionMethod = options.CompressionMethod;
     CompressionLevel = options.CompressionLevel;
@@ -83,7 +86,7 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
     var valueBytes = ValueSerializer.Serialize(value);
     lock (SyncRoot)
     {
-      LogEntry.AppendLogEntry(BinaryWriter, keyBytes, valueBytes, opIndex);
+      LogEntry.AppendLogEntry(BinaryWriter, keyBytes, valueBytes, opIndex, IsLegacyFormat);
     }
   }
 
@@ -107,7 +110,7 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
         FileStream,
         stopReadOnException,
         stopReadOnChecksumFailure,
-        LogEntry.ReadLogEntry,
+        LogEntry.ReadLogEntryWithStreamLength,
         DeserializeLogEntry,
         sortByOpIndexes);
     InitialLength = result.Keys.Count;
@@ -116,7 +119,7 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
 
   (bool isValid, TKey key, TValue value, long opIndex) DeserializeLogEntry(in LogEntry logEntry)
   {
-    var isValid = logEntry.ValidateChecksum();
+    var isValid = IsLegacyFormat || logEntry.ValidateChecksum();
     var key = KeySerializer.Deserialize(logEntry.Key);
     var value = ValueSerializer.Deserialize(logEntry.Value);
     return (isValid, key, value, logEntry.OpIndex);
