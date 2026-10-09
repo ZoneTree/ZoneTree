@@ -191,6 +191,7 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
         {
           FileStream = tmpFileStream;
           tmpFileStream.SetLength(0);
+          memoryStream.Position = 0;
           memoryStream.CopyTo(tmpFileStream.ToStream());
           diff = existingLength - FileStream.Length;
           FileStream = null;
