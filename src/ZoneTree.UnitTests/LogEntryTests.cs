@@ -125,11 +125,11 @@ public sealed class LogEntryTests
     var entry = CreateEntry(keyLength, valueLength);
     var bytes = SerializeRecord(entry);
 
-    Assert.That(entry.CreateChecksum(), Is.EqualTo(XxHash3.HashToUInt64(bytes)));
+    Assert.That(entry.CreateChecksum(), Is.EqualTo(unchecked((uint)XxHash3.HashToUInt64(bytes))));
   }
 
   [Test]
-  public void ConsecutiveRecordsRoundTripWithFull64BitChecksums()
+  public void ConsecutiveRecordsRoundTripWith32BitChecksums()
   {
     var entries = new[] { CreateEntry(5, 8), CreateEntry(128, 4096), CreateEntry(0, 0) };
     using var stream = new MemoryStream();
@@ -137,14 +137,13 @@ public sealed class LogEntryTests
     foreach (var entry in entries)
       LogEntry.AppendLogEntry(writer, entry.Key, entry.Value, entry.OpIndex);
 
-    Assert.That(stream.Length, Is.EqualTo(entries.Sum(x => 24L + x.KeyLength + x.ValueLength)));
+    Assert.That(stream.Length, Is.EqualTo(entries.Sum(x => 20L + x.KeyLength + x.ValueLength)));
     stream.Position = 0;
     using var reader = new BinaryReader(stream);
     foreach (var entry in entries)
     {
       var expected = entry;
-      expected.Checksum = XxHash3.HashToUInt64(SerializeRecord(expected));
-      Assert.That(expected.Checksum, Is.GreaterThan(uint.MaxValue));
+      expected.Checksum = unchecked((uint)XxHash3.HashToUInt64(SerializeRecord(expected)));
       LogEntry actual = default;
       LogEntry.ReadLogEntry(reader, ref actual);
       Assert.That(actual, Is.EqualTo(expected));
@@ -170,7 +169,7 @@ public sealed class LogEntryTests
       case 2: entry.ValueLength ^= 1; break;
       case 3: entry.Key.Span[0] ^= 1; break;
       case 4: entry.Value.Span[0] ^= 1; break;
-      case 5: entry.Checksum ^= 1UL << 63; break;
+      case 5: entry.Checksum ^= 1U << 31; break;
     }
 
     Assert.That(entry.ValidateChecksum(), Is.False);
@@ -185,7 +184,7 @@ public sealed class LogEntryTests
     LogEntry.AppendLogEntry(writer, entry.Key, entry.Value, entry.OpIndex);
     var length = stream.Length;
     using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, true);
-    for (var missingBytes = 1; missingBytes <= sizeof(ulong); ++missingBytes)
+    for (var missingBytes = 1; missingBytes <= sizeof(uint); ++missingBytes)
     {
       stream.SetLength(length - missingBytes);
       stream.Position = 0;
@@ -198,7 +197,7 @@ public sealed class LogEntryTests
   public void ReusedHasherResetsBetweenDifferentRecords()
   {
     var entries = new[] { CreateEntry(13, 228), CreateEntry(1024, 4096), CreateEntry(0, 0) };
-    var expected = entries.Select(x => XxHash3.HashToUInt64(SerializeRecord(x))).ToArray();
+    var expected = entries.Select(x => unchecked((uint)XxHash3.HashToUInt64(SerializeRecord(x)))).ToArray();
     for (var iteration = 0; iteration < 100; ++iteration)
       for (var i = 0; i < entries.Length; ++i)
         Assert.That(entries[i].CreateChecksum(), Is.EqualTo(expected[i]));
@@ -208,7 +207,7 @@ public sealed class LogEntryTests
   public void ConcurrentChecksumsDoNotShareHasherState()
   {
     var entries = Enumerable.Range(0, 32).Select(i => CreateEntry(i + 1, 1024 + i * 17)).ToArray();
-    var expected = entries.Select(x => XxHash3.HashToUInt64(SerializeRecord(x))).ToArray();
+    var expected = entries.Select(x => unchecked((uint)XxHash3.HashToUInt64(SerializeRecord(x)))).ToArray();
 
     Parallel.For(0, 10_000, i =>
     {
@@ -226,13 +225,13 @@ public sealed class LogEntryTests
       entry.CreateChecksum();
 
     var before = GC.GetAllocatedBytesForCurrentThread();
-    ulong checksum = 0;
+    uint checksum = 0;
     for (var i = 0; i < 1000; ++i)
       checksum = entry.CreateChecksum();
     var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
     Assert.That(allocated, Is.Zero);
-    Assert.That(checksum, Is.EqualTo(XxHash3.HashToUInt64(SerializeRecord(entry))));
+    Assert.That(checksum, Is.EqualTo(unchecked((uint)XxHash3.HashToUInt64(SerializeRecord(entry)))));
   }
 
   static LogEntry CreateEntry(int keyLength, int valueLength)

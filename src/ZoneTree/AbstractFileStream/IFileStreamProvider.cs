@@ -37,5 +37,15 @@ public interface IFileStreamProvider
 
   IReadOnlyList<string> GetDirectories(string path);
 
+  /// <summary>
+  /// Returns file paths directly within the directory, used to locate legacy WALs for renaming.
+  /// </summary>
+  IReadOnlyList<string> GetFiles(string path) => throw new NotSupportedException();
+
+  /// <summary>
+  /// Renames a file without overwriting an existing destination, used for legacy WAL format naming.
+  /// </summary>
+  void MoveFile(string sourcePath, string destinationPath) => throw new NotSupportedException();
+
   string CombinePaths(string path1, string path2);
 }

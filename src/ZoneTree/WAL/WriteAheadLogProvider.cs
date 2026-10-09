@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Logger;
 using ZoneTree.Options;
@@ -8,6 +9,10 @@ namespace ZoneTree.WAL;
 
 public sealed class WriteAheadLogProvider : IWriteAheadLogProvider
 {
+  internal const string LegacyWalExtension = ".wal_crc";
+
+  internal const string Xxh3WalExtension = ".wal_xxh3";
+
   readonly ILogger Logger;
 
   readonly IFileStreamProvider FileStreamProvider;
@@ -99,24 +104,16 @@ public sealed class WriteAheadLogProvider : IWriteAheadLogProvider
       DetectWalPathAndWriteAheadLogMode(
       long segmentId, string category, WriteAheadLogOptions options)
   {
-    var walPath = Path.Combine(WalDirectory, category, segmentId + ".wal.");
-    var walMode = options.WriteAheadLogMode;
-
-    // Sync = 0
-    // SyncCompressed = 1
-    // AsyncCompressed = 2
-    // None = 3 (no file)
-    for (var i = 0; i < 3; ++i)
-    {
-      if ((WriteAheadLogMode)i == walMode)
-        continue;
-      if (FileStreamProvider.FileExists(walPath + i))
+    var walPath = Path.Combine(WalDirectory, category, segmentId.ToString(CultureInfo.InvariantCulture));
+    // Prefer an XXH3 WAL when both formats exist for the same ID.
+    foreach (var extension in new[] { Xxh3WalExtension, LegacyWalExtension })
+      for (var i = 0; i < 3; ++i)
       {
-        walMode = (WriteAheadLogMode)i;
-        break;
+        var path = walPath + extension + "." + i;
+        if (FileStreamProvider.FileExists(path))
+          return (path, (WriteAheadLogMode)i);
       }
-    }
-    return (walPath + (int)walMode, walMode);
+    return (walPath + Xxh3WalExtension + "." + (int)options.WriteAheadLogMode, options.WriteAheadLogMode);
   }
 
   public IWriteAheadLog<TKey, TValue> GetWAL<TKey, TValue>(long segmentId, string category)
@@ -143,5 +140,28 @@ public sealed class WriteAheadLogProvider : IWriteAheadLogProvider
   {
     var categoryPath = Path.Combine(WalDirectory, category);
     FileStreamProvider.CreateDirectory(categoryPath);
+  }
+
+  public void MigrateWals(Version databaseVersion)
+  {
+    if (databaseVersion < new Version("2.0.0"))
+      RenameLegacyWals(WalDirectory);
+  }
+
+  void RenameLegacyWals(string directory)
+  {
+    foreach (var file in FileStreamProvider.GetFiles(directory))
+    {
+      var parts = Path.GetFileName(file).Split('.');
+      if (parts.Length < 3 || parts[1] != "wal" ||
+          !long.TryParse(parts[0], out _) || parts[2] is not ("0" or "1" or "2"))
+        continue;
+      var name = parts[0] + LegacyWalExtension + "." + parts[2];
+      if (parts.Length > 3)
+        name += "." + string.Join(".", parts.Skip(3));
+      FileStreamProvider.MoveFile(file, FileStreamProvider.CombinePaths(directory, name));
+    }
+    foreach (var child in FileStreamProvider.GetDirectories(directory))
+      RenameLegacyWals(child);
   }
 }

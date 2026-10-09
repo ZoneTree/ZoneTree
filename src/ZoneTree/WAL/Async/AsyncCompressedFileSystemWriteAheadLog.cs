@@ -83,6 +83,8 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
 
   public string FilePath { get; }
 
+  readonly bool IsLegacyFormat;
+
   public bool EnableIncrementalBackup { get; set; }
 
   public int InitialLength { get; private set; }
@@ -97,6 +99,7 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
   {
     Logger = logger;
     FilePath = filePath;
+    IsLegacyFormat = Path.GetFileNameWithoutExtension(filePath).EndsWith(WriteAheadLogProvider.LegacyWalExtension, StringComparison.Ordinal);
     EmptyQueuePollInterval = options.AsyncCompressedModeOptions.EmptyQueuePollInterval;
     FileStream = new CompressedFileStream(
         Logger,
@@ -217,7 +220,7 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
     {
       if (isWriterCancelled)
         return;
-      LogEntry.AppendLogEntry(BinaryWriter, keyBytes, valueBytes, opIndex);
+      LogEntry.AppendLogEntry(BinaryWriter, keyBytes, valueBytes, opIndex, IsLegacyFormat);
     }
   }
 
@@ -240,7 +243,7 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
 
   (bool isValid, TKey key, TValue value, long opIndex) DeserializeLogEntry(in LogEntry logEntry)
   {
-    var isValid = logEntry.ValidateChecksum();
+    var isValid = IsLegacyFormat || logEntry.ValidateChecksum();
     var key = KeySerializer.Deserialize(logEntry.Key);
     var value = ValueSerializer.Deserialize(logEntry.Value);
     return (isValid, key, value, logEntry.OpIndex);

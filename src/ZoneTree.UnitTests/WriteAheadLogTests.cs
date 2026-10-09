@@ -73,9 +73,9 @@ public sealed class WriteAheadLogTests
   [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  public void WalReloadsRecordsWith64BitChecksums(WriteAheadLogMode mode)
+  public void WalReloadsRecordsWith32BitChecksums(WriteAheadLogMode mode)
   {
-    const string category = "WalReloadsRecordsWith64BitChecksums";
+    const string category = "WalReloadsRecordsWith32BitChecksums";
     var provider = new InMemoryFileStreamProvider();
     var options = new WriteAheadLogOptions
     {

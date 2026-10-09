@@ -7,6 +7,8 @@ public interface IWriteAheadLogProvider
 {
   void InitCategory(string category);
 
+  void MigrateWals(Version databaseVersion) { }
+
   IWriteAheadLog<TKey, TValue> GetOrCreateWAL<TKey, TValue>(
       long segmentId,
       string category,

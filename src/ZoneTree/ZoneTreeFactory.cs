@@ -28,6 +28,8 @@ public sealed class ZoneTreeFactory<TKey, TValue>
 
   Func<ZoneTreeOptions<TKey, TValue>, IWriteAheadLogProvider> GetWriteAheadLogProvider;
 
+  bool IsWriteAheadLogProviderInitialized;
+
   Func<ZoneTreeOptions<TKey, TValue>, ITransactionLog<TKey, TValue>> GetTransactionLog
       = (options) => new BasicTransactionLog<TKey, TValue>(options);
 
@@ -236,10 +238,17 @@ public sealed class ZoneTreeFactory<TKey, TValue>
 
   void InitWriteAheadLogProvider()
   {
-    if (Options.WriteAheadLogProvider != null)
+    if (IsWriteAheadLogProviderInitialized)
       return;
     FillMissingOptionsForKnownTypes();
-    Options.WriteAheadLogProvider = GetWriteAheadLogProvider(Options);
+    Options.WriteAheadLogProvider ??= GetWriteAheadLogProvider(Options);
+    if (ZoneTreeMetaWAL<TKey, TValue>.Exists(Options))
+    {
+      var meta = ZoneTreeMetaWAL<TKey, TValue>
+          .LoadZoneTreeMetaWithoutWALRecords(Options.RandomAccessDeviceManager);
+      Options.WriteAheadLogProvider.MigrateWals(Version.Parse(meta.Version));
+    }
+    IsWriteAheadLogProviderInitialized = true;
   }
 
   void InitTransactionLog()

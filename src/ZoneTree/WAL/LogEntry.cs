@@ -23,10 +23,10 @@ public struct LogEntry : IEquatable<LogEntry>
 
   public Memory<byte> Value;
 
-  public ulong Checksum;
+  public uint Checksum;
 
   [MethodImpl(MethodImplOptions.AggressiveInlining)]
-  public ulong CreateChecksum()
+  public uint CreateChecksum()
   {
     var key = Key.Span;
     var value = Value.Span;
@@ -41,7 +41,7 @@ public struct LogEntry : IEquatable<LogEntry>
     {
       key.CopyTo(buffer[HeaderLength..]);
       value.CopyTo(buffer[(HeaderLength + key.Length)..]);
-      return XxHash3.HashToUInt64(buffer);
+      return unchecked((uint)XxHash3.HashToUInt64(buffer));
     }
 
     // Reuse synchronous, thread-local state without combining large payloads.
@@ -50,7 +50,7 @@ public struct LogEntry : IEquatable<LogEntry>
     hasher.Append(buffer);
     hasher.Append(key);
     hasher.Append(value);
-    return hasher.GetCurrentHashAsUInt64();
+    return unchecked((uint)hasher.GetCurrentHashAsUInt64());
   }
 
   [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -64,7 +64,8 @@ public struct LogEntry : IEquatable<LogEntry>
       BinaryWriter binaryWriter,
       Memory<byte> keyBytes,
       Memory<byte> valueBytes,
-      long opIndex)
+      long opIndex,
+      bool isLegacyFormat = false)
   {
     var entry = new LogEntry
     {
@@ -74,7 +75,7 @@ public struct LogEntry : IEquatable<LogEntry>
       Key = keyBytes,
       Value = valueBytes
     };
-    entry.Checksum = entry.CreateChecksum();
+    entry.Checksum = isLegacyFormat ? 0 : entry.CreateChecksum();
     binaryWriter.Write(entry.OpIndex);
     binaryWriter.Write(entry.KeyLength);
     binaryWriter.Write(entry.ValueLength);
@@ -103,13 +104,13 @@ public struct LogEntry : IEquatable<LogEntry>
       throw new InvalidDataException("WAL record lengths cannot be negative.");
 
     var stream = reader.BaseStream;
-    var requiredLength = (long)keyLength + valueLength + sizeof(ulong);
+    var requiredLength = (long)keyLength + valueLength + sizeof(uint);
     if (streamLength >= 0 && requiredLength > streamLength - stream.Position)
       throw new EndOfStreamException("Incomplete WAL record payload or checksum.");
 
     var key = ReadPayload(reader, keyLength);
     var value = ReadPayload(reader, valueLength);
-    var checksum = reader.ReadUInt64();
+    var checksum = reader.ReadUInt32();
     entry = new LogEntry
     {
       OpIndex = opIndex,
@@ -137,7 +138,7 @@ public struct LogEntry : IEquatable<LogEntry>
   {
     // Without a remaining length, grow only as bytes actually arrive.
     if (length == 0)
-      return Array.Empty<byte>();
+      return [];
     using var buffer = new MemoryStream();
     Span<byte> chunk = stackalloc byte[Math.Min(length, 4096)];
     while (length > 0)
