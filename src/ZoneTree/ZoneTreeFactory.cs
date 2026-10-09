@@ -355,11 +355,38 @@ public sealed class ZoneTreeFactory<TKey, TValue>
           Options.Logger,
           FileStreamProvider);
     }
+    FillMissingComponentsForKnownTypes();
+  }
+
+  /// <summary>
+  /// Fills the default components of known key and value types. Unlike the random access
+  /// device manager and the write ahead log provider, they never touch the file system.
+  /// </summary>
+  void FillMissingComponentsForKnownTypes()
+  {
     Options.CreateDefaultDeleteDelegates();
     FillComparer();
     FillKeyHasher();
     FillKeySerializer();
     FillValueSerializer();
+  }
+
+  /// <summary>
+  /// Validates the configured options without creating, opening or modifying any file, so
+  /// invalid options can be rejected before a tree is opened, for example at application start.
+  /// Default components of known key and value types are filled in as
+  /// <see cref="OpenOrCreate"/> fills them. The random access device manager and the write
+  /// ahead log provider are not required: they are created when the tree is opened.
+  /// </summary>
+  /// <returns>ZoneTree Factory</returns>
+  /// <exception cref="MissingOptionException">A required option is missing.</exception>
+  /// <exception cref="InvalidOptionValueException">An option value is not valid.</exception>
+  public ZoneTreeFactory<TKey, TValue> Validate()
+  {
+    FillMissingComponentsForKnownTypes();
+    if (!ZoneTreeOptionsValidator.TryValidate(Options, out var exception, requireStorageComponents: false))
+      throw exception;
+    return this;
   }
 
   void FillComparer()
