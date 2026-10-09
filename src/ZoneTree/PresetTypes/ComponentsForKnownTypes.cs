@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using ZoneTree.Comparers;
 using ZoneTree.Exceptions;
 using ZoneTree.Options;
@@ -44,7 +43,7 @@ public static class ComponentsForKnownTypes
 
     else if (typeof(TKey) == typeof(Memory<byte>))
       comparer =
-          new ByteArrayComparerAscending() as IRefComparer<TKey>;
+          new ByteArrayLexicographicComparerAscending() as IRefComparer<TKey>;
     else if (typeof(TKey) == typeof(byte[]))
     {
       throw new ZoneTreeException("ZoneTree<byte[], ...> is not supported. Use ZoneTree<Memory<byte>, ...> instead.");
@@ -172,7 +171,7 @@ public static class ComponentsForKnownTypes
 
     if (typeof(TValue) == typeof(Memory<byte>))
       result = Cast(new IsDeletedDelegate<TKey, Memory<byte>>(IsDeletedMemoryByte));
-    if (RuntimeHelpers.IsReferenceOrContainsReferences<TValue>())
+    if (!typeof(TValue).IsValueType)
       return IsDeletedReferenceType;
     return result;
   }

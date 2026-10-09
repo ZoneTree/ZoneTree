@@ -1,6 +1,10 @@
 namespace ZoneTree.Comparers;
 
-public sealed class ByteArrayComparerDescending : IRefComparer<Memory<byte>>
+/// <summary>
+/// Compares byte sequences in descending lexicographic order, reversing
+/// <see cref="ByteArrayLexicographicComparerAscending"/> including prefix ordering.
+/// </summary>
+public sealed class ByteArrayLexicographicComparerDescending : IRefComparer<Memory<byte>>
 {
   public int Compare(in Memory<byte> x, in Memory<byte> y)
   {
@@ -15,6 +19,6 @@ public sealed class ByteArrayComparerDescending : IRefComparer<Memory<byte>>
       if (r > 0)
         return 1;
     }
-    return y.Length - x.Length;
+    return y.Length.CompareTo(x.Length);
   }
 }

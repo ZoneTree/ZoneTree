@@ -19,6 +19,18 @@ types. Built-in serializers cover `byte`, `bool`, `char`, `DateTime`,
 `Guid`, `string`, and `Memory<byte>`. Built-in ascending comparers and
 compatible hashers cover the same list except `bool`.
 
+`ByteArrayLexicographicComparerAscending`, the default for `Memory<byte>` keys, uses
+lexicographic byte order: a key sorts before any longer key that begins with
+it. `ByteArrayLexicographicComparerDescending` reverses this order, including prefixes.
+
+These replace `ByteArrayComparerAscending` and `ByteArrayComparerDescending`.
+The old ascending comparer placed longer keys before their prefixes. Opening
+a database whose metadata records either old comparer type now throws
+`TreeComparerMismatchException` before loading its segments. Export the data
+with the previous version, then rebuild the database with the new comparer.
+Do not change the comparer name in metadata to bypass this check when ordering
+has changed.
+
 Use `Memory<byte>` for byte-sequence keys and values. ZoneTree rejects
 `byte[]` because `Memory<byte>` supports efficient slicing without allocating
 and copying smaller arrays.
