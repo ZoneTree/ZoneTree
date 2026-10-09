@@ -1,9 +1,18 @@
+using System.Buffers.Binary;
+using System.IO.Hashing;
 using System.Runtime.CompilerServices;
 
 namespace ZoneTree.WAL;
 
 public struct LogEntry : IEquatable<LogEntry>
 {
+  const int HeaderLength = sizeof(long) + 2 * sizeof(int);
+
+  const int StackBufferLength = 256;
+
+  [ThreadStatic]
+  static XxHash3 ThreadHasher;
+
   public long OpIndex;
 
   public int KeyLength;
@@ -14,48 +23,34 @@ public struct LogEntry : IEquatable<LogEntry>
 
   public Memory<byte> Value;
 
-  public uint Checksum;
+  public ulong Checksum;
 
   [MethodImpl(MethodImplOptions.AggressiveInlining)]
-  public uint CreateChecksum()
+  public ulong CreateChecksum()
   {
-    uint crc32 = 0;
-    if (Crc32Computer_SSE42_X64.IsSupported)
+    var key = Key.Span;
+    var value = Value.Span;
+    var length = HeaderLength + (long)key.Length + value.Length;
+    Span<byte> buffer = stackalloc byte[length <= StackBufferLength ? (int)length : HeaderLength];
+    BinaryPrimitives.WriteInt64LittleEndian(buffer, OpIndex);
+    BinaryPrimitives.WriteInt32LittleEndian(buffer[sizeof(long)..], KeyLength);
+    BinaryPrimitives.WriteInt32LittleEndian(buffer[(sizeof(long) + sizeof(int))..], ValueLength);
+
+    // Hash small records in one call without allocating a hasher.
+    if (length <= StackBufferLength)
     {
-      crc32 = Crc32Computer_SSE42_X64.Compute(crc32, (ulong)OpIndex);
-      crc32 = Crc32Computer_SSE42_X64.Compute(crc32, KeyLength);
-      crc32 = Crc32Computer_SSE42_X64.Compute(crc32, ValueLength);
-      crc32 = Crc32Computer_SSE42_X64.Compute(crc32, Key.Span);
-      crc32 = Crc32Computer_SSE42_X64.Compute(crc32, Value.Span);
-      return crc32;
+      key.CopyTo(buffer[HeaderLength..]);
+      value.CopyTo(buffer[(HeaderLength + key.Length)..]);
+      return XxHash3.HashToUInt64(buffer);
     }
 
-    if (Crc32Computer_SSE42_X86.IsSupported)
-    {
-      crc32 = Crc32Computer_SSE42_X86.Compute(crc32, (ulong)OpIndex);
-      crc32 = Crc32Computer_SSE42_X86.Compute(crc32, KeyLength);
-      crc32 = Crc32Computer_SSE42_X86.Compute(crc32, ValueLength);
-      crc32 = Crc32Computer_SSE42_X86.Compute(crc32, Key);
-      crc32 = Crc32Computer_SSE42_X86.Compute(crc32, Value);
-      return crc32;
-    }
-
-    if (Crc32Computer_ARM64.IsSupported)
-    {
-      crc32 = Crc32Computer_ARM64.Compute(crc32, (ulong)OpIndex);
-      crc32 = Crc32Computer_ARM64.Compute(crc32, KeyLength);
-      crc32 = Crc32Computer_ARM64.Compute(crc32, ValueLength);
-      crc32 = Crc32Computer_ARM64.Compute(crc32, Key.Span);
-      crc32 = Crc32Computer_ARM64.Compute(crc32, Value.Span);
-      return crc32;
-    }
-
-    crc32 = Crc32Computer_Software.Compute(crc32, (ulong)OpIndex);
-    crc32 = Crc32Computer_Software.Compute(crc32, KeyLength);
-    crc32 = Crc32Computer_Software.Compute(crc32, ValueLength);
-    crc32 = Crc32Computer_Software.Compute(crc32, Key.Span);
-    crc32 = Crc32Computer_Software.Compute(crc32, Value.Span);
-    return crc32;
+    // Reuse synchronous, thread-local state without combining large payloads.
+    var hasher = ThreadHasher ??= new XxHash3();
+    hasher.Reset();
+    hasher.Append(buffer);
+    hasher.Append(key);
+    hasher.Append(value);
+    return hasher.GetCurrentHashAsUInt64();
   }
 
   [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -94,12 +89,66 @@ public struct LogEntry : IEquatable<LogEntry>
   [MethodImpl(MethodImplOptions.AggressiveInlining)]
   public static void ReadLogEntry(BinaryReader reader, ref LogEntry entry)
   {
-    entry.OpIndex = reader.ReadInt64();
-    entry.KeyLength = reader.ReadInt32();
-    entry.ValueLength = reader.ReadInt32();
-    entry.Key = reader.ReadBytes(entry.KeyLength);
-    entry.Value = reader.ReadBytes(entry.ValueLength);
-    entry.Checksum = reader.ReadUInt32();
+    var stream = reader.BaseStream;
+    ReadLogEntryWithStreamLength(reader, ref entry, stream.CanSeek ? stream.Length : -1);
+  }
+
+  [MethodImpl(MethodImplOptions.AggressiveInlining)]
+  public static void ReadLogEntryWithStreamLength(BinaryReader reader, ref LogEntry entry, long streamLength)
+  {
+    var opIndex = reader.ReadInt64();
+    var keyLength = reader.ReadInt32();
+    var valueLength = reader.ReadInt32();
+    if (keyLength < 0 || valueLength < 0)
+      throw new InvalidDataException("WAL record lengths cannot be negative.");
+
+    var stream = reader.BaseStream;
+    var requiredLength = (long)keyLength + valueLength + sizeof(ulong);
+    if (streamLength >= 0 && requiredLength > streamLength - stream.Position)
+      throw new EndOfStreamException("Incomplete WAL record payload or checksum.");
+
+    var key = ReadPayload(reader, keyLength);
+    var value = ReadPayload(reader, valueLength);
+    var checksum = reader.ReadUInt64();
+    entry = new LogEntry
+    {
+      OpIndex = opIndex,
+      KeyLength = keyLength,
+      ValueLength = valueLength,
+      Key = key,
+      Value = value,
+      Checksum = checksum
+    };
+  }
+
+  [MethodImpl(MethodImplOptions.AggressiveInlining)]
+  static byte[] ReadPayload(BinaryReader reader, int length)
+  {
+    if (!reader.BaseStream.CanSeek)
+      return ReadNonSeekablePayload(reader, length);
+
+    var bytes = reader.ReadBytes(length);
+    if (bytes.Length != length)
+      throw new EndOfStreamException("Incomplete WAL record payload.");
+    return bytes;
+  }
+
+  static byte[] ReadNonSeekablePayload(BinaryReader reader, int length)
+  {
+    // Without a remaining length, grow only as bytes actually arrive.
+    if (length == 0)
+      return Array.Empty<byte>();
+    using var buffer = new MemoryStream();
+    Span<byte> chunk = stackalloc byte[Math.Min(length, 4096)];
+    while (length > 0)
+    {
+      var read = reader.Read(chunk[..Math.Min(length, chunk.Length)]);
+      if (read == 0)
+        throw new EndOfStreamException("Incomplete WAL record payload.");
+      buffer.Write(chunk[..read]);
+      length -= read;
+    }
+    return buffer.ToArray();
   }
 
   public override bool Equals(object obj)
@@ -119,7 +168,9 @@ public struct LogEntry : IEquatable<LogEntry>
 
   public override int GetHashCode()
   {
-    return HashCode.Combine(OpIndex, KeyLength, ValueLength, Key, Value, Checksum);
+    // Used by hash-based collections such as Dictionary<LogEntry, ...> and HashSet<LogEntry>.
+    // WAL writes and replay do not call this method; hash payload contents to match Equals.
+    return HashCode.Combine(OpIndex, KeyLength, ValueLength, XxHash3.HashToUInt64(Key.Span), XxHash3.HashToUInt64(Value.Span), Checksum);
   }
 
   public static bool operator ==(LogEntry left, LogEntry right)

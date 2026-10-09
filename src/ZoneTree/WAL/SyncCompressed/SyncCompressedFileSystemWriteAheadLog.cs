@@ -107,7 +107,7 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
         FileStream,
         stopReadOnException,
         stopReadOnChecksumFailure,
-        LogEntry.ReadLogEntry,
+        LogEntry.ReadLogEntryWithStreamLength,
         DeserializeLogEntry,
         sortByOpIndexes);
     InitialLength = result.Keys.Count;

@@ -231,7 +231,7 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
         FileStream,
         stopReadOnException,
         stopReadOnChecksumFailure,
-        LogEntry.ReadLogEntry,
+        LogEntry.ReadLogEntryWithStreamLength,
         DeserializeLogEntry,
         sortByOpIndexes);
     InitialLength = result.Keys.Count;

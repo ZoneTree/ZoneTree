@@ -9,6 +9,8 @@ public static class WriteAheadLogEntryReader
 {
   public delegate void LogEntryReaderDelegate<TLogEntry>(BinaryReader reader, ref TLogEntry logEntry);
 
+  public delegate void LogEntryReaderWithLengthDelegate<TLogEntry>(BinaryReader reader, ref TLogEntry logEntry, long streamLength);
+
   public delegate (bool isValid, TKey key, TValue value, long opIndex) LogEntryDeserializerDelegate<TKey, TValue, TLogEntry>(in TLogEntry logEntry);
 
   public static WriteAheadLogReadLogEntriesResult<TKey, TValue> ReadLogEntries<TKey, TValue, TLogEntry>(
@@ -17,6 +19,26 @@ public static class WriteAheadLogEntryReader
       bool stopReadOnException,
       bool stopReadOnChecksumFailure,
       LogEntryReaderDelegate<TLogEntry> logEntryReader,
+      LogEntryDeserializerDelegate<TKey, TValue, TLogEntry> logEntryDeserializer,
+      bool sortByOpIndexes
+      )
+  {
+    return ReadLogEntries<TKey, TValue, TLogEntry>(
+        logger,
+        stream,
+        stopReadOnException,
+        stopReadOnChecksumFailure,
+        (BinaryReader reader, ref TLogEntry logEntry, long streamLength) => logEntryReader(reader, ref logEntry),
+        logEntryDeserializer,
+        sortByOpIndexes);
+  }
+
+  public static WriteAheadLogReadLogEntriesResult<TKey, TValue> ReadLogEntries<TKey, TValue, TLogEntry>(
+      ILogger logger,
+      Stream stream,
+      bool stopReadOnException,
+      bool stopReadOnChecksumFailure,
+      LogEntryReaderWithLengthDelegate<TLogEntry> logEntryReader,
       LogEntryDeserializerDelegate<TKey, TValue, TLogEntry> logEntryDeserializer,
       bool sortByOpIndexes
       )
@@ -44,7 +66,7 @@ public static class WriteAheadLogEntryReader
       {
         if (stream.Position == length)
           break;
-        logEntryReader(binaryReader, ref entry);
+        logEntryReader(binaryReader, ref entry, length);
       }
       catch (EndOfStreamException e)
       {
