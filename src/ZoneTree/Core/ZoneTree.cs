@@ -407,6 +407,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       DiskSegmentOptions = clonesDiskSegmentOptions,
       EnableSingleSegmentGarbageCollection = options.EnableSingleSegmentGarbageCollection,
       IsDeleted = options.IsDeleted,
+      IsRangeDeleted = options.IsRangeDeleted,
       KeyHasher = options.KeyHasher,
       KeySerializer = options.KeySerializer,
       Logger = options.Logger,
