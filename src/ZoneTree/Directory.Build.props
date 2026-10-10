@@ -5,7 +5,7 @@
     <Authors>Ahmed Yasin Koculu</Authors>
     <PackageId>ZoneTree</PackageId>
     <Title>ZoneTree</Title>
-    <ProductVersion>2.0.0.0</ProductVersion>
+    <ProductVersion>2.0.1.0</ProductVersion>
     <Version>2.0.0.0</Version>
     <AssemblyTitle>ZoneTree</AssemblyTitle>
     <Description>ZoneTree is a persistent, high-performance, transactional, ACID-compliant ordered key-value database and LSM-tree storage engine for .NET.</Description>

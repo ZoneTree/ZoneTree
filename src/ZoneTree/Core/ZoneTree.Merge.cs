@@ -207,6 +207,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         oldDiskSegment.GetLastValuesOfEveryPart() :
         Array.Empty<TValue>();
     var diskSegmentMinimumRecordCount = Options.DiskSegmentOptions.MinimumRecordCount;
+    var isRangeDeleted = Options.IsRangeDeleted;
 
     var dropCount = 0;
     var skipCount = 0;
@@ -234,6 +235,21 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
       var minEntry = heap.MinValue;
       minSegmentIndex = minEntry.SegmentIndex;
+
+      // Drop deleted parts before deletion/duplicate handling consumes their first record.
+      if (!hasBottomSegments && isRangeDeleted != null &&
+          minSegmentIndex == diskSegmentIndex &&
+          mergingSegments[diskSegmentIndex].IsBeginningOfAPart)
+      {
+        var partIndex = mergingSegments[diskSegmentIndex].GetPartIndex();
+        if (isRangeDeleted(minEntry.Key, minEntry.Value,
+            lastKeysOfEveryPart[partIndex], lastValuesOfEveryPart[partIndex]))
+        {
+          mergingSegments[diskSegmentIndex].Skip(oldDiskSegment.GetPart(partIndex).Length - 1);
+          skipElement();
+          continue;
+        }
+      }
 
       // ignore deleted entries if bottom segments queue is empty.
       if (!hasBottomSegments && IsDeleted(minEntry.Key, minEntry.Value))
