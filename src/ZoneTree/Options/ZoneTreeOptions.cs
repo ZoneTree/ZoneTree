@@ -20,6 +20,20 @@ namespace ZoneTree.Options;
 public delegate bool IsDeletedDelegate<TKey, TValue>(in TKey key, in TValue value);
 
 /// <summary>
+/// Determines whether every record in an inclusive, comparer-ordered range is deleted.
+/// Returning true must guarantee deletion of all records, not just the endpoints.
+/// </summary>
+/// <typeparam name="TKey">The key type.</typeparam>
+/// <typeparam name="TValue">The value type.</typeparam>
+/// <param name="firstKey">The first key in the range.</param>
+/// <param name="firstValue">The value of the first record.</param>
+/// <param name="lastKey">The last key in the range.</param>
+/// <param name="lastValue">The value of the last record.</param>
+/// <returns>True if every record in the range is deleted; otherwise false.</returns>
+public delegate bool IsRangeDeletedDelegate<TKey, TValue>(
+    in TKey firstKey, in TValue firstValue, in TKey lastKey, in TValue lastValue);
+
+/// <summary>
 /// A delegate to mark a value deleted.
 /// </summary>
 /// <typeparam name="TValue">The value type</typeparam>
@@ -85,6 +99,17 @@ public sealed class ZoneTreeOptions<TKey, TValue>
   /// Delegate to query key-value pair deletion state.
   /// </summary>
   public IsDeletedDelegate<TKey, TValue> IsDeleted { get; set; }
+
+  /// <summary>
+  /// Optional merge optimization that allows entire multipart disk-segment parts
+  /// to be removed using their first and last key/value pairs. Null disables it.
+  /// True must guarantee that every record in the inclusive range is deleted
+  /// according to IsDeleted, and that deletion will remain valid after removal.
+  /// Only the oldest merge input is eligible, when no older bottom segments remain,
+  /// so dropping a part cannot expose older values. Reads still use IsDeleted.
+  /// The delegate must be safe to call from concurrent merge threads.
+  /// </summary>
+  public IsRangeDeletedDelegate<TKey, TValue> IsRangeDeleted { get; set; }
 
   /// <summary>
   /// Delegate to mark value deleted.

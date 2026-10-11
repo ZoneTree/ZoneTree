@@ -345,6 +345,19 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   }
 
   /// <summary>
+  /// Assigns the optional range deletion query delegate used by multipart merges.
+  /// True must guarantee that every record between the endpoints is deleted.
+  /// </summary>
+  /// <param name="isRangeDeleted">The range deletion query delegate, or null to disable it.</param>
+  /// <returns>ZoneTree Factory.</returns>
+  public ZoneTreeFactory<TKey, TValue>
+      SetIsRangeDeletedDelegate(IsRangeDeletedDelegate<TKey, TValue> isRangeDeleted)
+  {
+    Options.IsRangeDeleted = isRangeDeleted;
+    return this;
+  }
+
+  /// <summary>
   /// Sets the transaction log creator delegate.
   /// </summary>
   /// <param name="transactionLogGetter">The transaction log creator delegate</param>
