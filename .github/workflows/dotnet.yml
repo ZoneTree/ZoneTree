@@ -24,6 +24,12 @@ jobs:
             8.0.x
             7.0.x
             6.0.x
+        # Fix pipeline while waiting on .Net 11 to reach GA
+      - name: Setup .NET 11 (preview)
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 11.0.x
+          dotnet-quality: 'preview'
       - name: Display dotnet version
         run: dotnet --version
       - name: Restore dependencies
