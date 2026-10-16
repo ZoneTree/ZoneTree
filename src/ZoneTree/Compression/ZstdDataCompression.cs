@@ -1,9 +1,43 @@
+#if NET11_0_OR_GREATER
+using System.IO.Compression;
+#else
 using ZstdSharp;
+#endif
 
 namespace ZoneTree.Compression;
 
 public static class ZstdDataCompression
 {
+#if NET11_0_OR_GREATER
+  public static Memory<byte> Compress(Memory<byte> bytes, int level)
+  {
+    var compressed = new byte[ZstandardEncoder.GetMaxCompressedLength(bytes.Length)];
+    if (!ZstandardEncoder.TryCompress(
+        bytes.Span,
+        compressed.AsSpan(),
+        out var compressedLength,
+        level,
+        0))
+    {
+      throw new InvalidDataException("Zstandard compression failed.");
+    }
+    return compressed.AsMemory(0, compressedLength);
+  }
+
+  public static byte[] Decompress(Memory<byte> compressedBytes, int decompressedLength)
+  {
+    var decompressed = new byte[decompressedLength];
+    if (!ZstandardDecoder.TryDecompress(
+        compressedBytes.Span,
+        decompressed.AsSpan(),
+        out var bytesWritten) ||
+        bytesWritten != decompressedLength)
+    {
+      throw new InvalidDataException("Zstandard decompression failed.");
+    }
+    return decompressed;
+  }
+#else
   [ThreadStatic]
   static Compressor ThreadCompressor;
 
@@ -49,4 +83,5 @@ public static class ZstdDataCompression
     }
     return decompressor;
   }
+#endif
 }
