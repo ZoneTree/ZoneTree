@@ -1,4 +1,5 @@
 #if NET11_0_OR_GREATER
+using System.Buffers;
 using System.IO.Compression;
 #else
 using ZstdSharp;
@@ -9,33 +10,74 @@ namespace ZoneTree.Compression;
 public static class ZstdDataCompression
 {
 #if NET11_0_OR_GREATER
+  [ThreadStatic]
+  static (int Level, ZstandardEncoder Encoder) ThreadEncoder;
+
+  [ThreadStatic]
+  static ZstandardDecoder ThreadDecoder;
+
   public static Memory<byte> Compress(Memory<byte> bytes, int level)
   {
+    var encoder = GetEncoder(level);
     var compressed = new byte[ZstandardEncoder.GetMaxCompressedLength(bytes.Length)];
-    if (!ZstandardEncoder.TryCompress(
+    if (encoder.Compress(
         bytes.Span,
         compressed.AsSpan(),
+        out _,
         out var compressedLength,
-        level,
-        0))
+        true) != OperationStatus.Done)
     {
       throw new InvalidDataException("Zstandard compression failed.");
     }
+    encoder.Reset();
     return compressed.AsMemory(0, compressedLength);
   }
 
   public static byte[] Decompress(Memory<byte> compressedBytes, int decompressedLength)
   {
+    if (decompressedLength == 0)
+    {
+      return Array.Empty<byte>();
+    }
+
     var decompressed = new byte[decompressedLength];
-    if (!ZstandardDecoder.TryDecompress(
+    var decoder = GetDecoder();
+    decoder.Reset();
+    if (decoder.Decompress(
         compressedBytes.Span,
         decompressed.AsSpan(),
-        out var bytesWritten) ||
+        out _,
+        out var bytesWritten) != OperationStatus.Done ||
         bytesWritten != decompressedLength)
     {
       throw new InvalidDataException("Zstandard decompression failed.");
     }
     return decompressed;
+  }
+
+  static ZstandardEncoder GetEncoder(int level)
+{
+    ref var cached = ref ThreadEncoder;
+
+    if (cached.Encoder != null && cached.Level == level)
+        return cached.Encoder;
+
+    var encoder = new ZstandardEncoder(level);
+    cached.Encoder?.Dispose();
+    cached = (level, encoder);
+
+    return encoder;
+}
+
+  static ZstandardDecoder GetDecoder()
+  {
+    var decoder = ThreadDecoder;
+    if (decoder == null)
+    {
+      decoder = new ZstandardDecoder();
+      ThreadDecoder = decoder;
+    }
+    return decoder;
   }
 #else
   [ThreadStatic]
