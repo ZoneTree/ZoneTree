@@ -306,145 +306,201 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@purestack/ts-common@npm:^1.1.7":
-  version: 1.1.7
-  resolution: "@purestack/ts-common@npm:1.1.7"
+"@purestack/ts-common@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "@purestack/ts-common@npm:1.1.17"
   dependencies:
-    "@purestack/ts-html": "npm:^1.1.7"
-    "@purestack/ts-style": "npm:^1.1.7"
-    "@purestack/ts-util": "npm:^1.1.7"
-  checksum: 10c0/13cf2d5240e2f3b85c662fd126c4ba1b7172acb417ebd09f476f5cdee030f69c50500f14057e13f86aa76e386d5e88c017cb5056831a2d179a63908a314bef54
+    "@purestack/ts-html": "npm:^1.1.17"
+    "@purestack/ts-style": "npm:^1.1.17"
+    "@purestack/ts-util": "npm:^1.1.17"
+  checksum: 10c0/cc47d4fd5c46ebde9f8d67f2073b3842d55d47fb8cbd8d6de570e82f7b760b2ee254e21172dacb49bbe1a72d995a7bce96b7a2d4863518ed4391f439b268778f
   languageName: node
   linkType: hard
 
-"@purestack/ts-components@npm:^1.1.7":
-  version: 1.1.7
-  resolution: "@purestack/ts-components@npm:1.1.7"
+"@purestack/ts-components@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "@purestack/ts-components@npm:1.1.17"
   dependencies:
-    "@purestack/ts-common": "npm:^1.1.7"
-    "@purestack/ts-css": "npm:^1.1.7"
-    "@purestack/ts-page-scripts": "npm:^1.1.7"
-    "@purestack/ts-style": "npm:^1.1.7"
-    "@purestack/ts-util": "npm:^1.1.7"
-    regor: "npm:^1.7.3"
-  checksum: 10c0/8e0e215ef7d8bfdd025dad619a19b2299a4a99d69c06c61a9f4b2474b65fc6cb5eea17e94cbafacb692e733684fbba350f6314c112e2d90543b93a1b32571434
+    "@purestack/ts-common": "npm:^1.1.17"
+    "@purestack/ts-css": "npm:^1.1.17"
+    "@purestack/ts-page-scripts": "npm:^1.1.17"
+    "@purestack/ts-style": "npm:^1.1.17"
+    "@purestack/ts-svg-icons": "npm:^1.1.17"
+    "@purestack/ts-util": "npm:^1.1.17"
+    regor: "npm:^1.7.6"
+  checksum: 10c0/e93f3bfc1a57bdfa30aa241fd5b116cfbc5d8edd1341ab8f84fcbd1bdb5b1323da60a51dffbbd17a4c8065100ad9f731cdb2092b2e9e7d52b5645768de9793b0
   languageName: node
   linkType: hard
 
-"@purestack/ts-css@npm:^1.1.7":
-  version: 1.1.7
-  resolution: "@purestack/ts-css@npm:1.1.7"
+"@purestack/ts-css@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "@purestack/ts-css@npm:1.1.17"
   dependencies:
-    "@purestack/ts-util": "npm:^1.1.7"
+    "@purestack/ts-util": "npm:^1.1.17"
     prettier: "npm:^3.8.1"
-  checksum: 10c0/34d70b79e6ae464836950692bd4cee5123a23f27ca076c1b2155983b5678a7901648ca141d162c171cb75d388331913b4491275646bc8e792afd527d527ee72e
+  checksum: 10c0/d249219799ad60d5cfde117d99496ef29411d505e11a374f5cfd2f6ab3a98df20e6b87c204ed2b48201f648ad1e975d91d00ff6ce33c76afcbe5621ce397f0f6
   languageName: node
   linkType: hard
 
-"@purestack/ts-html@npm:^1.1.7":
-  version: 1.1.7
-  resolution: "@purestack/ts-html@npm:1.1.7"
+"@purestack/ts-highlight@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "@purestack/ts-highlight@npm:1.1.17"
   dependencies:
-    "@purestack/ts-util": "npm:^1.1.7"
+    "@purestack/ts-common": "npm:^1.1.17"
+    "@purestack/ts-util-node": "npm:^1.1.17"
+    highlight.js: "npm:^11.11.1"
+    shiki: "npm:^3.22.0"
+  checksum: 10c0/b5f528510ba884c2ca62458619926d199b0ac8db92d07937a2f1fe335b0d53436db8beb7b145271095a791286ea42b8caff9df416fb32c9b645a384a52e096fe
+  languageName: node
+  linkType: hard
+
+"@purestack/ts-html@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "@purestack/ts-html@npm:1.1.17"
+  dependencies:
+    "@purestack/ts-util": "npm:^1.1.17"
     prettier: "npm:^3.8.1"
-  checksum: 10c0/30db0bc677e85293eb2ed192fbd296d4c400b4e01b5458726f02473d2c3b9803657d335e1b06e5ae30966dfa28e36a6fa6cd8cadc26a16c44a1e32d271ca69cf
+  checksum: 10c0/680bde7cebf26c0f85120bc0b7c5da477cc151b12e2d5f19e670d9c0ad3051741b883f7b7c1651d96dbfa774e2d9be262916b17339b9c8c32c7078c14913f239
   languageName: node
   linkType: hard
 
-"@purestack/ts-minidom@npm:^1.1.7":
-  version: 1.1.7
-  resolution: "@purestack/ts-minidom@npm:1.1.7"
-  checksum: 10c0/02c13d1d27ae8ad3eeab6fe230350cc5bf9cf84900715a4fc1479fd1120d1ba3f5b9a2db63dab2637a90e541e24d78ab27ee6e685fd70132f5b2f97ed4d090e4
+"@purestack/ts-minidom@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "@purestack/ts-minidom@npm:1.1.17"
+  checksum: 10c0/5dca506c331f962616d81746d50a894aa646b0e0e03d0c2f9728d870625e10d0985b9b3e9b621249edeea47cee0f4e082a892da9a13ba416d5a3ad297e08763f
   languageName: node
   linkType: hard
 
-"@purestack/ts-page-scripts@npm:^1.1.7":
-  version: 1.1.7
-  resolution: "@purestack/ts-page-scripts@npm:1.1.7"
+"@purestack/ts-page-scripts@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "@purestack/ts-page-scripts@npm:1.1.17"
   dependencies:
-    "@purestack/ts-common": "npm:^1.1.7"
-  checksum: 10c0/57556ad41998a1e53e689d11d16156d29ce491617beb52b0e2225df3317d2715718eb3f6932e33116109c3bf0f844a9365ad049a35a99e2527b84f27e3b83855
+    "@purestack/ts-common": "npm:^1.1.17"
+    "@purestack/ts-html": "npm:^1.1.17"
+  checksum: 10c0/18277eba0b84d8936e7bd5f2ec0aad3c3387e68f00b43f99e4b9f3d8498ad9fad5eedb4c98f238af5d7514043ffe19b683cb4ad69a3122f7348b2b9f86c7062f
   languageName: node
   linkType: hard
 
-"@purestack/ts-render@npm:^1.1.7":
-  version: 1.1.7
-  resolution: "@purestack/ts-render@npm:1.1.7"
+"@purestack/ts-pagefind@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "@purestack/ts-pagefind@npm:1.1.17"
   dependencies:
-    "@purestack/ts-common": "npm:^1.1.7"
-    "@purestack/ts-minidom": "npm:^1.1.7"
-    "@purestack/ts-page-scripts": "npm:^1.1.7"
-    "@purestack/ts-util": "npm:^1.1.7"
-    regor: "npm:^1.7.3"
-  checksum: 10c0/f880913263be54cd2283cc103804d9260de8a2e2ebd5ead4fec7c2414dd01a2a0c23214a1171b3ba940ad8fac2e1cc4124ee7eb287dc6ae75b55b153d3e5643b
+    "@purestack/ts-common": "npm:^1.1.17"
+    "@purestack/ts-util": "npm:^1.1.17"
+    logpot: "npm:^1.0.7"
+    pagefind: "npm:^1.4.0"
+  checksum: 10c0/294012411be571498cc18be59d4f4175aa973835a7f3d987cfd18c73828994ef5935156036aef529de5723d1cf096c83910925f2c82448dfd50c24419bdd5d57
   languageName: node
   linkType: hard
 
-"@purestack/ts-ssg@npm:^1.1.7":
-  version: 1.1.7
-  resolution: "@purestack/ts-ssg@npm:1.1.7"
+"@purestack/ts-render@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "@purestack/ts-render@npm:1.1.17"
+  dependencies:
+    "@purestack/ts-common": "npm:^1.1.17"
+    "@purestack/ts-minidom": "npm:^1.1.17"
+    "@purestack/ts-util": "npm:^1.1.17"
+    regor: "npm:^1.7.6"
+  checksum: 10c0/80b590f83654b2a578a1da5e99f51726d5ab171f100570de502f16adfb5e5524d986d13cb18b86e68131784e9df10b152430bf2c8d5ee1b30d0a9e79c7d44db4
+  languageName: node
+  linkType: hard
+
+"@purestack/ts-seo@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "@purestack/ts-seo@npm:1.1.17"
+  dependencies:
+    "@purestack/ts-common": "npm:^1.1.17"
+    "@purestack/ts-html": "npm:^1.1.17"
+    "@purestack/ts-util": "npm:^1.1.17"
+  checksum: 10c0/0edca49969600e66d800f38e7c171b839b5fda1fcf239f4efbcb63b4503da94c87c225b2852fe2315750da77c653c1044e7ae5794b1c226e58b59a6b4ae5047f
+  languageName: node
+  linkType: hard
+
+"@purestack/ts-ssg@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "@purestack/ts-ssg@npm:1.1.17"
   dependencies:
     "@11ty/gray-matter": "npm:^3.0.0"
-    "@purestack/ts-common": "npm:^1.1.7"
-    "@purestack/ts-components": "npm:^1.1.7"
-    "@purestack/ts-html": "npm:^1.1.7"
-    "@purestack/ts-minidom": "npm:^1.1.7"
-    "@purestack/ts-page-scripts": "npm:^1.1.7"
-    "@purestack/ts-render": "npm:^1.1.7"
-    "@purestack/ts-style": "npm:^1.1.7"
-    "@purestack/ts-svg-icons": "npm:^1.1.7"
-    "@purestack/ts-util": "npm:^1.1.7"
-    "@purestack/ts-util-node": "npm:^1.1.7"
+    "@purestack/ts-common": "npm:^1.1.17"
+    "@purestack/ts-components": "npm:^1.1.17"
+    "@purestack/ts-highlight": "npm:^1.1.17"
+    "@purestack/ts-html": "npm:^1.1.17"
+    "@purestack/ts-minidom": "npm:^1.1.17"
+    "@purestack/ts-page-scripts": "npm:^1.1.17"
+    "@purestack/ts-pagefind": "npm:^1.1.17"
+    "@purestack/ts-render": "npm:^1.1.17"
+    "@purestack/ts-seo": "npm:^1.1.17"
+    "@purestack/ts-style": "npm:^1.1.17"
+    "@purestack/ts-theme": "npm:^1.1.17"
+    "@purestack/ts-util": "npm:^1.1.17"
+    "@purestack/ts-util-node": "npm:^1.1.17"
     esbuild: "npm:^0.28.0"
     hast-util-from-html: "npm:^2.0.3"
     hast-util-to-html: "npm:^9.0.5"
-    highlight.js: "npm:^11.11.1"
     html-minifier-next: "npm:^4.19.1"
     logpot: "npm:^1.0.7"
     mdast-util-to-hast: "npm:^13.2.1"
-    pagefind: "npm:^1.4.0"
-    regor: "npm:^1.7.3"
+    regor: "npm:^1.7.6"
     rehype-raw: "npm:^7.0.0"
     rehype-stringify: "npm:^10.0.1"
     remark-gfm: "npm:^4.0.1"
     remark-parse: "npm:^11.0.0"
     remark-rehype: "npm:^11.1.2"
-    shiki: "npm:^3.22.0"
     unified: "npm:^11.0.5"
   bin:
     ts-ssg: dist/cli.mjs
-  checksum: 10c0/d2e1f027628b3235dd523cd3093f82ebb94f2a2707d37b7196be2c41f4fae9edd2beb41393326257db32956dbedf52dfef2b9b07ef9e9a7ede2f28bfb664c0fb
+  checksum: 10c0/be6ac63ceb62b965129c77e87b6765677fb9bef98a3fd39f308877ae1882c08e1e6e213010866db6a63cbe069cdb2c607bc5fd2a22477160a0c97f8a635e8723
   languageName: node
   linkType: hard
 
-"@purestack/ts-style@npm:^1.1.7":
-  version: 1.1.7
-  resolution: "@purestack/ts-style@npm:1.1.7"
+"@purestack/ts-style@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "@purestack/ts-style@npm:1.1.17"
   dependencies:
-    "@purestack/ts-css": "npm:^1.1.7"
-    "@purestack/ts-util": "npm:^1.1.7"
-  checksum: 10c0/5b6beebaaa3cd571ac1f78d04cd90d1025d2bc8358fc9c0565de64dc440c90cfe93990e35647741d914b483680ac65fb0d7fb919fc7f8eec4bcca619b3212a9d
+    "@purestack/ts-css": "npm:^1.1.17"
+    "@purestack/ts-util": "npm:^1.1.17"
+  checksum: 10c0/0dcfe156eaed8213cc58dece014c48027ab382605ef519176ba69528b032ba3cd4b80e5f1b8f4dfd2cd98c26ba5670b7a0da062decc37c297e7f7050dd7d3e68
   languageName: node
   linkType: hard
 
-"@purestack/ts-svg-icons@npm:^1.1.7":
-  version: 1.1.7
-  resolution: "@purestack/ts-svg-icons@npm:1.1.7"
-  checksum: 10c0/6c8c1acc4b7dd8ffc15fef81052f0ab595c364dc4506a4ca701e41254538c8f8e406664efef2dc8d92b7021bff5079526e27ad6a757f66d56b45c08f7ba46dde
+"@purestack/ts-svg-icons@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "@purestack/ts-svg-icons@npm:1.1.17"
+  checksum: 10c0/47bee0e42c53f1582ff99219c42f486dc40f20a40592f82c7080c0491e942b802af724ac23770bb978703dbd86a691bf42a072a06de93272e9b64ccd03bfd86f
   languageName: node
   linkType: hard
 
-"@purestack/ts-util-node@npm:^1.1.7":
-  version: 1.1.7
-  resolution: "@purestack/ts-util-node@npm:1.1.7"
-  checksum: 10c0/04681cdb7f675a8de3d87f27dfc9f6ebee0c1a4d5a6edc53d0c25c802f5d83b3c0fc460d89e160f1ce3be3d19b683abfc28d7eaea40da9f95de9bb8bb187946a
+"@purestack/ts-theme@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "@purestack/ts-theme@npm:1.1.17"
+  dependencies:
+    "@purestack/ts-common": "npm:^1.1.17"
+    "@purestack/ts-html": "npm:^1.1.17"
+    "@purestack/ts-page-scripts": "npm:^1.1.17"
+    "@purestack/ts-style": "npm:^1.1.17"
+    "@purestack/ts-svg-icons": "npm:^1.1.17"
+    "@purestack/ts-util-node": "npm:^1.1.17"
+    "@types/hast": "npm:^3.0.4"
+    highlight.js: "npm:^11.11.1"
+    logpot: "npm:^1.0.7"
+  checksum: 10c0/d7dcd3b1087ebb605907affe939dafbdf590b7722d9a27eb5938571544ffab2db049f61d2c9d60d0fa4ec3b7fe856405c457fab92cddcff22ab4ad9dc90e5085
   languageName: node
   linkType: hard
 
-"@purestack/ts-util@npm:^1.1.7":
-  version: 1.1.7
-  resolution: "@purestack/ts-util@npm:1.1.7"
-  checksum: 10c0/2a24f9f359af259850519b63337fc332e89ac575b09f30ff6fa85e7375922928c9a02b8a38d811116088d9a7fddedcf72823910cc635fd5a69f4adff54595b45
+"@purestack/ts-util-node@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "@purestack/ts-util-node@npm:1.1.17"
+  dependencies:
+    "@purestack/ts-util": "npm:^1.1.17"
+    proper-lockfile: "npm:^4.1.2"
+  checksum: 10c0/c8359fc60d26342e4ec3176514ea9bde1f1ea270cff1ce8251feeb63fc34fb178b8ea518577592e7e78f215127bf963a73749474493018f931ba11e1b4796c95
+  languageName: node
+  linkType: hard
+
+"@purestack/ts-util@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "@purestack/ts-util@npm:1.1.17"
+  checksum: 10c0/c0e5c60a20fe5161fcaf0a77074c78aed62a8e1448c32bb567f113d35886fb79e6c4d4c3ad52ee07bef6052180b837ceccaabc0ec1030151762b5342e4bfc72f
   languageName: node
   linkType: hard
 
@@ -561,6 +617,146 @@ __metadata:
   version: 3.0.3
   resolution: "@types/unist@npm:3.0.3"
   checksum: 10c0/2b1e4adcab78388e088fcc3c0ae8700f76619dbcb4741d7d201f87e2cb346bfc29a89003cfea2d76c996e1061452e14fcd737e8b25aacf949c1f2d6b2bc3dd60
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-aix-ppc64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-aix-ppc64@npm:7.0.2"
+  conditions: os=aix & cpu=ppc64
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-darwin-arm64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-darwin-arm64@npm:7.0.2"
+  conditions: os=darwin & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-darwin-x64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-darwin-x64@npm:7.0.2"
+  conditions: os=darwin & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-freebsd-arm64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-freebsd-arm64@npm:7.0.2"
+  conditions: os=freebsd & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-freebsd-x64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-freebsd-x64@npm:7.0.2"
+  conditions: os=freebsd & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-linux-arm64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-linux-arm64@npm:7.0.2"
+  conditions: os=linux & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-linux-arm@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-linux-arm@npm:7.0.2"
+  conditions: os=linux & cpu=arm
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-linux-loong64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-linux-loong64@npm:7.0.2"
+  conditions: os=linux & cpu=loong64
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-linux-mips64el@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-linux-mips64el@npm:7.0.2"
+  conditions: os=linux & cpu=mips64el
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-linux-ppc64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-linux-ppc64@npm:7.0.2"
+  conditions: os=linux & cpu=ppc64
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-linux-riscv64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-linux-riscv64@npm:7.0.2"
+  conditions: os=linux & cpu=riscv64
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-linux-s390x@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-linux-s390x@npm:7.0.2"
+  conditions: os=linux & cpu=s390x
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-linux-x64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-linux-x64@npm:7.0.2"
+  conditions: os=linux & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-netbsd-arm64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-netbsd-arm64@npm:7.0.2"
+  conditions: os=netbsd & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-netbsd-x64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-netbsd-x64@npm:7.0.2"
+  conditions: os=netbsd & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-openbsd-arm64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-openbsd-arm64@npm:7.0.2"
+  conditions: os=openbsd & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-openbsd-x64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-openbsd-x64@npm:7.0.2"
+  conditions: os=openbsd & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-sunos-x64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-sunos-x64@npm:7.0.2"
+  conditions: os=sunos & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-win32-arm64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-win32-arm64@npm:7.0.2"
+  conditions: os=win32 & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@typescript/typescript-win32-x64@npm:7.0.2":
+  version: 7.0.2
+  resolution: "@typescript/typescript-win32-x64@npm:7.0.2"
+  conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
 
@@ -879,6 +1075,13 @@ __metadata:
   version: 3.0.2
   resolution: "extend@npm:3.0.2"
   checksum: 10c0/73bf6e27406e80aa3e85b0d1c4fd987261e628064e170ca781125c0b635a3dabad5e05adbf07595ea0cf1e6c5396cacb214af933da7cbaf24fe75ff14818e8f9
+  languageName: node
+  linkType: hard
+
+"graceful-fs@npm:^4.2.4":
+  version: 4.2.11
+  resolution: "graceful-fs@npm:4.2.11"
+  checksum: 10c0/386d011a553e02bc594ac2ca0bd6d9e4c22d7fa8cfbfc448a6d148c59ea881b092db9dbe3547ae4b88e55f1b01f7c4a2ecc53b310c042793e63aa44cf6c257f2
   languageName: node
   linkType: hard
 
@@ -1848,6 +2051,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"proper-lockfile@npm:^4.1.2":
+  version: 4.1.2
+  resolution: "proper-lockfile@npm:4.1.2"
+  dependencies:
+    graceful-fs: "npm:^4.2.4"
+    retry: "npm:^0.12.0"
+    signal-exit: "npm:^3.0.2"
+  checksum: 10c0/2f265dbad15897a43110a02dae55105c04d356ec4ed560723dcb9f0d34bc4fb2f13f79bb930e7561be10278e2314db5aca2527d5d3dcbbdee5e6b331d1571f6d
+  languageName: node
+  linkType: hard
+
 "property-information@npm:^7.0.0":
   version: 7.2.0
   resolution: "property-information@npm:7.2.0"
@@ -1855,14 +2069,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"purestack@npm:1.1.7":
-  version: 1.1.7
-  resolution: "purestack@npm:1.1.7"
+"purestack@npm:^1.1.17":
+  version: 1.1.17
+  resolution: "purestack@npm:1.1.17"
   dependencies:
-    "@purestack/ts-ssg": "npm:^1.1.7"
+    "@purestack/ts-ssg": "npm:^1.1.17"
   bin:
     purestack: dist/cli.mjs
-  checksum: 10c0/b87e75e6917bcedeea91745b2fd59d0dab0d62fbc2a8386d281c9266942f5a76f94276292455c06d45da84a021a1981e2316844727891484c8c2fc20bac3b521
+  checksum: 10c0/c48a758adc9df669e3181e330aff4abfbaaa5b773dc20c3b18e64f49ce431580d0591a285c56a5a9dd85e74da4bdcd4cf87357071e076da2fb257465d0aeab47
   languageName: node
   linkType: hard
 
@@ -1891,10 +2105,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"regor@npm:^1.7.3":
-  version: 1.7.3
-  resolution: "regor@npm:1.7.3"
-  checksum: 10c0/c6079f93905f042df5682b42a293ea1c6442c59e0b50819b0f6bb9727c40cb9411b3d755809a06ac5592cf37c1b3049d4fb883a73de3acf23d9cd848d645cc76
+"regor@npm:^1.7.6":
+  version: 1.7.6
+  resolution: "regor@npm:1.7.6"
+  checksum: 10c0/3427b77e524ef2ee7957c65e25958c2aa0d88709d419a0e21ddd82181798af89cfa25a73ccb6c2e1336f80d44867716073c027a0e2e9ce865dda9003a732a6cb
   languageName: node
   linkType: hard
 
@@ -1977,6 +2191,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"retry@npm:^0.12.0":
+  version: 0.12.0
+  resolution: "retry@npm:0.12.0"
+  checksum: 10c0/59933e8501727ba13ad73ef4a04d5280b3717fd650408460c987392efe9d7be2040778ed8ebe933c5cbd63da3dcc37919c141ef8af0a54a6e4fca5a2af177bfe
+  languageName: node
+  linkType: hard
+
 "section-matter@npm:^1.0.0":
   version: 1.0.0
   resolution: "section-matter@npm:1.0.0"
@@ -2011,6 +2232,13 @@ __metadata:
     "@shikijs/vscode-textmate": "npm:^10.0.2"
     "@types/hast": "npm:^3.0.4"
   checksum: 10c0/b06a3eddac4bd0a838f9bd79bea70b0a01195570cb11d70fd2ff7ab0a42c33a8c4980ee52174173aae0476cc152b4c1a68c081a82d94ee340cb3ef9d772ae4ba
+  languageName: node
+  linkType: hard
+
+"signal-exit@npm:^3.0.2":
+  version: 3.0.7
+  resolution: "signal-exit@npm:3.0.7"
+  checksum: 10c0/25d272fa73e146048565e08f3309d5b942c1979a6f4a58a8c59d5fa299728e9c2fcd1a759ec870863b1fd38653670240cd420dad2ad9330c71f36608a6a1c912
   languageName: node
   linkType: hard
 
@@ -2090,6 +2318,148 @@ __metadata:
   version: 2.8.1
   resolution: "tslib@npm:2.8.1"
   checksum: 10c0/9c4759110a19c53f992d9aae23aac5ced636e99887b51b9e61def52611732872ff7668757d4e4c61f19691e36f4da981cd9485e869b4a7408d689f6bf1f14e62
+  languageName: node
+  linkType: hard
+
+"typescript@npm:^7.0.2":
+  version: 7.0.2
+  resolution: "typescript@npm:7.0.2"
+  dependencies:
+    "@typescript/typescript-aix-ppc64": "npm:7.0.2"
+    "@typescript/typescript-darwin-arm64": "npm:7.0.2"
+    "@typescript/typescript-darwin-x64": "npm:7.0.2"
+    "@typescript/typescript-freebsd-arm64": "npm:7.0.2"
+    "@typescript/typescript-freebsd-x64": "npm:7.0.2"
+    "@typescript/typescript-linux-arm": "npm:7.0.2"
+    "@typescript/typescript-linux-arm64": "npm:7.0.2"
+    "@typescript/typescript-linux-loong64": "npm:7.0.2"
+    "@typescript/typescript-linux-mips64el": "npm:7.0.2"
+    "@typescript/typescript-linux-ppc64": "npm:7.0.2"
+    "@typescript/typescript-linux-riscv64": "npm:7.0.2"
+    "@typescript/typescript-linux-s390x": "npm:7.0.2"
+    "@typescript/typescript-linux-x64": "npm:7.0.2"
+    "@typescript/typescript-netbsd-arm64": "npm:7.0.2"
+    "@typescript/typescript-netbsd-x64": "npm:7.0.2"
+    "@typescript/typescript-openbsd-arm64": "npm:7.0.2"
+    "@typescript/typescript-openbsd-x64": "npm:7.0.2"
+    "@typescript/typescript-sunos-x64": "npm:7.0.2"
+    "@typescript/typescript-win32-arm64": "npm:7.0.2"
+    "@typescript/typescript-win32-x64": "npm:7.0.2"
+  dependenciesMeta:
+    "@typescript/typescript-aix-ppc64":
+      optional: true
+    "@typescript/typescript-darwin-arm64":
+      optional: true
+    "@typescript/typescript-darwin-x64":
+      optional: true
+    "@typescript/typescript-freebsd-arm64":
+      optional: true
+    "@typescript/typescript-freebsd-x64":
+      optional: true
+    "@typescript/typescript-linux-arm":
+      optional: true
+    "@typescript/typescript-linux-arm64":
+      optional: true
+    "@typescript/typescript-linux-loong64":
+      optional: true
+    "@typescript/typescript-linux-mips64el":
+      optional: true
+    "@typescript/typescript-linux-ppc64":
+      optional: true
+    "@typescript/typescript-linux-riscv64":
+      optional: true
+    "@typescript/typescript-linux-s390x":
+      optional: true
+    "@typescript/typescript-linux-x64":
+      optional: true
+    "@typescript/typescript-netbsd-arm64":
+      optional: true
+    "@typescript/typescript-netbsd-x64":
+      optional: true
+    "@typescript/typescript-openbsd-arm64":
+      optional: true
+    "@typescript/typescript-openbsd-x64":
+      optional: true
+    "@typescript/typescript-sunos-x64":
+      optional: true
+    "@typescript/typescript-win32-arm64":
+      optional: true
+    "@typescript/typescript-win32-x64":
+      optional: true
+  bin:
+    tsc: bin/tsc
+  checksum: 10c0/3dcee51ec8c332492325bcdbf7df48b66668751f127e622ae7d41b6c716eb19184424a45e14f7750f50f340232388b69e6287859155f06a5ce2df76f12cb31cf
+  languageName: node
+  linkType: hard
+
+"typescript@patch:typescript@npm%3A^7.0.2#optional!builtin<compat/typescript>":
+  version: 7.0.2
+  resolution: "typescript@patch:typescript@npm%3A7.0.2#optional!builtin<compat/typescript>::version=7.0.2&hash=3bafbf"
+  dependencies:
+    "@typescript/typescript-aix-ppc64": "npm:7.0.2"
+    "@typescript/typescript-darwin-arm64": "npm:7.0.2"
+    "@typescript/typescript-darwin-x64": "npm:7.0.2"
+    "@typescript/typescript-freebsd-arm64": "npm:7.0.2"
+    "@typescript/typescript-freebsd-x64": "npm:7.0.2"
+    "@typescript/typescript-linux-arm": "npm:7.0.2"
+    "@typescript/typescript-linux-arm64": "npm:7.0.2"
+    "@typescript/typescript-linux-loong64": "npm:7.0.2"
+    "@typescript/typescript-linux-mips64el": "npm:7.0.2"
+    "@typescript/typescript-linux-ppc64": "npm:7.0.2"
+    "@typescript/typescript-linux-riscv64": "npm:7.0.2"
+    "@typescript/typescript-linux-s390x": "npm:7.0.2"
+    "@typescript/typescript-linux-x64": "npm:7.0.2"
+    "@typescript/typescript-netbsd-arm64": "npm:7.0.2"
+    "@typescript/typescript-netbsd-x64": "npm:7.0.2"
+    "@typescript/typescript-openbsd-arm64": "npm:7.0.2"
+    "@typescript/typescript-openbsd-x64": "npm:7.0.2"
+    "@typescript/typescript-sunos-x64": "npm:7.0.2"
+    "@typescript/typescript-win32-arm64": "npm:7.0.2"
+    "@typescript/typescript-win32-x64": "npm:7.0.2"
+  dependenciesMeta:
+    "@typescript/typescript-aix-ppc64":
+      optional: true
+    "@typescript/typescript-darwin-arm64":
+      optional: true
+    "@typescript/typescript-darwin-x64":
+      optional: true
+    "@typescript/typescript-freebsd-arm64":
+      optional: true
+    "@typescript/typescript-freebsd-x64":
+      optional: true
+    "@typescript/typescript-linux-arm":
+      optional: true
+    "@typescript/typescript-linux-arm64":
+      optional: true
+    "@typescript/typescript-linux-loong64":
+      optional: true
+    "@typescript/typescript-linux-mips64el":
+      optional: true
+    "@typescript/typescript-linux-ppc64":
+      optional: true
+    "@typescript/typescript-linux-riscv64":
+      optional: true
+    "@typescript/typescript-linux-s390x":
+      optional: true
+    "@typescript/typescript-linux-x64":
+      optional: true
+    "@typescript/typescript-netbsd-arm64":
+      optional: true
+    "@typescript/typescript-netbsd-x64":
+      optional: true
+    "@typescript/typescript-openbsd-arm64":
+      optional: true
+    "@typescript/typescript-openbsd-x64":
+      optional: true
+    "@typescript/typescript-sunos-x64":
+      optional: true
+    "@typescript/typescript-win32-arm64":
+      optional: true
+    "@typescript/typescript-win32-x64":
+      optional: true
+  bin:
+    tsc: bin/tsc
+  checksum: 10c0/6b3cdc369cd829d46e00734ea64233ee84419c2825ad8fe408915adde77abced4b7a2401f7eed517d54a7a4f5d1c1869753cb99018df1c2159c761d9f33483a6
   languageName: node
   linkType: hard
 
@@ -2215,7 +2585,11 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "zonetree.dev@workspace:."
   dependencies:
-    purestack: "npm:1.1.7"
+    "@purestack/ts-style": "npm:^1.1.17"
+    "@purestack/ts-util": "npm:^1.1.17"
+    purestack: "npm:^1.1.17"
+    regor: "npm:^1.7.6"
+    typescript: "npm:^7.0.2"
   languageName: unknown
   linkType: soft
 

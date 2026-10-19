@@ -8,8 +8,7 @@
     "themes": ["light", "dark"],
     "pretty": false,
     "theme": {
-      "skin": "standard",
-      "presets": ["zonetree"]
+      "skin": "zonetree"
     }
   },
   "auth": {
@@ -64,7 +63,7 @@
   },
   "preview": {
     "title": "ZoneTree",
-    "description": "A high-performance ordered key-value storage engine for serious .NET data systems.",
+    "description": "Ordered, persistent key-value storage inside your .NET application. Build indexes, event stores, and data systems with ZoneTree.",
     "image": "/docs/assets/ZoneTree-org-logo.png",
     "imageAlt": "ZoneTree storage engine logo",
     "imageWidth": 1448,
@@ -74,7 +73,7 @@
   },
   "logo": {
     "brand": "ZoneTree",
-    "subtitle": "Fastest Ordered KV",
+    "subtitle": "Fastest storage for .NET",
     "letterColors": "111122",
     "subtitleLetterColors": "0",
     "colors": [
