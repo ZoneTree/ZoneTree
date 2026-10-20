@@ -11,9 +11,9 @@
     "deploy": "pgdeploy deploy --host https://zonetree.dev --package ./dist/web --allow-path 'pagefind/*,.ts-ssg/manifest.json'"
   },
   "dependencies": {
-    "@purestack/ts-style": "^1.1.17",
-    "@purestack/ts-util": "^1.1.17",
-    "purestack": "^1.1.17",
+    "@purestack/ts-style": "^1.1.19",
+    "@purestack/ts-util": "^1.1.19",
+    "purestack": "^1.1.19",
     "regor": "^1.7.6"
   },
   "devDependencies": {

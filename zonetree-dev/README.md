@@ -47,6 +47,9 @@ Restore those from your private copy before building in a fresh checkout.
   `analytics-spotlight.ts`, `full-text-search-spotlight.ts`, and `hero.ts`.
 - Short landing-page examples use fenced code blocks directly in
   `content/index.mdx`.
+- `content/docs/concepts/lsm-tree.mdx` explains the storage architecture with
+  dedicated `lsm-architecture.ts`, `lsm-read-path.ts`, and `lsm-part-reuse.ts`
+  components. `content/ui/lsm-styles.ts` registers their typed styles.
 
 Keep benchmark claims tied to retained reports. The landing-page comparison
 uses completed phase times from `content/docs/benchmark/reference/2m/2m.md`,

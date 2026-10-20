@@ -1,0 +1,155 @@
+---
+title: LSM Tree
+description: How ZoneTree combines concurrent ordered memory, immutable multipart disk segments, and background compaction into one storage engine.
+---
+
+# LSM-tree architecture
+
+<div class="zt-lsm-intro">
+  <p>Write into ordered memory. Compact into immutable disk segments. Read across both, while the engine keeps moving.</p>
+  <p>ZoneTree is a Log-Structured Merge-tree storage engine. It separates accepting application writes from reorganizing persistent data, so parallel readers and writers can work alongside background compaction.</p>
+</div>
+
+## One tree, four storage layers
+
+A ZoneTree instance has one active mutable segment, a queue of read-only memory segments, a current disk-segment slot, and a queue of bottom disk segments. Together, they expose one ordered keyspace through the same read and write APIs.
+
+<LsmArchitecture/>
+
+The first two layers hold records in memory. The last two hold immutable persistent data. A new tree starts with an empty mutable segment; the remaining layers fill as data moves through the lifecycle.
+
+<div class="zt-lsm-takeaway">
+  <strong>Two dimensions shape the engine.</strong> Data moves vertically through storage layers. Within a multipart disk segment, ordered parts divide the keyspace horizontally. A part is a piece of a logical disk segment, rather than another LSM layer.
+</div>
+
+## Follow a write
+
+### 1. Accept it in the mutable segment
+
+An `Upsert` enters the current mutable segment. Its concurrent B+Tree keeps keys in comparer order as writes arrive. Updating a key already in that segment replaces its in-memory value; updating a key that exists only in an older segment creates a newer record in the mutable segment.
+
+Recent writes are also recorded through the configured write-ahead log. WAL mode determines the logging path and durability boundary. The mutable segment is where the application reads and updates current in-memory records; the WAL supports their recovery.
+
+The default B+Tree lock mode uses node-level synchronization. Multiple application threads can write to the same ZoneTree, and independent reads can run concurrently. Operations that need coordinated read-modify-write behavior have separate [atomic APIs](../usage/atomic-operations.md).
+
+### 2. Move a full segment to read-only memory
+
+When the mutable segment reaches `MutableSegmentMaxItemCount`, the write path moves it forward: it freezes the old segment, adds it to the read-only queue, and installs a fresh mutable segment. A write that encounters a full or frozen segment retries against the active segment.
+
+The frozen records remain readable in memory while new writes enter the replacement. Rollover does not wait for those records to be merged into disk storage. Several read-only segments can accumulate while a merge is running.
+
+The limit counts records in the mutable segment, rather than the number of write calls or bytes allocated. Repeated updates to an existing key do not each add another record to that segment. Value sizes still determine how much memory those records consume.
+
+### 3. Compact frozen batches into disk storage
+
+A normal merge captures the available read-only segments and merges their ordered records with the **current disk segment**, if one exists. For duplicate keys, the newer source takes precedence. The merge writes a new disk segment and can reuse eligible parts from the previous one.
+
+Once the output is ready, the engine publishes the replacement and removes the consumed read-only segments from the active layer set. Read-only segments created after that merge captured its inputs remain queued for a later merge.
+
+The active mutable segment stays outside this merge. New writes and reads continue while compaction builds its output. Brief synchronization protects rollover and publication; background compaction still competes for CPU, memory bandwidth, and storage I/O.
+
+## Read the newest visible value
+
+A point lookup searches the mutable segment first, then read-only segments from newest to oldest, then the current disk segment, and finally bottom segments from newest to oldest. It stops at the first matching record.
+
+<LsmReadPath/>
+
+That order makes an update visible before older copies have been compacted away. Visibility follows the precedence of the storage layers and their segments. It does not require a lookup to collect every version of a key and compare timestamps.
+
+**Deletion follows the same rule.** A deletion marker in a newer segment hides an older live value. Finding that marker ends the lookup with “not found”; falling through to an older value would incorrectly bring the record back.
+
+Point reads have several accelerators. In-memory segment Bloom filters can reject absent keys. Multipart boundary keys select a candidate disk part, sparse indexes narrow the search within disk data, and caches reduce repeated reads and deserialization. See [read-path caching](../tuning/read-path-caching.md) for the individual mechanisms.
+
+### Range scans combine the layers
+
+An iterator merges ordered streams from its included segments into one forward or reverse sequence. For equal keys, the newer source wins, and deletion markers are hidden by default.
+
+The default iterator can refresh its segment set after mutable-segment rollover. For a stable scan, `IteratorType.Snapshot` moves the mutable segment forward and scans the resulting read-only and persistent region, excluding later writes. Dispose iterators promptly: they retain the disk segments they use, which can delay physical removal of replaced files.
+
+See [iteration and range scans](../usage/iteration-and-range-scans.md) for visibility options, seeking, and iterator lifetime.
+
+## Multipart storage keeps merge work local
+
+`MultiPartDiskSegment` is the default persistent layout. It presents one logical ordered segment backed by multiple immutable parts. Each part covers a key range, and the multipart descriptor records their order and boundary information.
+
+During compaction, ZoneTree can carry an eligible clean part into the new logical segment without rewriting its records. Ranges affected by incoming records are merged into new output parts.
+
+<LsmPartReuse/>
+
+Reuse depends on more than the absence of updates inside a part. The merge also checks its size and whether the current output boundary allows carrying it. Small parts may be rewritten to avoid excessive fragmentation. Updates spread across most of the keyspace can affect most parts and approach a full rewrite.
+
+New part targets vary between the configured minimum and maximum record counts, with boundary adjustments during merge. This avoids repeatedly emitting rigid, fully packed parts. Existing files stay immutable: extra capacity below a part's maximum is room for a future **replacement** to grow, rather than space that gets patched in place.
+
+This is where vertical batching and horizontal partitioning work together. Memory segments batch incoming writes; disk parts let compaction concentrate physical rewrite work around affected ranges. See [write amplification](../tuning/write-amplification.md) for examples and sizing tradeoffs.
+
+## Keep the normal disk merge layer bounded
+
+After normal compaction, ZoneTree compares the new disk segment's record count with `DiskSegmentMaxItemCount`. If the result exceeds that threshold, the **whole logical disk segment** moves to the bottom queue. The current disk-segment slot becomes empty, ready for future read-only merges to create a fresh segment.
+
+Bottom segments remain readable and can overlap in key range. Newer bottom segments take precedence over older ones. They can also be multipart, so the bottom queue contains logical disk segments, each with its own internal parts.
+
+**Bottom compaction is a separate operation.** It merges a selected contiguous range of bottom segments and replaces that range with its merged output. It leaves the active mutable segment, read-only queue, and current disk-segment slot outside its input set.
+
+Deletion markers must survive while older records outside a merge could still be visible. Normal compaction retains them when bottom segments exist. A bottom merge retains them when older bottom segments remain outside its selected range; reaching the oldest bottom segment allows deleted records to be discarded by that merge.
+
+## Recovery runs alongside the storage lifecycle
+
+Immutable disk segments hold data that has already been compacted. WALs hold recent updates for the in-memory segments, and the metadata WAL records changes to the active segment structure. On reopening a tree, recovery loads the persistent segments and reconstructs in-memory state from the available logs.
+
+The default WAL mode is `AsyncCompressed`. Its background logging path supports high write throughput. A returned write, a completed compaction, and a hardware-level flush are different events; the configured WAL mode, flush behavior, and storage stack determine the recovery boundary. With `No WAL`, recent in-memory writes cannot be recovered after process termination.
+
+Use [WAL modes](../durability/wal-modes.md) to choose that boundary, [recovery](../durability/recovery.md) to understand reopening behavior, and [live backups](../durability/backups.md) to create a restorable copy of an open tree.
+
+## Give maintenance an explicit owner
+
+Keep a maintainer alive with a long-running tree. It listens for storage lifecycle events, schedules normal merges according to its thresholds, and periodically releases inactive caches.
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/catalog")
+    .SetMutableSegmentMaxItemCount(100_000)
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert(42, "A new value");
+```
+
+Here `100_000` is an example memory-batch size for string values. Tune it to the actual record sizes and workload. The maintainer is caller-owned, and disposing it waits for the background merge threads it tracks.
+
+Bottom merging has its own explicit entry point, `maintainer.StartBottomSegmentsMerge()`. Choose when and how much bottom data to compact as part of your maintenance policy. Applications can also coordinate maintenance directly through `tree.Maintenance`.
+
+Watch read-only segment accumulation alongside merge duration and write rate. A growing queue means frozen memory is arriving faster than maintenance is clearing it. Budget compaction resources and record limits together; the mutable-segment limit alone does not cap the tree's total memory use.
+
+See [maintenance](../usage/maintenance.md) and [memory usage](../storage/memory-usage.md) for operational controls.
+
+## The controls behind the shape
+
+These defaults describe different boundaries in the same pipeline:
+
+| Control | Default | What it shapes |
+| --- | --- | --- |
+| `MutableSegmentMaxItemCount` | 1,000,000 records | When the active memory segment rolls forward |
+| `DiskSegmentMaxItemCount` | 20,000,000 records | When merged disk output moves to the bottom queue |
+| `MinimumRecordCount` / `MaximumRecordCount` | 1,500,000 / 3,000,000 records | Part sizing inside a multipart disk segment |
+| WAL mode | `AsyncCompressed` | Logging behavior and recent-write recovery |
+
+Record counts translate into different byte sizes for different keys and values. Smaller memory batches reduce each frozen batch's footprint; smaller disk parts reduce local rewrite units while increasing file and metadata overhead. The right balance depends on write locality, read patterns, value size, and merge throughput.
+
+<Grid columns="1" columnsMd="2" class="docs-map zt-lsm-next-steps">
+  <DocCard
+    number="TUNE THE PIPELINE"
+    title="Control write amplification."
+    summary="Explore part reuse, randomized part sizes, and the effect of key locality on compaction."
+    href="/docs/tuning/write-amplification/"
+    icon="tabler:git-merge"
+    label="Explore merge tuning"/>
+  <DocCard
+    number="EXPLORE THE STORAGE"
+    title="Know your segments."
+    summary="Connect logical segments and multipart descriptors to the physical files that hold your data."
+    href="/docs/concepts/segments/"
+    icon="tabler:stack-2"
+    label="Read the segment guide"/>
+</Grid>
