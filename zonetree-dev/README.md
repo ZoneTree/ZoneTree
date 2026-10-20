@@ -37,13 +37,14 @@ Restore those from your private copy before building in a fresh checkout.
 - `content/ui/skin.ts` defines the shared light and dark emerald palettes.
 - `content/ui/styles.ts` generates responsive landing and documentation styles
   through PureStack's typed style builder.
-- `content/ui/hero.ts` contains the SVG storage lifecycle: parallel writes, mutable
+- `content/ui/components/hero.ts` contains the SVG storage lifecycle: parallel writes, mutable
   segment rollover, read-only segments, compaction, and multipart disk storage.
   Live query requests and results run alongside the storage transitions.
 - `content/ui/hero-motion.ts` registers typed styles and keyframes through
   PureStack, with a reduced-motion fallback and no animation JavaScript.
-- `content/ui/components.ts` contains linked documentation cards, technology
-  cards, and the ZoneTree.Analytics introduction.
+- `content/ui/components/index.ts` registers components from the same folder:
+  `doc-card.ts`, `stack-technology.ts`, `distributed-foundation.ts`,
+  `analytics-spotlight.ts`, `full-text-search-spotlight.ts`, and `hero.ts`.
 - Short landing-page examples use fenced code blocks directly in
   `content/index.mdx`.
 

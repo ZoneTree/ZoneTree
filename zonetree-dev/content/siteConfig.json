@@ -73,17 +73,7 @@
   },
   "logo": {
     "brand": "ZoneTree",
-    "subtitle": "Fastest storage for .NET",
-    "letterColors": "111122",
-    "subtitleLetterColors": "0",
-    "colors": [
-      "var(--ps-current-text-subtle)",
-      "var(--ps-current-text-default)",
-      "var(--ps-semantic-tone-accent-button-rest-background)",
-      "#fdfdfd"
-    ],
-    "logoBackground": 2,
-    "logoForeground": 3,
+    "subtitle": "",
     "icon": "iconoir:cube"
   },
   "mdx": {
