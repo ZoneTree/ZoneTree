@@ -1,6 +1,7 @@
 import { docLayoutVars, styleBuilder, themes, type ThemeMode, type ThemePalette } from '@purestack/ts-style'
 import { zoneTreeColors } from './skin'
 import { registerHeroMotionStyles } from './hero-motion'
+import { registerLsmArchitectureStyles } from './lsm-styles'
 
 export function registerDocsStyles() {
   themes.forEach((theme, palette) => {
@@ -20,6 +21,7 @@ export function registerDocsStyles() {
     registerLightThemeStyles(context)
     registerResponsiveStyles(context)
     registerHeroMotionStyles(context.root, theme)
+    registerLsmArchitectureStyles(context.root, theme)
   })
 }
 

@@ -306,134 +306,134 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@purestack/ts-common@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "@purestack/ts-common@npm:1.1.17"
+"@purestack/ts-common@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "@purestack/ts-common@npm:1.1.19"
   dependencies:
-    "@purestack/ts-html": "npm:^1.1.17"
-    "@purestack/ts-style": "npm:^1.1.17"
-    "@purestack/ts-util": "npm:^1.1.17"
-  checksum: 10c0/cc47d4fd5c46ebde9f8d67f2073b3842d55d47fb8cbd8d6de570e82f7b760b2ee254e21172dacb49bbe1a72d995a7bce96b7a2d4863518ed4391f439b268778f
+    "@purestack/ts-html": "npm:^1.1.19"
+    "@purestack/ts-style": "npm:^1.1.19"
+    "@purestack/ts-util": "npm:^1.1.19"
+  checksum: 10c0/866ec8525d18ef3f2e1631641ff57a95b52a42fb2d96b828f5db1b04738576fcf66aaf3fa870b5ed772eff361111cd3f3ae92374e307b98966c966f36f07b28e
   languageName: node
   linkType: hard
 
-"@purestack/ts-components@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "@purestack/ts-components@npm:1.1.17"
+"@purestack/ts-components@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "@purestack/ts-components@npm:1.1.19"
   dependencies:
-    "@purestack/ts-common": "npm:^1.1.17"
-    "@purestack/ts-css": "npm:^1.1.17"
-    "@purestack/ts-page-scripts": "npm:^1.1.17"
-    "@purestack/ts-style": "npm:^1.1.17"
-    "@purestack/ts-svg-icons": "npm:^1.1.17"
-    "@purestack/ts-util": "npm:^1.1.17"
+    "@purestack/ts-common": "npm:^1.1.19"
+    "@purestack/ts-css": "npm:^1.1.19"
+    "@purestack/ts-page-scripts": "npm:^1.1.19"
+    "@purestack/ts-style": "npm:^1.1.19"
+    "@purestack/ts-svg-icons": "npm:^1.1.19"
+    "@purestack/ts-util": "npm:^1.1.19"
     regor: "npm:^1.7.6"
-  checksum: 10c0/e93f3bfc1a57bdfa30aa241fd5b116cfbc5d8edd1341ab8f84fcbd1bdb5b1323da60a51dffbbd17a4c8065100ad9f731cdb2092b2e9e7d52b5645768de9793b0
+  checksum: 10c0/248dc0dfb985ce612d8d436cd8b01e1b96286cefcbdd0cae654c05dae920a5f85e50d50ae79c4aa44e99c39da46e95b0509d7798a70320c53f3e4d6c3902cff7
   languageName: node
   linkType: hard
 
-"@purestack/ts-css@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "@purestack/ts-css@npm:1.1.17"
+"@purestack/ts-css@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "@purestack/ts-css@npm:1.1.19"
   dependencies:
-    "@purestack/ts-util": "npm:^1.1.17"
+    "@purestack/ts-util": "npm:^1.1.19"
     prettier: "npm:^3.8.1"
-  checksum: 10c0/d249219799ad60d5cfde117d99496ef29411d505e11a374f5cfd2f6ab3a98df20e6b87c204ed2b48201f648ad1e975d91d00ff6ce33c76afcbe5621ce397f0f6
+  checksum: 10c0/2e18d4d2401e4c530063e85f675ec5e35ac8b2866d8a5c58de237a76eaedcd91d39b33b8f4a06eae6499ae59fa869b17aefa393009a9942bd8212036a8626b67
   languageName: node
   linkType: hard
 
-"@purestack/ts-highlight@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "@purestack/ts-highlight@npm:1.1.17"
+"@purestack/ts-highlight@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "@purestack/ts-highlight@npm:1.1.19"
   dependencies:
-    "@purestack/ts-common": "npm:^1.1.17"
-    "@purestack/ts-util-node": "npm:^1.1.17"
+    "@purestack/ts-common": "npm:^1.1.19"
+    "@purestack/ts-util-node": "npm:^1.1.19"
     highlight.js: "npm:^11.11.1"
     shiki: "npm:^3.22.0"
-  checksum: 10c0/b5f528510ba884c2ca62458619926d199b0ac8db92d07937a2f1fe335b0d53436db8beb7b145271095a791286ea42b8caff9df416fb32c9b645a384a52e096fe
+  checksum: 10c0/a5ff6a371123dd132cca56fb7581d82f36ab414b87f65281880702a8fb14807ab47b80c5525fd267635d825b3e24ecc39f2fb6c184500e619400663402a739fa
   languageName: node
   linkType: hard
 
-"@purestack/ts-html@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "@purestack/ts-html@npm:1.1.17"
+"@purestack/ts-html@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "@purestack/ts-html@npm:1.1.19"
   dependencies:
-    "@purestack/ts-util": "npm:^1.1.17"
+    "@purestack/ts-util": "npm:^1.1.19"
     prettier: "npm:^3.8.1"
-  checksum: 10c0/680bde7cebf26c0f85120bc0b7c5da477cc151b12e2d5f19e670d9c0ad3051741b883f7b7c1651d96dbfa774e2d9be262916b17339b9c8c32c7078c14913f239
+  checksum: 10c0/5dfe61453df3757384dd78c1304502ae221ff52413d5eadaa46198cf15557409ce5cf101d43c5b4035943c2cfe093163a2f3b7406b7043bb538f00518a767312
   languageName: node
   linkType: hard
 
-"@purestack/ts-minidom@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "@purestack/ts-minidom@npm:1.1.17"
-  checksum: 10c0/5dca506c331f962616d81746d50a894aa646b0e0e03d0c2f9728d870625e10d0985b9b3e9b621249edeea47cee0f4e082a892da9a13ba416d5a3ad297e08763f
+"@purestack/ts-minidom@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "@purestack/ts-minidom@npm:1.1.19"
+  checksum: 10c0/24a23121daf3ec38384be6de565065393a02be12085d01c9719fe0263d4334dbf6265742a83251a73e408d87bae9937025a0ad5c9ad3b6d1f78332c6f18de28f
   languageName: node
   linkType: hard
 
-"@purestack/ts-page-scripts@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "@purestack/ts-page-scripts@npm:1.1.17"
+"@purestack/ts-page-scripts@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "@purestack/ts-page-scripts@npm:1.1.19"
   dependencies:
-    "@purestack/ts-common": "npm:^1.1.17"
-    "@purestack/ts-html": "npm:^1.1.17"
-  checksum: 10c0/18277eba0b84d8936e7bd5f2ec0aad3c3387e68f00b43f99e4b9f3d8498ad9fad5eedb4c98f238af5d7514043ffe19b683cb4ad69a3122f7348b2b9f86c7062f
+    "@purestack/ts-common": "npm:^1.1.19"
+    "@purestack/ts-html": "npm:^1.1.19"
+  checksum: 10c0/b7b5c16ae86a0cdc6b9c5fd90dbbc2f92fde2d2567fc1d8c1bde6fe80e0abaf38cf81bb83d66bb7a0b8479aec03956669e7d51a4f76dd9922e3ae4cff88546e0
   languageName: node
   linkType: hard
 
-"@purestack/ts-pagefind@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "@purestack/ts-pagefind@npm:1.1.17"
+"@purestack/ts-pagefind@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "@purestack/ts-pagefind@npm:1.1.19"
   dependencies:
-    "@purestack/ts-common": "npm:^1.1.17"
-    "@purestack/ts-util": "npm:^1.1.17"
+    "@purestack/ts-common": "npm:^1.1.19"
+    "@purestack/ts-util": "npm:^1.1.19"
     logpot: "npm:^1.0.7"
     pagefind: "npm:^1.4.0"
-  checksum: 10c0/294012411be571498cc18be59d4f4175aa973835a7f3d987cfd18c73828994ef5935156036aef529de5723d1cf096c83910925f2c82448dfd50c24419bdd5d57
+  checksum: 10c0/fc118cd54a73b8822cc33978f40f741c764aa1bc71fe3652f71e6027a5a5e6d8f33317af3b262cc82d5672c847aee17860744c83aec99a1fa77807186faf0cf7
   languageName: node
   linkType: hard
 
-"@purestack/ts-render@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "@purestack/ts-render@npm:1.1.17"
+"@purestack/ts-render@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "@purestack/ts-render@npm:1.1.19"
   dependencies:
-    "@purestack/ts-common": "npm:^1.1.17"
-    "@purestack/ts-minidom": "npm:^1.1.17"
-    "@purestack/ts-util": "npm:^1.1.17"
+    "@purestack/ts-common": "npm:^1.1.19"
+    "@purestack/ts-minidom": "npm:^1.1.19"
+    "@purestack/ts-util": "npm:^1.1.19"
     regor: "npm:^1.7.6"
-  checksum: 10c0/80b590f83654b2a578a1da5e99f51726d5ab171f100570de502f16adfb5e5524d986d13cb18b86e68131784e9df10b152430bf2c8d5ee1b30d0a9e79c7d44db4
+  checksum: 10c0/9308f6aea7986342a9bb74de80e1720d6dae39999544234fd1deb1b45fefc26519224897746cc86d3563db67022626f26492c4aa6c576cff838635b5b641b40d
   languageName: node
   linkType: hard
 
-"@purestack/ts-seo@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "@purestack/ts-seo@npm:1.1.17"
+"@purestack/ts-seo@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "@purestack/ts-seo@npm:1.1.19"
   dependencies:
-    "@purestack/ts-common": "npm:^1.1.17"
-    "@purestack/ts-html": "npm:^1.1.17"
-    "@purestack/ts-util": "npm:^1.1.17"
-  checksum: 10c0/0edca49969600e66d800f38e7c171b839b5fda1fcf239f4efbcb63b4503da94c87c225b2852fe2315750da77c653c1044e7ae5794b1c226e58b59a6b4ae5047f
+    "@purestack/ts-common": "npm:^1.1.19"
+    "@purestack/ts-html": "npm:^1.1.19"
+    "@purestack/ts-util": "npm:^1.1.19"
+  checksum: 10c0/c10d3e42790963c02a1b278031f34ddc620e099909f45b74c6d05e1981a66e44d8079fc47b77a5c9cef33d4991a1adfba9a4910c9d0eef31fc962d2a56c0cc04
   languageName: node
   linkType: hard
 
-"@purestack/ts-ssg@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "@purestack/ts-ssg@npm:1.1.17"
+"@purestack/ts-ssg@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "@purestack/ts-ssg@npm:1.1.19"
   dependencies:
     "@11ty/gray-matter": "npm:^3.0.0"
-    "@purestack/ts-common": "npm:^1.1.17"
-    "@purestack/ts-components": "npm:^1.1.17"
-    "@purestack/ts-highlight": "npm:^1.1.17"
-    "@purestack/ts-html": "npm:^1.1.17"
-    "@purestack/ts-minidom": "npm:^1.1.17"
-    "@purestack/ts-page-scripts": "npm:^1.1.17"
-    "@purestack/ts-pagefind": "npm:^1.1.17"
-    "@purestack/ts-render": "npm:^1.1.17"
-    "@purestack/ts-seo": "npm:^1.1.17"
-    "@purestack/ts-style": "npm:^1.1.17"
-    "@purestack/ts-theme": "npm:^1.1.17"
-    "@purestack/ts-util": "npm:^1.1.17"
-    "@purestack/ts-util-node": "npm:^1.1.17"
+    "@purestack/ts-common": "npm:^1.1.19"
+    "@purestack/ts-components": "npm:^1.1.19"
+    "@purestack/ts-highlight": "npm:^1.1.19"
+    "@purestack/ts-html": "npm:^1.1.19"
+    "@purestack/ts-minidom": "npm:^1.1.19"
+    "@purestack/ts-page-scripts": "npm:^1.1.19"
+    "@purestack/ts-pagefind": "npm:^1.1.19"
+    "@purestack/ts-render": "npm:^1.1.19"
+    "@purestack/ts-seo": "npm:^1.1.19"
+    "@purestack/ts-style": "npm:^1.1.19"
+    "@purestack/ts-theme": "npm:^1.1.19"
+    "@purestack/ts-util": "npm:^1.1.19"
+    "@purestack/ts-util-node": "npm:^1.1.19"
     esbuild: "npm:^0.28.0"
     hast-util-from-html: "npm:^2.0.3"
     hast-util-to-html: "npm:^9.0.5"
@@ -449,58 +449,58 @@ __metadata:
     unified: "npm:^11.0.5"
   bin:
     ts-ssg: dist/cli.mjs
-  checksum: 10c0/be6ac63ceb62b965129c77e87b6765677fb9bef98a3fd39f308877ae1882c08e1e6e213010866db6a63cbe069cdb2c607bc5fd2a22477160a0c97f8a635e8723
+  checksum: 10c0/53242967070d38502a09b252a91174128419296714171823926ce3362bb65987174aca1b5dffc4336b706c962d2d024403c31d9ea1679ac8512910c4edc65da2
   languageName: node
   linkType: hard
 
-"@purestack/ts-style@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "@purestack/ts-style@npm:1.1.17"
+"@purestack/ts-style@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "@purestack/ts-style@npm:1.1.19"
   dependencies:
-    "@purestack/ts-css": "npm:^1.1.17"
-    "@purestack/ts-util": "npm:^1.1.17"
-  checksum: 10c0/0dcfe156eaed8213cc58dece014c48027ab382605ef519176ba69528b032ba3cd4b80e5f1b8f4dfd2cd98c26ba5670b7a0da062decc37c297e7f7050dd7d3e68
+    "@purestack/ts-css": "npm:^1.1.19"
+    "@purestack/ts-util": "npm:^1.1.19"
+  checksum: 10c0/1f55610594b4cef262fcf4c4cc2e6e9f963d318123f74eed48b9015540ae5622ac048413e48149b740b3ef25e8f190f77cb49e566b8d27719d8c70b5f2f073ad
   languageName: node
   linkType: hard
 
-"@purestack/ts-svg-icons@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "@purestack/ts-svg-icons@npm:1.1.17"
-  checksum: 10c0/47bee0e42c53f1582ff99219c42f486dc40f20a40592f82c7080c0491e942b802af724ac23770bb978703dbd86a691bf42a072a06de93272e9b64ccd03bfd86f
+"@purestack/ts-svg-icons@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "@purestack/ts-svg-icons@npm:1.1.19"
+  checksum: 10c0/70a3b6a873b589263cbc0b9e79f68625a7b2610f82a2dc0eddb3905671b60b3aca0738b8b8201138ac1a63f83f1505387980eb3e2ea492b940ef8bfbff3eb0a5
   languageName: node
   linkType: hard
 
-"@purestack/ts-theme@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "@purestack/ts-theme@npm:1.1.17"
+"@purestack/ts-theme@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "@purestack/ts-theme@npm:1.1.19"
   dependencies:
-    "@purestack/ts-common": "npm:^1.1.17"
-    "@purestack/ts-html": "npm:^1.1.17"
-    "@purestack/ts-page-scripts": "npm:^1.1.17"
-    "@purestack/ts-style": "npm:^1.1.17"
-    "@purestack/ts-svg-icons": "npm:^1.1.17"
-    "@purestack/ts-util-node": "npm:^1.1.17"
+    "@purestack/ts-common": "npm:^1.1.19"
+    "@purestack/ts-html": "npm:^1.1.19"
+    "@purestack/ts-page-scripts": "npm:^1.1.19"
+    "@purestack/ts-style": "npm:^1.1.19"
+    "@purestack/ts-svg-icons": "npm:^1.1.19"
+    "@purestack/ts-util-node": "npm:^1.1.19"
     "@types/hast": "npm:^3.0.4"
     highlight.js: "npm:^11.11.1"
     logpot: "npm:^1.0.7"
-  checksum: 10c0/d7dcd3b1087ebb605907affe939dafbdf590b7722d9a27eb5938571544ffab2db049f61d2c9d60d0fa4ec3b7fe856405c457fab92cddcff22ab4ad9dc90e5085
+  checksum: 10c0/f262b7590f1719ee7365ce419e7cf59e1759a40cd1b661be69c4b0eef4bc5a6b4236880d795342c822bf9322632f0af1e16e0ff3b333753df0c8a5079dd8515d
   languageName: node
   linkType: hard
 
-"@purestack/ts-util-node@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "@purestack/ts-util-node@npm:1.1.17"
+"@purestack/ts-util-node@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "@purestack/ts-util-node@npm:1.1.19"
   dependencies:
-    "@purestack/ts-util": "npm:^1.1.17"
+    "@purestack/ts-util": "npm:^1.1.19"
     proper-lockfile: "npm:^4.1.2"
-  checksum: 10c0/c8359fc60d26342e4ec3176514ea9bde1f1ea270cff1ce8251feeb63fc34fb178b8ea518577592e7e78f215127bf963a73749474493018f931ba11e1b4796c95
+  checksum: 10c0/8c439e0cd94efb9c6d51a40366a3684cdc5ce3c972523059f55bc995c364760c6f297ec574aa4009d814ee294cee0caa08a91fd14a15199981fe5354603b81a9
   languageName: node
   linkType: hard
 
-"@purestack/ts-util@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "@purestack/ts-util@npm:1.1.17"
-  checksum: 10c0/c0e5c60a20fe5161fcaf0a77074c78aed62a8e1448c32bb567f113d35886fb79e6c4d4c3ad52ee07bef6052180b837ceccaabc0ec1030151762b5342e4bfc72f
+"@purestack/ts-util@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "@purestack/ts-util@npm:1.1.19"
+  checksum: 10c0/62bc89f7e3777088fed2ca066a10798134f141d228e204f518eb97a5c718b624493eef9bf2e7ce9c9f0eb7af21a9499d93a7149f81a5f35af4d636e6d50006dd
   languageName: node
   linkType: hard
 
@@ -2069,14 +2069,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"purestack@npm:^1.1.17":
-  version: 1.1.17
-  resolution: "purestack@npm:1.1.17"
+"purestack@npm:^1.1.19":
+  version: 1.1.19
+  resolution: "purestack@npm:1.1.19"
   dependencies:
-    "@purestack/ts-ssg": "npm:^1.1.17"
+    "@purestack/ts-ssg": "npm:^1.1.19"
   bin:
     purestack: dist/cli.mjs
-  checksum: 10c0/c48a758adc9df669e3181e330aff4abfbaaa5b773dc20c3b18e64f49ce431580d0591a285c56a5a9dd85e74da4bdcd4cf87357071e076da2fb257465d0aeab47
+  checksum: 10c0/6a19eca7ac7543e27a519151ae2ab70744212885ee77e6226cc7f3f23731604eb34798c802b1b5248615cd90e5c71005fa41c313848fee340088a1c427f7056e
   languageName: node
   linkType: hard
 
@@ -2585,9 +2585,9 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "zonetree.dev@workspace:."
   dependencies:
-    "@purestack/ts-style": "npm:^1.1.17"
-    "@purestack/ts-util": "npm:^1.1.17"
-    purestack: "npm:^1.1.17"
+    "@purestack/ts-style": "npm:^1.1.19"
+    "@purestack/ts-util": "npm:^1.1.19"
+    purestack: "npm:^1.1.19"
     regor: "npm:^1.7.6"
     typescript: "npm:^7.0.2"
   languageName: unknown
