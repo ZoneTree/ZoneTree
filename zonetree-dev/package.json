@@ -1,13 +1,22 @@
 {
   "private": true,
+  "type": "module",
   "name": "zonetree.dev",
   "packageManager": "yarn@4.18.1",
   "scripts": {
+    "check": "tsc --noEmit",
+    "build": "purestack build --content ./content --clean",
     "serve": "purestack serve --content ./content --port 4900 --clean",
     "publish": "purestack publish --content ./content",
     "deploy": "pgdeploy deploy --host https://zonetree.dev --package ./dist/web --allow-path 'pagefind/*,.ts-ssg/manifest.json'"
   },
   "dependencies": {
-    "purestack": "1.1.7"
+    "@purestack/ts-style": "^1.1.19",
+    "@purestack/ts-util": "^1.1.19",
+    "purestack": "^1.1.19",
+    "regor": "^1.7.6"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
   }
 }

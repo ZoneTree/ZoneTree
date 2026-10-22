@@ -24,7 +24,7 @@
     "usage/iteration-and-range-scans.md",
     "usage/maintenance.md",
     "concepts/",
-    "concepts/lsm-tree.md",
+    "concepts/lsm-tree.mdx",
     "concepts/segments.md",
     "concepts/bloom-filters.md",
     "concepts/key-ordering.md",

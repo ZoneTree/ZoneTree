@@ -219,7 +219,24 @@ public sealed class ZoneTreeMaintainer<TKey, TValue> : IMaintainer, IDisposable
   /// <inheritdoc/>
   public void WaitForBackgroundThreads()
   {
-    WaitForBackgroundThreadsAsync().Wait();
+    // Join directly instead of blocking on the async variant.
+    // Sync-over-async deadlocks when the caller runs on a single-concurrency
+    // TaskScheduler or SynchronizationContext (Orleans grains, UI threads).
+    while (true)
+    {
+      var threads = MergerThreads.ToArray();
+      if (threads.Length == 0)
+        return;
+      Trace($"Waiting {threads.Length} merge threads");
+      foreach (var a in threads)
+      {
+        a.Value.Join();
+        // Managed thread ids can be reused,
+        // so remove only if the entry still points to the joined thread.
+        MergerThreads.TryRemove(a);
+      }
+      Trace("Wait ended");
+    }
   }
 
   /// <inheritdoc/>
@@ -234,10 +251,9 @@ public sealed class ZoneTreeMaintainer<TKey, TValue> : IMaintainer, IDisposable
       foreach (var a in threads)
       {
         var t = a.Value;
-        if (t.ThreadState == ThreadState.Stopped)
-          MergerThreads.TryRemove(a.Key, out var _);
-        else
-          await Task.Run(() => t.Join());
+        if (t.ThreadState != ThreadState.Stopped)
+          await Task.Run(t.Join).ConfigureAwait(false);
+        MergerThreads.TryRemove(a);
       }
       Trace("Wait ended");
     }

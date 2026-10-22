@@ -63,6 +63,10 @@ static List<string> GetMarkdownFiles(string repositoryRoot, List<string> errors)
       docsDirectory,
       "*.md",
       SearchOption.AllDirectories));
+    files.AddRange(Directory.EnumerateFiles(
+      docsDirectory,
+      "*.mdx",
+      SearchOption.AllDirectories));
   }
   else
   {

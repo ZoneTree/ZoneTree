@@ -132,4 +132,4 @@ bottom segment queue:
 | `ReadOnlySegmentsRecordCount` | records across frozen memory segments |
 | `TotalRecordCount` | physical records across mutable, read-only, disk, and bottom segment layers |
 
-For the full storage flow, see [LSM Tree](lsm-tree.md). For multipart merge behavior, see [write amplification](../tuning/write-amplification.md).
+For the full storage flow, see [LSM Tree](lsm-tree.mdx). For multipart merge behavior, see [write amplification](../tuning/write-amplification.md).

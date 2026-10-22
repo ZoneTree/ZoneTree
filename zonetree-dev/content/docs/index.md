@@ -15,7 +15,7 @@ ZoneTree is strongest when it is treated as a storage-engine foundation: an orde
 ## Start Here
 
 1. [Open a tree and run maintenance](getting-started.md).
-2. Learn the [LSM-tree and segment model](concepts/lsm-tree.md).
+2. Learn the [LSM-tree and segment model](concepts/lsm-tree.mdx).
 3. Choose the right [read and write APIs](usage/reads-and-writes.md).
 4. Design keys for [ordering and range scans](concepts/key-ordering.md).
 5. Select a [WAL durability mode](durability/wal-modes.md).
