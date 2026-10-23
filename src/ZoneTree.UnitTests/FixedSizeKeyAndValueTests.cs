@@ -187,7 +187,7 @@ public sealed class FixedSizeKeyAndValueTests
   [Test]
   public void IntStringReadOnlySegmentLoadingTest()
   {
-    var dataPath = "data/IntStringGarbageCollectionTest";
+    var dataPath = "data/IntStringReadOnlySegmentLoadingTest";
     if (Directory.Exists(dataPath))
       Directory.Delete(dataPath, true);
 
@@ -227,6 +227,40 @@ public sealed class FixedSizeKeyAndValueTests
       data.TryGet(3, out var value3);
       Assert.That(value3, Is.EqualTo("33"));
       Assert.That(data.Maintenance.ReadOnlySegments[0].Length, Is.EqualTo(4));
+    }
+  }
+
+  [Test]
+  public void LoadedReadOnlySegmentOwnsItsWal()
+  {
+    var dataPath = "data/LoadedReadOnlySegmentOwnsItsWal";
+    if (Directory.Exists(dataPath))
+      Directory.Delete(dataPath, true);
+
+    long readOnlySegmentId;
+    {
+      using var data = new ZoneTreeFactory<int, string>()
+          .SetDataDirectory(dataPath)
+          .OpenOrCreate();
+      data.TryAtomicAdd(1, "1", out _);
+      data.Maintenance.MoveMutableSegmentForward();
+      readOnlySegmentId = data.Maintenance.ReadOnlySegments[0].SegmentId;
+    }
+
+    var segmentWalDirectory = Path.Combine(dataPath, "seg");
+    string[] ReadOnlySegmentWalFiles() =>
+        Directory.GetFiles(segmentWalDirectory, readOnlySegmentId + ".*");
+    Assert.That(ReadOnlySegmentWalFiles(), Is.Not.Empty);
+
+    // A loaded read-only segment must keep its WAL so it can close
+    // the file on dispose and delete it when the segment is dropped.
+    {
+      using var data = new ZoneTreeFactory<int, string>()
+          .SetDataDirectory(dataPath)
+          .Open();
+      data.Maintenance.StartMergeOperation().Join();
+      Assert.That(data.Maintenance.ReadOnlySegments, Is.Empty);
+      Assert.That(ReadOnlySegmentWalFiles(), Is.Empty);
     }
   }
 

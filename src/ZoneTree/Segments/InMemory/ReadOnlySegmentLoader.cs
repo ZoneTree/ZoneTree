@@ -41,9 +41,6 @@ public sealed class ReadOnlySegmentLoader<TKey, TValue>
       }
     }
     wal.MarkFrozen();
-    Options.WriteAheadLogProvider.RemoveWAL(
-        segmentId,
-        ZoneTree<TKey, TValue>.SegmentWalCategory);
 
     (var newKeys, var newValues) = WriteAheadLogUtility
         .StableSortAndCleanUpDuplicatedKeys(
@@ -51,6 +48,9 @@ public sealed class ReadOnlySegmentLoader<TKey, TValue>
         result.Values,
         Options.Comparer);
 
+    // The read-only segment takes the WAL from the provider in its constructor,
+    // so it must be removed only afterwards. Otherwise the segment could not
+    // delete the WAL files when it is dropped after a merge.
     var ros = new ReadOnlySegment<TKey, TValue>(
         segmentId,
         Options,
@@ -59,6 +59,9 @@ public sealed class ReadOnlySegmentLoader<TKey, TValue>
     {
       MaximumOpIndex = result.MaximumOpIndex
     };
+    Options.WriteAheadLogProvider.RemoveWAL(
+        segmentId,
+        ZoneTree<TKey, TValue>.SegmentWalCategory);
     return ros;
   }
 }
