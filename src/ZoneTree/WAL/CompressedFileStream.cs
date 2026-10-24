@@ -487,23 +487,32 @@ public sealed class CompressedFileStream : Stream, IDisposable
 
   void TruncateFile(long truncatedLength)
   {
-    FileStream.Position = MetaDataSize;
-    var len = FileStream.Length;
-    var remainingTruncation = _length - truncatedLength;
-    var trimmed = TailBlock.TrimRight(remainingTruncation);
+    var trimmed = TailBlock.TrimRight(_length - truncatedLength);
     // The tail on disk no longer matches the trimmed tail block.
     // Comparing only index and length cannot detect this,
     // so force the next WriteTail to rewrite it.
     LastWrittenTailIndex = -1;
-    truncatedLength -= trimmed;
     _length -= trimmed;
-    if (truncatedLength == 0)
-      return;
-    WriteTail();
+    if (_length > truncatedLength)
+    {
+      // The tail is empty. Persist it before truncating the main file.
+      WriteTail();
+      TruncateMainFile(truncatedLength);
+    }
+    // Both paths must leave the stream ready to append at the new end.
+    FileStream.Position = FileStream.Length;
+    CurrentBlock = TailBlock;
+    CurrentBlockPosition = TailBlock.Length;
+    Position = _length;
+  }
 
-    remainingTruncation = _length - truncatedLength;
-    var physicalPosition = MetaDataSize;
-    var off = 0;
+  void TruncateMainFile(long truncatedLength)
+  {
+    FileStream.Position = MetaDataSize;
+    var len = FileStream.Length;
+    // long: the main file and its decompressed content can exceed 2 GB.
+    long physicalPosition = MetaDataSize;
+    long off = 0;
     while (true)
     {
       if (physicalPosition >= len)
@@ -527,6 +536,13 @@ public sealed class CompressedFileStream : Stream, IDisposable
       if (off + blockSize > truncatedLength)
       {
         var diff = truncatedLength - off;
+        if (diff == 0)
+        {
+          // The new end is at a block boundary: drop this and the following blocks.
+          FileStream.SetLength(physicalPosition);
+          _length = truncatedLength;
+          break;
+        }
         bytes = BinaryReader.ReadBytes(compressedBlockSize);
         var truncatedBytes = DecompressedBlock
             .FromCompressed(
@@ -541,7 +557,7 @@ public sealed class CompressedFileStream : Stream, IDisposable
         bw.Write(truncatedBytes.Length);
         bw.Write(compressedBytes.Span);
         FileStream.SetLength(FileStream.Position);
-        _length -= (int)remainingTruncation;
+        _length = truncatedLength;
         break;
       }
       physicalPosition += sizeof(int) * 3;
@@ -549,10 +565,6 @@ public sealed class CompressedFileStream : Stream, IDisposable
       FileStream.Position = physicalPosition;
       off += blockSize;
     }
-    FileStream.Position = FileStream.Length;
-    CurrentBlock = TailBlock;
-    CurrentBlockPosition = TailBlock.Length;
-    Position = _length;
   }
 
   public override void Write(byte[] buffer, int offset, int count)

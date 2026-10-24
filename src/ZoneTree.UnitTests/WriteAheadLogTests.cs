@@ -421,6 +421,95 @@ public sealed class WriteAheadLogTests
         stream => stream.SetLength(20));
   }
 
+  // Two committed 16-byte blocks and 8 tail bytes: cut inside a block,
+  // at block boundaries, at the end of the main file and inside the tail.
+  [TestCase(1)]
+  [TestCase(15)]
+  [TestCase(16)]
+  [TestCase(20)]
+  [TestCase(31)]
+  [TestCase(32)]
+  [TestCase(33)]
+  [TestCase(39)]
+  public void CompressedFileStreamTruncationIntoMainFileKeepsRequestedLength(int truncatedLength)
+  {
+    var provider = new InMemoryFileStreamProvider();
+    var filePath = "CompressedFileStreamTruncationIntoMainFileKeepsRequestedLength.wal";
+    var data = Enumerable.Range(0, 40).Select(x => (byte)x).ToArray();
+
+    CompressedFileStream Open() => new(
+        new ConsoleLogger(),
+        provider,
+        filePath,
+        16,
+        false,
+        0,
+        CompressionMethod.None,
+        0);
+
+    using (var stream = Open())
+      stream.Write(data, 0, data.Length);
+
+    long lengthAfterTruncation;
+    using (var stream = Open())
+    {
+      stream.SetLength(truncatedLength);
+      lengthAfterTruncation = stream.Length;
+    }
+
+    var actual = new byte[data.Length];
+    int readLength;
+    using (var stream = Open())
+    {
+      stream.Seek(0, SeekOrigin.Begin);
+      readLength = stream.Read(actual, 0, actual.Length);
+    }
+
+    Assert.That(lengthAfterTruncation, Is.EqualTo(truncatedLength));
+    Assert.That(actual.Take(readLength), Is.EqualTo(data.Take(truncatedLength)));
+  }
+
+  [Test]
+  public void CompressedFileStreamCanAppendAfterTruncatingWithinTail()
+  {
+    var provider = new InMemoryFileStreamProvider();
+    var filePath = "CompressedFileStreamCanAppendAfterTruncatingWithinTail.wal";
+    // All 8 bytes stay in the tail of a 16-byte block.
+    var data = Enumerable.Range(0, 8).Select(x => (byte)x).ToArray();
+    var appended = new byte[] { 100, 101, 102, 103 };
+
+    CompressedFileStream Open() => new(
+        new ConsoleLogger(),
+        provider,
+        filePath,
+        16,
+        false,
+        0,
+        CompressionMethod.None,
+        0);
+
+    using (var stream = Open())
+      stream.Write(data, 0, data.Length);
+
+    using (var stream = Open())
+    {
+      stream.Seek(0, SeekOrigin.End);
+      stream.SetLength(4);
+      // A WAL appends right after truncating an incomplete record.
+      stream.Write(appended, 0, appended.Length);
+    }
+
+    var actual = new byte[data.Length];
+    int readLength;
+    using (var stream = Open())
+    {
+      stream.Seek(0, SeekOrigin.Begin);
+      readLength = stream.Read(actual, 0, actual.Length);
+    }
+
+    Assert.That(actual.Take(readLength), Is.EqualTo(data.Take(4).Concat(appended)));
+  }
+
   /// <summary>
   /// Writes the initial bytes, reopens the stream, applies the change
   /// and expects a later reopen to read exactly the content
