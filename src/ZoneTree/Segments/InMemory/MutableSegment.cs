@@ -295,9 +295,10 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
       {
         Thread.Yield();
       }
-      WriteAheadLog.MarkFrozen();
+      // Freeze the tree before closing the WAL:
+      // MoveMutableSegmentForward spins until IsFullyFrozen.
       BTree.SetTreeReadOnlyAndLockFree();
-
+      WriteAheadLog.MarkFrozen();
     }
     catch (Exception e)
     {

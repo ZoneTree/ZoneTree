@@ -81,6 +81,8 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
 
   volatile Task WriteTask;
 
+  readonly ManualResetEventSlim StopWriterSignal = new();
+
   public string FilePath { get; }
 
   readonly bool IsLegacyFormat;
@@ -121,6 +123,7 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
   void StartWriter()
   {
     StopWriter(false);
+    StopWriterSignal.Reset();
     isRunning = true;
     WriteTask = Task.Factory.StartNew(
         DoWrite,
@@ -132,6 +135,8 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
   void StopWriter(bool consumeAll)
   {
     isRunning = false;
+    // Wake the writer from its empty queue poll so stopping does not wait for the poll interval.
+    StopWriterSignal.Set();
     WriteTask?.Wait();
     WriteTask = null;
     if (consumeAll)
@@ -192,7 +197,7 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
         if (EmptyQueuePollInterval == 0)
           Thread.Yield();
         else
-          Thread.Sleep(EmptyQueuePollInterval);
+          StopWriterSignal.Wait(EmptyQueuePollInterval);
       }
     }
   }
@@ -293,18 +298,15 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
 
   public void MarkFrozen()
   {
-    Task.Run(() =>
+    try
     {
-      try
-      {
-        StopWriter(true);
-        FileStream.Dispose();
-      }
-      catch (Exception e)
-      {
-        Logger.LogError(e);
-      }
-    });
+      StopWriter(true);
+      FileStream.Dispose();
+    }
+    catch (Exception e)
+    {
+      Logger.LogError(e);
+    }
   }
 
   public void TruncateIncompleteTailRecord(IncompleteTailRecordFoundException incompleteTailException)
