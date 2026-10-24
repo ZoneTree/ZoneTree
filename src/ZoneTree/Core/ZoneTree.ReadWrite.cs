@@ -22,11 +22,16 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       out TValue value,
       ref KeyHashProvider<TKey> keyHashProvider)
   {
-    foreach (var segment in ReadOnlySegmentQueue)
+    // The queues are usually empty. Checking first avoids allocating an
+    // enumerator on every lookup.
+    if (!ReadOnlySegmentQueue.IsEmpty)
     {
-      if (segment.TryGet(key, out value, ref keyHashProvider))
+      foreach (var segment in ReadOnlySegmentQueue)
       {
-        return !IsDeleted(key, value);
+        if (segment.TryGet(key, out value, ref keyHashProvider))
+        {
+          return !IsDeleted(key, value);
+        }
       }
     }
 
@@ -39,7 +44,10 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
           return !IsDeleted(key, value);
         }
 
-        foreach (var segment in BottomSegmentQueue)
+        var bottomSegments = BottomSegmentQueue;
+        if (bottomSegments.IsEmpty)
+          return false;
+        foreach (var segment in bottomSegments)
         {
           if (segment.TryGet(key, out value, ref keyHashProvider))
           {
