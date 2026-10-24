@@ -16,6 +16,14 @@ public static class LZ4DataCompression
     return bytes;
   }
 
+  public static void DecompressInto(Memory<byte> compressedBytes, Memory<byte> destination)
+  {
+    // Destinations can be reused buffers: a short result would leave stale bytes.
+    if (LZ4Pickler.UnpickledSize(compressedBytes.Span) != destination.Length)
+      throw new InvalidDataException("LZ4 decompression failed.");
+    LZ4Pickler.Unpickle(compressedBytes.Span, destination.Span);
+  }
+
   public static int GetDecompressedLength(Memory<byte> compressedBytes)
   {
     return checked(LZ4Pickler.UnpickledSize(compressedBytes.Span));

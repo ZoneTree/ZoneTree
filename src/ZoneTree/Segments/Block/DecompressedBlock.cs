@@ -62,6 +62,17 @@ public sealed class DecompressedBlock
     CompressionLevel = compressionLevel;
   }
 
+  internal int Capacity => Bytes.Length;
+
+  /// <summary>
+  /// Empties the block and gives it a new index, keeping its buffer.
+  /// </summary>
+  internal void Reset(int blockIndex)
+  {
+    BlockIndex = blockIndex;
+    Length = 0;
+  }
+
   public int Append(ReadOnlySpan<byte> data)
   {
     var remainingLength = Bytes.Length - Length;
