@@ -12,11 +12,14 @@ export interface DocCard {
 export function defineDocCard() {
   return defineComponent<DocCard>(
     html`<a class="docs-card" :href="href">
-      <div class="docs-card-meta"><span>{{ number }}</span><Icon :name="icon"/></div>
-      <h3>{{ title }}</h3>
-      <p>{{ summary }}</p>
-      <span class="docs-card-link">{{ label }} <Icon name="tabler:arrow-up-right"/></span>
-    </a>`,
+  <div class="docs-card-meta">
+    <span>{{ number }}</span><Icon :name="icon"/>
+  </div>
+  <h3>{{ title }}</h3>
+  <p>{{ summary }}</p>
+  <span class="docs-card-link"
+    >{{ label }} <Icon name="tabler:arrow-up-right"/></span>
+</a>`,
     { props: ['number', 'title', 'summary', 'href', 'icon', 'label'] },
   )
 }

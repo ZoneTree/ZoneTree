@@ -2,8 +2,12 @@ import { docLayoutVars, styleBuilder, themes, type ThemeMode, type ThemePalette 
 import { zoneTreeColors } from './skin'
 import { registerHeroMotionStyles } from './hero-motion'
 import { registerLsmArchitectureStyles } from './lsm-styles'
+import { registerBenchmarkReportStyles } from './benchmark-styles'
+import { registerImageGalleryStyles } from './image-gallery-styles'
 
 export function registerDocsStyles() {
+  registerImageGalleryStyles()
+  registerBenchmarkReportStyles()
   themes.forEach((theme, palette) => {
     const context = createDocsStyleContext(theme, palette)
 
@@ -392,7 +396,7 @@ function registerQuickstartStyles({ root, muted, edge, surface }: DocsStyleConte
 }
 
 function registerBenchmarkStyles({ root, theme, neutral, c, muted, edge, surface, accent }: DocsStyleContext) {
-  // Exact phase totals from the retained 2M-profile report, rounded to one decimal.
+  // Phase totals from the retained Windows 2M P16 report, rounded to one decimal.
   root.select('.zt-benchmark-layout')
     .display('grid')
     .gridTemplateColumns('1.1fr .9fr')
@@ -460,14 +464,13 @@ function registerBenchmarkStyles({ root, theme, neutral, c, muted, edge, surface
     .borderRadius('2px')
     .background(theme === 'dark' ? '#626966' : '#bbc5c0')
   root.select('.zt-bench-zonetree .zt-bench-bar')
-    .width('16.33%')
+    .width('1.69%')
     .background(c.signal)
   root.select('.zt-home .zt-bench-zonetree :is(th,strong)')
     .color(accent)
     .fontWeight('650')
-  root.select('.zt-bench-rocksdb .zt-bench-bar').width('39.79%')
+  root.select('.zt-bench-rocksdb .zt-bench-bar').width('14.52%')
   root.select('.zt-bench-sqlite .zt-bench-bar').width('100%')
-  root.select('.zt-bench-mysql .zt-bench-bar').width('75.97%')
   root.select('.zt-benchmark-context h3').fontSize('26px')
   root.select('.zt-benchmark-context > p:not(.zt-eyebrow)')
     .fontSize('14px')

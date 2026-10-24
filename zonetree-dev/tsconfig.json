@@ -3,9 +3,11 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
     "strict": true,
+    "types": ["node"],
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["content/**/*.ts"]
+  "include": ["content/**/*.ts", "tests/**/*.ts"]
 }

@@ -27,7 +27,7 @@
     "maxDepth": 20,
     "includeIndex": true,
     "sortBy": "order",
-    "roots": ["docs/benchmark/reference", "docs"]
+    "roots": ["docs"]
   },
   "sitemap": {
     "enabled": true,

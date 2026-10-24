@@ -8,6 +8,8 @@ import { defineLsmArchitecture } from './lsm-architecture'
 import { defineLsmReadPath } from './lsm-read-path'
 import { defineLsmPartReuse } from './lsm-part-reuse'
 
+export { defineImageGallery, type GalleryImage, type ImageGalleryProps } from './image-gallery'
+
 export function defineDocsComponents() {
   return {
     StorageHero: defineStorageHero(),
