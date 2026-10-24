@@ -64,6 +64,10 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       return null;
     }
 
+    // Reset before the merge thread starts.
+    // Resetting it on the merge thread would discard a cancellation
+    // requested between this call and the start of the thread.
+    IsCancelMergeRequested = false;
     OnMergeOperationStarted?.Invoke(this);
     var thread = new Thread(StartMergeOperationInternal);
     thread.Start();
@@ -77,7 +81,6 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       OnMergeOperationEnded?.Invoke(this, MergeResult.ANOTHER_MERGE_IS_RUNNING);
       return;
     }
-    IsCancelMergeRequested = false;
     lock (LongMergerLock)
     {
       try
