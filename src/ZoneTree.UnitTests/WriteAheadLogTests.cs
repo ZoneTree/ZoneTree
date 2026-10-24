@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Collections;
 using ZoneTree.Comparers;
@@ -508,6 +509,113 @@ public sealed class WriteAheadLogTests
     }
 
     Assert.That(actual.Take(readLength), Is.EqualTo(data.Take(4).Concat(appended)));
+  }
+
+  // A tail loaded from disk or trimmed by a truncation is sized to its content.
+  // Appending must grow it to the block size instead of committing it as a
+  // short or empty block. Each case runs with every compression method.
+
+  [Test]
+  public void CompressedFileStreamAppendAfterReopenFillsLoadedTail(
+      [Values] CompressionMethod compressionMethod)
+  {
+    var provider = new InMemoryFileStreamProvider();
+    var filePath = $"CompressedFileStreamAppendAfterReopenFillsLoadedTail.{compressionMethod}.wal";
+    var data = Enumerable.Range(0, 16).Select(x => (byte)x).ToArray();
+
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+      stream.Write(data, 0, 8);
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+      stream.Write(data, 8, 8);
+
+    Assert.That(GetCommittedBlockLengths(provider, filePath), Is.EqualTo(new[] { 16 }));
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+      Assert.That(ReadStream(stream), Is.EqualTo(data));
+  }
+
+  [Test]
+  public void CompressedFileStreamAppendAfterReopenWithEmptyTailCommitsNoEmptyBlock(
+      [Values] CompressionMethod compressionMethod)
+  {
+    var provider = new InMemoryFileStreamProvider();
+    var filePath = $"CompressedFileStreamAppendAfterReopenWithEmptyTailCommitsNoEmptyBlock.{compressionMethod}.wal";
+    var data = Enumerable.Range(0, 36).Select(x => (byte)x).ToArray();
+
+    // A full block leaves an empty tail on disk.
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+      stream.Write(data, 0, 16);
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+      stream.Write(data, 16, 20);
+
+    Assert.That(GetCommittedBlockLengths(provider, filePath), Is.EqualTo(new[] { 16, 16 }));
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+      Assert.That(ReadStream(stream), Is.EqualTo(data));
+  }
+
+  [Test]
+  public void CompressedFileStreamAppendAfterTruncationCommitsNoEmptyBlock(
+      [Values] CompressionMethod compressionMethod)
+  {
+    var provider = new InMemoryFileStreamProvider();
+    var filePath = $"CompressedFileStreamAppendAfterTruncationCommitsNoEmptyBlock.{compressionMethod}.wal";
+    var data = Enumerable.Range(0, 40).Select(x => (byte)x).ToArray();
+    var appended = Enumerable.Range(100, 20).Select(x => (byte)x).ToArray();
+
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+      stream.Write(data, 0, data.Length);
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+    {
+      // Cut at a block boundary: the tail is trimmed to nothing.
+      stream.SetLength(16);
+      stream.Write(appended, 0, appended.Length);
+    }
+
+    Assert.That(GetCommittedBlockLengths(provider, filePath), Is.EqualTo(new[] { 16, 16 }));
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+      Assert.That(ReadStream(stream), Is.EqualTo(data.Take(16).Concat(appended)));
+  }
+
+  static CompressedFileStream OpenCompressedFileStream(
+      InMemoryFileStreamProvider provider,
+      string filePath,
+      CompressionMethod compressionMethod)
+  {
+    return new CompressedFileStream(
+        new ConsoleLogger(),
+        provider,
+        filePath,
+        16,
+        false,
+        0,
+        compressionMethod,
+        0);
+  }
+
+  static byte[] ReadStream(CompressedFileStream stream)
+  {
+    var bytes = new byte[stream.Length];
+    stream.Seek(0, SeekOrigin.Begin);
+    var readLength = stream.Read(bytes, 0, bytes.Length);
+    return bytes.AsSpan(0, readLength).ToArray();
+  }
+
+  /// <summary>
+  /// Reads the decompressed length of every committed block in the main file:
+  /// one metadata byte, then block index, compressed length, decompressed
+  /// length and the compressed payload for each block.
+  /// </summary>
+  static int[] GetCommittedBlockLengths(InMemoryFileStreamProvider provider, string filePath)
+  {
+    var bytes = provider.ReadAllBytes(filePath);
+    var lengths = new List<int>();
+    var offset = 1;
+    while (offset < bytes.Length)
+    {
+      var compressedLength = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset + sizeof(int)));
+      lengths.Add(BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset + 2 * sizeof(int))));
+      offset += 3 * sizeof(int) + compressedLength;
+    }
+    return lengths.ToArray();
   }
 
   /// <summary>

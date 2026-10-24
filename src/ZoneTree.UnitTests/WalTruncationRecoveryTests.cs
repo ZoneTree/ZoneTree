@@ -62,8 +62,8 @@ public sealed class WalTruncationRecoveryTests
       segmentId = zoneTree.Maintenance.MutableSegment.SegmentId;
     }
 
-    // An int/int record is 28 bytes. An incomplete record as long as the
-    // complete data is cut from the tail alone, so the truncation stays within the tail.
+    // An int/int record is 28 bytes. The incomplete record stays in the same
+    // tail block as the complete record, so the truncation stays within the tail.
     AppendIncompleteRecord(dataPath, segmentId, 28);
 
     using (var zoneTree = OpenOrCreate(dataPath))

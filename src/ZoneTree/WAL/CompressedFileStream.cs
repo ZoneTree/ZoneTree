@@ -574,6 +574,21 @@ public sealed class CompressedFileStream : Stream, IDisposable
       if (Position != Length)
         throw new Exception("Compressed File Stream can only write to the end of the file.");
 
+      var tailBlock = TailBlock;
+      if (tailBlock.IsFull && tailBlock.Length < BlockSize)
+      {
+        // A tail loaded from disk or trimmed by a truncation is sized to its
+        // content, so it is full at once. Grow it on the first write instead
+        // of committing it as a short or empty block. Growing here rather than
+        // on load avoids a full block allocation for streams that are only read.
+        var grownTailBlock = new DecompressedBlock(
+            tailBlock.BlockIndex, BlockSize, CompressionMethod, CompressionLevel);
+        grownTailBlock.Append(tailBlock.GetBytes(0, tailBlock.Length).Span);
+        TailBlock = grownTailBlock;
+        CurrentBlock = grownTailBlock;
+        CurrentBlockPosition = grownTailBlock.Length;
+      }
+
       var totalWriteLen = 0;
       var totalCount = count;
       while (true)
