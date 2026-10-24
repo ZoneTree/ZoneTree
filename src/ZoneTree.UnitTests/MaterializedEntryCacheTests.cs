@@ -5,8 +5,6 @@ namespace ZoneTree.UnitTests;
 
 public sealed class MaterializedEntryCacheTests
 {
-  const ulong HashMultiplier = 0x9E3779B97F4A7C15UL;
-
   [TestCase(0, 2)]
   [TestCase(7, 8)]
   [TestCase(14, 2)]
@@ -352,8 +350,7 @@ public sealed class MaterializedEntryCacheTests
     var remaining = cacheSize;
     for (long chunkIndex = 0; remaining != 0; ++chunkIndex)
     {
-      var hash = unchecked((ulong)chunkIndex * HashMultiplier);
-      var slot = (int)Math.BigMul(hash, (ulong)(uint)cacheSize, out _);
+      var slot = (int)(chunkIndex % cacheSize);
       if (found[slot])
         continue;
       result[slot] = chunkIndex;
