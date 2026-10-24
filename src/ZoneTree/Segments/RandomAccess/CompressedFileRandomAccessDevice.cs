@@ -281,7 +281,17 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
 
       return ReadBlockAndAddToCache(blockIndex, offsetInBlock, length, blockPin);
     }
-    block.LastAccessTicks = Environment.TickCount64;
+    // Pin the block that served this read, including a cached one, so the
+    // reader's next read from it skips the lookup and the reader can use the
+    // block's materialized entries. The pin belongs to a single reader.
+    if (blockPin != null && blockPin.Device != block)
+      blockPin.Device = block;
+    // Many threads read the same cached blocks. Writing the block on every
+    // read would make its cache line bounce between cores, so update the
+    // access time only when it changed.
+    var now = Environment.TickCount64;
+    if (block.LastAccessTicks != now)
+      block.LastAccessTicks = now;
     return block.GetBytes(offsetInBlock, length);
   }
 
@@ -318,6 +328,8 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
         NextBlock = decompressedBlock;
         return decompressedBlock.GetBytes(offsetInBlock, length);
       }
+      if (blockPin != null)
+        blockPin.Device = block;
       block.LastAccessTicks = Environment.TickCount64;
       return block.GetBytes(offsetInBlock, length);
     }

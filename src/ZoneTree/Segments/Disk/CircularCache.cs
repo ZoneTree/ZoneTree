@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Threading;
 
 namespace ZoneTree.Segments.Disk;
 
@@ -8,53 +9,60 @@ public sealed class CircularCache<TDataType>
 {
   const ulong HashMultiplier = 0x9E3779B97F4A7C15UL;
 
-  public sealed class CacheAndCacheSize
-  {
-    public int CacheSize;
-    public CachedRecord[] circularBuffer;
-    internal int HashShift;
-  }
+  const long EmptyIndex = -1;
 
-  public sealed class CachedRecord
+  // Records are stored inline in the slots, so adding one allocates nothing
+  // and a lookup reads a single slot instead of following a reference.
+  // A slot's version is odd while a writer updates it and grows by two with
+  // every completed update. A reader that sees the same even version before
+  // and after copying a record knows the copy is consistent. Version 0 marks
+  // a slot that has never been written.
+  struct Slot
   {
+    public int Version;
     public long Index;
-    public TDataType Record;
     public long LastAccess;
-    public bool IsExpired(long ticks) => LastAccess < ticks;
+    public TDataType Record;
   }
 
-  CacheAndCacheSize Cache;
+  readonly int CacheSize;
+
+  readonly int HashShift;
+
+  // Allocated on the first add, so unused caches cost no memory.
+  Slot[] Slots;
 
   public int RecordLifeTimeInMillisecond { get; set; } = 10000;
 
   public CircularCache(int cacheSize, int recordLifeTimeInMillisecond)
   {
     RecordLifeTimeInMillisecond = recordLifeTimeInMillisecond;
-    Cache = new CacheAndCacheSize()
-    {
-      CacheSize = cacheSize,
-      circularBuffer = new CachedRecord[cacheSize],
-      HashShift = GetHashShift(cacheSize)
-    };
+    CacheSize = cacheSize;
+    HashShift = GetHashShift(cacheSize);
   }
 
   public bool TryGet(long index, out TDataType key)
   {
-    var cache = Cache;
-    var cacheSize = cache.CacheSize;
-    if (cacheSize < 1)
+    var slots = Volatile.Read(ref Slots);
+    if (slots != null)
     {
-      key = default;
-      return false;
-    }
-    var circularBuffer = cache.circularBuffer;
-    var circularIndex = GetSlotIndex(index, cache);
-    var cacheRecord = circularBuffer[circularIndex];
-    if (cacheRecord != null && cacheRecord.Index == index)
-    {
-      key = cacheRecord.Record;
-      cacheRecord.LastAccess = Environment.TickCount64;
-      return true;
+      ref var slot = ref slots[GetSlotIndex(index)];
+      var version = Volatile.Read(ref slot.Version);
+      if (version != 0 && (version & 1) == 0 &&
+          Volatile.Read(ref slot.Index) == index)
+      {
+        key = slot.Record;
+        // Complete the record read before checking the version again.
+        Interlocked.MemoryBarrier();
+        if (Volatile.Read(ref slot.Version) == version)
+        {
+          // Avoid writing the shared slot on every hit.
+          var now = Environment.TickCount64;
+          if (slot.LastAccess != now)
+            slot.LastAccess = now;
+          return true;
+        }
+      }
     }
     key = default;
     return false;
@@ -62,32 +70,42 @@ public sealed class CircularCache<TDataType>
 
   public bool TryAdd(long index, ref TDataType key)
   {
-    var cache = Cache;
-    var cacheSize = cache.CacheSize;
-    if (cacheSize < 1) return false;
-    var circularBuffer = cache.circularBuffer;
-    var circularIndex = GetSlotIndex(index, cache);
-    var cachedRecord = new CachedRecord
-    {
-      Index = index,
-      Record = key,
-      LastAccess = Environment.TickCount64,
-    };
-    circularBuffer[circularIndex] = cachedRecord;
+    if (CacheSize < 1) return false;
+    var slots = Volatile.Read(ref Slots) ?? CreateSlots();
+    ref var slot = ref slots[GetSlotIndex(index)];
+    // A cache may drop records, so skip the add if another writer holds
+    // the slot instead of waiting for it.
+    if (!TryLockSlot(ref slot, out var version)) return false;
+    slot.Index = index;
+    slot.Record = key;
+    slot.LastAccess = Environment.TickCount64;
+    Volatile.Write(ref slot.Version, unchecked(version + 2));
     return true;
   }
 
   public int ReleaseInactiveCacheRecords()
   {
+    var slots = Volatile.Read(ref Slots);
+    if (slots == null) return 0;
     var ticks = Environment.TickCount64 - RecordLifeTimeInMillisecond;
-    var circularBuffer = Cache.circularBuffer;
-    var len = circularBuffer.Length;
+    var len = slots.Length;
     var totalReleasedRecords = 0;
     for (var i = 0; i < len; ++i)
     {
-      var cacheRecord = circularBuffer[i];
-      if (cacheRecord == null || !cacheRecord.IsExpired(ticks)) continue;
-      circularBuffer[i] = null;
+      ref var slot = ref slots[i];
+      var version = Volatile.Read(ref slot.Version);
+      if (version == 0 || (version & 1) != 0 ||
+          Volatile.Read(ref slot.Index) == EmptyIndex ||
+          slot.LastAccess >= ticks)
+        continue;
+      // Any update after the checks above changes the version and fails
+      // the exchange, so a locked slot still holds the record checked above.
+      if (Interlocked.CompareExchange(
+          ref slot.Version, unchecked(version + 1), version) != version)
+        continue;
+      slot.Index = EmptyIndex;
+      slot.Record = default;
+      Volatile.Write(ref slot.Version, unchecked(version + 2));
       ++totalReleasedRecords;
     }
     return totalReleasedRecords;
@@ -95,26 +113,38 @@ public sealed class CircularCache<TDataType>
 
   public void Clear()
   {
-    var circularBuffer = Cache.circularBuffer;
-    var len = circularBuffer.Length;
-    for (var i = 0; i < len; ++i)
-    {
-      circularBuffer[i] = null;
-    }
+    // Readers still holding the old slots may return records added before
+    // the clear, as they could before it started.
+    Volatile.Write(ref Slots, null);
+  }
+
+  Slot[] CreateSlots()
+  {
+    var slots = new Slot[CacheSize];
+    return Interlocked.CompareExchange(ref Slots, slots, null) ?? slots;
   }
 
   [MethodImpl(MethodImplOptions.AggressiveInlining)]
-  static int GetSlotIndex(long index, CacheAndCacheSize cache)
+  static bool TryLockSlot(ref Slot slot, out int version)
+  {
+    version = Volatile.Read(ref slot.Version);
+    return (version & 1) == 0 &&
+        Interlocked.CompareExchange(
+            ref slot.Version, unchecked(version + 1), version) == version;
+  }
+
+  [MethodImpl(MethodImplOptions.AggressiveInlining)]
+  int GetSlotIndex(long index)
   {
     var hash = unchecked((ulong)index * HashMultiplier);
-    var hashShift = cache.HashShift;
+    var hashShift = HashShift;
     if (hashShift != 0)
       return (int)(hash >> hashShift);
-    if (cache.CacheSize == 1)
+    if (CacheSize == 1)
       return 0;
     return (int)Math.BigMul(
         hash,
-        (ulong)(uint)cache.CacheSize,
+        (ulong)(uint)CacheSize,
         out _);
   }
 

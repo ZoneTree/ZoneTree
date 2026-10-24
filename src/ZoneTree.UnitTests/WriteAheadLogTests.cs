@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Collections;
 using ZoneTree.Comparers;
@@ -337,6 +338,332 @@ public sealed class WriteAheadLogTests
     Assert.That(exportedBytes[0], Is.EqualTo((byte)CompressionMethod.None));
     Assert.That(restoredLength, Is.EqualTo(expected.Length));
     Assert.That(readLength, Is.EqualTo(expected.Length));
+    Assert.That(actual, Is.EqualTo(expected));
+  }
+
+  [Test]
+  public void CompressedFileStreamTailWriterStopsWhenClosedBeforeItStarts()
+  {
+    var provider = new InMemoryFileStreamProvider();
+    // Closing right after construction runs before the tail writer
+    // thread starts in most iterations.
+    var tailWriters = new List<Task>();
+    for (var i = 0; i < 20; ++i)
+    {
+      var stream = new CompressedFileStream(
+          new ConsoleLogger(),
+          provider,
+          $"CompressedFileStreamTailWriterStopsWhenClosedBeforeItStarts{i}.wal",
+          16,
+          true,
+          1,
+          CompressionMethod.None,
+          0);
+      tailWriters.Add(stream.TailWriterTask);
+      stream.Dispose();
+    }
+
+    Assert.That(Task.WaitAll(tailWriters.ToArray(), TimeSpan.FromSeconds(10)), Is.True);
+  }
+
+  [Test]
+  public void CompressedFileStreamDoesNotRewriteUnchangedTailOnClose()
+  {
+    var dataPath = "data/CompressedFileStreamDoesNotRewriteUnchangedTailOnClose";
+    if (Directory.Exists(dataPath))
+      Directory.Delete(dataPath, true);
+    Directory.CreateDirectory(dataPath);
+    var provider = new LocalFileStreamProvider();
+    var filePath = Path.Combine(dataPath, "stream.wal");
+    var tailPath = filePath + ".tail";
+    const int blockSize = 32;
+    // Shorter than a block so the data stays in the tail.
+    var expected = Enumerable.Range(0, 10).Select(x => (byte)x).ToArray();
+
+    CompressedFileStream Open() => new(
+        new ConsoleLogger(),
+        provider,
+        filePath,
+        blockSize,
+        false,
+        0,
+        CompressionMethod.None,
+        0);
+
+    using (var stream = Open())
+      stream.Write(expected, 0, expected.Length);
+
+    var unchangedSince = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    File.SetLastWriteTimeUtc(tailPath, unchangedSince);
+
+    using (Open())
+    {
+    }
+
+    Assert.That(File.GetLastWriteTimeUtc(tailPath), Is.EqualTo(unchangedSince));
+    var actual = new byte[expected.Length];
+    int readLength;
+    using (var stream = Open())
+      readLength = stream.Read(actual, 0, actual.Length);
+    Assert.That(readLength, Is.EqualTo(expected.Length));
+    Assert.That(actual, Is.EqualTo(expected));
+  }
+
+  // A loaded tail is not rewritten on close. Truncations after loading must
+  // still persist the tail, or the next open reads stale tail bytes.
+
+  [Test]
+  public void CompressedFileStreamPersistsTailAfterTruncatingIntoMainFile()
+  {
+    // Two committed blocks and 8 tail bytes.
+    AssertReopenedStreamMatchesState(
+        "CompressedFileStreamPersistsTailAfterTruncatingIntoMainFile.wal",
+        40,
+        stream => stream.SetLength(20));
+  }
+
+  // Two committed 16-byte blocks and 8 tail bytes: cut inside a block,
+  // at block boundaries, at the end of the main file and inside the tail.
+  [TestCase(1)]
+  [TestCase(15)]
+  [TestCase(16)]
+  [TestCase(20)]
+  [TestCase(31)]
+  [TestCase(32)]
+  [TestCase(33)]
+  [TestCase(39)]
+  public void CompressedFileStreamTruncationIntoMainFileKeepsRequestedLength(int truncatedLength)
+  {
+    var provider = new InMemoryFileStreamProvider();
+    var filePath = "CompressedFileStreamTruncationIntoMainFileKeepsRequestedLength.wal";
+    var data = Enumerable.Range(0, 40).Select(x => (byte)x).ToArray();
+
+    CompressedFileStream Open() => new(
+        new ConsoleLogger(),
+        provider,
+        filePath,
+        16,
+        false,
+        0,
+        CompressionMethod.None,
+        0);
+
+    using (var stream = Open())
+      stream.Write(data, 0, data.Length);
+
+    long lengthAfterTruncation;
+    using (var stream = Open())
+    {
+      stream.SetLength(truncatedLength);
+      lengthAfterTruncation = stream.Length;
+    }
+
+    var actual = new byte[data.Length];
+    int readLength;
+    using (var stream = Open())
+    {
+      stream.Seek(0, SeekOrigin.Begin);
+      readLength = stream.Read(actual, 0, actual.Length);
+    }
+
+    Assert.That(lengthAfterTruncation, Is.EqualTo(truncatedLength));
+    Assert.That(actual.Take(readLength), Is.EqualTo(data.Take(truncatedLength)));
+  }
+
+  [Test]
+  public void CompressedFileStreamCanAppendAfterTruncatingWithinTail()
+  {
+    var provider = new InMemoryFileStreamProvider();
+    var filePath = "CompressedFileStreamCanAppendAfterTruncatingWithinTail.wal";
+    // All 8 bytes stay in the tail of a 16-byte block.
+    var data = Enumerable.Range(0, 8).Select(x => (byte)x).ToArray();
+    var appended = new byte[] { 100, 101, 102, 103 };
+
+    CompressedFileStream Open() => new(
+        new ConsoleLogger(),
+        provider,
+        filePath,
+        16,
+        false,
+        0,
+        CompressionMethod.None,
+        0);
+
+    using (var stream = Open())
+      stream.Write(data, 0, data.Length);
+
+    using (var stream = Open())
+    {
+      stream.Seek(0, SeekOrigin.End);
+      stream.SetLength(4);
+      // A WAL appends right after truncating an incomplete record.
+      stream.Write(appended, 0, appended.Length);
+    }
+
+    var actual = new byte[data.Length];
+    int readLength;
+    using (var stream = Open())
+    {
+      stream.Seek(0, SeekOrigin.Begin);
+      readLength = stream.Read(actual, 0, actual.Length);
+    }
+
+    Assert.That(actual.Take(readLength), Is.EqualTo(data.Take(4).Concat(appended)));
+  }
+
+  // A tail loaded from disk or trimmed by a truncation is sized to its content.
+  // Appending must grow it to the block size instead of committing it as a
+  // short or empty block. Each case runs with every compression method.
+
+  [Test]
+  public void CompressedFileStreamAppendAfterReopenFillsLoadedTail(
+      [Values] CompressionMethod compressionMethod)
+  {
+    var provider = new InMemoryFileStreamProvider();
+    var filePath = $"CompressedFileStreamAppendAfterReopenFillsLoadedTail.{compressionMethod}.wal";
+    var data = Enumerable.Range(0, 16).Select(x => (byte)x).ToArray();
+
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+      stream.Write(data, 0, 8);
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+      stream.Write(data, 8, 8);
+
+    Assert.That(GetCommittedBlockLengths(provider, filePath), Is.EqualTo(new[] { 16 }));
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+      Assert.That(ReadStream(stream), Is.EqualTo(data));
+  }
+
+  [Test]
+  public void CompressedFileStreamAppendAfterReopenWithEmptyTailCommitsNoEmptyBlock(
+      [Values] CompressionMethod compressionMethod)
+  {
+    var provider = new InMemoryFileStreamProvider();
+    var filePath = $"CompressedFileStreamAppendAfterReopenWithEmptyTailCommitsNoEmptyBlock.{compressionMethod}.wal";
+    var data = Enumerable.Range(0, 36).Select(x => (byte)x).ToArray();
+
+    // A full block leaves an empty tail on disk.
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+      stream.Write(data, 0, 16);
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+      stream.Write(data, 16, 20);
+
+    Assert.That(GetCommittedBlockLengths(provider, filePath), Is.EqualTo(new[] { 16, 16 }));
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+      Assert.That(ReadStream(stream), Is.EqualTo(data));
+  }
+
+  [Test]
+  public void CompressedFileStreamAppendAfterTruncationCommitsNoEmptyBlock(
+      [Values] CompressionMethod compressionMethod)
+  {
+    var provider = new InMemoryFileStreamProvider();
+    var filePath = $"CompressedFileStreamAppendAfterTruncationCommitsNoEmptyBlock.{compressionMethod}.wal";
+    var data = Enumerable.Range(0, 40).Select(x => (byte)x).ToArray();
+    var appended = Enumerable.Range(100, 20).Select(x => (byte)x).ToArray();
+
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+      stream.Write(data, 0, data.Length);
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+    {
+      // Cut at a block boundary: the tail is trimmed to nothing.
+      stream.SetLength(16);
+      stream.Write(appended, 0, appended.Length);
+    }
+
+    Assert.That(GetCommittedBlockLengths(provider, filePath), Is.EqualTo(new[] { 16, 16 }));
+    using (var stream = OpenCompressedFileStream(provider, filePath, compressionMethod))
+      Assert.That(ReadStream(stream), Is.EqualTo(data.Take(16).Concat(appended)));
+  }
+
+  static CompressedFileStream OpenCompressedFileStream(
+      InMemoryFileStreamProvider provider,
+      string filePath,
+      CompressionMethod compressionMethod)
+  {
+    return new CompressedFileStream(
+        new ConsoleLogger(),
+        provider,
+        filePath,
+        16,
+        false,
+        0,
+        compressionMethod,
+        0);
+  }
+
+  static byte[] ReadStream(CompressedFileStream stream)
+  {
+    var bytes = new byte[stream.Length];
+    stream.Seek(0, SeekOrigin.Begin);
+    var readLength = stream.Read(bytes, 0, bytes.Length);
+    return bytes.AsSpan(0, readLength).ToArray();
+  }
+
+  /// <summary>
+  /// Reads the decompressed length of every committed block in the main file:
+  /// one metadata byte, then block index, compressed length, decompressed
+  /// length and the compressed payload for each block.
+  /// </summary>
+  static int[] GetCommittedBlockLengths(InMemoryFileStreamProvider provider, string filePath)
+  {
+    var bytes = provider.ReadAllBytes(filePath);
+    var lengths = new List<int>();
+    var offset = 1;
+    while (offset < bytes.Length)
+    {
+      var compressedLength = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset + sizeof(int)));
+      lengths.Add(BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset + 2 * sizeof(int))));
+      offset += 3 * sizeof(int) + compressedLength;
+    }
+    return lengths.ToArray();
+  }
+
+  /// <summary>
+  /// Writes the initial bytes, reopens the stream, applies the change
+  /// and expects a later reopen to read exactly the content
+  /// the stream had before it was closed.
+  /// </summary>
+  static void AssertReopenedStreamMatchesState(
+      string filePath,
+      int initialLength,
+      Action<CompressedFileStream> change)
+  {
+    var provider = new InMemoryFileStreamProvider();
+    const int blockSize = 16;
+    var data = Enumerable.Range(0, initialLength).Select(x => (byte)x).ToArray();
+
+    CompressedFileStream Open() => new(
+        new ConsoleLogger(),
+        provider,
+        filePath,
+        blockSize,
+        false,
+        0,
+        CompressionMethod.None,
+        0);
+
+    static byte[] ReadAll(CompressedFileStream stream)
+    {
+      var bytes = new byte[stream.Length];
+      stream.Seek(0, SeekOrigin.Begin);
+      var readLength = stream.Read(bytes, 0, bytes.Length);
+      return bytes.AsSpan(0, readLength).ToArray();
+    }
+
+    using (var stream = Open())
+      stream.Write(data, 0, data.Length);
+
+    byte[] expected;
+    using (var stream = Open())
+    {
+      change(stream);
+      expected = ReadAll(stream);
+    }
+
+    byte[] actual;
+    using (var stream = Open())
+      actual = ReadAll(stream);
+
     Assert.That(actual, Is.EqualTo(expected));
   }
 

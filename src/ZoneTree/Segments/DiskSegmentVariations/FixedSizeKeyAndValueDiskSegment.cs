@@ -126,6 +126,9 @@ public sealed class FixedSizeKeyAndValueDiskSegment<TKey, TValue> : DiskSegment<
     sparseArrayDevice.Close();
   }
 
+  protected override long SearchKeys(in TKey key, long lower, long upper)
+      => SearchFixedSizeKeys(in key, lower, upper, DataDevice, KeySize + ValueSize);
+
   protected override TKey ReadKey(long index, BlockPin blockPin)
   {
     if (CircularKeyCache.TryGet(index, out var key)) return key;

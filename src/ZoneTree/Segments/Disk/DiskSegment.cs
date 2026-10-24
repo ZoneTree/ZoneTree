@@ -7,6 +7,7 @@ using ZoneTree.Exceptions;
 using ZoneTree.Hashers;
 using ZoneTree.Options;
 using ZoneTree.Segments.Block;
+using ZoneTree.Segments.Model;
 using ZoneTree.Segments.RandomAccess;
 using ZoneTree.Serializers;
 using ZoneTree.Synchronization;
@@ -74,6 +75,70 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
   protected int ValueSize;
 
   protected IReadOnlyList<SparseArrayEntry<TKey, TValue>> SparseArray = Array.Empty<SparseArrayEntry<TKey, TValue>>();
+
+  ReadEntriesDelegate<TKey, TValue> ReadEntriesHandler;
+
+  sealed class DenseKeyRange(
+      IReadOnlyList<SparseArrayEntry<TKey, TValue>> entries, long firstKey, int direction)
+  {
+    public readonly IReadOnlyList<SparseArrayEntry<TKey, TValue>> Entries = entries;
+    public readonly long FirstKey = firstKey;
+    public readonly int Direction = direction;
+  }
+
+  volatile DenseKeyRange DenseKeys;
+
+  DenseKeyRange GetDenseKeyRange(IReadOnlyList<SparseArrayEntry<TKey, TValue>> entries)
+  {
+    if (entries.Count == 0 || entries[0].Index != 0 || entries[^1].Index != Length - 1)
+      return new(entries, 0, 0);
+    var ascending = Comparer is Int64ComparerAscending or Int32ComparerAscending;
+    var descending = Comparer is Int64ComparerDescending or Int32ComparerDescending;
+    if (!ascending && !descending)
+      return new(entries, 0, 0);
+    var first = GetIntegerKey(in entries[0].Key);
+    var last = GetIntegerKey(in entries[^1].Key);
+    var distance = descending ? unchecked((ulong)(first - last)) : unchecked((ulong)(last - first));
+    // Ordered, unique integer keys fill the entire interval exactly when
+    // its width matches the number of entries. No per-key map is needed.
+    return new(entries, first, distance == (ulong)(Length - 1) ? (descending ? -1 : 1) : 0);
+  }
+
+  [MethodImpl(MethodImplOptions.AggressiveInlining)]
+  static long GetIntegerKey(in TKey key) => typeof(TKey) == typeof(long)
+      ? Unsafe.As<TKey, long>(ref Unsafe.AsRef(in key))
+      : Unsafe.As<TKey, int>(ref Unsafe.AsRef(in key));
+
+  bool TryGetDenseKeyPosition(in TKey key, out long position)
+  {
+    if (typeof(TKey) != typeof(long) && typeof(TKey) != typeof(int))
+    {
+      position = 0;
+      return false;
+    }
+    var entries = SparseArray;
+    var range = DenseKeys;
+    if (range == null || !ReferenceEquals(range.Entries, entries))
+    {
+      range = GetDenseKeyRange(entries);
+      DenseKeys = range;
+    }
+    if (range.Direction == 0)
+    {
+      position = 0;
+      return false;
+    }
+    var integerKey = GetIntegerKey(in key);
+    var offset = range.Direction < 0
+        ? unchecked((ulong)(range.FirstKey - integerKey))
+        : unchecked((ulong)(integerKey - range.FirstKey));
+    if (offset < (ulong)Length)
+      position = (long)offset;
+    else
+      position = (range.Direction < 0 ? integerKey > range.FirstKey : integerKey < range.FirstKey)
+          ? -1 : Length;
+    return true;
+  }
 
   LifecycleLeaseState IteratorLeaseState;
 
@@ -171,6 +236,8 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
 
   public bool ContainsKey(in TKey key, ref KeyHashProvider<TKey> keyHashProvider)
   {
+    if (TryGetDenseKeyPosition(in key, out var densePosition))
+      return (ulong)densePosition < (ulong)Length;
     var sparseArrayLength = SparseArray.Count;
     long lower = 0;
     long upper = Length - 1;
@@ -185,7 +252,7 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
       lower = SparseArray[index].Index;
       upper = SparseArray[index + 1].Index - 1;
     }
-    var res = BinarySearchAlgorithms.BinarySearch(ReadKey, lower, upper, Comparer, in key);
+    var res = SearchKeys(in key, lower, upper);
     return res >= 0;
   }
 
@@ -201,6 +268,16 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
 
   public bool TryGet(in TKey key, out TValue value, ref KeyHashProvider<TKey> keyHashProvider)
   {
+    if (TryGetDenseKeyPosition(in key, out var densePosition))
+    {
+      if ((ulong)densePosition < (ulong)Length)
+      {
+        value = GetValue(densePosition);
+        return true;
+      }
+      value = default;
+      return false;
+    }
     var searchHint = SearchHints?.Value;
     var direction = searchHint?.Direction ?? 0;
     if (direction != 0 && TryGetFromSearchHint(
@@ -236,7 +313,7 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
       lower = SparseArray[index].Index;
       upper = SparseArray[index + 1].Index - 1;
     }
-    var result = BinarySearchAlgorithms.BinarySearch(ReadKey, lower, upper, Comparer, in key);
+    var result = SearchKeys(in key, lower, upper);
     if (result < 0)
     {
       if (searchHint != null)
@@ -425,6 +502,131 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
 
   protected TValue ReadValue(long index) => ReadValue(index, null);
 
+  // Return the complemented insertion position for a missing key so point
+  // lookups and both seek directions can share the same search.
+  protected virtual long SearchKeys(in TKey key, long lower, long upper)
+      => SearchKeysIndividually(in key, lower, upper);
+
+  long SearchKeysIndividually(in TKey key, long lower, long upper)
+  {
+    while (lower <= upper)
+    {
+      var mid = lower + (upper - lower) / 2;
+      var comparison = Comparer.Compare(ReadKey(mid), in key);
+      if (comparison == 0)
+        return mid;
+      if (comparison < 0)
+        lower = mid + 1;
+      else
+        upper = mid - 1;
+    }
+    return ~lower;
+  }
+
+  protected long SearchFixedSizeKeys(
+      in TKey key, long lower, long upper,
+      IRandomAccessDevice device, int recordSize)
+  {
+    const int maximumWindowBytes = 64 * 1024;
+    var count = upper - lower + 1;
+    if (count <= 0)
+      return ~lower;
+    // Sparse arrays usually restrict the search to a small window. Keep
+    // large searches incremental rather than reading an entire segment.
+    if (count > maximumWindowBytes / recordSize)
+      return SearchKeysIndividually(in key, lower, upper);
+    var byteOffset = lower * recordSize;
+    var byteCount = (int)(count - 1) * recordSize + KeySize;
+    if (!IsWithinOneCompressionBlock(byteOffset, byteCount))
+      return SearchKeysIndividually(in key, lower, upper);
+
+    var readStripe = BeginRead();
+    try
+    {
+      var bytes = device.GetBytes(byteOffset, byteCount);
+      var start = lower;
+      while (lower <= upper)
+      {
+        var mid = lower + (upper - lower) / 2;
+        var candidate = KeySerializer.Deserialize(
+            bytes.Slice((int)(mid - start) * recordSize, KeySize));
+        var comparison = Comparer.Compare(in candidate, in key);
+        if (comparison == 0)
+          return mid;
+        if (comparison < 0)
+          lower = mid + 1;
+        else
+          upper = mid - 1;
+      }
+      return ~lower;
+    }
+    finally
+    {
+      EndRead(readStripe);
+    }
+  }
+
+  protected unsafe long SearchVariableSizeKeys(
+      in TKey key, long lower, long upper,
+      IRandomAccessDevice headerDevice, int recordSize)
+  {
+    const int maximumWindowBytes = 64 * 1024;
+    var count = upper - lower + 1;
+    if (count <= 0)
+      return ~lower;
+    if (count > maximumWindowBytes / recordSize)
+      return SearchKeysIndividually(in key, lower, upper);
+    var headerOffset = lower * recordSize;
+    var headerLength = (int)(count - 1) * recordSize + sizeof(KeyHead);
+    if (!IsWithinOneCompressionBlock(headerOffset, headerLength))
+      return SearchKeysIndividually(in key, lower, upper);
+
+    var readStripe = BeginRead();
+    try
+    {
+      var headers = headerDevice.GetBytes(headerOffset, headerLength);
+      var first = BinarySerializerHelper.FromByteArray<KeyHead>(headers);
+      var last = BinarySerializerHelper.FromByteArray<KeyHead>(headers, (int)(count - 1) * recordSize);
+      var byteCount = last.KeyOffset + last.KeyLength - first.KeyOffset;
+      // Variable-sized values may separate the keys by megabytes. Only fetch
+      // the whole key window when it is small enough to be useful.
+      var hasKeyWindow = byteCount >= 0 && byteCount <= maximumWindowBytes &&
+          (byteCount == 0 || IsWithinOneCompressionBlock(first.KeyOffset, byteCount));
+      var keyWindow = hasKeyWindow
+          ? DataDevice.GetBytes(first.KeyOffset, (int)byteCount)
+          : default;
+      var start = lower;
+      while (lower <= upper)
+      {
+        var mid = lower + (upper - lower) / 2;
+        var head = BinarySerializerHelper.FromByteArray<KeyHead>(
+            headers, (int)(mid - start) * recordSize);
+        var bytes = hasKeyWindow
+            ? keyWindow.Slice((int)(head.KeyOffset - first.KeyOffset), head.KeyLength)
+            : DataDevice.GetBytes(head.KeyOffset, head.KeyLength);
+        var candidate = KeySerializer.Deserialize(bytes);
+        var comparison = Comparer.Compare(in candidate, in key);
+        if (comparison == 0)
+          return mid;
+        if (comparison < 0)
+          lower = mid + 1;
+        else
+          upper = mid - 1;
+      }
+      return ~lower;
+    }
+    finally
+    {
+      EndRead(readStripe);
+    }
+  }
+
+  bool IsWithinOneCompressionBlock(long offset, long length)
+  {
+    var blockSize = Options.DiskSegmentOptions.CompressionBlockSize;
+    return offset / blockSize == (offset + length - 1) / blockSize;
+  }
+
   [MethodImpl(MethodImplOptions.AggressiveInlining)]
   protected int BeginRead()
   {
@@ -456,12 +658,21 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
   {
     var list = SparseArray;
     var comp = Comparer;
-
-    int compareKeyByIndex(int index)
+    var left = 0;
+    var right = list.Count - 1;
+    var result = list.Count;
+    while (left <= right)
     {
-      return comp.Compare(in list[index].Key, in key);
+      var mid = left + (right - left) / 2;
+      if (comp.Compare(in list[mid].Key, in key) >= 0)
+      {
+        result = mid;
+        right = mid - 1;
+      }
+      else
+        left = mid + 1;
     }
-    return BinarySearchAlgorithms.FirstGreaterOrEqualPosition(compareKeyByIndex, 0, list.Count - 1);
+    return result;
   }
 
   /// <summary>
@@ -473,12 +684,21 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
   {
     var list = SparseArray;
     var comp = Comparer;
-
-    int compareKeyByIndex(int index)
+    var left = 0;
+    var right = list.Count - 1;
+    var result = -1;
+    while (left <= right)
     {
-      return comp.Compare(in list[index].Key, in key);
+      var mid = left + (right - left) / 2;
+      if (comp.Compare(in list[mid].Key, in key) <= 0)
+      {
+        result = mid;
+        left = mid + 1;
+      }
+      else
+        right = mid - 1;
     }
-    return BinarySearchAlgorithms.LastSmallerOrEqualPosition(compareKeyByIndex, 0, list.Count - 1);
+    return result;
   }
 
   (int index, bool found) SearchLastSmallerOrEqualPositionInSparseArray(in TKey key)
@@ -628,15 +848,19 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
     if (prefetchSize < 2)
       return new SeekableIterator<TKey, TValue>(this, contributeToTheBlockCache);
 
+    // Create the delegate once per segment instead of once per iterator.
+    var readEntries = ReadEntriesHandler ??= ReadEntries;
     return new PrefetchingSeekableIterator<TKey, TValue>(
           this,
-          ReadEntries,
+          readEntries,
           prefetchSize,
           contributeToTheBlockCache);
   }
 
   public long GetLastSmallerOrEqualPosition(in TKey key)
   {
+    if (TryGetDenseKeyPosition(in key, out var densePosition))
+      return Math.Min(densePosition, Length - 1);
     var sparseArrayLength = SparseArray.Count;
     long lower = 0;
     long upper = Length - 1;
@@ -652,11 +876,14 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
       lower = SparseArray[index].Index;
       upper = SparseArray[index + 1].Index - 1;
     }
-    return BinarySearchAlgorithms.LastSmallerOrEqualPosition(ReadKey, lower, upper, Comparer, in key);
+    var result = SearchKeys(in key, lower, upper);
+    return result >= 0 ? result : ~result - 1;
   }
 
   public long GetFirstGreaterOrEqualPosition(in TKey key)
   {
+    if (TryGetDenseKeyPosition(in key, out var densePosition))
+      return Math.Max(densePosition, 0);
     var sparseArrayLength = SparseArray.Count;
     long lower = 0;
     long upper = Length - 1;
@@ -674,7 +901,8 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
       lower = SparseArray[index].Index;
       upper = SparseArray[index + 1].Index - 1;
     }
-    return BinarySearchAlgorithms.FirstGreaterOrEqualPosition(ReadKey, lower, upper, Comparer, in key);
+    var result = SearchKeys(in key, lower, upper);
+    return result >= 0 ? result : ~result;
   }
 
   public virtual void ReleaseResources()

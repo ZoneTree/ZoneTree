@@ -151,6 +151,9 @@ public sealed partial class VariableSizeDiskSegment<TKey, TValue> : DiskSegment<
     sparseArrayDevice.Close();
   }
 
+  protected unsafe override long SearchKeys(in TKey key, long lower, long upper)
+      => SearchVariableSizeKeys(in key, lower, upper, DataHeaderDevice, sizeof(EntryHead));
+
   protected unsafe override TKey ReadKey(long index, BlockPin blockPin)
   {
     if (CircularKeyCache.TryGet(index, out var key)) return key;

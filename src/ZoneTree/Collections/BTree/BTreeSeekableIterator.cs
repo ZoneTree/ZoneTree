@@ -27,14 +27,26 @@ public sealed class BTreeSeekableIterator<TKey, TValue>
 
   BTree<TKey, TValue>.NodeIterator CurrentNode;
 
+  // The first leaf is opened on first use. Iterators are usually positioned
+  // by a seek, so opening it up front would be wasted work.
+  bool IsPositioned;
+
   public BTreeSeekableIterator(BTree<TKey, TValue> bTree)
   {
     BTree = bTree;
-    CurrentNode = bTree.GetFirstIterator();
+  }
+
+  void EnsurePositioned()
+  {
+    if (IsPositioned)
+      return;
+    CurrentNode = BTree.GetFirstIterator();
+    IsPositioned = true;
   }
 
   public bool Next()
   {
+    EnsurePositioned();
     if (CurrentNode.Next())
       return true;
 
@@ -48,6 +60,7 @@ public sealed class BTreeSeekableIterator<TKey, TValue>
 
   public bool Prev()
   {
+    EnsurePositioned();
     if (CurrentNode.Previous())
       return true;
 
@@ -61,6 +74,7 @@ public sealed class BTreeSeekableIterator<TKey, TValue>
 
   public bool SeekBegin()
   {
+    IsPositioned = true;
     CurrentNode = BTree.GetFirstIterator();
     CurrentNode.SeekBegin();
     return HasCurrent;
@@ -68,6 +82,7 @@ public sealed class BTreeSeekableIterator<TKey, TValue>
 
   public bool SeekEnd()
   {
+    IsPositioned = true;
     CurrentNode = BTree.GetLastIterator();
     CurrentNode.SeekEnd();
     return HasCurrent;
@@ -75,12 +90,14 @@ public sealed class BTreeSeekableIterator<TKey, TValue>
 
   public bool SeekToFirstGreaterOrEqualElement(in TKey key)
   {
+    IsPositioned = true;
     CurrentNode = BTree.GetIteratorWithFirstKeyGreaterOrEqual(in key);
     return HasCurrent;
   }
 
   public bool SeekToLastSmallerOrEqualElement(in TKey key)
   {
+    IsPositioned = true;
     CurrentNode = BTree.GetIteratorWithLastKeySmallerOrEqual(in key);
     return HasCurrent;
   }

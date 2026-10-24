@@ -53,7 +53,7 @@ public sealed class ZoneTreeMaintainer<TKey, TValue> : IMaintainer, IDisposable
     set
     {
       if (value && !isPeriodicTimerRunning)
-        Task.Run(StartPeriodicTimer);
+        StartPeriodicTimer();
       else if (!value)
         StopPeriodicTimer();
     }
@@ -80,7 +80,7 @@ public sealed class ZoneTreeMaintainer<TKey, TValue> : IMaintainer, IDisposable
     Maintenance = zoneTree.Maintenance;
     AttachEvents();
     if (startJobForCleaningInactiveBlockCaches)
-      Task.Run(StartPeriodicTimer);
+      StartPeriodicTimer();
   }
 
   /// <summary>
@@ -94,7 +94,7 @@ public sealed class ZoneTreeMaintainer<TKey, TValue> : IMaintainer, IDisposable
     ZoneTree = zoneTree.Maintenance.ZoneTree;
     Maintenance = ZoneTree.Maintenance;
     AttachEvents();
-    Task.Run(StartPeriodicTimer);
+    StartPeriodicTimer();
   }
 
   void AttachEvents()
@@ -266,16 +266,24 @@ public sealed class ZoneTreeMaintainer<TKey, TValue> : IMaintainer, IDisposable
     PeriodicTimerCancellationTokenSource = new();
   }
 
-  async Task StartPeriodicTimer()
+  void StartPeriodicTimer()
   {
     if (isPeriodicTimerRunning)
       StopPeriodicTimer();
     isPeriodicTimerRunning = true;
-    var cts = PeriodicTimerCancellationTokenSource;
+    // Capture the token before the timer task starts.
+    // The task can start after this maintainer is disposed,
+    // when reading the disposed token source would throw.
+    var cancellationToken = PeriodicTimerCancellationTokenSource.Token;
+    Task.Run(() => RunPeriodicTimer(cancellationToken));
+  }
+
+  async Task RunPeriodicTimer(CancellationToken cancellationToken)
+  {
     using var timer = new PeriodicTimer(InactiveBlockCacheCleanupInterval);
-    while (await timer.WaitForNextTickAsync(cts.Token))
+    while (await timer.WaitForNextTickAsync(cancellationToken))
     {
-      if (cts.IsCancellationRequested)
+      if (cancellationToken.IsCancellationRequested)
         break;
       var zoneTreeMaintenance = ZoneTree.Maintenance;
       var diskSegment = ZoneTree.Maintenance.DiskSegment;

@@ -209,17 +209,14 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
 
   public void MarkFrozen()
   {
-    Task.Run(() =>
+    try
     {
-      try
-      {
-        FileStream.Dispose();
-      }
-      catch (Exception e)
-      {
-        Logger.LogError(e);
-      }
-    });
+      FileStream.Dispose();
+    }
+    catch (Exception e)
+    {
+      Logger.LogError(e);
+    }
   }
 
   public void TruncateIncompleteTailRecord(IncompleteTailRecordFoundException incompleteTailException)

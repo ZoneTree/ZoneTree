@@ -46,6 +46,8 @@ public sealed class MultiPartDiskSegment<TKey, TValue> : IDiskSegment<TKey, TVal
 
   readonly ZoneTreeOptions<TKey, TValue> Options;
 
+  ReadEntriesDelegate<TKey, TValue> ReadEntriesHandler;
+
   public long Length { get; }
 
   public long MaximumOpIndex => 0;
@@ -465,9 +467,11 @@ public sealed class MultiPartDiskSegment<TKey, TValue> : IDiskSegment<TKey, TVal
     if (prefetchSize < 2)
       return new SeekableIterator<TKey, TValue>(this, contributeToTheBlockCache);
 
+    // Create the delegate once per segment instead of once per iterator.
+    var readEntries = ReadEntriesHandler ??= ReadEntries;
     return new PrefetchingSeekableIterator<TKey, TValue>(
           this,
-          ReadEntries,
+          readEntries,
           prefetchSize,
           contributeToTheBlockCache);
   }

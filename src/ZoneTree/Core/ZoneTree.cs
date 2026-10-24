@@ -43,6 +43,13 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
   readonly Lock ShortMergerLock = new();
 
+  // Open iterators are released when the tree is disposed. Tracking them here
+  // instead of subscribing each one to OnZoneTreeIsDisposing avoids rebuilding
+  // a shared delegate list on every iterator creation and disposal.
+  readonly ConcurrentDictionary<long, ZoneTreeIterator<TKey, TValue>> OpenIterators = new();
+
+  long NextIteratorId;
+
   volatile bool IsMergingFlag;
 
   volatile bool IsBottomSegmentsMergingFlag;
@@ -260,9 +267,26 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
   }
 
 
+  internal long RegisterIterator(ZoneTreeIterator<TKey, TValue> iterator)
+  {
+    // Object identity hashes require runtime bookkeeping for each new iterator.
+    // An integer id keeps registration cheap for short scans.
+    var id = Interlocked.Increment(ref NextIteratorId);
+    OpenIterators.TryAdd(id, iterator);
+    return id;
+  }
+
+  internal void UnregisterIterator(long id)
+  {
+    OpenIterators.TryRemove(id, out _);
+  }
+
   public void Dispose()
   {
     OnZoneTreeIsDisposing?.Invoke(this);
+    foreach (var iterator in OpenIterators.Values)
+      iterator.ReleaseOnTreeDisposing();
+    OpenIterators.Clear();
     MutableSegment.ReleaseResources();
     _diskSegment.Dispose();
     MetaWal.Dispose();

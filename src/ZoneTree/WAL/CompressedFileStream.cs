@@ -1,5 +1,7 @@
+using System.Runtime.InteropServices;
 using System.Text;
 using ZoneTree.AbstractFileStream;
+using ZoneTree.Compression;
 using ZoneTree.Logger;
 using ZoneTree.Options;
 using ZoneTree.Segments.Block;
@@ -33,6 +35,12 @@ public sealed class CompressedFileStream : Stream, IDisposable
 
   volatile int CurrentBlockPosition;
 
+  byte[] CompressedReadBuffer;
+
+  byte[] DecompressedReadBuffer;
+
+  byte[] CompressBuffer;
+
   readonly BinaryReader BinaryReader;
 
   readonly BinaryWriter BinaryWriter;
@@ -44,6 +52,8 @@ public sealed class CompressedFileStream : Stream, IDisposable
   long _length;
 
   volatile bool IsTailWriterRunning;
+
+  internal Task TailWriterTask { get; }
 
   readonly int TailWriterJobInterval;
 
@@ -162,7 +172,11 @@ public sealed class CompressedFileStream : Stream, IDisposable
     TailWriterJobInterval = tailWriterJobInterval;
     if (enableTailWriterJob)
     {
-      Task.Factory.StartNew(
+      // Mark the writer running before it starts.
+      // Setting it on the writer thread would undo a Close() that happens
+      // before the thread starts, leaving the writer loop running forever.
+      IsTailWriterRunning = true;
+      TailWriterTask = Task.Factory.StartNew(
           TailWriteLoop,
           CancellationToken.None,
           TaskCreationOptions.LongRunning,
@@ -187,7 +201,6 @@ public sealed class CompressedFileStream : Stream, IDisposable
 
   void TailWriteLoop()
   {
-    IsTailWriterRunning = true;
     while (IsTailWriterRunning)
     {
       try
@@ -238,7 +251,8 @@ public sealed class CompressedFileStream : Stream, IDisposable
       return;
     }
     var len = TailStream.Length;
-    if (len < 2 * sizeof(int) + decompressedLength)
+    var isTruncated = len < 2 * sizeof(int) + decompressedLength;
+    if (isTruncated)
     {
       decompressedLength = (int)(len - 2 * sizeof(int));
       if (decompressedLength <= 0)
@@ -249,6 +263,13 @@ public sealed class CompressedFileStream : Stream, IDisposable
     }
     bytes = br.ReadBytes(decompressedLength);
     TailBlock = new DecompressedBlock(blockIndex, bytes, CompressionMethod, CompressionLevel);
+    if (!isTruncated && bytes.Length == decompressedLength)
+    {
+      // The tail file already holds this block.
+      // Closing an unchanged stream must not rewrite and fsync it.
+      LastWrittenTailIndex = blockIndex;
+      LastWrittenTailLength = decompressedLength;
+    }
   }
 
   public void WriteTail()
@@ -272,11 +293,27 @@ public sealed class CompressedFileStream : Stream, IDisposable
       if (IsClosed || !TailStream.CanWrite)
         return;
 
-      TailStream.Position = 0;
-      BinaryTailWriter.Write(tailBlock.BlockIndex);
-      BinaryTailWriter.Write(tailBlock.Length);
-      var bytes = tailBlock.GetBytes(0, tailBlock.Length);
-      BinaryTailWriter.Write(bytes.Span);
+      var writtenLength = LastWrittenTailLength;
+      if (tailBlock.BlockIndex == LastWrittenTailIndex &&
+          tailBlock.Length > writtenLength)
+      {
+        // Within a block the tail only grows: truncations reset
+        // LastWrittenTailIndex. Append the new bytes and then update the
+        // length, which leaves the file identical to a full rewrite.
+        TailStream.Position = 2 * sizeof(int) + writtenLength;
+        BinaryTailWriter.Write(
+            tailBlock.GetBytes(writtenLength, tailBlock.Length - writtenLength).Span);
+        TailStream.Position = sizeof(int);
+        BinaryTailWriter.Write(tailBlock.Length);
+      }
+      else
+      {
+        TailStream.Position = 0;
+        BinaryTailWriter.Write(tailBlock.BlockIndex);
+        BinaryTailWriter.Write(tailBlock.Length);
+        var bytes = tailBlock.GetBytes(0, tailBlock.Length);
+        BinaryTailWriter.Write(bytes.Span);
+      }
       TailStream.Flush(true);
       LastWrittenTailIndex = tailBlock.BlockIndex;
       LastWrittenTailLength = tailBlock.Length;
@@ -294,23 +331,51 @@ public sealed class CompressedFileStream : Stream, IDisposable
       return true;
     }
     CurrentBlockPosition = 0;
-    var bytes = BinaryReader.ReadBytes(3 * sizeof(int));
-    var blockIndex =
-        BinarySerializerHelper.FromByteArray<int>(bytes, 0);
-    var compressedBlockSize =
-        BinarySerializerHelper.FromByteArray<int>(bytes, sizeof(int));
-    var blockSize =
-        BinarySerializerHelper.FromByteArray<int>(bytes, 2 * sizeof(int));
+    Span<byte> header = stackalloc byte[3 * sizeof(int)];
+    ReadMainFileExactly(header);
+    var blockIndex = MemoryMarshal.Read<int>(header);
+    var compressedBlockSize = MemoryMarshal.Read<int>(header.Slice(sizeof(int)));
+    var blockSize = MemoryMarshal.Read<int>(header.Slice(2 * sizeof(int)));
 
-    bytes = BinaryReader.ReadBytes(compressedBlockSize);
-
-    var nextBlock = DecompressedBlock
-        .FromCompressed(
-            blockIndex, bytes,
-            CompressionMethod, CompressionLevel,
-            blockSize);
-    CurrentBlock = nextBlock;
+    // Reuse the read buffers across blocks. Only CurrentBlock refers to a
+    // block loaded for reading, and reads copy its bytes out before the next load.
+    var compressedBytes = GetReadBuffer(ref CompressedReadBuffer, compressedBlockSize);
+    ReadMainFileExactly(compressedBytes.Span);
+    var decompressedBytes = GetReadBuffer(ref DecompressedReadBuffer, blockSize);
+    DataCompression.DecompressInto(CompressionMethod, compressedBytes, decompressedBytes);
+    CurrentBlock = new DecompressedBlock(
+        blockIndex, decompressedBytes, CompressionMethod, CompressionLevel);
     return true;
+  }
+
+  static Memory<byte> GetReadBuffer(ref byte[] buffer, int length)
+  {
+    if (buffer == null || buffer.Length < length)
+      buffer = new byte[length];
+    return buffer.AsMemory(0, length);
+  }
+
+  /// <summary>
+  /// Reads from the main file until the buffer is full or the file ends.
+  /// </summary>
+  int ReadMainFileAtMost(Span<byte> buffer)
+  {
+    var stream = BinaryReader.BaseStream;
+    var total = 0;
+    while (total < buffer.Length)
+    {
+      var read = stream.Read(buffer.Slice(total));
+      if (read == 0)
+        break;
+      total += read;
+    }
+    return total;
+  }
+
+  void ReadMainFileExactly(Span<byte> buffer)
+  {
+    if (ReadMainFileAtMost(buffer) != buffer.Length)
+      throw new EndOfStreamException("Incomplete compressed block.");
   }
 
   int SkipToTheEnd()
@@ -321,6 +386,7 @@ public sealed class CompressedFileStream : Stream, IDisposable
     var len = FileStream.Length;
     long physicalPosition = MetaDataSize;
     var lastBlockIndex = -1;
+    Span<byte> header = stackalloc byte[3 * sizeof(int)];
     while (true)
     {
       if (physicalPosition == len)
@@ -328,8 +394,7 @@ public sealed class CompressedFileStream : Stream, IDisposable
 
       var blockStartPosition = physicalPosition;
 
-      var bytes = BinaryReader.ReadBytes(3 * sizeof(int));
-      if (bytes.Length != 3 * sizeof(int))
+      if (ReadMainFileAtMost(header) != header.Length)
       {
         // truncates partially written compressed block.
         // because the last block content is also written in tail block.
@@ -337,12 +402,9 @@ public sealed class CompressedFileStream : Stream, IDisposable
         FileStream.SetLength(blockStartPosition);
         break;
       }
-      var blockIndex =
-          BinarySerializerHelper.FromByteArray<int>(bytes, 0);
-      var compressedBlockSize =
-          BinarySerializerHelper.FromByteArray<int>(bytes, sizeof(int));
-      var blockSize =
-          BinarySerializerHelper.FromByteArray<int>(bytes, 2 * sizeof(int));
+      var blockIndex = MemoryMarshal.Read<int>(header);
+      var compressedBlockSize = MemoryMarshal.Read<int>(header.Slice(sizeof(int)));
+      var blockSize = MemoryMarshal.Read<int>(header.Slice(2 * sizeof(int)));
 
       var blockEndPosition = physicalPosition + sizeof(int) * 3L + compressedBlockSize;
       if (compressedBlockSize < 0 || blockSize < 0 || blockEndPosition > len)
@@ -369,32 +431,44 @@ public sealed class CompressedFileStream : Stream, IDisposable
   {
   }
 
-  int ReadInternal(byte[] buffer, int offset, int count)
+  int ReadInternal(Span<byte> buffer)
   {
-    var bytes = CurrentBlock.GetBytes(CurrentBlockPosition, count);
+    var bytes = CurrentBlock.GetBytes(CurrentBlockPosition, buffer.Length);
     CurrentBlockPosition += bytes.Length;
     Position += bytes.Length;
-    bytes.CopyTo(new Memory<byte>(buffer).Slice(offset));
+    bytes.Span.CopyTo(buffer);
     return bytes.Length;
   }
 
   public override int Read(byte[] buffer, int offset, int count)
   {
-    var initialCount = count;
+    return Read(buffer.AsSpan(offset, count));
+  }
+
+  // BinaryReader reads every field through this overload.
+  // The base implementation would rent and copy a buffer per call.
+  public override int Read(Span<byte> buffer)
+  {
+    var initialCount = buffer.Length;
     var len = 0;
     while (true)
     {
-      var readLen = ReadInternal(buffer, offset, count);
+      var readLen = ReadInternal(buffer);
       len += readLen;
       if (len == initialCount)
         return len;
       if (!CurrentBlock.IsFull)
         return len;
-      offset += readLen;
-      count -= readLen;
+      buffer = buffer.Slice(readLen);
       if (!LoadNextBlock())
         return len;
     }
+  }
+
+  public override int ReadByte()
+  {
+    Span<byte> buffer = stackalloc byte[1];
+    return Read(buffer) == 1 ? buffer[0] : -1;
   }
 
   void Skip(long offset)
@@ -440,7 +514,12 @@ public sealed class CompressedFileStream : Stream, IDisposable
         Skip(offset);
         break;
       case SeekOrigin.End:
-        SkipToTheEnd();
+        // The constructor validated the main file, and writes and truncations
+        // keep _length current, so there is no need to scan the blocks again.
+        FileStream.Position = FileStream.Length;
+        CurrentBlock = TailBlock;
+        CurrentBlockPosition = TailBlock.Length;
+        Position = _length;
         break;
     }
     return Position;
@@ -474,20 +553,32 @@ public sealed class CompressedFileStream : Stream, IDisposable
 
   void TruncateFile(long truncatedLength)
   {
+    var trimmed = TailBlock.TrimRight(_length - truncatedLength);
+    // The tail on disk no longer matches the trimmed tail block.
+    // Comparing only index and length cannot detect this,
+    // so force the next WriteTail to rewrite it.
+    LastWrittenTailIndex = -1;
+    _length -= trimmed;
+    if (_length > truncatedLength)
+    {
+      // The tail is empty. Persist it before truncating the main file.
+      WriteTail();
+      TruncateMainFile(truncatedLength);
+    }
+    // Both paths must leave the stream ready to append at the new end.
+    FileStream.Position = FileStream.Length;
+    CurrentBlock = TailBlock;
+    CurrentBlockPosition = TailBlock.Length;
+    Position = _length;
+  }
+
+  void TruncateMainFile(long truncatedLength)
+  {
     FileStream.Position = MetaDataSize;
     var len = FileStream.Length;
-    var remainingTruncation = _length - truncatedLength;
-    var trimmed = TailBlock.TrimRight(remainingTruncation);
-    truncatedLength -= trimmed;
-    _length -= trimmed;
-    if (truncatedLength == 0)
-      return;
-    LastWrittenTailLength = 0;
-    WriteTail();
-
-    remainingTruncation = _length - truncatedLength;
-    var physicalPosition = MetaDataSize;
-    var off = 0;
+    // long: the main file and its decompressed content can exceed 2 GB.
+    long physicalPosition = MetaDataSize;
+    long off = 0;
     while (true)
     {
       if (physicalPosition >= len)
@@ -511,6 +602,13 @@ public sealed class CompressedFileStream : Stream, IDisposable
       if (off + blockSize > truncatedLength)
       {
         var diff = truncatedLength - off;
+        if (diff == 0)
+        {
+          // The new end is at a block boundary: drop this and the following blocks.
+          FileStream.SetLength(physicalPosition);
+          _length = truncatedLength;
+          break;
+        }
         bytes = BinaryReader.ReadBytes(compressedBlockSize);
         var truncatedBytes = DecompressedBlock
             .FromCompressed(
@@ -525,7 +623,7 @@ public sealed class CompressedFileStream : Stream, IDisposable
         bw.Write(truncatedBytes.Length);
         bw.Write(compressedBytes.Span);
         FileStream.SetLength(FileStream.Position);
-        _length -= (int)remainingTruncation;
+        _length = truncatedLength;
         break;
       }
       physicalPosition += sizeof(int) * 3;
@@ -533,29 +631,55 @@ public sealed class CompressedFileStream : Stream, IDisposable
       FileStream.Position = physicalPosition;
       off += blockSize;
     }
-    FileStream.Position = FileStream.Length;
-    CurrentBlock = TailBlock;
-    CurrentBlockPosition = TailBlock.Length;
-    Position = _length;
   }
 
   public override void Write(byte[] buffer, int offset, int count)
   {
+    Write(buffer.AsSpan(offset, count));
+  }
+
+  public override void WriteByte(byte value)
+  {
+    Span<byte> buffer = stackalloc byte[1] { value };
+    Write(buffer);
+  }
+
+  // BinaryWriter writes every field through this overload.
+  // The base implementation would rent and copy a buffer per call.
+  public override void Write(ReadOnlySpan<byte> buffer)
+  {
     lock (SyncRoot)
     {
+      // A closed stream cannot commit a full tail block,
+      // so the append loop below would never finish.
+#pragma warning disable CA1513
+      if (IsClosed)
+        throw new global::System.ObjectDisposedException(GetType().FullName);
+#pragma warning restore CA1513
       if (Position != Length)
         throw new Exception("Compressed File Stream can only write to the end of the file.");
 
-      var totalWriteLen = 0;
-      var totalCount = count;
+      var tailBlock = TailBlock;
+      if (tailBlock.IsFull && tailBlock.Length < BlockSize)
+      {
+        // A tail loaded from disk or trimmed by a truncation is sized to its
+        // content, so it is full at once. Grow it on the first write instead
+        // of committing it as a short or empty block. Growing here rather than
+        // on load avoids a full block allocation for streams that are only read.
+        var grownTailBlock = new DecompressedBlock(
+            tailBlock.BlockIndex, BlockSize, CompressionMethod, CompressionLevel);
+        grownTailBlock.Append(tailBlock.GetBytes(0, tailBlock.Length).Span);
+        TailBlock = grownTailBlock;
+        CurrentBlock = grownTailBlock;
+        CurrentBlockPosition = grownTailBlock.Length;
+      }
+
       while (true)
       {
-        var writeLen = TailBlock.Append(buffer.AsSpan(offset, count));
-        totalWriteLen += writeLen;
+        var writeLen = TailBlock.Append(buffer);
         _length += writeLen;
         Position += writeLen;
-        offset += writeLen;
-        count -= writeLen;
+        buffer = buffer.Slice(writeLen);
         CurrentBlockPosition = CurrentBlock.Length;
         if (TailBlock.IsFull)
         {
@@ -563,9 +687,7 @@ public sealed class CompressedFileStream : Stream, IDisposable
           CurrentBlock = TailBlock;
           CurrentBlockPosition = 0;
         }
-        if (totalWriteLen < totalCount)
-          continue;
-        else
+        if (buffer.Length == 0)
           return;
       }
     }
@@ -576,14 +698,23 @@ public sealed class CompressedFileStream : Stream, IDisposable
     if (IsClosed || !FileStream.CanWrite)
       return;
     var tailBlock = TailBlock;
-    var compressedBytes = tailBlock.Compress();
+    var compressedBytes = DataCompression.CompressInto(
+        CompressionMethod,
+        CompressionLevel,
+        tailBlock.GetBytes(0, tailBlock.Length),
+        ref CompressBuffer);
     var bw = BinaryWriter;
     bw.Write(tailBlock.BlockIndex);
     bw.Write(compressedBytes.Length);
     bw.Write(tailBlock.Length);
     bw.Write(compressedBytes.Span);
     FileStream.Flush(true);
-    TailBlock = new DecompressedBlock(tailBlock.BlockIndex + 1, BlockSize, CompressionMethod, CompressionLevel);
+    // The block is compressed and written, so its buffer can hold the next
+    // tail block. This avoids allocating a new block buffer per commit.
+    if (tailBlock.Capacity == BlockSize)
+      tailBlock.Reset(tailBlock.BlockIndex + 1);
+    else
+      TailBlock = new DecompressedBlock(tailBlock.BlockIndex + 1, BlockSize, CompressionMethod, CompressionLevel);
   }
 
   public new void Dispose()

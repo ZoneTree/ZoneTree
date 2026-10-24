@@ -9,18 +9,15 @@ public sealed class MaterializedEntryCache<TKey, TValue>
 {
   const int ChunkSize = 16;
 
-  const ulong HashMultiplier = 11400714819323198485UL;
-
   readonly MaterializedEntryChunk<TKey, TValue>[] Slots;
 
-  readonly int HashShift;
+  // Slots.Length - 1 for power-of-two sizes, otherwise -1.
+  readonly int SlotMask;
 
   MaterializedEntryCache(int cacheSize)
   {
     Slots = new MaterializedEntryChunk<TKey, TValue>[cacheSize];
-    HashShift = cacheSize > 1 && BitOperations.IsPow2((uint)cacheSize)
-        ? 64 - BitOperations.Log2((uint)cacheSize)
-        : 0;
+    SlotMask = BitOperations.IsPow2((uint)cacheSize) ? cacheSize - 1 : -1;
   }
 
   public static MaterializedEntryCache<TKey, TValue> GetOrCreate(
@@ -148,18 +145,12 @@ public sealed class MaterializedEntryCache<TKey, TValue>
   [MethodImpl(MethodImplOptions.AggressiveInlining)]
   int GetSlot(long chunkIndex)
   {
-    unchecked
-    {
-      var hash = (ulong)chunkIndex * HashMultiplier;
-      if (HashShift != 0)
-        return (int)(hash >> HashShift);
-      if (Slots.Length == 1)
-        return 0;
-      return (int)Math.BigMul(
-          hash,
-          (ulong)(uint)Slots.Length,
-          out _);
-    }
+    // A block holds a contiguous range of entries, so mapping consecutive
+    // chunks to consecutive slots keeps a whole block without collisions
+    // when the cache has at least as many slots as the block has chunks.
+    if (SlotMask >= 0)
+      return (int)(chunkIndex & SlotMask);
+    return (int)((ulong)chunkIndex % (ulong)Slots.Length);
   }
 }
 

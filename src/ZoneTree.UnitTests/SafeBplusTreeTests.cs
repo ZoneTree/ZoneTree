@@ -117,6 +117,28 @@ public sealed class SafeBTreeTests
     });
   }
 
+  [Test]
+  public void FrozenBTreeSeekPastTheLastKeyOfALeaf()
+  {
+    // Splits leave leaves partly filled. A key greater than every key of the
+    // leaf it routes to must continue in the next leaf.
+    var n = 2000;
+    var tree = new BTree<int, int>(
+        new Int32ComparerAscending(), BTreeLockMode.NodeLevelMonitor);
+    for (var i = 0; i < n; ++i)
+      tree.TryInsert(i * 2, i, out _);
+    tree.SetTreeReadOnlyAndLockFree();
+
+    var iterator = new FrozenBTreeSeekableIterator<int, int>(tree);
+    for (var key = -1; key < n * 2 - 1; key += 2)
+    {
+      Assert.That(iterator.SeekToFirstGreaterOrEqualElement(in key), Is.True, $"seek {key}");
+      Assert.That(iterator.CurrentKey, Is.EqualTo(key + 1), $"seek {key}");
+    }
+    var last = n * 2 - 1;
+    Assert.That(iterator.SeekToFirstGreaterOrEqualElement(in last), Is.False);
+  }
+
   int GetLastNodeSmallerOrEqual(BTreeSeekableIterator<int, int> iterator, int key)
   {
     iterator.SeekToLastSmallerOrEqualElement(in key);
