@@ -30,9 +30,9 @@
 
 | Engine | Status | Run time | Completed phase time | Pre-read stabilize | Post-update stabilize | Settle | Reopen | Verify | Storage | Process peak memory | Final checksum |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| ZoneTree | Completed | 27_794 ms | 20_092 ms | 3_152 ms | 3_714 ms | 26 ms | 177 ms | 11 ms | 147.5 MB | 4.4 GB | `A7EB98FFC773884D` |
-| RocksDB | Completed | 116_781 ms | 110_350 ms | 2_055 ms | 3_687 ms | 1 ms | 49 ms | 286 ms | 623.2 MB | 1.1 GB | `A7EB98FFC773884D` |
-| SQLite | Completed | 775_009 ms | 772_787 ms | n/a | n/a | 2_017 ms | 1 ms | 25 ms | 601.0 MB | 7.0 GB | `A7EB98FFC773884D` |
+| ZoneTree | Completed | 18_347 ms | 12_307 ms | 3_005 ms | 2_639 ms | 17 ms | 138 ms | 12 ms | 147.4 MB | 4.3 GB | `A7EB98FFC773884D` |
+| RocksDB | Completed | 112_537 ms | 106_083 ms | 2_064 ms | 3_702 ms | 1 ms | 49 ms | 289 ms | 623.2 MB | 1.1 GB | `A7EB98FFC773884D` |
+| SQLite | Completed | 731_863 ms | 730_368 ms | n/a | n/a | 1_285 ms | 1 ms | 30 ms | 579.0 MB | 7.0 GB | `A7EB98FFC773884D` |
 
 ## Correctness
 
@@ -53,9 +53,9 @@ Checksum validation passed across completed engines: ZoneTree, RocksDB, SQLite.
 
 | Engine | Insert | Pre-read stabilize | Insert + stabilize | Insert ready throughput | Update | Post-update stabilize | Update + stabilize | Update ready throughput |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| ZoneTree | 2_708 ms | 3_152 ms | 5_860 ms | 341_306/s | 2_903 ms | 3_714 ms | 6_617 ms | 302_266/s |
-| RocksDB | 10_822 ms | 2_055 ms | 12_877 ms | 155_319/s | 20_918 ms | 3_687 ms | 24_605 ms | 81_283/s |
-| SQLite | 122_329 ms | n/a | 122_329 ms | 16_349/s | 150_971 ms | n/a | 150_971 ms | 13_248/s |
+| ZoneTree | 2_322 ms | 3_005 ms | 5_327 ms | 375_463/s | 2_925 ms | 2_639 ms | 5_564 ms | 359_462/s |
+| RocksDB | 10_606 ms | 2_064 ms | 12_670 ms | 157_853/s | 18_223 ms | 3_702 ms | 21_925 ms | 91_220/s |
+| SQLite | 121_614 ms | n/a | 121_614 ms | 16_445/s | 147_818 ms | n/a | 147_818 ms | 13_530/s |
 
 ## Phase Results
 
@@ -63,64 +63,64 @@ Checksum validation passed across completed engines: ZoneTree, RocksDB, SQLite.
 
 | Phase | Operations | Time | Throughput | Checksum |
 | --- | ---: | ---: | ---: | --- |
-| insert profiles | 2_000_000 | 2_708 ms | 738_572/s | `2B78272BB2987534` |
-| read by user id | 2_000_000 | 298 ms | 6_715_545/s | `18FD8FACB4EB5B65` |
-| lookup by email | 2_000_000 | 536 ms | 3_730_700/s | `0C2CB81D0A7184CA` |
-| scan country/status index | 500_000 | 447 ms | 1_119_009/s | `54FC0396ADDBA50C` |
-| query country/status | 500_000 | 3_030 ms | 165_005/s | `7BF226FD0368CEF1` |
-| scan created-at index | 500_000 | 456 ms | 1_096_171/s | `B1370B4F83D94D56` |
-| query created-at range | 500_000 | 1_319 ms | 379_193/s | `68342B1529FE49D8` |
-| scan top reputation index | 500_000 | 1_041 ms | 480_277/s | `51197A6A5F249705` |
-| query top reputation | 500_000 | 1_270 ms | 393_749/s | `149050C9EF2101A5` |
-| update profiles | 2_000_000 | 2_903 ms | 688_989/s | `AF1D0CFF51ABC807` |
-| post-update read by user id | 2_000_000 | 262 ms | 7_633_640/s | `BF327DDD07F65CA5` |
-| post-update lookup by email | 2_000_000 | 485 ms | 4_120_841/s | `3240F8217F297852` |
-| post-update scan country/status index | 500_000 | 401 ms | 1_245_485/s | `06B0B6C71184C367` |
-| post-update query country/status | 500_000 | 2_713 ms | 184_295/s | `AA479A8D3825AD81` |
-| post-update scan top reputation index | 500_000 | 984 ms | 508_066/s | `B5DDC196C9A394E5` |
-| post-update query top reputation | 500_000 | 1_239 ms | 403_681/s | `9EAD54AC35AC1B85` |
+| insert profiles | 2_000_000 | 2_322 ms | 861_375/s | `2B78272BB2987534` |
+| read by user id | 2_000_000 | 169 ms | 11_841_326/s | `18FD8FACB4EB5B65` |
+| lookup by email | 2_000_000 | 344 ms | 5_806_791/s | `0C2CB81D0A7184CA` |
+| scan country/status index | 500_000 | 230 ms | 2_176_331/s | `54FC0396ADDBA50C` |
+| query country/status | 500_000 | 968 ms | 516_781/s | `7BF226FD0368CEF1` |
+| scan created-at index | 500_000 | 488 ms | 1_024_249/s | `B1370B4F83D94D56` |
+| query created-at range | 500_000 | 1_475 ms | 339_059/s | `68342B1529FE49D8` |
+| scan top reputation index | 500_000 | 200 ms | 2_502_738/s | `51197A6A5F249705` |
+| query top reputation | 500_000 | 681 ms | 734_124/s | `149050C9EF2101A5` |
+| update profiles | 2_000_000 | 2_925 ms | 683_675/s | `AF1D0CFF51ABC807` |
+| post-update read by user id | 2_000_000 | 186 ms | 10_737_367/s | `BF327DDD07F65CA5` |
+| post-update lookup by email | 2_000_000 | 309 ms | 6_478_392/s | `3240F8217F297852` |
+| post-update scan country/status index | 500_000 | 204 ms | 2_456_298/s | `06B0B6C71184C367` |
+| post-update query country/status | 500_000 | 1_004 ms | 498_029/s | `AA479A8D3825AD81` |
+| post-update scan top reputation index | 500_000 | 193 ms | 2_586_745/s | `B5DDC196C9A394E5` |
+| post-update query top reputation | 500_000 | 610 ms | 819_990/s | `9EAD54AC35AC1B85` |
 
 ### RocksDB
 
 | Phase | Operations | Time | Throughput | Checksum |
 | --- | ---: | ---: | ---: | --- |
-| insert profiles | 2_000_000 | 10_822 ms | 184_812/s | `2B78272BB2987534` |
-| read by user id | 2_000_000 | 15_621 ms | 128_034/s | `18FD8FACB4EB5B65` |
-| lookup by email | 2_000_000 | 14_682 ms | 136_226/s | `0C2CB81D0A7184CA` |
-| scan country/status index | 500_000 | 389 ms | 1_284_988/s | `54FC0396ADDBA50C` |
-| query country/status | 500_000 | 3_363 ms | 148_657/s | `7BF226FD0368CEF1` |
-| scan created-at index | 500_000 | 4_431 ms | 112_840/s | `B1370B4F83D94D56` |
-| query created-at range | 500_000 | 9_999 ms | 50_005/s | `68342B1529FE49D8` |
-| scan top reputation index | 500_000 | 376 ms | 1_329_066/s | `51197A6A5F249705` |
-| query top reputation | 500_000 | 3_374 ms | 148_186/s | `149050C9EF2101A5` |
-| update profiles | 2_000_000 | 20_918 ms | 95_610/s | `AF1D0CFF51ABC807` |
-| post-update read by user id | 2_000_000 | 5_678 ms | 352_214/s | `BF327DDD07F65CA5` |
-| post-update lookup by email | 2_000_000 | 12_910 ms | 154_917/s | `3240F8217F297852` |
-| post-update scan country/status index | 500_000 | 404 ms | 1_239_110/s | `06B0B6C71184C367` |
-| post-update query country/status | 500_000 | 3_430 ms | 145_792/s | `AA479A8D3825AD81` |
-| post-update scan top reputation index | 500_000 | 467 ms | 1_070_479/s | `B5DDC196C9A394E5` |
-| post-update query top reputation | 500_000 | 3_486 ms | 143_437/s | `9EAD54AC35AC1B85` |
+| insert profiles | 2_000_000 | 10_606 ms | 188_575/s | `2B78272BB2987534` |
+| read by user id | 2_000_000 | 15_259 ms | 131_074/s | `18FD8FACB4EB5B65` |
+| lookup by email | 2_000_000 | 14_728 ms | 135_799/s | `0C2CB81D0A7184CA` |
+| scan country/status index | 500_000 | 305 ms | 1_640_888/s | `54FC0396ADDBA50C` |
+| query country/status | 500_000 | 3_194 ms | 156_531/s | `7BF226FD0368CEF1` |
+| scan created-at index | 500_000 | 4_560 ms | 109_646/s | `B1370B4F83D94D56` |
+| query created-at range | 500_000 | 9_422 ms | 53_068/s | `68342B1529FE49D8` |
+| scan top reputation index | 500_000 | 369 ms | 1_355_997/s | `51197A6A5F249705` |
+| query top reputation | 500_000 | 3_220 ms | 155_301/s | `149050C9EF2101A5` |
+| update profiles | 2_000_000 | 18_223 ms | 109_753/s | `AF1D0CFF51ABC807` |
+| post-update read by user id | 2_000_000 | 5_890 ms | 339_532/s | `BF327DDD07F65CA5` |
+| post-update lookup by email | 2_000_000 | 12_993 ms | 153_930/s | `3240F8217F297852` |
+| post-update scan country/status index | 500_000 | 300 ms | 1_665_399/s | `06B0B6C71184C367` |
+| post-update query country/status | 500_000 | 3_172 ms | 157_606/s | `AA479A8D3825AD81` |
+| post-update scan top reputation index | 500_000 | 372 ms | 1_343_338/s | `B5DDC196C9A394E5` |
+| post-update query top reputation | 500_000 | 3_470 ms | 144_089/s | `9EAD54AC35AC1B85` |
 
 ### SQLite
 
 | Phase | Operations | Time | Throughput | Checksum |
 | --- | ---: | ---: | ---: | --- |
-| insert profiles | 2_000_000 | 122_329 ms | 16_349/s | `2B78272BB2987534` |
-| read by user id | 2_000_000 | 11_022 ms | 181_453/s | `18FD8FACB4EB5B65` |
-| lookup by email | 2_000_000 | 16_287 ms | 122_801/s | `0C2CB81D0A7184CA` |
-| scan country/status index | 500_000 | 28_484 ms | 17_554/s | `54FC0396ADDBA50C` |
-| query country/status | 500_000 | 69_631 ms | 7_181/s | `7BF226FD0368CEF1` |
-| scan created-at index | 500_000 | 28_566 ms | 17_503/s | `B1370B4F83D94D56` |
-| query created-at range | 500_000 | 69_181 ms | 7_227/s | `68342B1529FE49D8` |
-| scan top reputation index | 500_000 | 20_584 ms | 24_291/s | `51197A6A5F249705` |
-| query top reputation | 500_000 | 59_489 ms | 8_405/s | `149050C9EF2101A5` |
-| update profiles | 2_000_000 | 150_971 ms | 13_248/s | `AF1D0CFF51ABC807` |
-| post-update read by user id | 2_000_000 | 5_420 ms | 368_986/s | `BF327DDD07F65CA5` |
-| post-update lookup by email | 2_000_000 | 8_120 ms | 246_300/s | `3240F8217F297852` |
-| post-update scan country/status index | 500_000 | 28_191 ms | 17_736/s | `06B0B6C71184C367` |
-| post-update query country/status | 500_000 | 68_450 ms | 7_305/s | `AA479A8D3825AD81` |
-| post-update scan top reputation index | 500_000 | 21_899 ms | 22_832/s | `B5DDC196C9A394E5` |
-| post-update query top reputation | 500_000 | 64_164 ms | 7_793/s | `9EAD54AC35AC1B85` |
+| insert profiles | 2_000_000 | 121_614 ms | 16_445/s | `2B78272BB2987534` |
+| read by user id | 2_000_000 | 9_752 ms | 205_083/s | `18FD8FACB4EB5B65` |
+| lookup by email | 2_000_000 | 14_749 ms | 135_606/s | `0C2CB81D0A7184CA` |
+| scan country/status index | 500_000 | 26_995 ms | 18_522/s | `54FC0396ADDBA50C` |
+| query country/status | 500_000 | 64_482 ms | 7_754/s | `7BF226FD0368CEF1` |
+| scan created-at index | 500_000 | 26_427 ms | 18_920/s | `B1370B4F83D94D56` |
+| query created-at range | 500_000 | 63_959 ms | 7_817/s | `68342B1529FE49D8` |
+| scan top reputation index | 500_000 | 18_937 ms | 26_404/s | `51197A6A5F249705` |
+| query top reputation | 500_000 | 55_181 ms | 9_061/s | `149050C9EF2101A5` |
+| update profiles | 2_000_000 | 147_818 ms | 13_530/s | `AF1D0CFF51ABC807` |
+| post-update read by user id | 2_000_000 | 4_634 ms | 431_568/s | `BF327DDD07F65CA5` |
+| post-update lookup by email | 2_000_000 | 7_109 ms | 281_334/s | `3240F8217F297852` |
+| post-update scan country/status index | 500_000 | 26_238 ms | 19_056/s | `06B0B6C71184C367` |
+| post-update query country/status | 500_000 | 63_178 ms | 7_914/s | `AA479A8D3825AD81` |
+| post-update scan top reputation index | 500_000 | 20_295 ms | 24_637/s | `B5DDC196C9A394E5` |
+| post-update query top reputation | 500_000 | 59_000 ms | 8_475/s | `9EAD54AC35AC1B85` |
 
 ## Configuration
 
@@ -136,7 +136,7 @@ Checksum validation passed across completed engines: ZoneTree, RocksDB, SQLite.
 * Post-update query count: 500_000
 * Query limit: 50
 * Seed: 570123434
-* Timeout: 120_000 seconds per engine
+* Timeout: disabled
 
 ## Environment
 
@@ -146,9 +146,9 @@ Checksum validation passed across completed engines: ZoneTree, RocksDB, SQLite.
 * CPU: Intel(R) Core(TM) Ultra 7 265KF
 * Logical processors: 20
 * Total available memory: 63.6 GB
-* Initial process working set: 218.9 MB
+* Initial process working set: 235.9 MB
 * Benchmark version: 1.0.0.0
-* ZoneTree version: 1.9.6.0
+* ZoneTree version: 2.0.4.0
 * Microsoft.Data.Sqlite version: 10.0.0
 * SQLite runtime version: 3.50.3
 * SQLitePCLRaw.core version: 2.1.11
