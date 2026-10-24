@@ -340,6 +340,31 @@ public sealed class WriteAheadLogTests
     Assert.That(actual, Is.EqualTo(expected));
   }
 
+  [Test]
+  public void CompressedFileStreamTailWriterStopsWhenClosedBeforeItStarts()
+  {
+    var provider = new InMemoryFileStreamProvider();
+    // Closing right after construction runs before the tail writer
+    // thread starts in most iterations.
+    var tailWriters = new List<Task>();
+    for (var i = 0; i < 20; ++i)
+    {
+      var stream = new CompressedFileStream(
+          new ConsoleLogger(),
+          provider,
+          $"CompressedFileStreamTailWriterStopsWhenClosedBeforeItStarts{i}.wal",
+          16,
+          true,
+          1,
+          CompressionMethod.None,
+          0);
+      tailWriters.Add(stream.TailWriterTask);
+      stream.Dispose();
+    }
+
+    Assert.That(Task.WaitAll(tailWriters.ToArray(), TimeSpan.FromSeconds(10)), Is.True);
+  }
+
   static void WriteFile(
       InMemoryFileStreamProvider provider,
       string path,

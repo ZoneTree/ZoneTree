@@ -45,6 +45,8 @@ public sealed class CompressedFileStream : Stream, IDisposable
 
   volatile bool IsTailWriterRunning;
 
+  internal Task TailWriterTask { get; }
+
   readonly int TailWriterJobInterval;
 
   volatile int LastWrittenTailIndex = -1;
@@ -162,7 +164,11 @@ public sealed class CompressedFileStream : Stream, IDisposable
     TailWriterJobInterval = tailWriterJobInterval;
     if (enableTailWriterJob)
     {
-      Task.Factory.StartNew(
+      // Mark the writer running before it starts.
+      // Setting it on the writer thread would undo a Close() that happens
+      // before the thread starts, leaving the writer loop running forever.
+      IsTailWriterRunning = true;
+      TailWriterTask = Task.Factory.StartNew(
           TailWriteLoop,
           CancellationToken.None,
           TaskCreationOptions.LongRunning,
@@ -187,7 +193,6 @@ public sealed class CompressedFileStream : Stream, IDisposable
 
   void TailWriteLoop()
   {
-    IsTailWriterRunning = true;
     while (IsTailWriterRunning)
     {
       try
