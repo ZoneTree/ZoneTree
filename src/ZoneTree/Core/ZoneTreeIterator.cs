@@ -12,6 +12,8 @@ public sealed class ZoneTreeIterator<TKey, TValue> : IZoneTreeIterator<TKey, TVa
 
   readonly ZoneTree<TKey, TValue> ZoneTree;
 
+  readonly long RegistrationId;
+
   readonly IRefComparer<HeapEntry<TKey, TValue>> HeapEntryComparer;
 
   readonly bool IsReverseIterator;
@@ -19,6 +21,10 @@ public sealed class ZoneTreeIterator<TKey, TValue> : IZoneTreeIterator<TKey, TVa
   FixedSizeMinHeap<HeapEntry<TKey, TValue>> Heap;
 
   IReadOnlyList<ISeekableIterator<TKey, TValue>> SeekableIterators;
+
+  ISeekableIterator<TKey, TValue> SingleIterator;
+
+  bool SingleIteratorHasCurrent;
 
   readonly IsDeletedDelegate<TKey, TValue> IsDeleted;
 
@@ -102,11 +108,11 @@ public sealed class ZoneTreeIterator<TKey, TValue> : IZoneTreeIterator<TKey, TVa
     DiskSegmentPrefetchSize = diskSegmentPrefetchSize;
     if (autoRefresh)
       ZoneTree.OnMutableSegmentMovedForward += OnZoneTreeMutableSegmentMovedForward;
-    ZoneTree.OnZoneTreeIsDisposing += OnZoneTreeIsDisposing;
+    RegistrationId = ZoneTree.RegisterIterator(this);
     IncludeBottomSegments = includeBottomSegments;
   }
 
-  void OnZoneTreeIsDisposing(IZoneTreeMaintenance<TKey, TValue> zoneTree)
+  internal void ReleaseOnTreeDisposing()
   {
     ReleaseResources();
   }
@@ -122,6 +128,8 @@ public sealed class ZoneTreeIterator<TKey, TValue> : IZoneTreeIterator<TKey, TVa
       Refresh();
     if (!IsHeapFilled)
       SeekFirst();
+    if (SingleIterator != null)
+      return NextSingleIterator();
     return IsReverseIterator ? PrevInternal() : NextInternal();
   }
 
@@ -157,7 +165,7 @@ public sealed class ZoneTreeIterator<TKey, TValue> : IZoneTreeIterator<TKey, TVa
         var entry = new HeapEntry<TKey, TValue>(key, value, i);
         Heap.Insert(entry);
       }
-      IsHeapFilled = true;
+      SetHeapFilled();
       return;
     }
     for (int i = 0; i < len; i++)
@@ -170,7 +178,7 @@ public sealed class ZoneTreeIterator<TKey, TValue> : IZoneTreeIterator<TKey, TVa
       var entry = new HeapEntry<TKey, TValue>(key, value, i);
       Heap.Insert(entry);
     }
-    IsHeapFilled = true;
+    SetHeapFilled();
   }
 
   void SeekInternal(in TKey key, bool clearMarkers)
@@ -191,7 +199,7 @@ public sealed class ZoneTreeIterator<TKey, TValue> : IZoneTreeIterator<TKey, TVa
         var entry = new HeapEntry<TKey, TValue>(s.CurrentKey, s.CurrentValue, i);
         Heap.Insert(entry);
       }
-      IsHeapFilled = true;
+      SetHeapFilled();
       return;
     }
     for (int i = 0; i < len; i++)
@@ -202,13 +210,55 @@ public sealed class ZoneTreeIterator<TKey, TValue> : IZoneTreeIterator<TKey, TVa
       var entry = new HeapEntry<TKey, TValue>(s.CurrentKey, s.CurrentValue, i);
       Heap.Insert(entry);
     }
+    SetHeapFilled();
+  }
+
+  void SetHeapFilled()
+  {
     IsHeapFilled = true;
+    SingleIterator = Heap.Count == 1
+        ? SeekableIterators[Heap.MinValue.SegmentIndex]
+        : null;
+    SingleIteratorHasCurrent = SingleIterator != null;
+  }
+
+  bool NextSingleIterator()
+  {
+    // A settled tree commonly has only one nonempty segment. Its iterator
+    // already produces ordered, distinct keys, so no heap update is needed.
+    // Read the next entry only on demand, avoiding an unused prefetch at the
+    // end of a limited scan.
+    var iterator = SingleIterator;
+    while (SingleIteratorHasCurrent)
+    {
+      var key = iterator.CurrentKey;
+      var value = iterator.CurrentValue;
+      SingleIteratorHasCurrent = IsReverseIterator ? iterator.Prev() : iterator.Next();
+      if (!IncludeDeletedRecords && IsDeleted(key, value))
+      {
+        PrevKey = key;
+        HasPrev = true;
+        continue;
+      }
+      if (HasPrev && Comparer.Compare(in key, in PrevKey) == 0)
+        continue;
+      PrevKey = key;
+      HasPrev = true;
+      CurrentKey = key;
+      CurrentValue = value;
+      HasCurrent = true;
+      return true;
+    }
+    HasCurrent = false;
+    return false;
   }
 
   void ReleaseResources()
   {
     IsHeapFilled = false;
     Heap = null;
+    SingleIterator = null;
+    SingleIteratorHasCurrent = false;
     DetachFromDiskSegments();
     SeekableIterators = null;
   }
@@ -368,7 +418,7 @@ public sealed class ZoneTreeIterator<TKey, TValue> : IZoneTreeIterator<TKey, TVa
   {
     if (AutoRefresh)
       ZoneTree.OnMutableSegmentMovedForward -= OnZoneTreeMutableSegmentMovedForward;
-    ZoneTree.OnZoneTreeIsDisposing -= OnZoneTreeIsDisposing;
+    ZoneTree.UnregisterIterator(RegistrationId);
     ReleaseResources();
   }
 
