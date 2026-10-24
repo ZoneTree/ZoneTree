@@ -12,62 +12,84 @@ nav:
 ---
 
 <div class="zt-home">
+  <StorageHero/>
 
-<StorageHero/>
+  <section
+    class="zt-section zt-foundation"
+    aria-labelledby="zt-foundation-title"
+  >
+    <div class="zt-section-heading">
+      <p class="zt-eyebrow">A FOUNDATION YOU CAN BUILD ON</p>
+      <h2 id="zt-foundation-title">One engine.<br/>Your data model.</h2>
+      <p>
+        Use ZoneTree as an embedded database, or build your own data layer on
+        its ordered, persistent core.
+      </p>
+    </div>
+    <Grid columns="1" columnsMd="3" class="docs-map">
+      <DocCard
+        number="01 / ORDER"
+        title="Go straight to the range."
+        summary="Seek to a key and read forward or backward. Design indexes, time-series layouts, and queues around the access patterns your application needs."
+        href="/docs/usage/iteration-and-range-scans/"
+        icon="tabler:arrows-sort"
+        label="Explore ordered access"/>
+      <DocCard
+        number="02 / PERSISTENCE"
+        title="Make durability a decision."
+        summary="Choose a write-ahead logging mode, recover persistent data, and take live backups. Configure storage around your workload and recovery requirements."
+        href="/docs/durability/wal-modes/"
+        icon="tabler:shield-check"
+        label="Understand durability"/>
+      <DocCard
+        number="03 / CONTROL"
+        title="Shape your own data layer."
+        summary="Bring your serializers and comparers. Use atomic updates, optimistic transactions, and background maintenance to build the behavior your product needs."
+        href="/docs/reference/api-overview/"
+        icon="tabler:adjustments-horizontal"
+        label="Discover the API"/>
+    </Grid>
+  </section>
 
-<section class="zt-section zt-foundation" aria-labelledby="zt-foundation-title">
-  <div class="zt-section-heading">
-    <p class="zt-eyebrow">A FOUNDATION YOU CAN BUILD ON</p>
-    <h2 id="zt-foundation-title">One engine.<br/>Your data model.</h2>
-    <p>Use ZoneTree as an embedded database, or build your own data layer on its ordered, persistent core.</p>
-  </div>
-  <Grid columns="1" columnsMd="3" class="docs-map">
-    <DocCard
-      number="01 / ORDER"
-      title="Go straight to the range."
-      summary="Seek to a key and read forward or backward. Design indexes, time-series layouts, and queues around the access patterns your application needs."
-      href="/docs/usage/iteration-and-range-scans/"
-      icon="tabler:arrows-sort"
-      label="Explore ordered access"/>
-    <DocCard
-      number="02 / PERSISTENCE"
-      title="Make durability a decision."
-      summary="Choose a write-ahead logging mode, recover persistent data, and take live backups. Configure storage around your workload and recovery requirements."
-      href="/docs/durability/wal-modes/"
-      icon="tabler:shield-check"
-      label="Understand durability"/>
-    <DocCard
-      number="03 / CONTROL"
-      title="Shape your own data layer."
-      summary="Bring your serializers and comparers. Use atomic updates, optimistic transactions, and background maintenance to build the behavior your product needs."
-      href="/docs/reference/api-overview/"
-      icon="tabler:adjustments-horizontal"
-      label="Discover the API"/>
-  </Grid>
-</section>
-
-<section class="zt-section zt-quickstart" aria-labelledby="zt-quickstart-title">
-  <div class="zt-quickstart-copy">
-    <p class="zt-eyebrow">FROM PACKAGE TO PERSISTENCE</p>
-    <h2 id="zt-quickstart-title">A storage engine.<br/>A familiar API.</h2>
-    <p>Open a tree, write a value, and read it back. Your data lives in a local directory, and your code stays in C#.</p>
-    <div class="zt-install">
-
+  <section
+    class="zt-section zt-quickstart"
+    aria-labelledby="zt-quickstart-title"
+  >
+    <div class="zt-quickstart-copy">
+      <p class="zt-eyebrow">FROM PACKAGE TO PERSISTENCE</p>
+      <h2 id="zt-quickstart-title">A storage engine.<br/>A familiar API.</h2>
+      <p>
+        Open a tree, write a value, and read it back. Your data lives in a local
+        directory, and your code stays in C#.
+      </p>
+      <div class="zt-install">
 ```sh
 dotnet add package ZoneTree
 ```
-
+      </div>
+      <div class="zt-quickstart-links">
+        <a
+          class="zt-text-link"
+          href="https://www.nuget.org/packages/ZoneTree/"
+          target="_blank"
+          rel="noopener"
+          >ZoneTree on NuGet <Icon name="tabler:arrow-up-right"/></a>
+        <a class="zt-text-link" href="/docs/getting-started/"
+          >Follow the getting started guide <Icon name="tabler:arrow-right"/></a>
+      </div>
     </div>
-    <div class="zt-quickstart-links">
-      <a class="zt-text-link" href="https://www.nuget.org/packages/ZoneTree/" target="_blank" rel="noopener">ZoneTree on NuGet <Icon name="tabler:arrow-up-right"/></a>
-      <a class="zt-text-link" href="/docs/getting-started/">Follow the getting started guide <Icon name="tabler:arrow-right"/></a>
-    </div>
-  </div>
-  <div class="zt-code-panel">
-    <div class="zt-code-heading"><span><Icon name="tabler:code"/> Program.cs</span><span>C# / .NET</span></div>
-    <Tabs group="home-code" selectedTab="read-write" ariaLabel="ZoneTree code examples" tone="neutral" variant="none">
-      <TabPane id="read-write" label="Read &amp; write">
-
+    <div class="zt-code-panel">
+      <div class="zt-code-heading">
+        <span><Icon name="tabler:code"/> Program.cs</span><span>C# / .NET</span>
+      </div>
+      <Tabs
+        group="home-code"
+        selectedTab="read-write"
+        ariaLabel="ZoneTree code examples"
+        tone="neutral"
+        variant="none"
+      >
+        <TabPane id="read-write" label="Read &amp; write">
 ```csharp
 using ZoneTree;
 
@@ -81,10 +103,8 @@ tree.Upsert(42, "Hello, ZoneTree");
 if (tree.TryGet(42, out var value))
     Console.WriteLine(value);
 ```
-
-      </TabPane>
-      <TabPane id="range-scan" label="Scan a range">
-
+        </TabPane>
+        <TabPane id="range-scan" label="Scan a range">
 ```csharp
 using ZoneTree;
 
@@ -99,113 +119,171 @@ iterator.Seek(100);
 while (iterator.Next() && iterator.CurrentKey < 200)
     Console.WriteLine($"{iterator.CurrentKey}: {iterator.CurrentValue}");
 ```
-
-      </TabPane>
-    </Tabs>
-    <p class="zt-code-note">One tree per data directory. The maintainer handles background merges and cache cleanup.</p>
-  </div>
-</section>
-
-<section class="zt-section zt-performance" aria-labelledby="zt-performance-title">
-  <div class="zt-section-heading">
-    <p class="zt-eyebrow">PERFORMANCE, WITH CONTEXT</p>
-    <h2 id="zt-performance-title">A real workload.<br/>Results you can inspect.</h2>
-    <p>Two million profiles. Individual writes, secondary indexes, point reads, range scans, queries, and updates. Compare the completed workload phases across four engines.</p>
-  </div>
-  <div class="zt-benchmark-layout">
-    <figure class="zt-benchmark">
-      <figcaption><strong>2M-profile store</strong><span>Completed phase time · lower is better</span></figcaption>
-      <table>
-        <thead><tr><th scope="col">Engine</th><th scope="col">Seconds</th></tr></thead>
-        <tbody>
-          <tr class="zt-bench-zonetree"><th scope="row">ZoneTree</th><td><span class="zt-bench-track"><span class="zt-bench-bar"></span></span><strong>173.4 s</strong></td></tr>
-          <tr class="zt-bench-rocksdb"><th scope="row">RocksDB</th><td><span class="zt-bench-track"><span class="zt-bench-bar"></span></span><strong>422.5 s</strong></td></tr>
-          <tr class="zt-bench-sqlite"><th scope="row">SQLite</th><td><span class="zt-bench-track"><span class="zt-bench-bar"></span></span><strong>1,061.9 s</strong></td></tr>
-          <tr class="zt-bench-mysql"><th scope="row">MySQL</th><td><span class="zt-bench-track"><span class="zt-bench-bar"></span></span><strong>806.7 s</strong></td></tr>
-        </tbody>
-      </table>
-      <a class="zt-text-link" href="/docs/benchmark/reference/2m/">Inspect the reference report <Icon name="tabler:arrow-up-right"/></a>
-    </figure>
-    <div class="zt-benchmark-context">
-      <p class="zt-eyebrow">WHAT WAS MEASURED</p>
-      <h3>Application behavior.<br/>Beyond an insert loop.</h3>
-      <p>The profile-store benchmark compares ZoneTree, RocksDB, SQLite, and MySQL with checksum validation across completed engines.</p>
-      <p>These timings describe this workload and its documented configuration. Durability settings differ by engine; MySQL runs over TCP. Completed phase time excludes setup, stabilization, and verification.</p>
-      <a class="zt-text-link" href="/docs/benchmark/">Read the methodology <Icon name="tabler:arrow-right"/></a>
+        </TabPane>
+      </Tabs>
+      <p class="zt-code-note">
+        One tree per data directory. The maintainer handles background merges
+        and cache cleanup.
+      </p>
     </div>
-  </div>
-</section>
+  </section>
 
-<DistributedFoundation/>
+  <section
+    class="zt-section zt-performance"
+    aria-labelledby="zt-performance-title"
+  >
+    <div class="zt-section-heading">
+      <p class="zt-eyebrow">PERFORMANCE, WITH CONTEXT</p>
+      <h2 id="zt-performance-title">
+        A real workload.<br/>Results you can inspect.
+      </h2>
+      <p>
+        Two million profiles at P16. Individual writes, secondary indexes, point
+        reads, range scans, queries, and updates. Compare the completed workload
+        phases across three engines.
+      </p>
+    </div>
+    <div class="zt-benchmark-layout">
+      <figure class="zt-benchmark">
+        <figcaption>
+          <strong>Windows · 2M profiles · P16</strong><span>Completed phase time · lower is better</span>
+        </figcaption>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Engine</th>
+              <th scope="col">Seconds</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="zt-bench-zonetree">
+              <th scope="row">ZoneTree</th>
+              <td>
+                <span class="zt-bench-track"
+                  ><span class="zt-bench-bar"></span></span><strong>12.3 s</strong>
+              </td>
+            </tr>
+            <tr class="zt-bench-rocksdb">
+              <th scope="row">RocksDB</th>
+              <td>
+                <span class="zt-bench-track"
+                  ><span class="zt-bench-bar"></span></span><strong>106.1 s</strong>
+              </td>
+            </tr>
+            <tr class="zt-bench-sqlite">
+              <th scope="row">SQLite</th>
+              <td>
+                <span class="zt-bench-track"
+                  ><span class="zt-bench-bar"></span></span><strong>730.4 s</strong>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <a
+          class="zt-text-link"
+          href="/docs/benchmark/?report=win/profiles-2000000-p16"
+          >Inspect the reference report <Icon name="tabler:arrow-up-right"/></a>
+      </figure>
+      <div class="zt-benchmark-context">
+        <p class="zt-eyebrow">WHAT WAS MEASURED</p>
+        <h3>Application behavior.<br/>Beyond an insert loop.</h3>
+        <p>
+          This Windows P16 report compares ZoneTree, RocksDB, and SQLite with
+          checksum validation across completed engines.
+        </p>
+        <p>
+          These timings describe this workload and its documented configuration.
+          Durability settings differ by engine. Completed phase time excludes
+          setup, stabilization, and verification.
+        </p>
+        <a
+          class="zt-text-link"
+          href="/docs/benchmark/?report=win/profiles-2000000-p16"
+          >Read the methodology <Icon name="tabler:arrow-right"/></a>
+      </div>
+    </div>
+  </section>
 
-<AnalyticsSpotlight/>
+  <DistributedFoundation/>
 
-<FullTextSearchSpotlight/>
+  <AnalyticsSpotlight/>
 
-<section class="zt-section zt-paths" aria-labelledby="zt-paths-title">
-  <div class="zt-section-heading zt-heading-inline">
+  <FullTextSearchSpotlight/>
+
+  <section class="zt-section zt-paths" aria-labelledby="zt-paths-title">
+    <div class="zt-section-heading zt-heading-inline">
+      <div>
+        <p class="zt-eyebrow">BUILD WITH A CLEAR PATH</p>
+        <h2 id="zt-paths-title">Go deeper where it matters.</h2>
+      </div>
+      <a class="zt-text-link" href="/docs/"
+        >All documentation <Icon name="tabler:arrow-right"/></a>
+    </div>
+    <Grid columns="1" columnsMd="3" class="docs-map">
+      <DocCard
+        number="LEARN"
+        title="Know the engine."
+        summary="Understand the LSM tree, segment lifecycle, key ordering, and the choices that shape reads and writes."
+        href="/docs/concepts/lsm-tree/"
+        icon="tabler:stack-2"
+        label="Explore the architecture"/>
+      <DocCard
+        number="DESIGN"
+        title="Build your data model."
+        summary="Turn ordered keys into primary and secondary indexes, time-series stores, persistent queues, and event systems."
+        href="/docs/building-systems/indexes/"
+        icon="tabler:hierarchy-2"
+        label="Start with indexes"/>
+      <DocCard
+        number="OPERATE"
+        title="Prepare for production."
+        summary="Plan maintenance, backups, recovery, and diagnostics before your application depends on the data."
+        href="/docs/operations/production-checklist/"
+        icon="tabler:checklist"
+        label="Use the production checklist"/>
+    </Grid>
+  </section>
+
+  <section class="zt-section zt-stack" aria-labelledby="zt-stack-title">
+    <div class="zt-section-heading">
+      <p class="zt-eyebrow">BEHIND THIS WEBSITE</p>
+      <h2 id="zt-stack-title">Built with PureStack and Regor.</h2>
+      <p>
+        Our documentation brings together static page generation, reusable HTML
+        components, and typed styles. Meet the open-source tools behind the
+        experience.
+      </p>
+    </div>
+    <Grid columns="1" columnsMd="2" class="docs-map">
+      <StackTechnology
+        name="PureStack"
+        role="STATIC SITE GENERATION"
+        summary="Turns MDX into static pages with shared layouts, navigation, search, and themes. PureStack brings this landing page and the documentation together in one site."
+        website="https://purestack.studio/"
+        repository="https://github.com/PureStackStudio/PureStack"
+        icon="tabler:stack-2"/>
+      <StackTechnology
+        name="Regor"
+        role="REACTIVE UI &amp; COMPONENTS"
+        summary="A reactive UI library for HTML and TypeScript. Regor’s component model defines the reusable pieces behind this site, from the storage illustration to the documentation cards."
+        website="https://regor.purestack.studio/"
+        repository="https://github.com/PureStackStudio/Regor"
+        icon="lucide:orbit"/>
+    </Grid>
+  </section>
+
+  <section class="zt-close" aria-labelledby="zt-close-title">
     <div>
-      <p class="zt-eyebrow">BUILD WITH A CLEAR PATH</p>
-      <h2 id="zt-paths-title">Go deeper where it matters.</h2>
+      <p class="zt-eyebrow">YOUR NEXT DATA SYSTEM STARTS HERE</p>
+      <h2 id="zt-close-title">Build something worth storing.</h2>
+      <p>Start with a tree. Make it your own.</p>
     </div>
-    <a class="zt-text-link" href="/docs/">All documentation <Icon name="tabler:arrow-right"/></a>
-  </div>
-  <Grid columns="1" columnsMd="3" class="docs-map">
-    <DocCard
-      number="LEARN"
-      title="Know the engine."
-      summary="Understand the LSM tree, segment lifecycle, key ordering, and the choices that shape reads and writes."
-      href="/docs/concepts/lsm-tree/"
-      icon="tabler:stack-2"
-      label="Explore the architecture"/>
-    <DocCard
-      number="DESIGN"
-      title="Build your data model."
-      summary="Turn ordered keys into primary and secondary indexes, time-series stores, persistent queues, and event systems."
-      href="/docs/building-systems/indexes/"
-      icon="tabler:hierarchy-2"
-      label="Start with indexes"/>
-    <DocCard
-      number="OPERATE"
-      title="Prepare for production."
-      summary="Plan maintenance, backups, recovery, and diagnostics before your application depends on the data."
-      href="/docs/operations/production-checklist/"
-      icon="tabler:checklist"
-      label="Use the production checklist"/>
-  </Grid>
-</section>
-
-<section class="zt-section zt-stack" aria-labelledby="zt-stack-title">
-  <div class="zt-section-heading">
-    <p class="zt-eyebrow">BEHIND THIS WEBSITE</p>
-    <h2 id="zt-stack-title">Built with PureStack and Regor.</h2>
-    <p>Our documentation brings together static page generation, reusable HTML components, and typed styles. Meet the open-source tools behind the experience.</p>
-  </div>
-  <Grid columns="1" columnsMd="2" class="docs-map">
-    <StackTechnology
-      name="PureStack"
-      role="STATIC SITE GENERATION"
-      summary="Turns MDX into static pages with shared layouts, navigation, search, and themes. PureStack brings this landing page and the documentation together in one site."
-      website="https://purestack.studio/"
-      repository="https://github.com/PureStackStudio/PureStack"
-      icon="tabler:stack-2"/>
-    <StackTechnology
-      name="Regor"
-      role="REACTIVE UI &amp; COMPONENTS"
-      summary="A reactive UI library for HTML and TypeScript. Regor’s component model defines the reusable pieces behind this site, from the storage illustration to the documentation cards."
-      website="https://regor.purestack.studio/"
-      repository="https://github.com/PureStackStudio/Regor"
-      icon="lucide:orbit"/>
-  </Grid>
-</section>
-
-<section class="zt-close" aria-labelledby="zt-close-title">
-  <div>
-    <p class="zt-eyebrow">YOUR NEXT DATA SYSTEM STARTS HERE</p>
-    <h2 id="zt-close-title">Build something worth storing.</h2>
-    <p>Start with a tree. Make it your own.</p>
-  </div>
-  <BtnLink href="/docs/getting-started/" tone="accent" variant="solid" icon="tabler:arrow-right" iconPosition="end">Get started with ZoneTree</BtnLink>
-</section>
-
+    <BtnLink
+      href="/docs/getting-started/"
+      tone="accent"
+      variant="solid"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Get started with ZoneTree</BtnLink>
+  </section>
 </div>

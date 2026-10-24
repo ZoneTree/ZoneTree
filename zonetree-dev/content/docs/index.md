@@ -69,7 +69,7 @@ ZoneTree is strongest when it is treated as a storage-engine foundation: an orde
 * [Large values](tuning/large-values.md)
 * [Diagnostics](operations/diagnostics.md)
 * [Troubleshooting](operations/troubleshooting.md)
-* [Benchmark methodology](benchmark/benchmark.md)
+* [Benchmark reports and methodology](benchmark/benchmark.mdx)
 * [API overview](reference/api-overview.md)
 
 ## Build On ZoneTree

@@ -38,7 +38,7 @@
     "storage/memory-usage.md",
     "storage/compression.md",
     "benchmark/",
-    "benchmark/benchmark.md",
+    "benchmark/benchmark.mdx",
     "durability/",
     "durability/wal-modes.md",
     "durability/recovery.md",

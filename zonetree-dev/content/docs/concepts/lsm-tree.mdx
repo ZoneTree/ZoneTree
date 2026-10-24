@@ -6,8 +6,15 @@ description: How ZoneTree combines concurrent ordered memory, immutable multipar
 # LSM-tree architecture
 
 <div class="zt-lsm-intro">
-  <p>Write into ordered memory. Compact into immutable disk segments. Read across both, while the engine keeps moving.</p>
-  <p>ZoneTree is a Log-Structured Merge-tree storage engine. It separates accepting application writes from reorganizing persistent data, so parallel readers and writers can work alongside background compaction.</p>
+  <p>
+    Write into ordered memory. Compact into immutable disk segments. Read across
+    both, while the engine keeps moving.
+  </p>
+  <p>
+    ZoneTree is a Log-Structured Merge-tree storage engine. It separates
+    accepting application writes from reorganizing persistent data, so parallel
+    readers and writers can work alongside background compaction.
+  </p>
 </div>
 
 ## One tree, four storage layers
@@ -19,7 +26,10 @@ A ZoneTree instance has one active mutable segment, a queue of read-only memory 
 The first two layers hold records in memory. The last two hold immutable persistent data. A new tree starts with an empty mutable segment; the remaining layers fill as data moves through the lifecycle.
 
 <div class="zt-lsm-takeaway">
-  <strong>Two dimensions shape the engine.</strong> Data moves vertically through storage layers. Within a multipart disk segment, ordered parts divide the keyspace horizontally. A part is a piece of a logical disk segment, rather than another LSM layer.
+  <strong>Two dimensions shape the engine.</strong> Data moves vertically
+  through storage layers. Within a multipart disk segment, ordered parts divide
+  the keyspace horizontally. A part is a piece of a logical disk segment, rather
+  than another LSM layer.
 </div>
 
 ## Follow a write

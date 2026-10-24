@@ -11,6 +11,7 @@ ZoneTree is a high-performance storage engine for ordered, persistent data. It i
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-.NET-blue.svg)
 ![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)
+[![Join Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/d9aDtzVNNv)
 
 ---
 
@@ -19,9 +20,9 @@ ZoneTree is a high-performance storage engine for ordered, persistent data. It i
 Modern data systems are not built on features alone.
 They are built on storage layers that shape performance, reliability, and product architecture.
 
-![2M profile store benchmark execution time](https://raw.githubusercontent.com/ZoneTree/ZoneTree/main/zonetree-dev/content/docs/benchmark/reference/2m/latest-execution-time.svg)
+![2M profile store benchmark execution time](https://raw.githubusercontent.com/ZoneTree/ZoneTree/refs/heads/main/benchmarks/profile-store/reference/win/profiles-2000000-p16/latest-execution-time.svg)
 
-In a live 2M-profile benchmark with individual writes, secondary indexes, point reads, ordered scans, queries, and updates, ZoneTree completes the measured workload phases substantially faster than RocksDB, SQLite, and MySQL for this embedded profile-store scenario. See the full benchmark explanation and reference reports at [zonetree.dev/docs/benchmark](https://zonetree.dev/docs/benchmark/).
+In a live Windows P16 benchmark with 2M profiles, individual writes, secondary indexes, point reads, ordered scans, queries, and updates, ZoneTree completes the measured workload phases substantially faster than RocksDB and SQLite. See the full benchmark explanation and reference reports at [zonetree.dev/docs/benchmark](https://zonetree.dev/docs/benchmark/).
 
 .NET has excellent databases and frameworks, but very few native storage engines that can be used as a foundation for building new data systems.
 
@@ -306,13 +307,13 @@ Repository:
 
 Official documentation:
 
-* [Docs home](https://github.com/ZoneTree/ZoneTree/tree/main/zonetree-dev/content/docs)
-* [Getting started](https://github.com/ZoneTree/ZoneTree/blob/main/zonetree-dev/content/docs/getting-started.md)
-* [Reads and writes](https://github.com/ZoneTree/ZoneTree/blob/main/zonetree-dev/content/docs/usage/reads-and-writes.md)
-* [Value mutability](https://github.com/ZoneTree/ZoneTree/blob/main/zonetree-dev/content/docs/concepts/value-mutability.md)
-* [Memory usage](https://github.com/ZoneTree/ZoneTree/blob/main/zonetree-dev/content/docs/storage/memory-usage.md)
-* [WAL modes](https://github.com/ZoneTree/ZoneTree/blob/main/zonetree-dev/content/docs/durability/wal-modes.md)
-* [Production checklist](https://github.com/ZoneTree/ZoneTree/blob/main/zonetree-dev/content/docs/operations/production-checklist.md)
+* [Docs home](https://zonetree.dev/docs/)
+* [Getting started](https://zonetree.dev/docs/getting-started/)
+* [Reads and writes](https://zonetree.dev/docs/usage/reads-and-writes/)
+* [Value mutability](https://zonetree.dev/docs/concepts/value-mutability/)
+* [Memory usage](https://zonetree.dev/docs/storage/memory-usage/)
+* [WAL modes](https://zonetree.dev/docs/durability/wal-modes/)
+* [Production checklist](https://zonetree.dev/docs/operations/production-checklist/)
 * [zonetree.dev](https://zonetree.dev)
 
 ---

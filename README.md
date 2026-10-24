@@ -20,9 +20,9 @@ ZoneTree is a high-performance storage engine for ordered, persistent data. It i
 Modern data systems are not built on features alone.
 They are built on storage layers that shape performance, reliability, and product architecture.
 
-![2M profile store benchmark execution time](zonetree-dev/content/docs/benchmark/reference/2m/latest-execution-time.svg)
+![2M profile store benchmark execution time](https://raw.githubusercontent.com/ZoneTree/ZoneTree/refs/heads/main/benchmarks/profile-store/reference/win/profiles-2000000-p16/latest-execution-time.svg)
 
-In a live 2M-profile benchmark with individual writes, secondary indexes, point reads, ordered scans, queries, and updates, ZoneTree completes the measured workload phases substantially faster than RocksDB, SQLite, and MySQL for this embedded profile-store scenario. See the full benchmark explanation and reference reports at [zonetree.dev/docs/benchmark](https://zonetree.dev/docs/benchmark/).
+In a live Windows P16 benchmark with 2M profiles, individual writes, secondary indexes, point reads, ordered scans, queries, and updates, ZoneTree completes the measured workload phases substantially faster than RocksDB and SQLite. See the full benchmark explanation and reference reports at [zonetree.dev/docs/benchmark](https://zonetree.dev/docs/benchmark/).
 
 .NET has excellent databases and frameworks, but very few native storage engines that can be used as a foundation for building new data systems.
 
@@ -133,6 +133,8 @@ zoneTree.TryAtomicAddOrUpdate(
         Console.WriteLine($"{result}: {value} at {opIndex}");
     });
 ```
+
+For mutable reference values, assigning a new object in the updater is the safest pattern. Add/update delegates may be retried, so in-place mutations should be idempotent and side effects should be repeatable.
 
 Plain `Upsert` is the fastest write path. Atomic methods are synchronized with other atomic methods and are intended for operations that must read, decide, and write as one logical action.
 
@@ -305,13 +307,13 @@ Repository:
 
 Official documentation:
 
-* [Docs home](zonetree-dev/content/docs/index.md)
-* [Getting started](zonetree-dev/content/docs/getting-started.md)
-* [Reads and writes](zonetree-dev/content/docs/usage/reads-and-writes.md)
-* [Value mutability](zonetree-dev/content/docs/concepts/value-mutability.md)
-* [Memory usage](zonetree-dev/content/docs/storage/memory-usage.md)
-* [WAL modes](zonetree-dev/content/docs/durability/wal-modes.md)
-* [Production checklist](zonetree-dev/content/docs/operations/production-checklist.md)
+* [Docs home](https://zonetree.dev/docs/)
+* [Getting started](https://zonetree.dev/docs/getting-started/)
+* [Reads and writes](https://zonetree.dev/docs/usage/reads-and-writes/)
+* [Value mutability](https://zonetree.dev/docs/concepts/value-mutability/)
+* [Memory usage](https://zonetree.dev/docs/storage/memory-usage/)
+* [WAL modes](https://zonetree.dev/docs/durability/wal-modes/)
+* [Production checklist](https://zonetree.dev/docs/operations/production-checklist/)
 * [zonetree.dev](https://zonetree.dev)
 
 ---

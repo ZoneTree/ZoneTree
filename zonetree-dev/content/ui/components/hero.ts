@@ -96,8 +96,7 @@ export function defineStorageHero() {
         variant="solid"
         icon="tabler:arrow-right"
         iconPosition="end"
-        >Start building</BtnLink
-      >
+        >Start building</BtnLink>
       <BtnLink
         href="https://github.com/ZoneTree/ZoneTree"
         target="_blank"
@@ -105,12 +104,10 @@ export function defineStorageHero() {
         tone="neutral"
         variant="outline"
         icon="tabler:brand-github"
-        >Explore the source</BtnLink
-      >
+        >Explore the source</BtnLink>
     </div>
     <div class="zt-facts">
-      <span>.NET 6–10</span><span>Open source · MIT</span
-      ><span>Runs in your process</span>
+      <span>.NET 6–10</span><span>Open source · MIT</span><span>Runs in your process</span>
     </div>
   </div>
   <figure class="zt-engine" aria-labelledby="zt-engine-caption">
@@ -418,12 +415,10 @@ export function defineStorageHero() {
       </div>
     </div>
     <div class="zt-engine-concurrency" aria-hidden="true">
-      <span><i></i> Parallel writes</span><span><i></i> Live queries</span
-      ><span><i></i> Compaction</span>
+      <span><i></i> Parallel writes</span><span><i></i> Live queries</span><span><i></i> Compaction</span>
     </div>
     <figcaption id="zt-engine-caption">
-      <span>LSM-tree architecture</span
-      ><a href="/docs/concepts/lsm-tree/"
+      <span>LSM-tree architecture</span><a href="/docs/concepts/lsm-tree/"
         >Follow the data <Icon name="tabler:arrow-up-right"/></a>
     </figcaption>
   </figure>
