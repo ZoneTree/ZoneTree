@@ -571,6 +571,10 @@ public sealed class CompressedFileStream : Stream, IDisposable
   {
     lock (SyncRoot)
     {
+      // A closed stream cannot commit a full tail block,
+      // so the append loop below would never finish.
+      if (IsClosed)
+        throw new global::System.ObjectDisposedException(GetType().FullName);
       if (Position != Length)
         throw new Exception("Compressed File Stream can only write to the end of the file.");
 

@@ -209,6 +209,9 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
 
   public void Drop()
   {
+    // A merge can drop this WAL while MarkFrozen is still draining the queue.
+    // Cancel the appends first so the drain cannot write to the closed stream.
+    CancelWriter();
     Queue.Clear();
     StopWriter(false);
     FileStream.Dispose();
