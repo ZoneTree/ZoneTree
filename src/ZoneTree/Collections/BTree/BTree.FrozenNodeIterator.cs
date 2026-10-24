@@ -94,7 +94,7 @@ public sealed partial class BTree<TKey, TValue>
       {
         var pos =
             iterator.GetFirstGreaterOrEqualPosition(comparer, in key);
-        if (pos == iterator.Node.Keys.Length)
+        if (pos == iterator.Node.Length)
         {
           iterator = iterator.GetNextNodeIterator();
           continue;
