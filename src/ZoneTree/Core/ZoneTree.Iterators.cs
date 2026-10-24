@@ -14,49 +14,80 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       bool contributeToTheBlockCache,
       int diskSegmentPrefetchSize)
   {
+    // Capture a consistent segment set and attach the disk segments under the
+    // locks, then create the iterators outside them. Iterator creation
+    // allocates buffers and takes B+tree locks, and doing it under the tree
+    // locks serializes every iterator creation in the process. Segments stay
+    // readable after they move forward or merge, as they must for iterators
+    // that are already open.
+    IMutableSegment<TKey, TValue> mutableSegment = null;
+    List<IReadOnlySegment<TKey, TValue>> roSegments;
+    IDiskSegment<TKey, TValue> diskSegment = null;
+    List<IDiskSegment<TKey, TValue>> bottomSegments = null;
     lock (ShortMergerLock)
       lock (AtomicUpdateLock)
       {
-        var roSegments = ReadOnlySegmentQueue.ToLastInFirstArray();
-        var seekableIterators = new List<ISeekableIterator<TKey, TValue>>();
         if (includeMutableSegment)
-          seekableIterators.Add(MutableSegment.GetSeekableIterator());
-
-        var readOnlySegmentsArray = roSegments.Select(x => x.GetSeekableIterator()).ToArray();
-        seekableIterators.AddRange(readOnlySegmentsArray);
-
-        var result = new SegmentCollection
-        {
-          SeekableIterators = seekableIterators
-        };
-
+          mutableSegment = MutableSegment;
+        roSegments = ReadOnlySegmentQueue.ToLastInFirstArray();
         if (includeDiskSegment)
         {
-          var diskSegment = DiskSegment;
-          if (diskSegment is not NullDiskSegment<TKey, TValue>)
+          var segment = DiskSegment;
+          if (segment is not NullDiskSegment<TKey, TValue>)
           {
-            diskSegment.AttachIterator();
-            result.DiskSegment = diskSegment;
-            seekableIterators.Add(diskSegment.GetSeekableIterator(
-                contributeToTheBlockCache,
-                diskSegmentPrefetchSize));
+            segment.AttachIterator();
+            diskSegment = segment;
           }
         }
-
         if (includeBottomSegments)
         {
-          var bottomSegments = BottomSegmentQueue.ToLastInFirstArray();
+          bottomSegments = BottomSegmentQueue.ToLastInFirstArray();
           foreach (var bottom in bottomSegments)
-          {
             bottom.AttachIterator();
-            seekableIterators.Add(bottom.GetSeekableIterator(
-                contributeToTheBlockCache,
-                diskSegmentPrefetchSize));
-          }
-          result.BottomSegments = bottomSegments;
         }
-        return result;
       }
+
+    try
+    {
+      var seekableIterators = new List<ISeekableIterator<TKey, TValue>>(
+          (mutableSegment == null ? 0 : 1) +
+          roSegments.Count +
+          (diskSegment == null ? 0 : 1) +
+          (bottomSegments?.Count ?? 0));
+      if (mutableSegment != null)
+        seekableIterators.Add(mutableSegment.GetSeekableIterator());
+      foreach (var roSegment in roSegments)
+        seekableIterators.Add(roSegment.GetSeekableIterator());
+      if (diskSegment != null)
+        seekableIterators.Add(diskSegment.GetSeekableIterator(
+            contributeToTheBlockCache,
+            diskSegmentPrefetchSize));
+      if (bottomSegments != null)
+      {
+        foreach (var bottom in bottomSegments)
+          seekableIterators.Add(bottom.GetSeekableIterator(
+              contributeToTheBlockCache,
+              diskSegmentPrefetchSize));
+      }
+      return new SegmentCollection
+      {
+        SeekableIterators = seekableIterators,
+        DiskSegment = diskSegment,
+        BottomSegments = bottomSegments
+      };
+    }
+    catch
+    {
+      // The caller only takes over the leases with the returned collection.
+      // Release them here so the segments can still finish retiring.
+      diskSegment?.DetachIterator();
+      if (bottomSegments != null)
+      {
+        foreach (var bottom in bottomSegments)
+          bottom.DetachIterator();
+      }
+      throw;
+    }
   }
 
   /// <summary>

@@ -179,6 +179,33 @@ public sealed class DiskSegmentLeaseTests
     Assert.Throws<InvalidOperationException>(segment.DetachIterator);
   }
 
+  [Test]
+  public void FailedIteratorCreationReleasesTheDiskSegmentLease()
+  {
+    using var tree = new ZoneTreeFactory<int, int>(new AbstractFileStream.InMemoryFileStreamProvider())
+        .SetDataDirectory("failed-iterator-lease")
+        .ConfigureWriteAheadLogOptions(x => x.WriteAheadLogMode = WriteAheadLogMode.None)
+        .ConfigureDiskSegmentOptions(x => x.DiskSegmentMode = DiskSegmentMode.SingleDiskSegment)
+        .OpenOrCreate();
+    for (var i = 0; i < 100; ++i)
+      tree.Upsert(i, i);
+    tree.Maintenance.MoveMutableSegmentForward();
+    tree.Maintenance.StartMergeOperation().Join();
+    var segment = (DiskSegment<int, int>)tree.Maintenance.DiskSegment;
+
+    // The prefetch buffer cannot be allocated, so creating the disk segment
+    // iterator fails after the segment is attached.
+    using (var iterator = tree.CreateIterator(new IteratorOptions
+    {
+      DiskSegmentPrefetchSize = int.MaxValue
+    }))
+    {
+      Assert.Throws<OutOfMemoryException>(() => iterator.SeekFirst());
+    }
+
+    Assert.That(segment.IteratorReaderCount, Is.Zero);
+  }
+
   static TestDiskSegment CreateSegment()
   {
     var options = new ZoneTreeOptions<int, int>
