@@ -228,6 +228,29 @@ public sealed class ZoneTreeLoader<TKey, TValue>
     return wal;
   }
 
+  void SeparateMutableSegmentFromReadOnlySegments()
+  {
+    // MoveMutableSegmentForward records EnqueueReadOnlySegment and
+    // NewMutableSegment separately. A crash between them leaves the mutable
+    // segment id in the read-only segments. That WAL belongs to the read-only
+    // segment now, so continue with an empty mutable segment under a new id.
+    if (!ZoneTreeMeta.ReadOnlySegments.Contains(ZoneTreeMeta.MutableSegment))
+      return;
+
+    SetMaximumSegmentId(maximumSegmentId + 1);
+    ZoneTreeMeta.MutableSegment = maximumSegmentId;
+
+    // Persist the new id before the mutable segment writes to its WAL.
+    // Otherwise a later load could pick another id and orphan that WAL.
+    using var metaWal = new ZoneTreeMetaWAL<TKey, TValue>(Options, false);
+    metaWal.SaveMetaData(
+        ZoneTreeMeta,
+        ZoneTreeMeta.MutableSegment,
+        ZoneTreeMeta.DiskSegment,
+        ZoneTreeMeta.ReadOnlySegments.ToArray(),
+        ZoneTreeMeta.BottomSegments?.ToArray() ?? Array.Empty<long>());
+  }
+
   void SaveMaximumOpIndex(long maximumOpIndex)
   {
     if (maximumOpIndex <= ZoneTreeMeta.MaximumOpIndex)
@@ -313,6 +336,7 @@ public sealed class ZoneTreeLoader<TKey, TValue>
     LoadZoneTreeMeta();
     LoadZoneTreeMetaWAL();
     SetMaximumId();
+    SeparateMutableSegmentFromReadOnlySegments();
     var maximumOpIndex = Math.Max(ZoneTreeMeta.MaximumOpIndex, LoadReadOnlySegments());
     bool collectGarbage = Options.EnableSingleSegmentGarbageCollection && !ZoneTreeMeta.HasDiskSegment && ReadOnlySegments.Length == 0;
     var mutableSegmentWal = LoadMutableSegment(maximumOpIndex, collectGarbage);

@@ -40,10 +40,14 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       ReadOnlySegmentQueue.Enqueue(mutableSegment);
       MetaWal.EnqueueMaximumOpIndex(mutableSegment.MaximumOpIndex);
       MetaWal.EnqueueReadOnlySegment(mutableSegment.SegmentId);
-      MutableSegment = new MutableSegment<TKey, TValue>(
+      var newMutableSegment = new MutableSegment<TKey, TValue>(
           Options, IncrementalIdProvider.NextId(),
           mutableSegment.OpIndexProvider);
-      MetaWal.NewMutableSegment(MutableSegment.SegmentId);
+      // Record the new mutable segment before publishing it.
+      // Writers retry on the frozen segment until then, so none of them
+      // can append to a WAL that a crash would leave unrecorded.
+      MetaWal.NewMutableSegment(newMutableSegment.SegmentId);
+      MutableSegment = newMutableSegment;
     }
     OnMutableSegmentMovedForward?.Invoke(this);
   }
