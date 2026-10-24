@@ -67,6 +67,26 @@ public struct LogEntry : IEquatable<LogEntry>
       long opIndex,
       bool isLegacyFormat = false)
   {
+    var recordLength = HeaderLength + (long)keyBytes.Length + valueBytes.Length + sizeof(uint);
+    if (recordLength <= StackBufferLength)
+    {
+      // Build small records once and write them in a single call. The checksum
+      // covers the same bytes that CreateChecksum hashes for small records.
+      Span<byte> record = stackalloc byte[(int)recordLength];
+      BinaryPrimitives.WriteInt64LittleEndian(record, opIndex);
+      BinaryPrimitives.WriteInt32LittleEndian(record[sizeof(long)..], keyBytes.Length);
+      BinaryPrimitives.WriteInt32LittleEndian(record[(sizeof(long) + sizeof(int))..], valueBytes.Length);
+      keyBytes.Span.CopyTo(record[HeaderLength..]);
+      valueBytes.Span.CopyTo(record[(HeaderLength + keyBytes.Length)..]);
+      var checksum = isLegacyFormat
+          ? 0
+          : unchecked((uint)XxHash3.HashToUInt64(record[..^sizeof(uint)]));
+      BinaryPrimitives.WriteUInt32LittleEndian(record[^sizeof(uint)..], checksum);
+      binaryWriter.Write(record);
+      binaryWriter.Flush();
+      return;
+    }
+
     var entry = new LogEntry
     {
       OpIndex = opIndex,
@@ -97,9 +117,11 @@ public struct LogEntry : IEquatable<LogEntry>
   [MethodImpl(MethodImplOptions.AggressiveInlining)]
   public static void ReadLogEntryWithStreamLength(BinaryReader reader, ref LogEntry entry, long streamLength)
   {
-    var opIndex = reader.ReadInt64();
-    var keyLength = reader.ReadInt32();
-    var valueLength = reader.ReadInt32();
+    Span<byte> header = stackalloc byte[HeaderLength];
+    ReadHeader(reader, header);
+    var opIndex = BinaryPrimitives.ReadInt64LittleEndian(header);
+    var keyLength = BinaryPrimitives.ReadInt32LittleEndian(header[sizeof(long)..]);
+    var valueLength = BinaryPrimitives.ReadInt32LittleEndian(header[(sizeof(long) + sizeof(int))..]);
     if (keyLength < 0 || valueLength < 0)
       throw new InvalidDataException("WAL record lengths cannot be negative.");
 
@@ -120,6 +142,21 @@ public struct LogEntry : IEquatable<LogEntry>
       Value = value,
       Checksum = checksum
     };
+  }
+
+  /// <summary>
+  /// Reads the record header in one call. A missing byte means an incomplete
+  /// record, reported as EndOfStreamException like the single field reads.
+  /// </summary>
+  static void ReadHeader(BinaryReader reader, Span<byte> buffer)
+  {
+    while (buffer.Length > 0)
+    {
+      var read = reader.Read(buffer);
+      if (read == 0)
+        throw new EndOfStreamException("Incomplete WAL record header.");
+      buffer = buffer[read..];
+    }
   }
 
   [MethodImpl(MethodImplOptions.AggressiveInlining)]

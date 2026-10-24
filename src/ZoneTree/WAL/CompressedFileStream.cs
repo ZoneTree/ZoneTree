@@ -293,11 +293,27 @@ public sealed class CompressedFileStream : Stream, IDisposable
       if (IsClosed || !TailStream.CanWrite)
         return;
 
-      TailStream.Position = 0;
-      BinaryTailWriter.Write(tailBlock.BlockIndex);
-      BinaryTailWriter.Write(tailBlock.Length);
-      var bytes = tailBlock.GetBytes(0, tailBlock.Length);
-      BinaryTailWriter.Write(bytes.Span);
+      var writtenLength = LastWrittenTailLength;
+      if (tailBlock.BlockIndex == LastWrittenTailIndex &&
+          tailBlock.Length > writtenLength)
+      {
+        // Within a block the tail only grows: truncations reset
+        // LastWrittenTailIndex. Append the new bytes and then update the
+        // length, which leaves the file identical to a full rewrite.
+        TailStream.Position = 2 * sizeof(int) + writtenLength;
+        BinaryTailWriter.Write(
+            tailBlock.GetBytes(writtenLength, tailBlock.Length - writtenLength).Span);
+        TailStream.Position = sizeof(int);
+        BinaryTailWriter.Write(tailBlock.Length);
+      }
+      else
+      {
+        TailStream.Position = 0;
+        BinaryTailWriter.Write(tailBlock.BlockIndex);
+        BinaryTailWriter.Write(tailBlock.Length);
+        var bytes = tailBlock.GetBytes(0, tailBlock.Length);
+        BinaryTailWriter.Write(bytes.Span);
+      }
       TailStream.Flush(true);
       LastWrittenTailIndex = tailBlock.BlockIndex;
       LastWrittenTailLength = tailBlock.Length;
@@ -498,7 +514,12 @@ public sealed class CompressedFileStream : Stream, IDisposable
         Skip(offset);
         break;
       case SeekOrigin.End:
-        SkipToTheEnd();
+        // The constructor validated the main file, and writes and truncations
+        // keep _length current, so there is no need to scan the blocks again.
+        FileStream.Position = FileStream.Length;
+        CurrentBlock = TailBlock;
+        CurrentBlockPosition = TailBlock.Length;
+        Position = _length;
         break;
     }
     return Position;
