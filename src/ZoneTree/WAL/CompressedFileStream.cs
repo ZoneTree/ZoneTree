@@ -243,7 +243,8 @@ public sealed class CompressedFileStream : Stream, IDisposable
       return;
     }
     var len = TailStream.Length;
-    if (len < 2 * sizeof(int) + decompressedLength)
+    var isTruncated = len < 2 * sizeof(int) + decompressedLength;
+    if (isTruncated)
     {
       decompressedLength = (int)(len - 2 * sizeof(int));
       if (decompressedLength <= 0)
@@ -254,6 +255,13 @@ public sealed class CompressedFileStream : Stream, IDisposable
     }
     bytes = br.ReadBytes(decompressedLength);
     TailBlock = new DecompressedBlock(blockIndex, bytes, CompressionMethod, CompressionLevel);
+    if (!isTruncated && bytes.Length == decompressedLength)
+    {
+      // The tail file already holds this block.
+      // Closing an unchanged stream must not rewrite and fsync it.
+      LastWrittenTailIndex = blockIndex;
+      LastWrittenTailLength = decompressedLength;
+    }
   }
 
   public void WriteTail()
@@ -483,11 +491,14 @@ public sealed class CompressedFileStream : Stream, IDisposable
     var len = FileStream.Length;
     var remainingTruncation = _length - truncatedLength;
     var trimmed = TailBlock.TrimRight(remainingTruncation);
+    // The tail on disk no longer matches the trimmed tail block.
+    // Comparing only index and length cannot detect this,
+    // so force the next WriteTail to rewrite it.
+    LastWrittenTailIndex = -1;
     truncatedLength -= trimmed;
     _length -= trimmed;
     if (truncatedLength == 0)
       return;
-    LastWrittenTailLength = 0;
     WriteTail();
 
     remainingTruncation = _length - truncatedLength;

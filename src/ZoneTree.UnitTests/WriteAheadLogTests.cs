@@ -365,6 +365,111 @@ public sealed class WriteAheadLogTests
     Assert.That(Task.WaitAll(tailWriters.ToArray(), TimeSpan.FromSeconds(10)), Is.True);
   }
 
+  [Test]
+  public void CompressedFileStreamDoesNotRewriteUnchangedTailOnClose()
+  {
+    var dataPath = "data/CompressedFileStreamDoesNotRewriteUnchangedTailOnClose";
+    if (Directory.Exists(dataPath))
+      Directory.Delete(dataPath, true);
+    Directory.CreateDirectory(dataPath);
+    var provider = new LocalFileStreamProvider();
+    var filePath = Path.Combine(dataPath, "stream.wal");
+    var tailPath = filePath + ".tail";
+    const int blockSize = 32;
+    // Shorter than a block so the data stays in the tail.
+    var expected = Enumerable.Range(0, 10).Select(x => (byte)x).ToArray();
+
+    CompressedFileStream Open() => new(
+        new ConsoleLogger(),
+        provider,
+        filePath,
+        blockSize,
+        false,
+        0,
+        CompressionMethod.None,
+        0);
+
+    using (var stream = Open())
+      stream.Write(expected, 0, expected.Length);
+
+    var unchangedSince = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    File.SetLastWriteTimeUtc(tailPath, unchangedSince);
+
+    using (Open())
+    {
+    }
+
+    Assert.That(File.GetLastWriteTimeUtc(tailPath), Is.EqualTo(unchangedSince));
+    var actual = new byte[expected.Length];
+    int readLength;
+    using (var stream = Open())
+      readLength = stream.Read(actual, 0, actual.Length);
+    Assert.That(readLength, Is.EqualTo(expected.Length));
+    Assert.That(actual, Is.EqualTo(expected));
+  }
+
+  // A loaded tail is not rewritten on close. Truncations after loading must
+  // still persist the tail, or the next open reads stale tail bytes.
+
+  [Test]
+  public void CompressedFileStreamPersistsTailAfterTruncatingIntoMainFile()
+  {
+    // Two committed blocks and 8 tail bytes.
+    AssertReopenedStreamMatchesState(
+        "CompressedFileStreamPersistsTailAfterTruncatingIntoMainFile.wal",
+        40,
+        stream => stream.SetLength(20));
+  }
+
+  /// <summary>
+  /// Writes the initial bytes, reopens the stream, applies the change
+  /// and expects a later reopen to read exactly the content
+  /// the stream had before it was closed.
+  /// </summary>
+  static void AssertReopenedStreamMatchesState(
+      string filePath,
+      int initialLength,
+      Action<CompressedFileStream> change)
+  {
+    var provider = new InMemoryFileStreamProvider();
+    const int blockSize = 16;
+    var data = Enumerable.Range(0, initialLength).Select(x => (byte)x).ToArray();
+
+    CompressedFileStream Open() => new(
+        new ConsoleLogger(),
+        provider,
+        filePath,
+        blockSize,
+        false,
+        0,
+        CompressionMethod.None,
+        0);
+
+    static byte[] ReadAll(CompressedFileStream stream)
+    {
+      var bytes = new byte[stream.Length];
+      stream.Seek(0, SeekOrigin.Begin);
+      var readLength = stream.Read(bytes, 0, bytes.Length);
+      return bytes.AsSpan(0, readLength).ToArray();
+    }
+
+    using (var stream = Open())
+      stream.Write(data, 0, data.Length);
+
+    byte[] expected;
+    using (var stream = Open())
+    {
+      change(stream);
+      expected = ReadAll(stream);
+    }
+
+    byte[] actual;
+    using (var stream = Open())
+      actual = ReadAll(stream);
+
+    Assert.That(actual, Is.EqualTo(expected));
+  }
+
   static void WriteFile(
       InMemoryFileStreamProvider provider,
       string path,
