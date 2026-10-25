@@ -166,7 +166,7 @@ tree.Maintenance.RollbackUncommittedTransactionIdsBefore(
     DateTime.UtcNow.AddMinutes(-10));
 ```
 
-Choose a cutoff appropriate for your application; age alone does not prove that a transaction has been abandoned. WAL settings still determine storage durability. See [WAL modes](../durability/wal-modes.md) before choosing failure guarantees.
+Choose a cutoff appropriate for your application; age alone does not prove that a transaction has been abandoned. WAL settings still determine storage durability. See [WAL modes](../durability/wal-modes.mdx) before choosing failure guarantees.
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Keep transaction and storage lifetimes aligned</strong>

@@ -48,7 +48,7 @@ WAL records retain their original operation indexes. Reopen combines recovered W
 
 That guarantee is bounded by what storage actually recovered. An index observed by another system for a write later lost under the configured durability mode is not evidence of a permanently reserved number in the recovered database. A restored backup or replacement producer also needs an explicit stream identity or epoch in a replication design.
 
-Use [WAL modes](../durability/wal-modes.md), [recovery](../durability/recovery.md), and [backup rules](../durability/backups.md) together when deciding how sequence identities survive failures or restores.
+Use [WAL modes](../durability/wal-modes.mdx), [recovery](../durability/recovery.mdx), and [backup rules](../durability/backups.mdx) together when deciding how sequence identities survive failures or restores.
 
 ## Replay a stream, not an ordinary key scan
 

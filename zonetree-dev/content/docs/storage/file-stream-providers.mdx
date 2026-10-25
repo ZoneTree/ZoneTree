@@ -3,11 +3,27 @@ title: File Stream Providers
 description: Choose local or RAM-backed files, reopen an in-memory tree correctly, and understand the stream and durability contracts required of custom providers.
 ---
 
-<SectionHeader class="zt-guide-intro" eyebrow="STORAGE / BACKING STORE" title="Choose where ZoneTree's files live" titleTag="h1" titleId="file-stream-providers-title" subtitle="The storage engine works through file and stream abstractions. Keep the same ordered API while choosing local persistence, RAM-backed files, or an application-specific provider."/>
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="STORAGE / BACKING STORE"
+  title="Choose where ZoneTree's files live"
+  titleTag="h1"
+  titleId="file-stream-providers-title"
+  subtitle="The storage engine works through file and stream abstractions. Keep the same ordered API while choosing local persistence, RAM-backed files, or an application-specific provider."/>
 
 <Grid columns="1" columnsMd="2" class="gap-3 zt-guide-outcomes">
-  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>Local files</strong><p>The default provider uses the operating system's file APIs. Recovery also depends on WAL policy and the backing storage.</p></Panel>
-  <Panel class="p-0" bodyClass="p-4"><strong>RAM-backed files</strong><p>The in-memory provider keeps the storage pipeline, but every file belongs to one volatile provider instance.</p></Panel>
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"
+    ><strong>Local files</strong>
+    <p>
+      The default provider uses the operating system's file APIs. Recovery also
+      depends on WAL policy and the backing storage.
+    </p></Panel>
+  <Panel class="p-0" bodyClass="p-4"
+    ><strong>RAM-backed files</strong>
+    <p>
+      The in-memory provider keeps the storage pipeline, but every file belongs
+      to one volatile provider instance.
+    </p></Panel>
 </Grid>
 
 ## Know what the provider controls
@@ -40,7 +56,7 @@ if (tree.TryGet(42, out var name))
     Console.WriteLine(name);
 ```
 
-The default provider delegates to local file and stream APIs. Whether an acknowledged write survives a particular failure also depends on the [WAL mode](../durability/wal-modes.md), flush behavior, and storage device. A local path alone does not define the recovery guarantee.
+The default provider delegates to local file and stream APIs. Whether an acknowledged write survives a particular failure also depends on the [WAL mode](../durability/wal-modes.mdx), flush behavior, and storage device. A local path alone does not define the recovery guarantee.
 
 ## Use RAM-backed files deliberately
 
@@ -81,8 +97,19 @@ Console.WriteLine(value);
 
 Creating another factory is fine; it must receive the **same provider instance** and directory to see those files. A new `InMemoryFileStreamProvider` starts empty.
 
-<AlertBox class="zt-guide-callout" tone="accent" title="WAL disabled means no replay of unmerged writes" icon="tabler:shield-check">
-  <p>With <code>WriteAheadLogMode.None</code>, disposing a tree does not automatically merge its mutable records into segment files. Those unmerged writes cannot be recovered on reopen. Explicit eviction above preserves them only inside the surviving provider; it provides no protection against process loss.</p>
+<AlertBox
+  class="zt-guide-callout"
+  tone="accent"
+  title="WAL disabled means no replay of unmerged writes"
+  icon="tabler:shield-check"
+>
+  <p>
+    With <code>WriteAheadLogMode.None</code>, disposing a tree does not
+    automatically merge its mutable records into segment files. Those unmerged
+    writes cannot be recovered on reopen. Explicit eviction above preserves them
+    only inside the surviving provider; it provides no protection against
+    process loss.
+  </p>
 </AlertBox>
 
 ## Decide whether an in-memory WAL is useful
@@ -109,7 +136,7 @@ This makes it useful for storage-pipeline tests, but not a substitute for testin
 
 ## Implement the full custom-provider contract
 
-Use `IFileStreamProvider` when neither built-in provider fits. Return `IFileStream` objects and implement the operations used by metadata, logs, and random-access segments—not just sequential append.
+Use `IFileStreamProvider` when neither built-in provider fits. Return `IFileStream` objects and implement the operations used by metadata, logs, and random-access segments-not just sequential append.
 
 | Area | Required behavior to design and test |
 | --- | --- |
@@ -126,6 +153,19 @@ Advanced integrations can replace the higher-level components with `SetWriteAhea
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Separate backing storage from recovery policy</strong>
-  <p>Choose where files live here. Then decide which failure scenarios the WAL must cover and how backups capture the whole tree.</p>
-  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/durability/wal-modes/" tone="accent" icon="tabler:arrow-right" iconPosition="end">WAL modes</BtnLink><BtnLink href="/docs/storage/memory-usage/" tone="neutral" variant="outline">Memory usage</BtnLink></Flex>
+  <p>
+    Choose where files live here. Then decide which failure scenarios the WAL
+    must cover and how backups capture the whole tree.
+  </p>
+  <Flex wrap="true" class="gap-3"
+    ><BtnLink
+      href="/docs/durability/wal-modes/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >WAL modes</BtnLink><BtnLink
+      href="/docs/storage/memory-usage/"
+      tone="neutral"
+      variant="outline"
+      >Memory usage</BtnLink></Flex>
 </Panel>

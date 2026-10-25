@@ -81,7 +81,7 @@ false-positive behavior, and hasher requirements.
 
 WAL options apply when new WALs are created. Existing WALs retain their stored
 options. The modes have different caller acknowledgment and failure boundaries;
-read [WAL modes](../durability/wal-modes.md) before changing them.
+read [WAL modes](../durability/wal-modes.mdx) before changing them.
 
 ## Disk-Segment Defaults
 

@@ -1,0 +1,78 @@
+---
+title: WAL Modes
+description: Start with ZoneTree's default AsyncCompressed WAL, understand how logging and recovery work, and choose another mode only for a specific workload requirement.
+---
+
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="DURABILITY / WRITE-AHEAD LOGGING"
+  title="Keep writes fast with the default WAL"
+  titleTag="h1"
+  titleId="wal-modes-title"
+  subtitle="AsyncCompressed is ZoneTree's recommended starting point for ordinary persistent workloads. It keeps logging enabled while moving serialization, compression, and file writes onto a background path."/>
+
+## Compare logging paths
+
+| Mode | Logging path | When to choose it |
+| --- | --- | --- |
+| **`AsyncCompressed` default** | Enqueues records for background serialization, compression, and writing. | The normal starting point for persistent applications that value write throughput. |
+| `SyncCompressed` | Serializes and appends on the caller into a compressed-block stream; the current tail is written separately. | A specific need for caller-side compressed logging, after measuring the workload. |
+| `Sync` | Serializes and appends on the caller through a plain WAL stream, flushing that stream per record. | A specific need for the plain synchronous logging path, accepting its throughput cost. |
+| `None` | Does not log segment records. Metadata and merged disk segments still exist. | Disposable data or a dataset you intentionally rebuild from another source. |
+
+AsyncCompressed lets the caller continue before background logging finishes. An abrupt process exit can omit recent queued or unwritten records; normal disposal drains that work.
+
+## Configure only what you need
+
+To state the default explicitly in a shared factory configuration:
+
+```csharp
+using ZoneTree;
+using ZoneTree.Options;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/explicit-wal")
+    .ConfigureWriteAheadLogOptions(options =>
+    {
+        options.WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed;
+    })
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert(42, "Logged in the background");
+```
+
+For codec defaults and block-size controls, see [compression](../storage/compression.mdx).
+
+Existing WAL files keep their detected logging mode and recorded compression format. Changing the factory configures newly created WALs; reopening an existing file does not convert it to another mode. The built-in provider detects the existing mode from its filename, so preserve WAL filenames when moving a database.
+
+## Understand the compressed tail
+
+Compressed WALs have a main file of committed blocks and a companion `.tail` file for the unfinished block. Keep both when making an offline copy.
+
+| Mode | How the current tail is written |
+| --- | --- |
+| `AsyncCompressed` | The background writer writes it when the queue becomes empty; draining and disposal also write it. |
+| `SyncCompressed` | A tail-writer job is enabled by default, with a 500 ms interval. Closing the stream writes the remaining tail. |
+
+The async writer's default `EmptyQueuePollInterval` is 100 ms. These intervals control scheduling, not a maximum persistence delay.
+
+<ExpandablePanel title="Stream flushing and disk synchronization" class="zt-guide-reference">
+  <p>Waiting for disk synchronization after every record can reduce throughput. Batching and group commit let records or transactions share that cost; <a href="https://www.postgresql.org/docs/current/runtime-config-wal.html">PostgreSQL documents group commit</a> as one example.</p>
+  <p>ZoneTree's plain Sync path calls <code>BinaryWriter.Flush()</code> per record. With the local provider this reaches ordinary <code>FileStream.Flush()</code>, while disposal requests <code>Flush(true)</code>. Compressed streams request disk synchronization when committing full blocks or writing the tail, rather than on every partial-block append.</p>
+  <p>These are the built-in implementations' synchronization points, not a recommendation to add per-record disk flushes. Custom WAL and file providers define their own persistence semantics.</p>
+</ExpandablePanel>
+
+## Close the tree cleanly
+
+Stop accepting application work, finish active operations and scans, then dispose the maintainer and tree. Declaring the maintainer after the tree, as above, gives the right reverse disposal order.
+
+A normal close does not require merging logged records first. Maintainer waits coordinate tracked merge work; tree disposal finishes its WAL work. See [maintenance](../usage/maintenance.mdx) for lifecycle details.
+
+Async logging may serialize a key or value after the write call returns. Treat stored objects and backing buffers as read-only, as described in [value mutability](../concepts/value-mutability.mdx).
+
+## Use None for an intentional rebuild policy
+
+With `None`, metadata and merged disk records remain, but unmerged writes cannot be recovered after closing. For a controlled handoff without WAL, finish the required merge with writers coordinated, as shown in [file stream providers](../storage/file-stream-providers.mdx).
+
+<Flex wrap="true" class="gap-3 zt-guide-next"><BtnLink href="/docs/durability/recovery/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Recovery</BtnLink><BtnLink href="/docs/durability/" tone="neutral" variant="outline">Durability overview</BtnLink></Flex>

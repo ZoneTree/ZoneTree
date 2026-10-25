@@ -144,7 +144,7 @@ Track:
 
 An incomplete tail after process termination is a normal recovery boundary. Checksum and deserialization failures are integrity signals and should be investigated.
 
-See [recovery](../durability/recovery.md) and [WAL modes](../durability/wal-modes.md).
+See [recovery](../durability/recovery.mdx) and [WAL modes](../durability/wal-modes.mdx).
 
 ## Backup
 
@@ -159,7 +159,7 @@ For live backup, measure:
 
 Live backup is generation based. A generation contains disk segment files and optional in-memory records for that backup point.
 
-See [backups](../durability/backups.md).
+See [backups](../durability/backups.mdx).
 
 ## Benchmark Shape
 

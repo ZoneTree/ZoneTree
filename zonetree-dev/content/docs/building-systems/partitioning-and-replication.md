@@ -313,7 +313,7 @@ using var restored = await new ZoneTreeFactory<int, string>()
 using var restoredMaintainer = restored.CreateMaintainer();
 ```
 
-`ILiveBackupStore` and `ILiveBackupSource` let a distribution layer supply remote transfer and storage. Preserve generation file ordering and the factory configuration required to interpret the restored records. The [backup guide](../durability/backups.md) covers stores, sources, retention, and shutdown behavior.
+`ILiveBackupStore` and `ILiveBackupSource` let a distribution layer supply remote transfer and storage. Preserve generation file ordering and the factory configuration required to interpret the restored records. The [backup guide](../durability/backups.mdx) covers stores, sources, retention, and shutdown behavior.
 
 The backup generation does not establish a replication-stream checkpoint. Its `LastOpIndex` metadata is recorded when generation creation completes, rather than atomically with collection of the backup view. A record batch's `RecordIndex` is its enumeration position, and restore assigns local indexes when rebuilding its WAL. Establish and persist the base/catch-up relationship through the transfer protocol above, rather than using these fields as proof that every source operation through a position is present.
 
@@ -341,7 +341,7 @@ The database layer then defines when those local results become externally visib
 * **Recovery:** how operation replay, state, and checkpoints are reconciled after a partial apply or restart.
 * **Cross-partition work:** how the application coordinates changes involving more than one partition.
 
-Choose WAL settings together with that policy. The default is `AsyncCompressed`; local method completion and a cluster's durable acknowledgement are distinct boundaries. Sync WAL and custom providers offer different local write paths, but the distribution layer must still define the required failure guarantees. See [WAL modes](../durability/wal-modes.md).
+Choose WAL settings together with that policy. The default is `AsyncCompressed`; local method completion and a cluster's durable acknowledgement are distinct boundaries. Sync WAL and custom providers offer different local write paths, but the distribution layer must still define the required failure guarantees. See [WAL modes](../durability/wal-modes.mdx).
 
 `IsReadOnly` can support a local admission policy, but changing a flag does not drain requests already executing or fence a previous owner across machines. Ownership checks and draining belong in the node's request/apply protocol.
 

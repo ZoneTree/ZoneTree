@@ -56,7 +56,7 @@ var opIndex = tree.Upsert(42, "Updated name");
 
 The latest write becomes the value returned by subsequent ordinary reads. If the key already exists in an older LSM layer, the new record shadows it until maintenance merges the layers.
 
-`Upsert` returns the assigned operation index. Use that value when following the producer's write sequence; it is not a transaction ID or confirmation that the storage device has flushed the write. See [operation indexes](../concepts/op-index.mdx) and [WAL modes](../durability/wal-modes.md).
+`Upsert` returns the assigned operation index. Use that value when following the producer's write sequence; it is not a transaction ID or confirmation that the storage device has flushed the write. See [operation indexes](../concepts/op-index.mdx) and [WAL modes](../durability/wal-modes.mdx).
 
 ## Read with TryGet
 

@@ -81,7 +81,7 @@ Treat serializers, key comparison, and deletion rules as part of the storage des
 | What determines equality and ordering? | [Key ordering](../concepts/key-ordering.mdx) |
 | How are keys and values encoded? | [Serializers, comparers, and hashers](../concepts/serializers-and-comparers.mdx) |
 | Which values represent deleted records? | [Deletion markers and TTL](../concepts/deletion-markers-and-ttl.mdx) |
-| When are writes recoverable after a failure? | [WAL modes](../durability/wal-modes.md) |
+| When are writes recoverable after a failure? | [WAL modes](../durability/wal-modes.mdx) |
 | Which other settings can be configured? | [Configuration reference](../reference/configuration.md) |
 
 When Bloom filtering is enabled with a custom comparer, comparer-equal keys must produce the same hash. Supply a compatible key hasher with your comparer.

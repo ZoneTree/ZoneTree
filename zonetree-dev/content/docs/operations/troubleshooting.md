@@ -44,7 +44,7 @@ First actions:
 * tune `MutableSegmentMaxItemCount` by expected record byte size,
 * benchmark WAL modes with the real storage device.
 
-See [write amplification](../tuning/write-amplification.md), [large values](../tuning/large-values.md), and [WAL modes](../durability/wal-modes.md).
+See [write amplification](../tuning/write-amplification.md), [large values](../tuning/large-values.md), and [WAL modes](../durability/wal-modes.mdx).
 
 ## Read-Only Segments Accumulate
 

@@ -108,7 +108,7 @@ Immutable disk segments hold data that has already been compacted. WALs hold rec
 
 The default WAL mode is `AsyncCompressed`. Its background logging path supports high write throughput. A returned write, a completed compaction, and a hardware-level flush are different events; the configured WAL mode, flush behavior, and storage stack determine the recovery boundary. With `No WAL`, recent in-memory writes cannot be recovered after process termination.
 
-Use [WAL modes](../durability/wal-modes.md) to choose that boundary, [recovery](../durability/recovery.md) to understand reopening behavior, and [live backups](../durability/backups.md) to create a restorable copy of an open tree.
+Use [WAL modes](../durability/wal-modes.mdx) to choose that boundary, [recovery](../durability/recovery.mdx) for WAL diagnostics and inspection tools, and [live backups](../durability/backups.mdx) to create a restorable copy of an open tree.
 
 ## Give maintenance an explicit owner
 
