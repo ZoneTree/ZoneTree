@@ -113,5 +113,5 @@ using var zoneTree = new ZoneTreeFactory<long, string>()
 ```
 
 See [read-path caching](read-path-caching.md),
-[memory usage](../storage/memory-usage.md), and
+[memory usage](../storage/memory-usage.mdx), and
 [write amplification](write-amplification.md).

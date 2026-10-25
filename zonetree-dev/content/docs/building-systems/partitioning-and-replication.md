@@ -362,7 +362,7 @@ Treat callbacks as notifications and keep them short; enqueue expensive transfer
 
 Some maintenance record counts include multiple physical versions of a key across segments. Use them as storage-pressure measurements rather than unique-key counts. Coordinate aggregate memory and I/O budgets across hosted partitions, and release iterators and backup activity before removing a replica's files.
 
-See [maintenance](../usage/maintenance.mdx), [file stream providers](../storage/file-stream-providers.md), and the [API overview](../reference/api-overview.md) for the individual controls.
+See [maintenance](../usage/maintenance.mdx), [file stream providers](../storage/file-stream-providers.mdx), and the [API overview](../reference/api-overview.md) for the individual controls.
 
 ## Implementation references
 

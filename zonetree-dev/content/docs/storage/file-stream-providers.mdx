@@ -1,0 +1,131 @@
+---
+title: File Stream Providers
+description: Choose local or RAM-backed files, reopen an in-memory tree correctly, and understand the stream and durability contracts required of custom providers.
+---
+
+<SectionHeader class="zt-guide-intro" eyebrow="STORAGE / BACKING STORE" title="Choose where ZoneTree's files live" titleTag="h1" titleId="file-stream-providers-title" subtitle="The storage engine works through file and stream abstractions. Keep the same ordered API while choosing local persistence, RAM-backed files, or an application-specific provider."/>
+
+<Grid columns="1" columnsMd="2" class="gap-3 zt-guide-outcomes">
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>Local files</strong><p>The default provider uses the operating system's file APIs. Recovery also depends on WAL policy and the backing storage.</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"><strong>RAM-backed files</strong><p>The in-memory provider keeps the storage pipeline, but every file belongs to one volatile provider instance.</p></Panel>
+</Grid>
+
+## Know what the provider controls
+
+`IFileStreamProvider` supplies file operations and creates `IFileStream` objects. With the default storage components, it backs WALs, metadata, disk segments, and temporary replacement files.
+
+Pass the provider to the `ZoneTreeFactory` constructor. `SetDataDirectory()` chooses the segment and default WAL location within that provider; it does not force files onto the local filesystem. `SetWriteAheadLogDirectory()` can select a separate WAL location.
+
+| Choice | Backing store | Lifetime | Typical use |
+| --- | --- | --- | --- |
+| Default / `LocalFileStreamProvider` | Local filesystem. | Files outlive the tree and process when retained by the underlying storage. | Persistent application data. |
+| `InMemoryFileStreamProvider` | Process memory. | Files remain while the same provider instance retains them. | Tests, temporary indexes, replayable jobs. |
+| Custom `IFileStreamProvider` | Defined by the application. | Defined by its persistence and replacement semantics. | Specialized storage or fault-injection harnesses. |
+
+## Use the default local provider
+
+No provider argument is needed for local files. This complete program creates a tree in a chosen directory:
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/local-storage")
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert(42, "Ada");
+
+if (tree.TryGet(42, out var name))
+    Console.WriteLine(name);
+```
+
+The default provider delegates to local file and stream APIs. Whether an acknowledged write survives a particular failure also depends on the [WAL mode](../durability/wal-modes.md), flush behavior, and storage device. A local path alone does not define the recovery guarantee.
+
+## Use RAM-backed files deliberately
+
+`InMemoryFileStreamProvider` represents the same stream-based storage flow in RAM. A merge still produces serialized segment files; those bytes consume process memory instead of local disk space. The provider is not an instruction to keep all records in the mutable segment.
+
+For a replayable job, disabling WAL avoids maintaining an additional volatile log. If you want to close and reopen that tree through the same provider, first finish merging the records you need to keep. The following complete program demonstrates that controlled boundary:
+
+```csharp
+using ZoneTree;
+using ZoneTree.AbstractFileStream;
+using ZoneTree.Options;
+
+var provider = new InMemoryFileStreamProvider();
+
+ZoneTreeFactory<long, string> CreateFactory() =>
+    new ZoneTreeFactory<long, string>(provider)
+        .SetDataDirectory("transfer-job")
+        .ConfigureWriteAheadLogOptions(options =>
+            options.WriteAheadLogMode = WriteAheadLogMode.None);
+
+using (var tree = CreateFactory().OpenOrCreate())
+using (var maintainer = tree.CreateMaintainer())
+{
+    tree.Upsert(42, "Ready for the next stage");
+
+    // No concurrent writers: finish serializing the records before closing.
+    maintainer.EvictToDisk();
+    await maintainer.WaitForBackgroundThreadsAsync();
+}
+
+using var reopened = CreateFactory().Open();
+
+if (!reopened.TryGet(42, out var value))
+    throw new InvalidOperationException("Expected the merged record.");
+
+Console.WriteLine(value);
+```
+
+Creating another factory is fine; it must receive the **same provider instance** and directory to see those files. A new `InMemoryFileStreamProvider` starts empty.
+
+<AlertBox class="zt-guide-callout" tone="accent" title="WAL disabled means no replay of unmerged writes" icon="tabler:shield-check">
+  <p>With <code>WriteAheadLogMode.None</code>, disposing a tree does not automatically merge its mutable records into segment files. Those unmerged writes cannot be recovered on reopen. Explicit eviction above preserves them only inside the surviving provider; it provides no protection against process loss.</p>
+</AlertBox>
+
+## Decide whether an in-memory WAL is useful
+
+| Goal | WAL choice |
+| --- | --- |
+| Run a disposable job whose input can be replayed. | `None` can avoid volatile log work. Keep the tree open for the job, or merge at an explicitly coordinated handoff. |
+| Exercise WAL creation, replay, or recovery behavior in tests. | Keep the relevant WAL mode enabled and retain the provider instance between opens. |
+| Preserve data after process termination or machine failure. | Use a durable backing provider and choose an appropriate WAL mode. RAM-backed WAL files cannot provide this. |
+
+An in-memory provider with WAL enabled can recover retained log files when a tree is reopened in that process. Losing the provider loses both the log and its segment files.
+
+## Respect the in-memory provider's boundaries
+
+The built-in RAM-backed provider is optimized for ZoneTree's stream usage:
+
+- Large files use chunked backing storage; `ReadAllBytes()` still needs a single array and can fail for very large files.
+- `Replace()` hands off the backing file object instead of copying the whole payload.
+- `FileShare` is intentionally ignored. It is not a filesystem locking simulator.
+- Open streams can retain an old file object after deletion or replacement.
+- A stream's mutable `Position` is not safe for unsynchronized concurrent use.
+
+This makes it useful for storage-pipeline tests, but not a substitute for testing filesystem sharing, flush durability, or failure recovery on your deployment's actual storage.
+
+## Implement the full custom-provider contract
+
+Use `IFileStreamProvider` when neither built-in provider fits. Return `IFileStream` objects and implement the operations used by metadata, logs, and random-access segments—not just sequential append.
+
+| Area | Required behavior to design and test |
+| --- | --- |
+| Stream access | Correct modes, access checks, positioning, seeking, partial reads, writes, truncation, length, and stream conversion. |
+| File lifecycle | Existence, directory creation, deletion, replacement, and any backup destination. Preserve the visibility and failure behavior expected by the engine. |
+| Metadata | Small-file text/byte reads, path combination, directory enumeration, and durable-file-writer integration. |
+| Legacy WAL migration | File enumeration through `GetFiles()` and non-overwriting renames through `MoveFile()`. Their interface defaults throw if not implemented. |
+| Durability | Explicit semantics for `Flush()`, `Flush(bool)`, replacement, and interrupted operations. A method named “flush” does not establish a storage guarantee by itself. |
+| Concurrency and failures | Coordinate access and surface failures consistently. Test interrupted appends, replacements, reopening, and merges. |
+
+A remote object store usually needs a buffering and consistency design to satisfy seekable, mutable stream behavior. Implementing an upload method alone is not sufficient.
+
+Advanced integrations can replace the higher-level components with `SetWriteAheadLogProvider()` or `SetRandomAccessDeviceManager()`. Those components then own their storage behavior; constructor injection describes the factory's default pipeline.
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Separate backing storage from recovery policy</strong>
+  <p>Choose where files live here. Then decide which failure scenarios the WAL must cover and how backups capture the whole tree.</p>
+  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/durability/wal-modes/" tone="accent" icon="tabler:arrow-right" iconPosition="end">WAL modes</BtnLink><BtnLink href="/docs/storage/memory-usage/" tone="neutral" variant="outline">Memory usage</BtnLink></Flex>
+</Panel>

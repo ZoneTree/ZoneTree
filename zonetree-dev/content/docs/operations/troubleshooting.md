@@ -130,7 +130,7 @@ First actions:
 * dispose iterators promptly,
 * review value shape and value size.
 
-See [memory usage](../storage/memory-usage.md).
+See [memory usage](../storage/memory-usage.mdx).
 
 ## Disk Usage Grows
 

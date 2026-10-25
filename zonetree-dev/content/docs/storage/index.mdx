@@ -1,0 +1,32 @@
+---
+title: Storage
+description: Understand ZoneTree's physical files, backing providers, memory ownership, and independent WAL and disk compression settings.
+nav:
+  icon: iconoir:database
+layout:
+  fullWidth: true
+  showToc: false
+---
+
+<div class="zt-docs-overview">
+  <SectionHeader class="zt-guide-intro" eyebrow="STORAGE / FROM RECORDS TO RESOURCES" title="Understand where your data lives and what it costs" titleTag="h1" titleId="storage-title" subtitle="Connect the logical tree to its physical files, backing store, and memory footprint. Then choose compression and cache settings with a clear view of their scope."/>
+
+  <Grid columns="1" columnsMd="3" class="gap-3 zt-guide-outcomes">
+    <Panel class="p-0" bodyClass="p-4"><strong>Representation</strong><p>Sorted records become block-addressable files, indexes, and reusable parts.</p></Panel>
+    <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>Ownership</strong><p>Providers own file bytes. Segments, caches, and readers retain working memory.</p></Panel>
+    <Panel class="p-0" bodyClass="p-4"><strong>Tradeoffs</strong><p>Compression and retention exchange CPU, I/O, storage space, and RAM.</p></Panel>
+  </Grid>
+
+  <Grid columns="1" columnsMd="2" class="gap-4 zt-guide-next zt-docs-paths">
+    <DocCard number="01 / FILE LAYOUT" title="Disk segment files" summary="Recognize data, headers, sparse indexes, and multipart descriptors. Understand reuse, inspection, and file lifetime." href="/docs/storage/disk-segments/" icon="tabler:database" label="Read the physical layout"/>
+    <DocCard number="02 / BACKING STORE" title="File stream providers" summary="Choose local or RAM-backed files, reopen an in-memory tree correctly, and define custom storage contracts." href="/docs/storage/file-stream-providers/" icon="tabler:stack-2" label="Choose where files live"/>
+    <DocCard number="03 / MEMORY BUDGET" title="Memory usage" summary="Account for mutable records, merge backlogs, sampled values, block caches, and iterator lifetimes." href="/docs/storage/memory-usage/" icon="tabler:settings" label="Budget retained memory"/>
+    <DocCard number="04 / CPU AND I/O" title="Compression" summary="Configure WAL and disk profiles independently and measure block size, cache costs, and workload-specific results." href="/docs/storage/compression/" icon="tabler:arrows-sort" label="Compare compression choices"/>
+  </Grid>
+
+  <Panel tone="accent" variant="surface" class="p-0 zt-guide-next-panel" bodyClass="p-5">
+    <strong>Start with the resource you need to understand</strong>
+    <p>Inspecting a data directory? Begin with file layout. Choosing a deployment's backing store? Read providers and WAL modes together. Investigating RAM or read latency? Start with memory ownership, then compression.</p>
+    <Flex wrap="true" class="gap-3"><BtnLink href="/docs/concepts/lsm-tree/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Review the architecture</BtnLink><BtnLink href="/docs/durability/wal-modes/" tone="neutral" variant="outline">Choose a WAL mode</BtnLink></Flex>
+  </Panel>
+</div>

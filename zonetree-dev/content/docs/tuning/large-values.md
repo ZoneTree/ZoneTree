@@ -107,7 +107,7 @@ using var zoneTree = new ZoneTreeFactory<int, string>()
 
 Benchmark with representative values.
 
-See [compression](../storage/compression.md) and [read-path caching](read-path-caching.md).
+See [compression](../storage/compression.mdx) and [read-path caching](read-path-caching.md).
 
 ## WAL Cost
 
