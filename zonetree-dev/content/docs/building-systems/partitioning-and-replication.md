@@ -70,7 +70,7 @@ ZoneTree orders keys using the configured comparer. Use key layouts that keep re
 
 The comparer, serializers, deletion rules, and application value schema must agree across replicas and during export, restore, and replay. A serialized value copied to another node must retain the same meaning there. Changing ownership does not change that contract.
 
-See [serializers and comparers](../concepts/serializers-and-comparers.mdx) and [indexes](indexes.md) for key-layout design.
+See [serializers and comparers](../concepts/serializers-and-comparers.mdx) and [key ordering](../concepts/key-ordering.mdx) for key-layout design.
 
 ## Write identities and ordering
 
@@ -362,7 +362,7 @@ Treat callbacks as notifications and keep them short; enqueue expensive transfer
 
 Some maintenance record counts include multiple physical versions of a key across segments. Use them as storage-pressure measurements rather than unique-key counts. Coordinate aggregate memory and I/O budgets across hosted partitions, and release iterators and backup activity before removing a replica's files.
 
-See [maintenance](../usage/maintenance.mdx), [file stream providers](../storage/file-stream-providers.mdx), and the [API overview](../reference/api-overview.md) for the individual controls.
+See [maintenance](../usage/maintenance.mdx) and [file stream providers](../storage/file-stream-providers.mdx) for the individual controls.
 
 ## Implementation references
 

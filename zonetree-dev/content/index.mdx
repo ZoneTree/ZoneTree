@@ -45,9 +45,9 @@ nav:
         number="03 / CONTROL"
         title="Shape your own data layer."
         summary="Bring your serializers and comparers. Use atomic updates, optimistic transactions, and background maintenance to build the behavior your product needs."
-        href="/docs/reference/api-overview/"
+        href="/docs/usage/"
         icon="tabler:adjustments-horizontal"
-        label="Discover the API"/>
+        label="Tree operations and coordination"/>
     </Grid>
   </section>
 
@@ -229,18 +229,18 @@ while (iterator.Next() && iterator.CurrentKey < 200)
         label="Explore the architecture"/>
       <DocCard
         number="DESIGN"
-        title="Build your data model."
-        summary="Turn ordered keys into primary and secondary indexes, time-series stores, persistent queues, and event systems."
-        href="/docs/building-systems/indexes/"
+        title="Design ordered keys."
+        summary="Define comparer order and composite keys around the ranges your application needs to query."
+        href="/docs/concepts/key-ordering/"
         icon="tabler:hierarchy-2"
-        label="Start with indexes"/>
+        label="Key ordering and range design"/>
       <DocCard
-        number="OPERATE"
-        title="Prepare for production."
-        summary="Plan maintenance, backups, recovery, and diagnostics before your application depends on the data."
-        href="/docs/operations/production-checklist/"
+        number="DURABILITY"
+        title="Logging, recovery, and backups."
+        summary="Review WAL modes, automatic incomplete-tail recovery, and live backup generations."
+        href="/docs/durability/"
         icon="tabler:checklist"
-        label="Use the production checklist"/>
+        label="Durability guides"/>
     </Grid>
   </section>
 

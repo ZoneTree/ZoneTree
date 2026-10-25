@@ -14,9 +14,7 @@
     "durability/index.mdx": "iconoir:shield-check",
     "tuning/": "iconoir:settings",
     "tuning/index.mdx": "iconoir:settings",
-    "building-systems/": "iconoir:server",
-    "operations/": "iconoir:tools",
-    "reference/": "iconoir:code"
+    "building-systems/": "iconoir:server"
   },
   "sequence": [
     "index.mdx",
@@ -59,17 +57,6 @@
     "tuning/disk-segments.mdx",
     "tuning/large-values.mdx",
     "building-systems/",
-    "building-systems/indexes.md",
-    "building-systems/time-series.md",
-    "building-systems/queues.md",
-    "building-systems/event-stores.md",
-    "building-systems/partitioning-and-replication.md",
-    "operations/",
-    "operations/production-checklist.md",
-    "operations/diagnostics.md",
-    "operations/troubleshooting.md",
-    "reference/",
-    "reference/api-overview.md",
-    "reference/configuration.md"
+    "building-systems/partitioning-and-replication.md"
   ]
 }

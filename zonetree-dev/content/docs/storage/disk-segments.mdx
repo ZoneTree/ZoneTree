@@ -117,7 +117,7 @@ File IDs depend on the tree's history. An empty current disk slot may enumerate 
 
 Merges publish replacement segments rather than rewriting the record data of an active segment. Once a segment is retired, its files can be reclaimed when no reader or backup still leases them. Sparse-index files are auxiliary persisted indexes, separate from that immutable record data.
 
-Dispose iterators and backup handles promptly. Extra files after a merge can be legitimate while those readers are alive; deleting files based on their age or filename can break an active tree. Use [diagnostics](../operations/diagnostics.md) to investigate failed cleanup.
+Dispose iterators and backup handles promptly. Extra files after a merge can be legitimate while those readers are alive; deleting files based on their age or filename can break an active tree. Use [maintenance events](../usage/maintenance.mdx#observe-progress-and-failures) to investigate failed cleanup.
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Compression, memory use, and backups</strong>

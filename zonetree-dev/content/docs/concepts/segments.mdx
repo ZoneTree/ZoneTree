@@ -91,7 +91,7 @@ The same key can have records in several layers. Updates and deletion markers ma
 
 A newly published segment and the physical deletion of its predecessor need not happen at the same instant. Open iterators and backup activity can retain old disk segments so their readers can finish safely.
 
-Dispose scan-owned resources promptly. If obsolete files remain, inspect active readers and cleanup-failure events before assuming the merge failed. See [maintenance](../usage/maintenance.mdx) and [diagnostics](../operations/diagnostics.md).
+Dispose scan-owned resources promptly. If obsolete files remain, inspect active readers and cleanup-failure events before assuming the merge failed. See [maintenance events](../usage/maintenance.mdx#observe-progress-and-failures).
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Bloom filters and disk storage</strong>

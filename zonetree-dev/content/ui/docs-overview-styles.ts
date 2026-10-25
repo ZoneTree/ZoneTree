@@ -71,7 +71,4 @@ function registerOverviewGuides({ root, colors }: OverviewStyleContext) {
   root.select('.zt-docs-topic p').fontSize('13px').lineHeight('1.8').color(colors.muted).marginBlock('12px 16px')
   root.select('.zt-docs-topic a').display('block').paddingBlock('6px').fontSize('13px').lineHeight('1.6').color(colors.ink).textDecoration('none')
   root.select('.zt-docs-topic a:hover').color(colors.accentInk).textDecoration('underline').textUnderlineOffset('4px')
-  root.select('.zt-docs-reference').marginTop('32px')
-  root.select('.zt-docs-reference .section-header > h2').fontSize('20px').letterSpacing('-.4px')
-  root.select('.zt-docs-reference .section-header > p').fontSize('13px').marginTop('8px')
 }

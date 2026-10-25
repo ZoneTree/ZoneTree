@@ -1,6 +1,6 @@
 ---
 title: ZoneTree Documentation
-description: Start a persistent ZoneTree in C#, understand ordered keys and the LSM write path, and find practical guides for durability, indexing, maintenance, and production.
+description: Start a persistent ZoneTree in C#, learn ordered keys and the LSM write path, and find guides for storage, durability, maintenance, and tuning.
 layout:
   fullWidth: true
   showToc: false
@@ -28,10 +28,10 @@ layout:
           iconPosition="end"
           >Get started</BtnLink>
         <BtnLink
-          href="/docs/reference/api-overview/"
+          href="/docs/usage/"
           variant="outline"
           tone="neutral"
-          >API overview</BtnLink>
+          >Usage guides</BtnLink>
       </Flex>
       <dl class="zt-docs-principles">
         <div>
@@ -119,12 +119,12 @@ if (tree.TryGet(42, out var value))
         icon="tabler:stack-2"
         label="LSM-tree architecture"/>
       <DocCard
-        number="03 / PRODUCTION"
-        title="Make the operational choices"
-        summary="Choose a WAL mode, plan backups and recovery, configure maintenance, and decide what to monitor before putting the tree into service."
-        href="/docs/operations/production-checklist/"
+        number="03 / DURABILITY"
+        title="Logging, recovery, and backups"
+        summary="Compare WAL modes, inspect recovery diagnostics, and create and restore backup generations."
+        href="/docs/durability/"
         icon="tabler:shield-check"
-        label="Work through the checklist"/>
+        label="Durability guides"/>
     </Grid>
   </section>
 
@@ -185,10 +185,6 @@ if (tree.TryGet(42, out var value))
           <li>
             <a href="/docs/concepts/serializers-and-comparers/"
               >Define serializers and comparers</a>
-          </li>
-          <li>
-            <a href="/docs/building-systems/indexes/"
-              >Maintain secondary indexes</a>
           </li>
         </ul>
       </Panel>
@@ -254,28 +250,25 @@ if (tree.TryGet(42, out var value))
       <Panel
         bodyClass="p-5"
         class="p-0 zt-docs-topic"
-        aria-labelledby="docs-operations-title"
+        aria-labelledby="docs-maintenance-title"
       >
         <Icon name="tabler:settings" class="zt-docs-topic-icon"/>
-        <h3 id="docs-operations-title">Operate &amp; troubleshoot</h3>
+        <h3 id="docs-maintenance-title">Maintenance</h3>
         <p>
-          Keep maintenance running and turn an unexpected symptom into a
-          diagnosis.
+          Background merges, bottom-segment compaction, and inactive-cache
+          cleanup.
         </p>
         <ul class="list-none p-0 m-0">
           <li>
             <a href="/docs/usage/maintenance/">Run and observe maintenance</a>
           </li>
           <li>
-            <a href="/docs/operations/diagnostics/"
-              >Inspect diagnostics and metrics</a>
+            <a href="/docs/usage/maintenance/#compact-bottom-segments"
+              >Compact bottom segments</a>
           </li>
           <li>
-            <a href="/docs/operations/troubleshooting/"
-              >Investigate common problems</a>
-          </li>
-          <li>
-            <a href="/docs/tuning/large-values/">Plan for large values</a>
+            <a href="/docs/usage/maintenance/#control-inactive-cache-cleanup"
+              >Configure cache cleanup</a>
           </li>
         </ul>
       </Panel>
@@ -285,64 +278,19 @@ if (tree.TryGet(42, out var value))
         aria-labelledby="docs-systems-title"
       >
         <Icon name="tabler:git-branch" class="zt-docs-topic-icon"/>
-        <h3 id="docs-systems-title">Build a data system</h3>
+        <h3 id="docs-systems-title">Partitioning &amp; replication</h3>
         <p>
-          Apply ordered storage to a higher-level model and its consistency
-          rules.
+          Connect local trees to partition ownership, replication, and replica
+          seeding.
         </p>
         <ul class="list-none p-0 m-0">
           <li>
-            <a href="/docs/building-systems/queues/">Build an ordered queue</a>
-          </li>
-          <li>
-            <a href="/docs/building-systems/event-stores/"
-              >Store and replay events</a>
-          </li>
-          <li>
-            <a href="/docs/building-systems/time-series/"
-              >Model time-series data</a>
-          </li>
-          <li>
             <a href="/docs/building-systems/partitioning-and-replication/"
-              >Plan partitioning and replication</a>
+              >Partitioning and replication guide</a>
           </li>
         </ul>
       </Panel>
     </Grid>
   </section>
 
-  <Panel
-    tone="accent"
-    variant="surface"
-    bodyClass="p-5"
-    class="p-0 zt-docs-reference"
-    aria-labelledby="docs-reference-title"
-  >
-    <Flex
-      direction="column"
-      directionLg="row"
-      alignLg="center"
-      justify="between"
-      class="gap-5"
-    >
-      <SectionHeader
-        title="Looking for a specific detail?"
-        titleId="docs-reference-title"
-        subtitle="Check a setting, find an API, or inspect a measured workload."/>
-      <Flex wrap="true" class="gap-3">
-        <BtnLink
-          href="/docs/reference/configuration/"
-          tone="accent"
-          variant="outline"
-          >Configuration</BtnLink>
-        <BtnLink
-          href="/docs/reference/api-overview/"
-          tone="accent"
-          variant="outline"
-          >API reference</BtnLink>
-        <BtnLink href="/docs/benchmark/" tone="accent" variant="outline"
-          >Benchmarks</BtnLink>
-      </Flex>
-    </Flex>
-  </Panel>
 </div>
