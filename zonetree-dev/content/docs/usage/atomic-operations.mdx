@@ -1,0 +1,154 @@
+---
+title: Atomic Operations
+description: Use ZoneTree's atomic add, update, and read-modify-write APIs; distinguish found, added, updated, and cancelled results; and keep competing writes on one coordination path.
+---
+
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="USAGE / SINGLE-KEY COORDINATION"
+  title="Update a key from its current value"
+  titleTag="h1"
+  titleId="atomic-title"
+  subtitle="Use atomic methods for counters, conditional replacements, and initialize-or-update logic. They coordinate the read, decision, and write with other atomic methods on the same tree."/>
+
+<AlertBox
+  class="zt-guide-callout"
+  tone="accent"
+  title="One invariant, one write discipline"
+  icon="tabler:shield-check"
+>
+  <p>
+    Ordinary <code>Upsert</code>, <code>TryAdd</code>, <code>TryDelete</code>,
+    and <code>ForceDelete</code> do not join the atomic-method lock. If
+    correctness depends on an atomic update, every competing writer for that key
+    must respect the same coordination path.
+  </p>
+</AlertBox>
+
+## Build a counter
+
+This complete program uses string keys and `long` values. The counter starts at `1` when absent and increments when it already exists:
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<string, long>()
+    .SetDataDirectory("data/atomic-example")
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.TryAtomicAddOrUpdate(
+    key: "stats:user:42:views",
+    valueToAdd: 1,
+    valueUpdater: (ref long value) =>
+    {
+        value++;
+        return true;
+    },
+    result: (in long value, long opIndex, OperationResult result) =>
+    {
+        Console.WriteLine($"{result}: {value} at operation {opIndex}");
+    });
+```
+
+Run it again against the same directory to increment the persisted counter. The callback reports `Added` on initialization and `Updated` on a later increment.
+
+## Coordination across storage layers
+
+The newest value may be in mutable memory, a read-only segment, or a disk layer. Atomic methods synchronize this sequence across those layers:
+
+1. Find the current live value for the key.
+2. Decide whether to add, replace, update, or cancel.
+3. Write the accepted value to the mutable segment.
+
+The coordination lock is shared by atomic methods on the tree. It is not a separate lock per key, so long-running callbacks can delay unrelated atomic work in that tree.
+
+Use ordinary `Upsert` when the new value is independent of the old value and does not participate in an atomic invariant. For an unconditional replacement of a key in an atomic workflow, use `AtomicUpsert`:
+
+```csharp
+tree.AtomicUpsert("stats:user:42:views", 1);
+```
+
+## Choose an atomic method
+
+| Method | When to use it | Result |
+| --- | --- | --- |
+| `TryAtomicAdd(key, value, out opIndex)` | Add only if no live value exists. | `true` when added; otherwise `false` and operation index `0`. |
+| `TryAtomicUpdate(key, value, out opIndex)` | Replace only if a live value exists. | `true` when replaced; otherwise `false` and operation index `0`. |
+| `AtomicUpsert(key, value)` | Add or replace while respecting atomic-method coordination. | The assigned operation index. |
+| `TryAtomicGetAndUpdate(key, out value, updater)` | Decide on a replacement from the current value. | Whether a live key was found, even if the updater cancels. |
+| `TryAtomicAddOrUpdate(key, valueToAdd, updater, result)` | Initialize when absent and update when present. | `true` only when added; use the callback to distinguish update from cancellation. |
+| `TryAtomicAddOrUpdate(key, adder, updater, result)` | Compute both the initial value and later updates. | Either delegate can cancel by returning `false`. |
+
+Successful writes receive normal operation indexes. See [operation indexes](../concepts/op-index.mdx) for ordering and replay uses.
+
+## Compare before replacing
+
+This example advances a stored revision only when the current revision is `3`:
+
+```csharp
+tree.AtomicUpsert("job:42:revision", 3);
+
+var replaced = false;
+var found = tree.TryAtomicGetAndUpdate(
+    "job:42:revision",
+    out var revision,
+    (ref long value) =>
+    {
+        if (value != 3)
+            return false;
+
+        value = 4;
+        replaced = true;
+        return true;
+    });
+
+Console.WriteLine($"Found: {found}; replaced: {replaced}");
+```
+
+`found` answers whether the key existed. It does not mean the update was accepted. In this example, the local `replaced` flag records that separate decision.
+
+## Interpret cancellation and callback results
+
+An updater or adder receives a local `TValue` variable by `ref`. Return `true` to write that value, or `false` to cancel.
+
+| Callback result | Meaning | Operation index |
+| --- | --- | --- |
+| `Added` | A previously absent key was initialized. | Assigned to the write. |
+| `Updated` | The existing value was replaced. | Assigned to the write. |
+| `Cancelled` | The adder or updater declined the write. | `0`. |
+
+`TryAtomicAddOrUpdate` returns `false` for both `Updated` and `Cancelled`. Do not treat that boolean as a general success flag.
+
+Keep callbacks short. Adder/updater delegates in `TryAtomicAddOrUpdate` can run more than once if a segment freezes or fills before the write is accepted. Avoid network calls, external writes, and other effects that cannot safely repeat. The result callback also runs under atomic-method coordination.
+
+## Replace mutable objects instead of changing them in place
+
+If `TValue` is a reference type, copying the local variable does not clone the object. A property change can alter the shared object before ZoneTree accepts a write. Returning `false` cannot undo that mutation.
+
+Prefer immutable values. For a record value, construct a replacement with a `with` expression and assign it to the `ref` parameter. Make the decision before creating the replacement, and write through the API so operation indexing and WAL behavior remain explicit. See [value mutability](../concepts/value-mutability.mdx).
+
+## Multi-key invariants and transactions
+
+A one-key atomic update does not commit related changes to other keys. Use a [transaction](transactions.mdx) for an invariant such as transferring value between two keys or updating a record and its index entries in the same transactional tree.
+
+Different key groups can use different disciplines. A profile key can use independent replacement writes while a separate counter uses atomic methods. The important boundary is every writer that can change the same invariant.
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Need more than one key?</strong>
+  <p>
+    Transactions add a commit boundary, conflict handling, and explicit retry
+    decisions for related keys in one tree.
+  </p>
+  <Flex wrap="true" class="gap-3"
+    ><BtnLink
+      href="/docs/usage/transactions/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Transactions</BtnLink><BtnLink
+      href="/docs/usage/reads-and-writes/"
+      tone="neutral"
+      variant="outline"
+      >Ordinary writes</BtnLink></Flex>
+</Panel>

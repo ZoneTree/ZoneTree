@@ -1,0 +1,131 @@
+---
+title: Opening A Tree
+description: Choose OpenOrCreate, Open, or Create; configure a ZoneTreeFactory; and manage the lifetime of a tree, its maintainer, and its iterators.
+---
+
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="USAGE / INITIALIZATION"
+  title="Open a tree. Own its lifetime."
+  titleTag="h1"
+  titleId="opening-title"
+  subtitle="Configure a factory once at startup, choose whether existing data is required, and keep the opened tree alive for the work that uses it."/>
+
+## Create the tree and its maintenance coordinator
+
+This complete example opens a persistent tree and starts the standard maintenance coordinator:
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/opening-example")
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert(42, "Ada");
+if (tree.TryGet(42, out var name))
+    Console.WriteLine(name);
+```
+
+In a service, create the tree at startup and share it with the application code that needs it. Dispose it during shutdown after requests and scans have finished. Opening a new tree for every request repeats initialization and complicates resource ownership.
+
+## Choose an opening mode
+
+| Method | Directory contains a tree | No tree exists | Use it for |
+| --- | --- | --- | --- |
+| `OpenOrCreate()` | Opens it. | Creates it. | Applications that initialize their own storage. |
+| `Open()` | Opens it. | Throws `DatabaseNotFoundException`. | Services or tools that must use an existing database. |
+| `Create()` | Throws `DatabaseAlreadyExistsException`. | Creates it. | Explicit provisioning and fresh test databases. |
+
+Each method returns an opened `IZoneTree<TKey, TValue>`. Configure the factory before calling it.
+
+<AlertBox
+  class="zt-guide-callout"
+  tone="accent"
+  title="Make the data path deliberate"
+  icon="tabler:database"
+>
+  <p>
+    Relative paths resolve from the application's working directory. For a
+    deployed service, use a stable configured path. Use <code>Open()</code> when
+    a missing or mistyped path should fail startup.
+  </p>
+</AlertBox>
+
+## Configure before opening
+
+The factory fills supported serializers, comparers, and hashers for known types. Specify components explicitly when the stored representation or ordering needs to be controlled:
+
+```csharp
+using ZoneTree;
+using ZoneTree.Comparers;
+using ZoneTree.Serializers;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/configured-example")
+    .SetComparer(new Int32ComparerAscending())
+    .SetKeySerializer(new Int32Serializer())
+    .SetValueSerializer(new Utf8StringSerializer())
+    .SetMutableSegmentMaxItemCount(100_000)
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+```
+
+`MutableSegmentMaxItemCount` controls the number of records in the active mutable segment. It is not a byte limit, and repeated writes to an existing key do not each create another record in that segment.
+
+Treat serializers, key comparison, and deletion rules as part of the storage design. Reopening existing data with incompatible rules can make it unreadable or incorrectly ordered. Plan a migration when changing that design.
+
+| Decision | Read next |
+| --- | --- |
+| What determines equality and ordering? | [Key ordering](../concepts/key-ordering.mdx) |
+| How are keys and values encoded? | [Serializers, comparers, and hashers](../concepts/serializers-and-comparers.mdx) |
+| Which values represent deleted records? | [Deletion markers and TTL](../concepts/deletion-markers-and-ttl.mdx) |
+| When are writes recoverable after a failure? | [WAL modes](../durability/wal-modes.mdx) |
+
+When Bloom filtering is enabled with a custom comparer, comparer-equal keys must produce the same hash. Supply a compatible key hasher with your comparer.
+
+## Open a transactional tree
+
+Use the transactional factory methods when several keys in the same tree must participate in a transaction:
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/transactional-example")
+    .OpenOrCreateTransactional();
+using var maintainer = tree.CreateMaintainer();
+```
+
+`OpenTransactional()` requires existing data; `CreateTransactional()` requires that a tree does not already exist. Their opening rules match the non-transactional methods above.
+
+The returned `ITransactionalZoneTree<TKey, TValue>` uses transaction IDs and commit handling. Choose it because an invariant spans multiple keys, rather than merely because several application threads will write. See [transactions](transactions.mdx) for a complete example.
+
+## Close resources in the right order
+
+| Resource | Lifetime and ownership |
+| --- | --- |
+| Tree | Application-owned. Keep it open while operations need it; dispose at shutdown. |
+| Maintainer | Caller-owned. Keep it with the tree; disposal waits for tracked merge threads. |
+| Iterator | Scan-owned. Dispose as soon as that scan finishes so replaced segments can be reclaimed. |
+
+The examples declare the tree first and the maintainer second. C# disposes them in reverse order, so maintenance finishes before the tree closes. A later iterator declaration is disposed before both.
+
+Creating a maintainer is optional. Omitting it means your application must supply the merge policy, cache cleanup, and background-work coordination through `tree.Maintenance`.
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Continue with data operations</strong>
+  <p>
+    Ordinary methods read and replace values. Atomic methods coordinate a
+    one-key decision; transactions coordinate related keys in one tree.
+  </p>
+  <Flex wrap="true" class="gap-3"
+    ><BtnLink
+      href="/docs/usage/reads-and-writes/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Reads and writes</BtnLink><BtnLink href="/docs/usage/maintenance/" tone="neutral" variant="outline"
+      >Maintenance</BtnLink></Flex>
+</Panel>

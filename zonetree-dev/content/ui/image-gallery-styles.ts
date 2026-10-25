@@ -8,6 +8,7 @@ export function registerImageGalleryStyles() {
     root.select('.zt-image-gallery').display('grid').gap('28px').minWidth('0')
     root.select('.zt-image-gallery .zt-gallery-card').margin('0').minWidth('0')
     root.select('.zt-gallery-card figcaption').fontSize('18px').fontWeight('600').marginBottom('12px').color(c.ink)
+    root.select('.zt-gallery-card figcaption > h3').margin('0').fontSize('inherit').fontWeight('inherit').lineHeight('inherit').color('inherit')
     root.select('.zt-image-gallery button, .zt-image-gallery-dialog button').fontFamily('inherit').lineHeight('1.3').cursor('pointer')
       .set('-webkit-tap-highlight-color', 'transparent')
     root.select('.zt-gallery-open').position('relative').display('block').width('100%').padding('0').overflow('hidden')

@@ -1,0 +1,93 @@
+---
+title: Operation Indexes
+description: Interpret per-tree write sequence indexes, preserve recovered high-water marks, and distinguish per-key replication freshness from global ordering or exactly-once delivery.
+---
+
+<SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / WRITE SEQUENCING" title="Identify a write in its producer's sequence" titleTag="h1" titleId="op-index-title" subtitle="Successful ordinary-tree writes receive operation indexes from the tree's increasing sequence. Use them as write identities and freshness tokens with an explicit producer, recovery boundary, and replay protocol."/>
+
+## Observe the assigned index
+
+This complete example records the indexes returned by two writes and a deletion. It also builds a value from the index assigned to that write:
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/operation-index-example")
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+var first = tree.Upsert(1, "First");
+var second = tree.Upsert(2, "Second");
+var deleted = tree.ForceDelete(1);
+var embedded = tree.Upsert(3, index => $"Created at operation {index}");
+
+Console.WriteLine($"Increasing: {first < second && second < deleted && deleted < embedded}");
+if (tree.TryGet(3, out var value))
+    Console.WriteLine(value);
+```
+
+Keep value factories short and free of effects that cannot safely repeat. An index can be allocated before the value is produced and before the complete write path finishes. Do not use the factory invocation as a commit or delivery callback.
+
+## Separate sequence allocation from other guarantees
+
+| An operation index provides | It does not provide by itself |
+| --- | --- |
+| A position in one tree's producer sequence. | A global clock across different trees, processes, or producers. |
+| A token associated with an accepted record write. | Proof that the device has flushed that write. |
+| A basis for ordering a complete captured operation stream. | Automatic retention or delivery of every overwritten record. |
+| A value to compare for per-key freshness. | A transaction ID, a multi-key commit boundary, or an exactly-once protocol. |
+
+With concurrent writers, sequence assignment and method return order are different observations. A call that returns first need not have the smaller index. Do not assume the sequence is gap-free: an index can be allocated before a value factory or a later write step fails.
+
+Failed existence checks and cancelled atomic callbacks commonly report operation index `0`. That sentinel is not a new successful write. See [atomic operations](../usage/atomic-operations.mdx) for the specific return contracts.
+
+## Operation indexes after recovery
+
+WAL records retain their original operation indexes. Reopen combines recovered WAL information with persisted high-water metadata so later allocations continue above the recovered sequence.
+
+That guarantee is bounded by what storage actually recovered. An index observed by another system for a write later lost under the configured durability mode is not evidence of a permanently reserved number in the recovered database. A restored backup or replacement producer also needs an explicit stream identity or epoch in a replication design.
+
+Use [WAL modes](../durability/wal-modes.mdx), [recovery](../durability/recovery.mdx), and [backup rules](../durability/backups.mdx) together when deciding how sequence identities survive failures or restores.
+
+## Replay a stream, not an ordinary key scan
+
+An ordinary iterator returns the visible records in key order. It does not expose every historical version or emit operations in index order.
+
+To replay producer writes, capture the operations and the information your protocol needs: producer identity, operation index, key, value or tombstone, and any transaction or checkpoint boundaries. Reordering by index requires handling gaps, concurrent delivery, retries, and incomplete capture.
+
+<div class="zt-guide-output">
+```text
+producer P, key A, index 10 -> older value
+producer P, key A, index 12 -> newer value
+
+consumer already applied A / 12
+incoming A / 10 -> stale for that key
+```
+</div>
+
+A per-key high-water mark can reject stale updates from the same producer sequence. It does not establish whether a lower-index update for a different key has arrived, or whether all operations up to a checkpoint are durable.
+
+## Replicator update semantics
+
+`ZoneTree.Core.Replicator<TKey, TValue>` maintains a companion tree of latest producer operation indexes by key. Its `OnUpsert` handler compares the incoming index with the one remembered for that key:
+
+| Incoming index | Behavior |
+| --- | --- |
+| Lower than the remembered index | Ignore the stale upsert. |
+| Equal to the remembered index | Apply the upsert again. |
+| Higher, or no remembered entry | Record the index and apply the upsert. |
+
+Equal-index replay can be logically idempotent when it repeats the same value, but it still executes `Replica.Upsert`. Do not treat it as duplicate suppression or an exactly-once callback.
+
+The freshness tree and replica are separate stores. The helper does not make their writes one crash-atomic transaction, add transport, establish a global replay order, or resolve conflicting producers. Those are responsibilities of the surrounding replication protocol.
+
+<AlertBox class="zt-guide-callout" tone="accent" title="Define freshness within one producer history" icon="tabler:git-branch">
+  <p>Comparing two numbers only makes sense when they belong to the same sequence. Add producer identity and a restore or failover policy before using operation indexes across nodes.</p>
+</AlertBox>
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Operation indexes in replication</strong>
+  <p>Use the storage sequence as one building block alongside capture, durability, acknowledgments, and recovery.</p>
+  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/building-systems/partitioning-and-replication/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Partitioning and replication</BtnLink><BtnLink href="/docs/durability/recovery/" tone="neutral" variant="outline">Recovery</BtnLink></Flex>
+</Panel>

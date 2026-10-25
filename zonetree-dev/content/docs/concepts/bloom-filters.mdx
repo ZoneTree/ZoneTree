@@ -1,0 +1,131 @@
+---
+title: Bloom Filters
+description: Understand mutable-segment Bloom membership checks, allocation sizing, comparer-compatible hashing, filter lifetime, and workload-based tuning.
+---
+
+<SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / NEGATIVE LOOKUPS" title="Skip the lookup when a key cannot be there" titleTag="h1" titleId="bloom-title" subtitle="A mutable-segment Bloom filter can rule out a key before ZoneTree enters that segment's B+Tree. A possible match still goes through the ordinary comparer-based lookup."/>
+
+<Grid columns="1" columnsMd="2" class="gap-3 zt-guide-outcomes">
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>Definitely absent</strong><p>Skip this segment's B+Tree and continue searching the remaining layers.</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"><strong>Possibly present</strong><p>Perform the normal lookup. The filter does not establish that a live record exists.</p></Panel>
+</Grid>
+
+## Configure a filter
+
+This complete example keeps the default density of eight requested bits per item:
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<long, string>()
+    .SetDataDirectory("data/bloom-example")
+    .SetMutableSegmentBloomFilterBitsPerItem(8)
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert(42, "Present");
+Console.WriteLine(tree.TryGet(42, out _));
+Console.WriteLine(tree.TryGet(99, out _));
+```
+
+For fresh sample data, the results are `True` and `False`. Filter use does not change those answers when the hasher and comparer contracts are satisfied.
+
+| Setting | Meaning |
+| --- | --- |
+| `0` | Disable the mutable-segment Bloom filter; no key hasher is required for this feature. |
+| `1` through `64` | Request this many filter bits per configured mutable-segment item. |
+| Default: `8` | Compare filter memory, absent-key lookup cost, and write throughput before changing this allocation. |
+
+The factory supplies a hasher for supported key types. Custom key types need a compatible `IKeyHasher<TKey>` when filtering is enabled.
+
+## Match hashing to key equality
+
+<AlertBox class="zt-guide-callout" tone="accent" title="Comparer-equal keys must have equal hashes" icon="tabler:shield-check">
+  <p>A hash collision between unequal keys can add unnecessary work. Different hashes for keys the comparer considers equal can hide a real key behind a negative filter result. That is a correctness error, not a tuning tradeoff.</p>
+</AlertBox>
+
+For example, a case-insensitive string comparer needs case-insensitive hashing:
+
+```csharp
+using ZoneTree;
+using ZoneTree.Comparers;
+using ZoneTree.Hashers;
+
+using var tree = new ZoneTreeFactory<string, string>()
+    .SetDataDirectory("data/case-insensitive-bloom")
+    .SetComparer(new StringOrdinalIgnoreCaseComparerAscending())
+    .SetKeyHasher(new OrdinalIgnoreCaseHasher())
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert("User:42", "Ada");
+Console.WriteLine(tree.TryGet("USER:42", out var name));
+Console.WriteLine(name);
+
+sealed class OrdinalIgnoreCaseHasher : IKeyHasher<string>
+{
+    public int GetHashCode(in string key) =>
+        StringComparer.OrdinalIgnoreCase.GetHashCode(key);
+}
+```
+
+Validation catches a common string mismatch using `"a"` and `"A"`. That check is not a proof for every key. Test your own equality edge cases, including any normalization, ignored fields, or culture behavior used by the comparer.
+
+## Budget allocation per segment
+
+The allocation follows the configured capacity, not the number of records currently stored:
+
+1. Multiply `MutableSegmentMaxItemCount` by the requested bits per item.
+2. Use at least 64 bits.
+3. Round up to a power of two, capped at `2^30` bits: 128 MiB of bit storage.
+
+With the default capacity of 1,000,000 records, the bit arrays occupy:
+
+| Requested bits per item | Requested bits | Allocated bit storage |
+| ---: | ---: | ---: |
+| `4` | 4,000,000 | 512 KiB |
+| `8` | 8,000,000 | 1 MiB |
+| `16` | 16,000,000 | 2 MiB |
+| `32` | 32,000,000 | 4 MiB |
+| `64` | 64,000,000 | 8 MiB |
+
+These figures exclude object and array overhead. Power-of-two rounding creates steps: a small setting change can double the allocation. At the maximum-size cap, a very large configured segment can receive fewer effective bits per item than requested.
+
+## False positives
+
+A false positive sends a missing key into a B+Tree lookup that eventually fails. It costs work; it does not create a record or change key order.
+
+The implementation chooses three bit positions in one 64-bit word. Writes publish those bits with one atomic operation; reads inspect them with one volatile read. This layout keeps publication compact but means conventional whole-array Bloom-filter probability formulas should not be treated as measured rates for this implementation.
+
+Actual behavior depends on per-word occupancy, probe correlations, hash quality, distinct keys, rounding, and the workload's missing-key distribution. Measure negative-read latency and throughput rather than selecting a density from an assumed percentage.
+
+Keys are added to the filter before their B+Tree writes are published. Updates and deletion markers also add their hashes. Bits are not cleared for a delete; clearing shared bits could incorrectly rule out another key.
+
+## Filter scope and lifetime
+
+| Location or operation | Filter behavior |
+| --- | --- |
+| Active mutable segment | Owns an in-memory filter when enabled. |
+| A mutable segment that has frozen | Retains its filter while waiting in the read-only layer. |
+| Read-only segment reconstructed from a WAL on reopen | Does not currently receive that mutable-segment filter. |
+| Disk segment | Does not use this filter as a persisted disk index. |
+| Point reads and membership checks | Can use the filter to avoid segment lookups. |
+| Iteration and range scans | Navigate comparer order, not Bloom membership. |
+
+A read-only backlog can retain several filters at once. Reopening rebuilds the active mutable segment's filter from recovered keys; the bit array itself is not persisted. Hasher type and configured density are recorded in metadata for inspection.
+
+## Tune against the complete workload
+
+| Observation | What to compare |
+| --- | --- |
+| Many point reads miss the active memory segments. | Default density versus a higher density; measure lookup latency, contention, and memory. |
+| Most reads hit mutable memory, or writes dominate. | Default density versus a lower density or `0`; measure hashing and publication cost too. |
+| Memory rises with a read-only backlog. | Filter allocation per retained segment alongside the merge rate and record counts. |
+
+Filters can reduce negative-read work and still add cost to writes. Compare single-thread and parallel workloads, and keep the same key distribution when evaluating a setting change.
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Hash compatibility and filter memory</strong>
+  <p>The hasher must match equality; filter density must fit the number of memory segments your workload retains.</p>
+  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/concepts/serializers-and-comparers/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Key components</BtnLink><BtnLink href="/docs/storage/memory-usage/" tone="neutral" variant="outline">Memory usage</BtnLink></Flex>
+</Panel>

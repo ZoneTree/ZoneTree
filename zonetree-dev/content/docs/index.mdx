@@ -1,0 +1,296 @@
+---
+title: ZoneTree Documentation
+description: Start a persistent ZoneTree in C#, learn ordered keys and the LSM write path, and find guides for storage, durability, maintenance, and tuning.
+layout:
+  fullWidth: true
+  showToc: false
+---
+
+<div class="zt-docs-overview">
+  <Grid
+    columns="1"
+    columnsLg="minmax(0, .9fr) minmax(0, 1.1fr)"
+    class="zt-docs-intro"
+    alignItems="center"
+  >
+    <header class="zt-docs-welcome">
+      <SectionHeader
+        eyebrow="FASTEST ORDERED STORAGE FOR .NET"
+        title="ZoneTree documentation"
+        titleTag="h1"
+        titleId="docs-title"
+        subtitle="Add ordered, persistent storage to your .NET application. Open your first tree, design keys around your queries, and choose how your data reaches disk."/>
+      <Flex wrap="true" class="gap-3 zt-docs-actions">
+        <BtnLink
+          href="/docs/getting-started/"
+          tone="accent"
+          icon="tabler:arrow-right"
+          iconPosition="end"
+          >Get started</BtnLink>
+        <BtnLink
+          href="/docs/usage/"
+          variant="outline"
+          tone="neutral"
+          >Usage guides</BtnLink>
+      </Flex>
+      <dl class="zt-docs-principles">
+        <div>
+          <dt>One tree, one keyspace</dt>
+          <dd>
+            Your comparer defines key order. Iterators seek and scan that order
+            in either direction.
+          </dd>
+        </div>
+        <div>
+          <dt>Runs inside your process</dt>
+          <dd>
+            Read and write through C# APIs. Persistent data lives in a directory
+            you choose.
+          </dd>
+        </div>
+        <div>
+          <dt>Your application's data model</dt>
+          <dd>
+            Build secondary indexes, queues, or event stores by choosing keys
+            and coordinating writes.
+          </dd>
+        </div>
+      </dl>
+    </header>
+
+    <Panel
+      class="p-0 zt-docs-example"
+      bodyClass="p-0 min-w-0"
+      aria-labelledby="docs-example-title"
+    >
+      <Flex align="center" justify="between" class="zt-docs-example-heading">
+        <h2 id="docs-example-title">
+          <Icon name="tabler:terminal-2"/> Your first tree
+        </h2>
+        <span>C# / .NET</span>
+      </Flex>
+      <div class="zt-docs-install">
+```sh
+dotnet add package ZoneTree
+```
+      </div>
+      <div class="zt-docs-example-code">
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/my-tree")
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert(42, "Hello ZoneTree");
+if (tree.TryGet(42, out var value))
+    Console.WriteLine(value);
+```
+      </div>
+      <p class="zt-docs-example-note">
+        Keep the maintainer alive with the tree to schedule background merges
+        and clean inactive caches.
+        <a href="/docs/usage/maintenance/"
+          >Background maintenance <Icon name="tabler:arrow-right"/></a>
+      </p>
+    </Panel>
+  </Grid>
+
+  <section class="zt-docs-section" aria-labelledby="docs-paths-title">
+    <SectionHeader
+      eyebrow="A PRACTICAL LEARNING PATH"
+      title="From a working example to a reliable system."
+      titleId="docs-paths-title"
+      subtitle="New to the engine? Follow these three guides in order."/>
+    <Grid columns="1" columnsLg="3" class="gap-4 zt-docs-paths">
+      <DocCard
+        number="01 / FIRST RUN"
+        title="Use a tree"
+        summary="Install the package, open a data directory, write a record, and scan a range. Learn when to create and dispose the tree, maintainer, and iterators."
+        href="/docs/getting-started/"
+        icon="tabler:rocket"
+        label="Run the first-tree example"/>
+      <DocCard
+        number="02 / UNDER THE HOOD"
+        title="Follow the data"
+        summary="See how mutable memory, read-only segments, compaction, and disk parts work together. Use that model to understand writes, reads, and maintenance."
+        href="/docs/concepts/lsm-tree/"
+        icon="tabler:stack-2"
+        label="LSM-tree architecture"/>
+      <DocCard
+        number="03 / DURABILITY"
+        title="Logging, recovery, and backups"
+        summary="Compare WAL modes, inspect recovery diagnostics, and create and restore backup generations."
+        href="/docs/durability/"
+        icon="tabler:shield-check"
+        label="Durability guides"/>
+    </Grid>
+  </section>
+
+  <section class="zt-docs-section" aria-labelledby="docs-guides-title">
+    <SectionHeader
+      eyebrow="FIND THE GUIDE FOR THE JOB"
+      title="What are you working on?"
+      titleId="docs-guides-title"
+      subtitle="Jump to the API, design decision, or operational task in front of you."/>
+    <Grid columns="1" columnsMd="2" columnsXl="3" class="gap-4 zt-docs-topics">
+      <Panel
+        bodyClass="p-5"
+        class="p-0 zt-docs-topic"
+        aria-labelledby="docs-read-write-title"
+      >
+        <Icon name="tabler:code" class="zt-docs-topic-icon"/>
+        <h3 id="docs-read-write-title">Read, write &amp; coordinate</h3>
+        <p>
+          Choose the right operation, from a single key to a multi-key
+          transaction.
+        </p>
+        <ul class="list-none p-0 m-0">
+          <li>
+            <a href="/docs/usage/opening-a-tree/">Open and configure a tree</a>
+          </li>
+          <li>
+            <a href="/docs/usage/reads-and-writes/">Read, upsert, and delete</a>
+          </li>
+          <li>
+            <a href="/docs/usage/atomic-operations/"
+              >Update one key atomically</a>
+          </li>
+          <li>
+            <a href="/docs/usage/transactions/"
+              >Coordinate multi-key transactions</a>
+          </li>
+        </ul>
+      </Panel>
+      <Panel
+        bodyClass="p-5"
+        class="p-0 zt-docs-topic"
+        aria-labelledby="docs-keys-title"
+      >
+        <Icon name="tabler:arrows-sort" class="zt-docs-topic-icon"/>
+        <h3 id="docs-keys-title">Design keys &amp; queries</h3>
+        <p>
+          Make the key layout serve your lookups, ordered scans, and indexes.
+        </p>
+        <ul class="list-none p-0 m-0">
+          <li>
+            <a href="/docs/concepts/key-ordering/"
+              >Key ordering and prefix layouts</a>
+          </li>
+          <li>
+            <a href="/docs/usage/iteration-and-range-scans/"
+              >Seek and scan ordered ranges</a>
+          </li>
+          <li>
+            <a href="/docs/concepts/serializers-and-comparers/"
+              >Define serializers and comparers</a>
+          </li>
+        </ul>
+      </Panel>
+      <Panel
+        bodyClass="p-5"
+        class="p-0 zt-docs-topic"
+        aria-labelledby="docs-durability-title"
+      >
+        <Icon name="tabler:shield-check" class="zt-docs-topic-icon"/>
+        <h3 id="docs-durability-title">Keep data recoverable</h3>
+        <p>
+          Define the durability boundary and how you will recover persistent
+          data.
+        </p>
+        <ul class="list-none p-0 m-0">
+          <li>
+            <a href="/docs/durability/wal-modes/"
+              >Write-ahead logging modes</a>
+          </li>
+          <li>
+            <a href="/docs/durability/recovery/"
+              >Inspect WAL diagnostics and recovery APIs</a>
+          </li>
+          <li>
+            <a href="/docs/durability/backups/"
+              >Take live backups and restore</a>
+          </li>
+          <li>
+            <a href="/docs/concepts/deletion-markers-and-ttl/"
+              >Handle deletes and expiration</a>
+          </li>
+        </ul>
+      </Panel>
+      <Panel
+        bodyClass="p-5"
+        class="p-0 zt-docs-topic"
+        aria-labelledby="docs-performance-title"
+      >
+        <Icon name="tabler:database" class="zt-docs-topic-icon"/>
+        <h3 id="docs-performance-title">Storage costs</h3>
+        <p>Work out what drives disk reads, rewrite work, and memory use.</p>
+        <ul class="list-none p-0 m-0">
+          <li>
+            <a href="/docs/storage/disk-segments/"
+              >Disk-segment layouts</a>
+          </li>
+          <li>
+            <a href="/docs/tuning/write-amplification/"
+              >Reduce write amplification</a>
+          </li>
+          <li>
+            <a href="/docs/tuning/read-path-caching/"
+              >Tune the read-path caches</a>
+          </li>
+          <li>
+            <a href="/docs/storage/memory-usage/">Account for memory usage</a>
+          </li>
+          <li>
+            <a href="/docs/storage/compression/">Compression settings</a>
+          </li>
+        </ul>
+      </Panel>
+      <Panel
+        bodyClass="p-5"
+        class="p-0 zt-docs-topic"
+        aria-labelledby="docs-maintenance-title"
+      >
+        <Icon name="tabler:settings" class="zt-docs-topic-icon"/>
+        <h3 id="docs-maintenance-title">Maintenance</h3>
+        <p>
+          Background merges, bottom-segment compaction, and inactive-cache
+          cleanup.
+        </p>
+        <ul class="list-none p-0 m-0">
+          <li>
+            <a href="/docs/usage/maintenance/">Run and observe maintenance</a>
+          </li>
+          <li>
+            <a href="/docs/usage/maintenance/#compact-bottom-segments"
+              >Compact bottom segments</a>
+          </li>
+          <li>
+            <a href="/docs/usage/maintenance/#control-inactive-cache-cleanup"
+              >Configure cache cleanup</a>
+          </li>
+        </ul>
+      </Panel>
+      <Panel
+        bodyClass="p-5"
+        class="p-0 zt-docs-topic"
+        aria-labelledby="docs-systems-title"
+      >
+        <Icon name="tabler:git-branch" class="zt-docs-topic-icon"/>
+        <h3 id="docs-systems-title">Partitioning &amp; replication</h3>
+        <p>
+          Connect local trees to partition ownership, replication, and replica
+          seeding.
+        </p>
+        <ul class="list-none p-0 m-0">
+          <li>
+            <a href="/docs/building-systems/partitioning-and-replication/"
+              >Partitioning and replication guide</a>
+          </li>
+        </ul>
+      </Panel>
+    </Grid>
+  </section>
+
+</div>

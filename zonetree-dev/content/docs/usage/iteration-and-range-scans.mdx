@@ -1,0 +1,174 @@
+---
+title: Iteration And Range Scans
+description: Seek and scan ordered key ranges, iterate in reverse, choose snapshot visibility, and configure disk prefetch and block-cache contribution.
+---
+
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="USAGE / ORDERED ACCESS"
+  title="Seek to a key. Scan the range."
+  titleTag="h1"
+  titleId="iteration-title"
+  subtitle="Iterators expose the tree's comparer order. Choose the start key, stop at the range boundary, and dispose the iterator as soon as the scan finishes."/>
+
+## Scan an ordered range
+
+This complete program inserts records out of order and scans the half-open interval `[10, 30)`. With the default ascending integer comparer, it prints keys `10` and `20`:
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/iteration-example")
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert(30, "Linus");
+tree.Upsert(10, "Ada");
+tree.Upsert(20, "Grace");
+
+using var iterator = tree.CreateIterator();
+iterator.Seek(10);
+
+while (iterator.Next())
+{
+    if (iterator.CurrentKey >= 30)
+        break;
+
+    Console.WriteLine($"{iterator.CurrentKey}: {iterator.CurrentValue}");
+}
+```
+
+<AlertBox
+  class="zt-guide-callout"
+  tone="accent"
+  title="Seek positions; Next reads"
+  icon="tabler:arrows-sort"
+>
+  <p>
+    After <code>Seek</code>, call <code>Next()</code> before reading
+    <code>CurrentKey</code> or <code>CurrentValue</code>. A range scan needs its
+    own upper-bound check; the iterator does not stop at an application-defined
+    endpoint automatically.
+  </p>
+</AlertBox>
+
+## Read the whole tree
+
+Create an iterator without seeking to start at the beginning of comparer order:
+
+```csharp
+using var iterator = tree.CreateIterator();
+while (iterator.Next())
+    Console.WriteLine($"{iterator.CurrentKey}: {iterator.CurrentValue}");
+```
+
+The iterator merges visible records across LSM layers. Ordinary iteration returns the newest live value for a key and hides records considered deleted.
+
+## Seek forward or backward
+
+| Direction | `Seek(target)` positions the next read at | Ascending integer example |
+| --- | --- | --- |
+| Forward | The target key, or the next key in comparer order. | `Seek(15)` reads `20` first when keys are `10`, `20`, `30`. |
+| Reverse | The target key, or the preceding key in comparer order. | `Seek(25)` reads `20` first for those same keys. |
+
+All boundaries are defined by your comparer, rather than by a universal numeric or string order. For composite keys, construct lower and upper keys that enclose the intended range. See [key ordering](../concepts/key-ordering.mdx) before designing prefix or time-series layouts.
+
+## Scan in reverse
+
+Use `CreateReverseIterator()` and keep calling `Next()`. Direction belongs to the iterator, not to a different movement method:
+
+```csharp
+using var iterator = tree.CreateReverseIterator();
+iterator.Seek(30);
+
+while (iterator.Next())
+{
+    if (iterator.CurrentKey < 10)
+        break;
+
+    Console.WriteLine($"{iterator.CurrentKey}: {iterator.CurrentValue}");
+}
+```
+
+For the sample data, this returns `30`, `20`, then `10`. Reverse scans are useful when the latest timestamp or highest key should appear first.
+
+## Choose visibility under concurrent writes
+
+| Iterator type | Includes the active mutable segment? | What later writes can do |
+| --- | --- | --- |
+| `AutoRefresh` | Yes. This is the default. | Later writes may appear if their key positions have not been passed. Segment movement refreshes the iterator's sources. |
+| `NoRefresh` | Yes. | Later writes in a collected mutable segment may appear. New segments are not collected automatically; call `Refresh()` explicitly when needed. |
+| `Snapshot` | Moves it forward first, then scans the resulting read-only region and disk layers. | Later writes are excluded. |
+| `ReadOnlyRegion` | No; it does not move the mutable segment forward. | Later writes are excluded, as are records still only in the active mutable segment at creation. |
+
+Use a snapshot for a scan that must exclude later writes:
+
+```csharp
+using var iterator = tree.CreateIterator(IteratorType.Snapshot);
+while (iterator.Next())
+    Console.WriteLine($"{iterator.CurrentKey}: {iterator.CurrentValue}");
+```
+
+Creating a snapshot moves the mutable segment into the read-only layer. Repeated snapshot creation under write load can increase segment movement and maintenance work. `NoRefresh` is not a snapshot: it can still see changes in a mutable segment it already holds, and initially collects its sources on the first seek, read, or explicit `Refresh()`.
+
+The table describes an iterator without a later manual refresh. Calling `Refresh()` recollects sources; even a snapshot iterator can then include newer read-only segments. Snapshot iteration also does not clone mutable reference values or freeze a time-dependent deletion predicate. Keep stored values immutable and account for custom deletion rules when defining a stable application-level view.
+
+## Control disk-scan memory and prefetch
+
+The default iterator does not contribute disk reads to the shared block cache. That avoids retaining each decompressed block touched by a one-off scan.
+
+Use `IteratorOptions` when the scan should configure both visibility and disk access:
+
+```csharp
+using var iterator = tree.CreateIterator(new IteratorOptions
+{
+    IteratorType = IteratorType.AutoRefresh,
+    ContributeToTheBlockCache = false,
+    DiskSegmentPrefetchSize = 16
+});
+
+while (iterator.Next())
+    Console.WriteLine(iterator.CurrentKey);
+```
+
+`DiskSegmentPrefetchSize` defaults to `0`; values below `2` disable it. Prefetch batches consecutive disk records and can reduce per-record overhead. It can also read beyond a range where your loop stops early.
+
+Set `ContributeToTheBlockCache = true` when later reads are expected to reuse scanned blocks. Those blocks remain eligible for retention until inactive-cache cleanup releases them. Measure the tradeoff with your workload; see [read-path caching](../tuning/read-path-caching.mdx).
+
+## Include deletion markers when inspecting storage
+
+For diagnostics or a workflow that explicitly understands deletion markers:
+
+```csharp
+using var iterator = tree.CreateIterator(
+    IteratorType.NoRefresh,
+    includeDeletedRecords: true);
+```
+
+This changes record visibility; it does not turn an ordinary scan into a complete backup or replication protocol. Those workflows also need their own ordering, metadata, and lifecycle rules. See [backups](../durability/backups.mdx) and [partitioning and replication](../building-systems/partitioning-and-replication.md).
+
+## Dispose at the end of the scan
+
+An iterator retains the segments it reads. A long-lived iterator can delay deletion of files replaced by compaction and keep read resources alive.
+
+Use a local `using` scope, finish the scan, and dispose before shutting down the tree. Create a new iterator for a later scan rather than leaving an old one open between unrelated requests.
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Make ordered access part of the data model</strong>
+  <p>
+    The comparer and key layout determine which queries can seek directly to a
+    useful range.
+  </p>
+  <Flex wrap="true" class="gap-3"
+    ><BtnLink
+      href="/docs/concepts/key-ordering/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Key ordering</BtnLink><BtnLink
+      href="/docs/concepts/serializers-and-comparers/"
+      tone="neutral"
+      variant="outline"
+      >Serializers and comparers</BtnLink></Flex>
+</Panel>

@@ -1,0 +1,126 @@
+---
+title: Disk Segment Files
+description: Read ZoneTree's disk file layouts, multipart descriptors, and sparse indexes, and understand how merges and reader leases affect file lifetime.
+---
+
+<SectionHeader class="zt-guide-intro" eyebrow="STORAGE / PHYSICAL LAYOUT" title="Read the files behind a disk segment" titleTag="h1" titleId="disk-segments-title" subtitle="A logical disk segment can own several files and reuse parts from earlier merges. Understand that structure before interpreting a directory listing or planning a backup."/>
+
+<Grid columns="1" columnsMd="3" class="gap-3 zt-guide-outcomes">
+  <Panel class="p-0" bodyClass="p-4"><strong>Sorted records</strong><p>Data and optional headers provide random access to serialized keys and values.</p></Panel>
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>Reusable ranges</strong><p>A multipart descriptor connects ordered parts into one logical segment.</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"><strong>Reader leases</strong><p>Retired files remain available while an iterator or backup still needs them.</p></Panel>
+</Grid>
+
+## Recognize the file categories
+
+The default random-access device manager names files with a numeric segment ID followed by a category. Current writers use the block-container format for data, headers, and sparse indexes, adding `.z` to those filenames.
+
+| File | What it contains | When to expect it |
+| --- | --- | --- |
+| `<id>.data.z` | Serialized record bytes. | A single-part segment, including each physical part of a multipart segment. |
+| `<id>.head.z` | Keys or values with fixed-size headers containing offsets and lengths. | Layouts where the key, value, or both have variable size. |
+| `<id>.sparse.z` | A persisted sample of key/value/index entries. | When a default sparse index is enabled and saved. |
+| `<id>.multi` | Part IDs and boundary keys and values. | A multipart logical segment. Its metadata has its own encoding. |
+
+The suffix describes the container. Selecting `CompressionMethod.None` still produces `.z` data files with uncompressed block payloads; it does not switch to a different record layout.
+
+An illustrative multipart segment with two variable-value parts looks like this:
+
+```text
+20.multi                 logical segment descriptor
+  ├─ part 11
+  │    11.head.z         keys + value locations
+  │    11.data.z         value bytes
+  │    11.sparse.z       sampled records
+  └─ part 12
+       12.head.z
+       12.data.z
+       12.sparse.z
+```
+
+These are segment files. Metadata and any record WALs belong to the wider database layout described in the [Storage overview](index.mdx).
+
+## Fixed-size and variable-size record layouts
+
+Each physical single-part segment selects a layout from the runtime key and value types. Types with no managed references use the fixed-size path; strings, arrays, and types containing references use the variable-size path.
+
+| Key / value shape | Header file | Data file |
+| --- | --- | --- |
+| Fixed / fixed | Not needed. | Consecutive serialized key/value pairs. |
+| Fixed / variable | Fixed keys with value offsets and lengths. | Serialized values. |
+| Variable / fixed | Key offsets and lengths with fixed values. | Serialized keys. |
+| Variable / variable | Offsets and lengths for both fields. | Serialized keys and values. |
+
+The public read/write API stays the same. A custom serializer that happens to emit a constant number of bytes does not by itself move a reference type onto the fixed-size path. Fixed-size serializers must preserve the size contract expected by that path; see [serializers and comparers](../concepts/serializers-and-comparers.mdx).
+
+## Follow multipart ownership
+
+The default disk segment mode is `MultiPartDiskSegment`. Its descriptor stores the IDs and first/last key and value information for its ordered parts. Reads use those boundaries to select the relevant part.
+
+A merge can reuse an eligible part whose key range is unaffected instead of rewriting its records. The new logical segment then references that part's existing files. As a result:
+
+- A logical segment ID need not match the IDs of its data files.
+- A new descriptor does not imply every part was newly written.
+- Part sizes and reuse eligibility affect merge work and write amplification.
+
+The [segments guide](../concepts/segments.mdx) explains the logical units and reuse rules. [Disk segment tuning](../tuning/disk-segments.mdx) covers size controls.
+
+## Budget for the sparse index
+
+Sparse entries retain a sampled key, value, and record index in memory. They narrow a disk search to a smaller interval without retaining every record. Sampled values can make the index significant when values are large.
+
+`DiskSegmentOptions.DefaultSparseArrayStepSize` defaults to `1024`: roughly one sampled record per 1,024 records, plus boundary handling.
+
+| Setting | Effect |
+| --- | --- |
+| Smaller positive step | More sampled records and retained objects; narrower search intervals. |
+| Larger positive step | Fewer samples; wider intervals to search on disk. |
+| `0` | Disables default sparse-array creation and loading. |
+
+The index is an optional search accelerator. Disabling it does not remove records or change their order. The byte cost depends on the sampled keys and values, not just the entry count.
+
+## Inspect files through the API
+
+`IDiskSegment.GetFiles()` enumerates a segment's physical files. For a multipart segment it includes the descriptor and the files of every part. This complete example writes records, finishes a controlled merge with no concurrent writers, and lists the current disk and bottom segments:
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/storage-files")
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+for (var key = 0; key < 10; ++key)
+    tree.Upsert(key, $"Record {key}");
+
+maintainer.EvictToDisk();
+await maintainer.WaitForBackgroundThreadsAsync();
+
+var segments = tree.Maintenance.BottomSegments
+    .Prepend(tree.Maintenance.DiskSegment);
+
+foreach (var segment in segments)
+{
+    foreach (var file in segment.GetFiles())
+        Console.WriteLine($"{file.SegmentId}: {file.FileName}");
+}
+```
+
+File IDs depend on the tree's history. An empty current disk slot may enumerate no files even when bottom segments contain records.
+
+<AlertBox class="zt-guide-callout" tone="info" title="A file listing is not a live backup" icon="tabler:shield-check">
+  <p><code>GetFiles()</code> describes a segment; it does not freeze the tree or acquire a backup lease. During concurrent maintenance, use the live-backup API to coordinate segment lifetimes and capture in-memory records and restore metadata.</p>
+</AlertBox>
+
+## File lifetime after a merge
+
+Merges publish replacement segments rather than rewriting the record data of an active segment. Once a segment is retired, its files can be reclaimed when no reader or backup still leases them. Sparse-index files are auxiliary persisted indexes, separate from that immutable record data.
+
+Dispose iterators and backup handles promptly. Extra files after a merge can be legitimate while those readers are alive; deleting files based on their age or filename can break an active tree. Use [maintenance events](../usage/maintenance.mdx#observe-progress-and-failures) to investigate failed cleanup.
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Compression, memory use, and backups</strong>
+  <p>Compression controls the block payloads. Memory usage depends on the indexes and read caches built around them.</p>
+  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/storage/compression/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Compression</BtnLink><BtnLink href="/docs/storage/memory-usage/" tone="neutral" variant="outline">Memory usage</BtnLink><BtnLink href="/docs/durability/backups/" tone="neutral" variant="outline">Live backups</BtnLink></Flex>
+</Panel>

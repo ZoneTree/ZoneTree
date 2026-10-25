@@ -1,0 +1,100 @@
+---
+title: Segments
+description: Distinguish ZoneTree's memory and disk layers, logical disk segments, reusable parts, physical layouts, and segment lifecycle counters.
+---
+
+<SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / STORAGE UNITS" title="One keyspace, several ordered segments" titleTag="h1" titleId="segments-title" subtitle="A segment is an ordered record set. ZoneTree combines segments to present the latest live value for each key while writes, compaction, and file cleanup happen on different timelines."/>
+
+## Storage layers
+
+For the wider set of storage and data contracts, [browse the Concepts overview](index.mdx).
+
+<Grid columns="1" columnsMd="2" class="gap-3 zt-guide-outcomes">
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>01 / Mutable memory</strong><p>The active writable segment accepts new records and updates. Its configured WAL supports recovery.</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"><strong>02 / Read-only memory</strong><p>Older memory segments stop accepting writes and wait for normal merges.</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"><strong>03 / Current disk segment</strong><p>The <code>DiskSegment</code> slot holds the persistent segment used by a normal merge.</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"><strong>04 / Bottom disk segments</strong><p>Persistent segments below the current disk slot form a separate queue with explicit bottom-merge operations.</p></Panel>
+</Grid>
+
+These are storage layers inside one tree. They do not create separate application keyspaces. A point read checks newer data before older data; an iterator merges its collected sources into key order.
+
+## Follow a record through the lifecycle
+
+1. A write enters the active mutable segment.
+2. When that segment moves forward, the engine installs a new writable segment and retains the old one as read-only memory.
+3. A normal merge combines eligible read-only segments with the current disk segment and publishes replacement disk output.
+4. A sufficiently large current disk segment can move into the bottom queue, leaving an empty current disk slot.
+5. A bottom merge compacts a selected range of bottom segments when requested.
+
+Movement and merging are separate operations. Freezing a memory segment does not mean its records have already been compacted into disk segments. See [LSM-tree architecture](lsm-tree.mdx) for the full write and read paths.
+
+## Separate a disk segment from its parts
+
+The disk abstraction is `IDiskSegment<TKey, TValue>`. Both single-part and multipart implementations expose a logical ordered record set through that interface.
+
+| Term | What it means |
+| --- | --- |
+| Disk segment | A persistent ordered segment the engine can read, merge, back up, and retire. |
+| Single-part segment | A segment that owns its physical data and index files directly. |
+| Multipart segment | One logical segment whose descriptor points to ordered parts. |
+| Part | An immutable disk-segment unit that can be carried into a later multipart result when eligible. |
+
+<AlertBox class="zt-guide-callout" tone="accent" title="A part is not another LSM layer" icon="tabler:stack-2">
+  <p>Layers separate newer and older storage generations. Parts divide one logical disk segment into ordered ranges. A multipart segment still occupies one disk-segment slot or one position in the bottom queue.</p>
+</AlertBox>
+
+## Immutable parts and reuse
+
+<LsmPartReuse/>
+
+Parts are immutable. Compaction writes changed ranges into new parts and may carry eligible unchanged parts forward. It does not patch records inside an existing part file.
+
+The illustration is a useful model, not a promise that every local change rewrites exactly one part. Reuse also depends on merge inputs, range overlap, deletion rules, and part-size constraints. A changed range can produce several replacement parts.
+
+See [write amplification](../tuning/write-amplification.mdx) for the cost tradeoffs and [disk-segment tuning](../tuning/disk-segments.mdx) for sizing.
+
+## Recognize the physical layouts
+
+Single-part disk storage has four variations selected from the runtime key and value shapes:
+
+| Key shape | Value shape | Physical variation |
+| --- | --- | --- |
+| Fixed-size unmanaged | Fixed-size unmanaged | Fixed-size keys and values. |
+| Fixed-size unmanaged | Variable-size | Fixed-size keys with value offsets. |
+| Variable-size | Fixed-size unmanaged | Key offsets with fixed-size values. |
+| Variable-size | Variable-size | Offsets for keys and values. |
+
+Strings and reference-containing values need a variable-size representation. A custom serializer returning the same number of bytes for every value does not by itself turn a managed value type into an unmanaged one.
+
+File names and counts depend on the selected layout and compression options. Use [disk segments](../storage/disk-segments.mdx) for file-level details rather than treating one sample file listing as universal.
+
+## Interpret the empty disk slot
+
+`NullDiskSegment<TKey, TValue>` is an empty placeholder for the current `DiskSegment` slot. It is expected before the first persistent segment exists and can reappear after the current disk segment moves to the bottom queue.
+
+An empty current slot does not mean the database is empty. Live records may still be in mutable memory, read-only memory, or bottom segments.
+
+## Read counters as storage measurements
+
+| Setting or counter | Meaning |
+| --- | --- |
+| `MutableSegmentMaxItemCount` | Record-count threshold that causes the active mutable segment to move forward on the write path. |
+| `DiskSegmentMaxItemCount` | Record-count threshold associated with moving the current disk segment into the bottom queue. |
+| `MutableSegmentRecordCount` | Physical records in the active mutable segment. |
+| `ReadOnlySegmentsCount` | Number of read-only memory segments. |
+| `ReadOnlySegmentsRecordCount` | Physical records across those read-only segments. |
+| `TotalRecordCount` | Physical records across the tree's storage layers. |
+
+The same key can have records in several layers. Updates and deletion markers make physical record counts different from a count of live keys. Record thresholds also do not cap total memory in bytes.
+
+## Let readers finish before reclaiming files
+
+A newly published segment and the physical deletion of its predecessor need not happen at the same instant. Open iterators and backup activity can retain old disk segments so their readers can finish safely.
+
+Dispose scan-owned resources promptly. If obsolete files remain, inspect active readers and cleanup-failure events before assuming the merge failed. See [maintenance events](../usage/maintenance.mdx#observe-progress-and-failures).
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Bloom filters and disk storage</strong>
+  <p>Understand which reads can avoid a memory-tree lookup, then inspect the cost of compaction and caching.</p>
+  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/concepts/bloom-filters/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Bloom filters</BtnLink><BtnLink href="/docs/storage/disk-segments/" tone="neutral" variant="outline">Disk storage</BtnLink></Flex>
+</Panel>

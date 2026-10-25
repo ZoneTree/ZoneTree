@@ -313,7 +313,6 @@ Official documentation:
 * [Value mutability](https://zonetree.dev/docs/concepts/value-mutability/)
 * [Memory usage](https://zonetree.dev/docs/storage/memory-usage/)
 * [WAL modes](https://zonetree.dev/docs/durability/wal-modes/)
-* [Production checklist](https://zonetree.dev/docs/operations/production-checklist/)
 * [zonetree.dev](https://zonetree.dev)
 
 ---

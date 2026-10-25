@@ -70,7 +70,7 @@ ZoneTree orders keys using the configured comparer. Use key layouts that keep re
 
 The comparer, serializers, deletion rules, and application value schema must agree across replicas and during export, restore, and replay. A serialized value copied to another node must retain the same meaning there. Changing ownership does not change that contract.
 
-See [serializers and comparers](../concepts/serializers-and-comparers.md) and [indexes](indexes.md) for key-layout design.
+See [serializers and comparers](../concepts/serializers-and-comparers.mdx) and [key ordering](../concepts/key-ordering.mdx) for key-layout design.
 
 ## Write identities and ordering
 
@@ -231,7 +231,7 @@ Calling `ForceDelete` separately from a `Replicator` does not update its compani
 
 Normal reads and iterators hide deletion markers. `includeDeletedRecords: true` exposes markers retained in the collected segments, but compaction can reclaim obsolete markers. A current-state scan is therefore not a permanent history of deletes. Preserve deletion/version information in the distribution layer for as long as delayed operations or disconnected replicas can require it, or require those replicas to bootstrap again.
 
-Custom tombstones and TTL values must have compatible meaning on every replica. See [deletion markers and TTL](../concepts/deletion-markers-and-ttl.md).
+Custom tombstones and TTL values must have compatible meaning on every replica. See [deletion markers and TTL](../concepts/deletion-markers-and-ttl.mdx).
 
 ## Export a partition or an ordered range
 
@@ -268,7 +268,7 @@ The iterator merges the collected layers into key order and emits the current va
 
 `ReadOnlyRegion` offers a similar fixed collected view without advancing the mutable segment; it excludes records still in that segment. `AutoRefresh` is useful for live scans, but keys inserted behind its position can be missed. Use the snapshot view plus a captured operation stream for a controlled online transfer.
 
-Dispose export iterators promptly: they pin persistent segments and can delay reclamation of files replaced by compaction. For full iterator behavior, see [iteration and range scans](../usage/iteration-and-range-scans.md).
+Dispose export iterators promptly: they pin persistent segments and can delay reclamation of files replaced by compaction. For full iterator behavior, see [iteration and range scans](../usage/iteration-and-range-scans.mdx).
 
 ### Join the export to the operation stream
 
@@ -313,7 +313,7 @@ using var restored = await new ZoneTreeFactory<int, string>()
 using var restoredMaintainer = restored.CreateMaintainer();
 ```
 
-`ILiveBackupStore` and `ILiveBackupSource` let a distribution layer supply remote transfer and storage. Preserve generation file ordering and the factory configuration required to interpret the restored records. The [backup guide](../durability/backups.md) covers stores, sources, retention, and shutdown behavior.
+`ILiveBackupStore` and `ILiveBackupSource` let a distribution layer supply remote transfer and storage. Preserve generation file ordering and the factory configuration required to interpret the restored records. The [backup guide](../durability/backups.mdx) covers stores, sources, retention, and shutdown behavior.
 
 The backup generation does not establish a replication-stream checkpoint. Its `LastOpIndex` metadata is recorded when generation creation completes, rather than atomically with collection of the backup view. A record batch's `RecordIndex` is its enumeration position, and restore assigns local indexes when rebuilding its WAL. Establish and persist the base/catch-up relationship through the transfer protocol above, rather than using these fields as proof that every source operation through a position is present.
 
@@ -329,7 +329,7 @@ ZoneTree's local APIs give the node several useful choices:
 | Stable export | Snapshot iterator | The collected engine view |
 | Recovery of local writes | Configured WAL mode and storage provider | Local recovery according to that mode and provider |
 
-Ordinary `Upsert` does not participate in the atomic methods' coordination lock. Use a compatible write discipline for keys whose correctness depends on atomic read-modify-write. Transactions in one tree also do not commit changes across another tree or node. See [atomic operations](../usage/atomic-operations.md) and [transactions](../usage/transactions.md).
+Ordinary `Upsert` does not participate in the atomic methods' coordination lock. Use a compatible write discipline for keys whose correctness depends on atomic read-modify-write. Transactions in one tree also do not commit changes across another tree or node. See [atomic operations](../usage/atomic-operations.mdx) and [transactions](../usage/transactions.mdx).
 
 Transactional trees expose `BeginTransaction`, `Prepare`, `Commit`, and `Rollback` as separate lifecycle operations, alongside convenience methods that combine steps. These give a coordinating layer explicit local transaction controls. In the built-in optimistic implementation, `Prepare` checks local dependencies and marks the transaction ready in memory. A distributed commit protocol must establish its own durable decision records and recovery rules around those calls. `ZoneTreeFactory.SetTransactionLog` also permits a custom `ITransactionLog<TKey, TValue>` implementation when the integration needs a different transaction-log design.
 
@@ -341,7 +341,7 @@ The database layer then defines when those local results become externally visib
 * **Recovery:** how operation replay, state, and checkpoints are reconciled after a partial apply or restart.
 * **Cross-partition work:** how the application coordinates changes involving more than one partition.
 
-Choose WAL settings together with that policy. The default is `AsyncCompressed`; local method completion and a cluster's durable acknowledgement are distinct boundaries. Sync WAL and custom providers offer different local write paths, but the distribution layer must still define the required failure guarantees. See [WAL modes](../durability/wal-modes.md).
+Choose WAL settings together with that policy. The default is `AsyncCompressed`; local method completion and a cluster's durable acknowledgement are distinct boundaries. Sync WAL and custom providers offer different local write paths, but the distribution layer must still define the required failure guarantees. See [WAL modes](../durability/wal-modes.mdx).
 
 `IsReadOnly` can support a local admission policy, but changing a flag does not drain requests already executing or fence a previous owner across machines. Ownership checks and draining belong in the node's request/apply protocol.
 
@@ -362,7 +362,7 @@ Treat callbacks as notifications and keep them short; enqueue expensive transfer
 
 Some maintenance record counts include multiple physical versions of a key across segments. Use them as storage-pressure measurements rather than unique-key counts. Coordinate aggregate memory and I/O budgets across hosted partitions, and release iterators and backup activity before removing a replica's files.
 
-See [maintenance](../usage/maintenance.md), [file stream providers](../storage/file-stream-providers.md), and the [API overview](../reference/api-overview.md) for the individual controls.
+See [maintenance](../usage/maintenance.mdx) and [file stream providers](../storage/file-stream-providers.mdx) for the individual controls.
 
 ## Implementation references
 

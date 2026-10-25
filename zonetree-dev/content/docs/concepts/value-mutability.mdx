@@ -1,0 +1,120 @@
+---
+title: Value Mutability
+description: Own stored objects and buffers, replace values through write APIs, understand shallow immutability, and avoid observable mutations in cancelled or retried atomic delegates.
+---
+
+<SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / VALUE OWNERSHIP" title="A value change needs an engine write" titleTag="h1" titleId="mutability-title" subtitle="An in-memory segment can retain the object or buffer your application supplied. Treat inserted and returned values as read-only, and construct a replacement before updating the tree."/>
+
+<AlertBox class="zt-guide-callout" tone="accent" title="A shared reference is not an update API" icon="tabler:shield-check">
+  <p>Changing a stored object or buffer directly can change visible memory without appending a new write or assigning another operation index. Recovery, cached reads, and disk reads can then disagree with that observation.</p>
+</AlertBox>
+
+## Copy at the ownership boundary
+
+`Memory<byte>` is a value type, but it wraps shared storage. This complete example gives the tree an owned input copy and creates another copy before updating a value read from the tree:
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, Memory<byte>>()
+    .SetDataDirectory("data/value-ownership-example")
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+var input = new byte[] { 1, 2, 3 };
+tree.Upsert(42, input.ToArray().AsMemory());
+input[0] = 99;
+
+if (tree.TryGet(42, out var stored))
+{
+    Console.WriteLine(stored.Span[0]);
+    var replacement = stored.ToArray();
+    replacement[0] = 7;
+    tree.Upsert(42, replacement.AsMemory());
+}
+
+if (tree.TryGet(42, out var updated))
+    Console.WriteLine(updated.Span[0]);
+```
+
+It prints `1`, then `7`. The first copy prevents later changes to `input` from changing the tree's value. The second copy avoids changing `stored` in place before the explicit write.
+
+If ownership is transferred instead of copied, the caller must stop mutating the transferred object and any shared backing storage. That is an application discipline, not a defensive-copy guarantee from `Upsert`.
+
+## Do not depend on where a read was served
+
+| Source of a value | Ownership concern |
+| --- | --- |
+| Mutable or read-only memory segment | The value can share the application object or buffer stored in the segment. |
+| Disk deserialization | A serializer may create another object, but that does not establish a uniform cloning contract for every read. |
+| Read cache | A cached result can itself be shared with later reads. |
+| Snapshot iterator | The collected segment view is stable; the engine does not deep-clone all values inside those segments. |
+
+A mutation pattern that appears harmless after a disk read can behave differently while the same value is in memory. Design around immutable values or explicit ownership rather than around the current storage layer.
+
+## Keep object safety and concurrency safety separate
+
+Creating a replacement object avoids shared mutation. It does not make a `TryGet` followed by `Upsert` a conditional atomic update: another writer can intervene between the calls.
+
+| Required behavior | Write discipline |
+| --- | --- |
+| Independent replacement | Construct or own the replacement, then use ordinary `Upsert`. |
+| Replacement based on the current value of one key | Use an atomic updater and keep competing writers on that path. |
+| Several related keys must share a commit | Use a transaction within one transactional tree. |
+
+See [reads and writes](../usage/reads-and-writes.mdx), [atomic operations](../usage/atomic-operations.mdx), and [transactions](../usage/transactions.mdx).
+
+## Replace inside an atomic delegate
+
+For the non-empty buffer stored by the complete example, a controlled update can create a replacement inside the updater:
+
+```csharp
+tree.TryAtomicGetAndUpdate(42, out _, (ref Memory<byte> value) =>
+{
+    var replacement = value.ToArray();
+    replacement[0]++;
+    value = replacement.AsMemory();
+    return true;
+});
+```
+
+The local `ref` variable receives the replacement. Returning `true` asks the engine to write it. Other writers for the same invariant must still follow compatible atomic coordination.
+
+For custom class values, use a serializer that supports the class and its deletion marker. The [custom serializer example](serializers-and-comparers.mdx#supply-a-serializer-for-custom-values) shows a complete immutable record setup.
+
+## Make cancellation leave no observable mutation
+
+This is an example to avoid:
+
+```csharp
+tree.TryAtomicGetAndUpdate(42, out _, (ref Memory<byte> value) =>
+{
+    value.Span[0] = 99;
+    return false;
+});
+```
+
+Returning `false` cancels the new engine write. It cannot undo a change already made through a shared array, object, or nested reference. Decide first, then create a replacement and return `true` only when that replacement should be written.
+
+`TryAtomicAddOrUpdate` can retry its adder/updater when a segment freezes or fills. Build replacement values from the input of each invocation, and keep callbacks free of external effects that cannot safely repeat. An in-place increment of a shared object can be applied more than once before one write is accepted.
+
+## Shallow immutability
+
+Records, `readonly` fields, read-only interfaces, and readonly structs do not automatically make their contents immutable:
+
+| Value shape | What can still be shared |
+| --- | --- |
+| A record containing an array | The array elements remain writable. A `with` expression copies the record, not the array. |
+| A readonly struct containing a reference | The referenced object can still be mutable. |
+| `IReadOnlyList<T>` backed by a mutable list | Another owner may still change the underlying list or its elements. |
+| `Memory<byte>` | Slices and copies of the wrapper can point to the same bytes. |
+
+Small unmanaged structs and readonly records containing immutable fields can simplify ownership. They still need suitable serializers; a new domain struct is not automatically supported by the factory's known-type defaults.
+
+For complex values, either make the object graph immutable, deep-copy the mutable parts you change, or transfer exclusive ownership and enforce it. A shallow clone alone is not enough when nested mutable state is still shared.
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Atomic updates and value serialization</strong>
+  <p>Pair safe ownership with the write API that provides the coordination your data rule needs.</p>
+  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/usage/atomic-operations/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Atomic updates</BtnLink><BtnLink href="/docs/concepts/serializers-and-comparers/" tone="neutral" variant="outline">Value serialization</BtnLink></Flex>
+</Panel>

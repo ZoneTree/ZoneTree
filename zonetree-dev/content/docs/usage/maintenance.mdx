@@ -1,0 +1,287 @@
+---
+title: Maintenance
+description: Run ZoneTree's standard maintainer, control merges and cache cleanup, wait for background work, and inspect lifecycle events and storage counters.
+---
+
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="USAGE / STORAGE LIFECYCLE"
+  title="Keep storage moving in the background"
+  titleTag="h1"
+  titleId="maintenance-title"
+  subtitle="The standard maintainer schedules merges after segment movement and periodically cleans inactive read caches. Its controls and events let an application adapt that policy to its workload."/>
+
+## Run the standard maintainer
+
+Create one maintainer alongside the tree. This complete program writes a record, requests a merge of current in-memory data, and waits for tracked background work:
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/maintenance-example")
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert(42, "Ada");
+
+maintainer.EvictToDisk();
+await maintainer.WaitForBackgroundThreadsAsync();
+
+Console.WriteLine($"Read-only segments: {tree.Maintenance.ReadOnlySegmentsCount}");
+```
+
+For normal service operation, keep the tree and maintainer alive and let the event-driven policy schedule merges. Explicit eviction and waiting are useful at controlled maintenance points; they are not needed after every write.
+
+<AlertBox
+  class="zt-guide-callout"
+  tone="accent"
+  title="Optional coordinator, application-owned policy"
+  icon="tabler:settings"
+>
+  <p>
+    ZoneTree can operate without <code>CreateMaintainer()</code>. Without it,
+    you own merge scheduling, retries, cache cleanup, and background-work
+    coordination through <code>tree.Maintenance</code>.
+  </p>
+</AlertBox>
+
+## Maintainer and maintenance APIs
+
+| Surface | Responsibility |
+| --- | --- |
+| `tree.CreateMaintainer()` | Standard merge policy, merge-thread tracking, periodic cache cleanup, and disposal coordination. Returns a caller-owned `IMaintainer`. |
+| `tree.Maintenance` | Segment state, counters, lifecycle events, and lower-level operations for custom policy. |
+
+The maintainer schedules normal merges when mutable segments move forward. Bottom-segment compaction remains an explicit operation. Read [LSM-tree architecture](../concepts/lsm-tree.mdx) for the distinction between mutable, read-only, disk, and bottom layers.
+
+## Tune merge triggers
+
+After the mutable segment moves forward, the default maintainer starts a normal merge when either limit is exceeded:
+
+| Setting | Default | Trigger |
+| --- | ---: | --- |
+| `ThresholdForMergeOperationStart` | `0` | Read-only record count exceeds the threshold. |
+| `MaximumReadOnlySegmentCount` | `64` | Read-only segment count exceeds the limit. |
+
+With the default record threshold, any non-empty read-only layer can trigger a merge after movement. To collect larger batches or bound the number of queued segments:
+
+```csharp
+maintainer.ThresholdForMergeOperationStart = 500_000;
+maintainer.MaximumReadOnlySegmentCount = 32;
+```
+
+Higher thresholds can reduce the frequency of small merges, but allow more records to remain in memory. Choose them alongside record size, write rate, and available memory; a record count is not a byte budget.
+
+## Request a merge and wait for it
+
+`EvictToDisk()` moves the active mutable segment forward and starts a normal merge:
+
+```csharp
+maintainer.EvictToDisk();
+maintainer.WaitForBackgroundThreads();
+```
+
+`StartMerge()` requests a normal merge without explicitly moving the current mutable segment. `WaitForBackgroundThreads()` waits for the merge threads tracked by this maintainer; it does not stop application writers or create an application-wide checkpoint by itself.
+
+For asynchronous code, use `await maintainer.WaitForBackgroundThreadsAsync()`.
+
+<AlertBox
+  class="zt-guide-callout"
+  tone="info"
+  title="Merge completion and durability are different decisions"
+  icon="tabler:shield-check"
+>
+  <p>
+    Eviction reorganizes storage. It does not replace choosing WAL and
+    failure-recovery guarantees. To establish a controlled maintenance boundary,
+    coordinate application writers as well as background threads. See
+    <a href="/docs/durability/wal-modes/">WAL modes</a> and
+    <a href="/docs/durability/backups/">live backups</a> for those separate
+    workflows.
+  </p>
+</AlertBox>
+
+## Compact bottom segments
+
+Run a bottom merge when your policy wants to compact persistent bottom-layer segments:
+
+```csharp
+maintainer.StartBottomSegmentsMerge();
+maintainer.WaitForBackgroundThreads();
+```
+
+To request a selected range in the current bottom-segment order:
+
+```csharp
+maintainer.StartBottomSegmentsMerge(fromIndex: 0, toIndex: 4);
+maintainer.WaitForBackgroundThreads();
+```
+
+The default bounds are `0` and `int.MaxValue`, asking the engine to merge as much of the current bottom layer as possible. The indexes refer to segment order, not to record keys. Schedule this work around the CPU, I/O, and latency budget of your service.
+
+## Control inactive-cache cleanup
+
+The standard maintainer starts periodic cleanup automatically:
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `EnableJobForCleaningInactiveCaches` | `true` | Enables the periodic cleanup job. |
+| `BlockCacheLifeTime` | `1 minute` | Controls how long inactive decompressed disk blocks remain eligible for retention. |
+| `InactiveBlockCacheCleanupInterval` | `30 seconds` | Sets the timer period when the cleanup job starts. Restart the job to apply a changed interval. |
+
+```csharp
+maintainer.EnableJobForCleaningInactiveCaches = false;
+maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(2);
+maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(15);
+maintainer.EnableJobForCleaningInactiveCaches = true;
+```
+
+The cleanup interval is captured when the periodic timer is created; assigning the property alone does not reconfigure an already running timer. `BlockCacheLifeTime` is read on each cleanup pass.
+
+Longer retention can help repeated reads and also retain more memory. Cleanup releases inactive block buffers and expired circular key/value cache entries. The .NET runtime may retain released memory for reuse rather than immediately returning it to the operating system.
+
+See [memory usage](../storage/memory-usage.mdx) and [read-path caching](../tuning/read-path-caching.mdx) when interpreting process memory or changing the cache policy.
+
+## Observe progress and failures
+
+Subscribe to merge completion to record the outcome:
+
+```csharp
+tree.Maintenance.OnMergeOperationEnded += (_, result) =>
+{
+    Console.WriteLine($"Merge ended: {result}");
+};
+```
+
+| Result | Interpretation |
+| --- | --- |
+| `SUCCESS` | The merge completed. |
+| `NOTHING_TO_MERGE` | There were no eligible read-only segments. |
+| `ANOTHER_MERGE_IS_RUNNING` | A merge of the same kind was already active. |
+| `RETRY_READONLY_SEGMENTS_ARE_NOT_READY` | Read-only segments were still preparing. |
+| `CANCELLED_BY_USER` | A cancellation request was observed. |
+| `FAILURE` | The merge failed; inspect the configured logger. |
+
+The standard maintainer retries `RETRY_READONLY_SEGMENTS_ARE_NOT_READY`. After `ANOTHER_MERGE_IS_RUNNING`, it schedules follow-up work after the active normal merge finishes.
+
+Useful counters on `tree.Maintenance` include:
+
+| Counter | What it measures |
+| --- | --- |
+| `MutableSegmentRecordCount` | Records in the active mutable segment. |
+| `ReadOnlySegmentsCount` | Queued read-only in-memory segments. |
+| `ReadOnlySegmentsRecordCount` | Records across those read-only segments. |
+| `InMemoryRecordCount` | Mutable and read-only records combined. |
+| `TotalRecordCount` | Physical records across memory and disk layers. |
+| `IsMerging` / `IsBottomSegmentsMerging` | Whether each merge kind is active. |
+
+Physical records can include multiple versions and deletion markers. Use `Count()` or `CountFullScan()` for live-record counts, with the cost and visibility requirements of your workload in mind.
+
+## Maintainer shutdown and disposal
+
+Stop accepting application work and finish scans before closing storage. Short-lived iterators let old segments and files be reclaimed; long-lived iterators can pin them after a merge.
+
+Maintainer disposal waits for tracked merge threads, requests cancellation of periodic cleanup, and detaches event handlers. The wait methods join tracked merge threads; they do not join the cache-cleanup task or arbitrary application work. For a cancellation-first shutdown:
+
+```csharp
+maintainer.TryCancelBackgroundThreads();
+maintainer.WaitForBackgroundThreads();
+```
+
+Cancellation is a request. The threads still need to observe it and finish. After the wait, dispose the maintainer and then the tree. The `using` declaration order in the first example handles that disposal sequence.
+
+## Build a custom policy when needed
+
+Use `tree.Maintenance` when integrating with your own scheduler or storage orchestrator. A direct merge returns a thread, or `null` if a merge of the same kind is already active:
+
+```csharp
+tree.Maintenance.MoveMutableSegmentForward();
+var mergeThread = tree.Maintenance.StartMergeOperation();
+mergeThread?.Join();
+```
+
+A `null` return is not proof that maintenance is finished. Observe the existing work through the appropriate state and events. Directly started threads are outside the standard maintainer's thread tracking, so your custom policy must coordinate them.
+
+<ExpandablePanel title="Lower-level operations" class="zt-guide-reference">
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Operation</th>
+        <th scope="col">Purpose</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>MoveMutableSegmentForward()</code></td>
+        <td>Freeze the current mutable segment into the read-only layer.</td>
+      </tr>
+      <tr>
+        <td><code>StartMergeOperation()</code></td>
+        <td>Start a normal merge thread.</td>
+      </tr>
+      <tr>
+        <td>
+          <code>StartBottomSegmentsMergeOperation(fromIndex, toIndex)</code>
+        </td>
+        <td>Start a bottom-layer merge thread.</td>
+      </tr>
+      <tr>
+        <td><code>TryCancelMergeOperation()</code></td>
+        <td>Request cancellation of the active normal merge.</td>
+      </tr>
+      <tr>
+        <td><code>TryCancelBottomSegmentsMergeOperation()</code></td>
+        <td>Request cancellation of the active bottom merge.</td>
+      </tr>
+      <tr>
+        <td><code>SaveMetaData()</code></td>
+        <td>
+          Refresh the JSON metadata file and clear pending metadata records.
+        </td>
+      </tr>
+      <tr>
+        <td><code>ReleaseReadBuffers(ticks)</code></td>
+        <td>Release inactive decompressed disk blocks.</td>
+      </tr>
+      <tr>
+        <td>
+          <code>ReleaseCircularKeyCacheRecords()</code> /
+          <code>ReleaseCircularValueCacheRecords()</code>
+        </td>
+        <td>Release expired circular-cache entries.</td>
+      </tr>
+    </tbody>
+  </table>
+</ExpandablePanel>
+
+<ExpandablePanel title="Lifecycle events" class="zt-guide-reference">
+  <ul>
+    <li>
+      <code>OnMutableSegmentMovedForward</code>: observe mutable-segment
+      movement.
+    </li>
+    <li>
+      <code>OnMergeOperationStarted</code> / <code>OnMergeOperationEnded</code>:
+      observe normal merges.
+    </li>
+    <li>
+      <code>OnBottomSegmentsMergeOperationStarted</code> /
+      <code>OnBottomSegmentsMergeOperationEnded</code>: observe bottom merges.
+    </li>
+    <li>
+      <code>OnDiskSegmentCreated</code> / <code>OnDiskSegmentActivated</code>:
+      observe disk-segment publication.
+    </li>
+    <li>
+      <code>OnCanNotDropReadOnlySegment</code>,
+      <code>OnCanNotDropDiskSegment</code>, and
+      <code>OnCanNotDropDiskSegmentCreator</code>: investigate failed cleanup of
+      obsolete files or unfinished merge output.
+    </li>
+  </ul>
+  <p>
+    For failed-drop events, log the exception and investigate the file-system or
+    storage-provider error.
+  </p>
+</ExpandablePanel>

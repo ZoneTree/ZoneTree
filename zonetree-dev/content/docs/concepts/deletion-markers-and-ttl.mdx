@@ -1,0 +1,171 @@
+---
+title: Deletion Markers And TTL
+description: Define tombstones and expiration predicates, preserve markers through serialization, and use whole-part deletion only when every record is provably deleted.
+---
+
+<SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / RECORD VISIBILITY" title="Deletion markers and record visibility" titleTag="h1" titleId="deletion-title" subtitle="A delete writes a value recognized as a tombstone. Reads hide that value and the older versions behind it; compaction reclaims obsolete storage when doing so is safe."/>
+
+## Separate visibility, durability, and reclamation
+
+<Grid columns="1" columnsMd="3" class="gap-3 zt-guide-outcomes">
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>Visibility</strong><p>The deletion predicate decides whether a record is live.</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"><strong>Durability</strong><p>A delete is a write with the configured WAL guarantees.</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"><strong>Reclamation</strong><p>Maintenance removes obsolete records and files later.</p></Panel>
+</Grid>
+
+For one key, a tombstone in a newer layer hides a value in an older layer:
+
+<div class="zt-guide-output">
+```text
+newer layer: 42 -> deletion marker
+older layer: 42 -> "Ada"
+normal read: key 42 is not found
+```
+</div>
+
+A delete returning successfully does not imply that old bytes have already been removed or that the storage device has flushed the write. See [WAL modes](../durability/wal-modes.mdx) for the persistence boundary.
+
+## Choose a marker that is not application data
+
+With many primitive value types, the default value represents deletion. For references it is `null`; for `Memory<byte>` it is an empty value. A custom value type uses default equality unless you configure another rule.
+
+If zero is a valid integer value, reserve a different marker. This complete program uses `-1` as the tombstone:
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, int>()
+    .SetDataDirectory("data/deletion-example")
+    .SetIsDeletedDelegate((in int key, in int value) => value == -1)
+    .SetMarkValueDeletedDelegate((ref int value) => value = -1)
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert(42, 0);
+Console.WriteLine(tree.TryGet(42, out var value));
+Console.WriteLine(value);
+tree.TryDelete(42, out _);
+Console.WriteLine(tree.ContainsKey(42));
+```
+
+It prints `True`, `0`, then `False`. Configure both delegates together:
+
+| Delegate | Responsibility |
+| --- | --- |
+| `IsDeleted(in key, in value)` | Recognize a tombstone or an expired record. |
+| `MarkValueDeleted(ref value)` | Produce a value that the predicate recognizes as deleted. It may receive the existing mutable-segment value or a default value. |
+
+Your serializer must round-trip the marker as well as live values. Changing deletion rules on an existing tree can change what becomes visible without changing any stored bytes; preserve the rules across reopen or migrate deliberately.
+
+## Delete APIs and tombstone writes
+
+| API | Behavior |
+| --- | --- |
+| `TryDelete(key, out opIndex)` | Checks for a live key, then writes a marker. A missing key produces `false` and operation index `0`. |
+| `ForceDelete(key)` | Writes a marker without the existence lookup and returns its operation index. |
+
+The check and write in `TryDelete` are not a serialized conditional action against competing writers. See [reads and writes](../usage/reads-and-writes.mdx) for coordination choices.
+
+Ordinary iterators hide deleted records. `includeDeletedRecords: true` exposes them for a workflow that understands tombstones. That option alone does not supply the ordering, metadata, or lifecycle guarantees of a complete backup or replication protocol.
+
+## Model TTL as a visibility predicate
+
+Store the expiration time in the value and test it from `IsDeleted`. This complete example uses an unmanaged value and supplies its serializer explicitly:
+
+```csharp
+using ZoneTree;
+using ZoneTree.Serializers;
+
+using var tree = new ZoneTreeFactory<int, ExpiringValue>()
+    .SetDataDirectory("data/ttl-example")
+    .SetValueSerializer(new StructSerializer<ExpiringValue>())
+    .SetIsDeletedDelegate((in int key, in ExpiringValue value) =>
+        value.ExpiresAtUnixMilliseconds <= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
+    .SetMarkValueDeletedDelegate((ref ExpiringValue value) =>
+        value.ExpiresAtUnixMilliseconds = 0)
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+var now = DateTimeOffset.UtcNow;
+tree.Upsert(1, new ExpiringValue(99, now.AddMinutes(5).ToUnixTimeMilliseconds()));
+tree.Upsert(2, new ExpiringValue(88, now.AddMinutes(-5).ToUnixTimeMilliseconds()));
+Console.WriteLine(tree.ContainsKey(1));
+Console.WriteLine(tree.ContainsKey(2));
+
+public record struct ExpiringValue(long Payload, long ExpiresAtUnixMilliseconds);
+```
+
+Under a stable clock, the first record is live and the second is expired. Use a stable, deliberate clock policy in an application whose expiration correctness depends on time. Raw struct serialization also requires preserving the value's layout; see [serializers](serializers-and-comparers.mdx).
+
+<AlertBox class="zt-guide-callout" tone="accent" title="Expiration is evaluated when a record is inspected" icon="tabler:shield-check">
+  <p>The predicate does not schedule a callback or immediately reclaim disk space at the deadline. Snapshot iterators can also observe a record becoming expired because they do not freeze the clock used by your predicate. Use an application scheduler or an expiration index when work must happen at a particular time.</p>
+</AlertBox>
+
+Treat expiration as a one-way visibility decision for records that maintenance may discard. If a clock or policy change makes an expired value live again, a record already reclaimed by compaction cannot be reconstructed by reversing that predicate.
+
+## Remove whole parts only with a proof
+
+`SetIsRangeDeletedDelegate` enables an optional merge optimization. The delegate receives a part's first and last key/value pairs in comparer order. Returning `true` lets the merge skip the whole part without inspecting interior records.
+
+Checking only that the endpoints have expired is not sufficient: a live record can lie between them. Return `true` only when application invariants prove every record in the part is deleted according to `IsDeleted`; return `false` when that cannot be established.
+
+For example, permanently retiring the complete ID interval `[1000, 1999]` makes every part wholly contained in that interval removable:
+
+```csharp
+using ZoneTree;
+
+const int firstRetiredId = 1000;
+const int lastRetiredId = 1999;
+
+using var tree = new ZoneTreeFactory<int, string?>()
+    .SetDataDirectory("data/retired-ids-example")
+    .SetIsDeletedDelegate((in int id, in string? value) =>
+        value is null || (id >= firstRetiredId && id <= lastRetiredId))
+    .SetMarkValueDeletedDelegate((ref string? value) => value = null)
+    .SetIsRangeDeletedDelegate((in int firstId, in string? firstValue,
+        in int lastId, in string? lastValue) =>
+        firstId >= firstRetiredId && lastId <= lastRetiredId)
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert(1200, "Retired");
+tree.Upsert(2000, "Active");
+Console.WriteLine(tree.ContainsKey(1200));
+Console.WriteLine(tree.ContainsKey(2000));
+```
+
+The range test works because the integer comparer is ascending and the entire retired interval is covered by the record-level rule. Both delegate endpoints are inclusive. Keep these delegates safe for concurrent merge calls.
+
+## Preserve tombstones while older values still exist
+
+The engine applies whole-part deletion only where dropping markers cannot expose an older version:
+
+| Merge | Eligible multipart input |
+| --- | --- |
+| Normal merge | Parts from the current disk segment, when the bottom layer is empty. |
+| Bottom merge | Parts from the oldest selected input, when the selection includes the oldest bottom segment. |
+
+Newer inputs are still processed normally, including records whose keys overlap a skipped part. Single-part inputs use the ordinary record merge path. Skipping a part retires it from the result; actual file deletion still follows segment ownership and active-reader lifetimes.
+
+## Disable deletion only when no record needs it
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, int>()
+    .SetDataDirectory("data/no-deletion-example")
+    .DisableDeletion()
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert(42, 0);
+Console.WriteLine(tree.ContainsKey(42));
+```
+
+With deletion disabled, every stored value is treated as live, including the default. Do not use delete APIs expecting a key to become absent: the configured marker operation no longer produces a deleted value.
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Deletion writes and maintenance</strong>
+  <p>A tombstone participates in write sequencing, recovery, and later merge work.</p>
+  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/concepts/op-index/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Operation indexes</BtnLink><BtnLink href="/docs/usage/maintenance/" tone="neutral" variant="outline">Maintenance</BtnLink></Flex>
+</Panel>

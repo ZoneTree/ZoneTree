@@ -285,7 +285,7 @@ const zoomIcon = html`<svg
 export function defineImageGallery() {
   return defineComponent<ImageGalleryProps>(html`<div class="zt-image-gallery" role="group" :aria-label="label">
   <figure class="zt-gallery-card" r-for="image in items" :key="image.url">
-    <figcaption>{{ image.title }}</figcaption>
+    <figcaption><h3>{{ image.title }}</h3></figcaption>
     <button
       type="button"
       class="zt-gallery-open"

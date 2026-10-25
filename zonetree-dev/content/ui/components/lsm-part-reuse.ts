@@ -1,7 +1,9 @@
 import { defineComponent, html } from 'regor'
 
+export interface LsmPartReuse {}
+
 export function defineLsmPartReuse() {
-  return defineComponent(html`<figure
+  return defineComponent<LsmPartReuse>(html`<figure
   class="zt-lsm-figure zt-lsm-reuse"
   aria-labelledby="zt-lsm-reuse-caption"
 >

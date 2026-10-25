@@ -1,0 +1,133 @@
+---
+title: Compression
+description: Configure WAL and disk compression independently, understand block cache costs and persisted settings, and compare profiles with representative workloads.
+---
+
+<SectionHeader class="zt-guide-intro" eyebrow="STORAGE / COMPRESSION" title="Compression costs: CPU, I/O, and cache memory" titleTag="h1" titleId="compression-title" subtitle="WAL compression handles recent log records. Disk compression handles sorted random-access blocks. Configure and measure these two paths independently."/>
+
+<Grid columns="1" columnsMd="2" class="gap-3 zt-guide-outcomes">
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>WAL / recent writes</strong><p>The default is AsyncCompressed with Zstd level 0 and 256 KiB blocks. The WAL mode also determines logging behavior.</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"><strong>Disk / sorted records</strong><p>The default is Zstd level 0 and 4 MiB blocks. Reads decompress the blocks containing the requested data.</p></Panel>
+</Grid>
+
+## Separate the two paths
+
+Both paths expose a compression method, method-specific level, and block size, but through different option objects:
+
+| Control | WAL | Disk segments |
+| --- | --- | --- |
+| Options | `WriteAheadLogOptions` | `DiskSegmentOptions` |
+| Default method / level | `Zstd` / `CompressionLevels.Zstd0` | `Zstd` / `CompressionLevels.Zstd0` |
+| Default block size | `256 * 1024` bytes, or 256 KiB. | `4 * 1024 * 1024` bytes, or 4 MiB. |
+| Valid block-size range | 256 KiB through 16 MiB. | 1 MiB through 64 MiB. |
+| Main work | Append logging and recovery replay. | Writing sorted output and serving block-addressable reads. |
+| Scope of settings | Newly created WALs. Existing WALs retain their own recorded options. | Newly written disk files. Existing files retain their recorded block size and method. |
+
+Changing compression options does not rewrite existing files. A merge may write new files with the new profile while reusing eligible parts with the earlier profile. Multipart descriptors have their own metadata encoding; disk data-block settings do not configure that encoding.
+
+<AlertBox class="zt-guide-callout" tone="info" title="WAL mode and durability" icon="tabler:shield-check">
+  <p>A compression method or level does not define when a write is durable. <code>AsyncCompressed</code>, <code>SyncCompressed</code>, plain <code>Sync</code>, and <code>None</code> have different logging and failure behavior. Choose the mode with the <a href="/docs/durability/wal-modes/">WAL modes guide</a>, then tune compression within that choice.</p>
+</AlertBox>
+
+## Select a method and its own level
+
+`CompressionMethod` supports `LZ4`, `Zstd`, `Brotli`, `Gzip`, and `None`. Use the matching constants from `CompressionLevels`; a numeric level is not a comparable quality setting across codecs.
+
+| Method | Example level constants | Interpretation |
+| --- | --- | --- |
+| `Zstd` | `Zstd0`, `Zstd1`, `Zstd3` | Codec-specific numeric levels. `Zstd0` is ZoneTree's default. |
+| `LZ4` | `LZ4Fastest`, `LZ4HighCompression9` | Fast mode or a supported high-compression level. |
+| `Brotli` | `BrotliFastest`, `BrotliOptimal`, `BrotliSmallestSize` | Named .NET compression-level choices. |
+| `Gzip` | `GzipFastest`, `GzipOptimal`, `GzipSmallestSize` | Named .NET compression-level choices. |
+| `None` | Level is unused. | Stores uncompressed payload bytes within the selected storage path. |
+
+ZoneTree validates the level against the method. Do not carry a level constant from one codec to another just because both constants are integers. Use `CompressionLevels.IsValid(method, level)` when accepting an application-supplied profile.
+
+## Configure WAL and disk together
+
+This complete example explicitly selects a WAL mode, uses LZ4 for its log blocks, and keeps Zstd for disk records. It finishes a controlled merge and verifies the value remains readable:
+
+```csharp
+using ZoneTree;
+using ZoneTree.Options;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/compression-profile")
+    .ConfigureWriteAheadLogOptions(options =>
+    {
+        options.WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed;
+        options.CompressionMethod = CompressionMethod.LZ4;
+        options.CompressionLevel = CompressionLevels.LZ4Fastest;
+        options.CompressionBlockSize = 256 * 1024;
+    })
+    .ConfigureDiskSegmentOptions(options =>
+    {
+        options.CompressionMethod = CompressionMethod.Zstd;
+        options.CompressionLevel = CompressionLevels.Zstd0;
+        options.CompressionBlockSize = 4 * 1024 * 1024;
+    })
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert(42, new string('x', 1000));
+
+// No concurrent writers in this example.
+maintainer.EvictToDisk();
+await maintainer.WaitForBackgroundThreadsAsync();
+
+if (!tree.TryGet(42, out var value) || value.Length != 1000)
+    throw new InvalidOperationException("Expected the stored payload.");
+
+Console.WriteLine($"Read {value.Length} characters after merging.");
+```
+
+The two methods are intentionally independent; this is an example profile, not a universal performance recommendation. `SetDiskSegmentCompressionBlockSize()` is a factory shorthand for the disk block-size option.
+
+## Block reads and caching
+
+Disk files contain individually addressable blocks. A cold read locates and reads the relevant compressed block, decompresses it, and serves the requested bytes. Subsequent reads can reuse the decompressed block while it remains cached.
+
+```text
+record lookup
+  → locate data/header block
+  → use cached bytes, or read and decompress the block
+  → decode the requested key/value
+  → retain reusable bytes and applicable materialized entries
+```
+
+This preserves random access without decompressing the whole file. One record can still touch multiple blocks or devices, particularly with variable-size values and separate headers.
+
+| Block-size change | Potential benefit | Cost to measure |
+| --- | --- | --- |
+| Larger disk blocks | More neighboring data per decompression; potentially better compression ratio. | More bytes read and retained for isolated cold accesses. |
+| Smaller disk blocks | Less unrelated block data for scattered reads. | More block boundaries and metadata; potentially worse compression ratio. |
+
+Decompressed cache memory follows the uncompressed block size, not the compressed file size. Materialized key/value objects and other caches add memory beyond those bytes. Choosing `CompressionMethod.None` keeps the block container and its `.z` filenames; it does not disable the read caches.
+
+## Coordinate block retention with the maintainer
+
+The standard maintainer releases inactive read buffers according to `BlockCacheLifeTime` and its cleanup interval. Shorter retention can reduce inactive memory while causing more reads and decompression when data becomes hot again.
+
+The cleanup timer captures its interval when started. Use the restart sequence in [memory usage](memory-usage.mdx#configure-retention-and-observe-the-write-set) when changing that interval, and include materialized objects when measuring the cache footprint.
+
+## Compare profiles with your data
+
+Use the same records, key order, concurrency, and read/write mix for each candidate profile. Separate cold reads from warmed-cache reads, and measure merge work alongside request latency.
+
+| Measure | Why it changes the decision |
+| --- | --- |
+| Compressed bytes / original bytes | Reveals whether actual payloads benefit. Text and already-compressed images can behave very differently. |
+| CPU and allocations | Captures codec work and temporary memory costs. |
+| Write and merge throughput | Shows whether compression helps storage bandwidth or becomes a bottleneck. |
+| Cold point-read latency | Exposes decompression work for isolated block accesses. |
+| Warm reads and range scans | Measures block reuse and sequential locality. |
+| Retained memory and merge peaks | Includes decompressed blocks, materialized records, and overlapping buffers. |
+| Recovery time | Measures the selected WAL profile with representative log volume. |
+
+Compare newly written datasets when you want a clean profile comparison. Reopening an old tree with new options can leave a mixture of old and new files, making a filename or factory configuration alone misleading evidence of the active codecs.
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Evaluate compression as part of the storage budget</strong>
+  <p>Pair physical file measurements with cache ownership and read patterns before changing the defaults.</p>
+  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/storage/memory-usage/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Memory usage</BtnLink><BtnLink href="/docs/tuning/large-values/" tone="neutral" variant="outline">Large values</BtnLink><BtnLink href="/docs/storage/disk-segments/" tone="neutral" variant="outline">Disk segment files</BtnLink></Flex>
+</Panel>

@@ -40,7 +40,7 @@ An `Upsert` enters the current mutable segment. Its concurrent B+Tree keeps keys
 
 Recent writes are also recorded through the configured write-ahead log. WAL mode determines the logging path and durability boundary. The mutable segment is where the application reads and updates current in-memory records; the WAL supports their recovery.
 
-The default B+Tree lock mode uses node-level synchronization. Multiple application threads can write to the same ZoneTree, and independent reads can run concurrently. Operations that need coordinated read-modify-write behavior have separate [atomic APIs](../usage/atomic-operations.md).
+The default B+Tree lock mode uses node-level synchronization. Multiple application threads can write to the same ZoneTree, and independent reads can run concurrently. Operations that need coordinated read-modify-write behavior have separate [atomic APIs](../usage/atomic-operations.mdx).
 
 ### 2. Move a full segment to read-only memory
 
@@ -68,7 +68,7 @@ That order makes an update visible before older copies have been compacted away.
 
 **Deletion follows the same rule.** A deletion marker in a newer segment hides an older live value. Finding that marker ends the lookup with “not found”; falling through to an older value would incorrectly bring the record back.
 
-Point reads have several accelerators. In-memory segment Bloom filters can reject absent keys. Multipart boundary keys select a candidate disk part, sparse indexes narrow the search within disk data, and caches reduce repeated reads and deserialization. See [read-path caching](../tuning/read-path-caching.md) for the individual mechanisms.
+Point reads have several accelerators. In-memory segment Bloom filters can reject absent keys. Multipart boundary keys select a candidate disk part, sparse indexes narrow the search within disk data, and caches reduce repeated reads and deserialization. See [read-path caching](../tuning/read-path-caching.mdx) for the individual mechanisms.
 
 ### Range scans combine the layers
 
@@ -76,7 +76,7 @@ An iterator merges ordered streams from its included segments into one forward o
 
 The default iterator can refresh its segment set after mutable-segment rollover. For a stable scan, `IteratorType.Snapshot` moves the mutable segment forward and scans the resulting read-only and persistent region, excluding later writes. Dispose iterators promptly: they retain the disk segments they use, which can delay physical removal of replaced files.
 
-See [iteration and range scans](../usage/iteration-and-range-scans.md) for visibility options, seeking, and iterator lifetime.
+See [iteration and range scans](../usage/iteration-and-range-scans.mdx) for visibility options, seeking, and iterator lifetime.
 
 ## Multipart storage keeps merge work local
 
@@ -90,7 +90,7 @@ Reuse depends on more than the absence of updates inside a part. The merge also 
 
 New part targets vary between the configured minimum and maximum record counts, with boundary adjustments during merge. This avoids repeatedly emitting rigid, fully packed parts. Existing files stay immutable: extra capacity below a part's maximum is room for a future **replacement** to grow, rather than space that gets patched in place.
 
-This is where vertical batching and horizontal partitioning work together. Memory segments batch incoming writes; disk parts let compaction concentrate physical rewrite work around affected ranges. See [write amplification](../tuning/write-amplification.md) for examples and sizing tradeoffs.
+This is where vertical batching and horizontal partitioning work together. Memory segments batch incoming writes; disk parts let compaction concentrate physical rewrite work around affected ranges. See [write amplification](../tuning/write-amplification.mdx) for examples and sizing tradeoffs.
 
 ## Keep the normal disk merge layer bounded
 
@@ -108,7 +108,7 @@ Immutable disk segments hold data that has already been compacted. WALs hold rec
 
 The default WAL mode is `AsyncCompressed`. Its background logging path supports high write throughput. A returned write, a completed compaction, and a hardware-level flush are different events; the configured WAL mode, flush behavior, and storage stack determine the recovery boundary. With `No WAL`, recent in-memory writes cannot be recovered after process termination.
 
-Use [WAL modes](../durability/wal-modes.md) to choose that boundary, [recovery](../durability/recovery.md) to understand reopening behavior, and [live backups](../durability/backups.md) to create a restorable copy of an open tree.
+Use [WAL modes](../durability/wal-modes.mdx) to choose that boundary, [recovery](../durability/recovery.mdx) for WAL diagnostics and inspection tools, and [live backups](../durability/backups.mdx) to create a restorable copy of an open tree.
 
 ## Give maintenance an explicit owner
 
@@ -132,7 +132,7 @@ Bottom merging has its own explicit entry point, `maintainer.StartBottomSegments
 
 Watch read-only segment accumulation alongside merge duration and write rate. A growing queue means frozen memory is arriving faster than maintenance is clearing it. Budget compaction resources and record limits together; the mutable-segment limit alone does not cap the tree's total memory use.
 
-See [maintenance](../usage/maintenance.md) and [memory usage](../storage/memory-usage.md) for operational controls.
+See [maintenance](../usage/maintenance.mdx) and [memory usage](../storage/memory-usage.mdx) for operational controls.
 
 ## The controls behind the shape
 

@@ -1,0 +1,135 @@
+---
+title: Memory Usage
+description: Budget ZoneTree memory across mutable records, merge backlogs, sparse indexes, disk caches, iterators, and storage providers, and configure cleanup correctly.
+---
+
+<SectionHeader class="zt-guide-intro" eyebrow="STORAGE / MEMORY BUDGET" title="Account for the memory around your records" titleTag="h1" titleId="memory-usage-title" subtitle="With local storage, ZoneTree can query a database larger than RAM. Its live footprint still includes the write set, pending merges, sampled indexes, read caches, and the objects your application retains."/>
+
+<Grid columns="1" columnsMd="3" class="gap-3 zt-guide-outcomes">
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>Write memory</strong><p>Record size and the number of frozen segments determine how much data awaits a merge.</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"><strong>Read memory</strong><p>Hot blocks, materialized objects, sampled records, and calling threads multiply cache costs.</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"><strong>Lifetime</strong><p>Maintenance and prompt iterator disposal let inactive buffers and retired segments be reclaimed.</p></Panel>
+</Grid>
+
+## Build a budget by owner
+
+Account for retained records, indexes, and buffers, plus temporary allocations and overlapping work. There is no single setting here that caps the tree's total bytes.
+
+| Owner | Retained memory | What multiplies it |
+| --- | --- | --- |
+| Mutable segment | Ordered tree nodes, keys, values, and Bloom filter. | Record size and configured record capacity. |
+| Read-only memory segments | Frozen records and their retained indexing structures. | Merge backlog and write rate. |
+| Physical disk parts | Sparse key/value samples, circular caches, thread-local search hints. | Active parts, sampled value size, and calling threads. |
+| Read block cache | Decompressed bytes and any materialized-entry chunks. | Blocks touched and retained across data/header devices and parts. |
+| Active iterators | Per-segment prefetch arrays and segment leases. | Iterator count, segment fan-in, and prefetch settings. |
+| Background work | Merge, compression, and WAL buffers or queued records. | Workload, selected modes, and concurrent operations. |
+| Application / provider | Retained results and any RAM-backed files. | Application ownership and provider choice. |
+
+With `InMemoryFileStreamProvider`, add **all retained file bytes** to the process budget. Merging records into a RAM-backed “disk” segment changes representation; it does not move their storage outside process memory.
+
+## Size the active write set
+
+`MutableSegmentMaxItemCount` defaults to `1_000_000`. This limits records in the active mutable segment, not bytes in the whole tree. A million small structs and a million document objects have very different costs.
+
+Moving a full mutable segment forward freezes it into the read-only layer. That memory remains reachable until merging and reader lifetimes permit its release. Lowering the mutable limit rotates segments sooner; it cannot compensate for a merge backlog that grows faster than storage can drain it.
+
+Use `ReadOnlySegmentsCount`, `ReadOnlySegmentsRecordCount`, and `InMemoryRecordCount` to track that backlog. These count physical records, potentially including older versions and deletion markers; they are not byte measurements or live-key counts.
+
+### Include Bloom-filter rounding
+
+When enabled, the Bloom filter requests capacity × `MutableSegmentBloomFilterBitsPerItem`, rounds up to a power of two, and bounds the bit array between 64 and `2^30` bits. The default is 8 requested bits per item; setting the option to `0` disables the filter.
+
+For the default one-million-record capacity:
+
+```text
+requested bits = 1,000,000 × 8 = 8,000,000
+allocated bits = 8,388,608
+bit storage    = 1,048,576 bytes = 1 MiB, plus object/array overhead
+```
+
+Newly frozen mutable segments retain their filters alongside their records. Include those allocations for every simultaneously retained generation. See [Bloom filters](../concepts/bloom-filters.mdx) for filtering behavior and recovery differences.
+
+## Disk-cache allocation scopes
+
+These defaults are capacities or retention controls, not a shared byte allowance:
+
+| Control | Default | Allocation scope |
+| --- | --- | --- |
+| `CompressionBlockSize` | `4 MiB` | Disk block unit. A cold access can retain decompressed block bytes; a short final block can be smaller. |
+| `DefaultSparseArrayStepSize` | `1024` | Sampled key/value/index entries for each physical part. A smaller step retains more samples. |
+| `KeyCacheSize` / `ValueCacheSize` | `1024` each | Circular record-cache slots per physical single-part segment. |
+| Key / value cache record lifetime | `10 seconds` each | Expired circular-cache records become eligible for cleanup. |
+| `MaterializedEntryCacheSize` | `4096` | Chunk slots per decompressed block when that cache is created. Each published chunk has arrays for 16 keys and 16 values. |
+| `SearchHintPrefetchSize` | `16` | Lazily allocated prefetch buffers per physical segment and calling thread. |
+
+A multipart logical segment contains multiple physical parts, each with its own applicable caches. Counting only logical segment objects underestimates the allocation scopes.
+
+Materialized-entry caching retains deserialized objects in addition to block bytes. The slot count bounds the chunks held by that cache, but it is not a byte bound: key/value types, referenced objects, filled chunks, and replacement allocations determine the cost. Setting `MaterializedEntryCacheSize` to `0` disables that cache; setting `SearchHintPrefetchSize` to `0` disables search-hint prefetch.
+
+For a first block-byte estimate, 100 fully populated 4 MiB cached blocks account for about 400 MiB **before** materialized objects, indexes, other caches, and temporary buffers. Use this to check the scale of a measurement, not as a total-memory prediction.
+
+Read [compression](compression.mdx) for block-size tradeoffs and [read-path caching](../tuning/read-path-caching.mdx) for individual cache controls.
+
+## Give iterators a short lifetime
+
+`IteratorOptions.DiskSegmentPrefetchSize` controls the prefetch capacity of low-level disk iterators. A top-level scan can merge several segment iterators, so multiply buffers by segment fan-in as well as by concurrent scans.
+
+Iterators also lease the segments they read. A long-lived scan can keep retired segments, associated objects, and old files alive after a merge. Dispose an iterator when its scan finishes; do not keep one idle as an application-wide cursor. See [iteration and range scans](../usage/iteration-and-range-scans.mdx).
+
+## Configure retention and observe the write set
+
+This program reduces mutable and materialized-cache capacities, configures cleanup, and prints record counts. The values illustrate the controls; measure their effect on your workload.
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/memory-budget")
+    .SetMutableSegmentMaxItemCount(100_000)
+    .ConfigureDiskSegmentOptions(options =>
+    {
+        options.MaterializedEntryCacheSize = 1024;
+        options.SearchHintPrefetchSize = 8;
+    })
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+// Restart the cleanup job so its timer uses the new interval.
+maintainer.EnableJobForCleaningInactiveCaches = false;
+maintainer.BlockCacheLifeTime = TimeSpan.FromSeconds(30);
+maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(10);
+maintainer.EnableJobForCleaningInactiveCaches = true;
+
+for (var key = 0; key < 1000; ++key)
+    tree.Upsert(key, $"Record {key}");
+
+Console.WriteLine($"Mutable: {tree.Maintenance.MutableSegmentRecordCount}");
+Console.WriteLine($"Frozen: {tree.Maintenance.ReadOnlySegmentsRecordCount}");
+Console.WriteLine($"In memory: {tree.Maintenance.InMemoryRecordCount}");
+```
+
+The standard maintainer starts cleanup automatically with a one-minute block lifetime and a 30-second interval. It reads `BlockCacheLifeTime` on each pass, but captures `InactiveBlockCacheCleanupInterval` when creating its timer. Changing the interval requires the stop/configure/start sequence above.
+
+<AlertBox class="zt-guide-callout" tone="info" title="Cleanup is a retention policy, not a hard RAM limit" icon="tabler:settings">
+  <p>Shorter retention can reduce inactive read buffers while increasing later I/O and decompression. Buffers still referenced by a reader remain reachable even if removed from the shared cache. Cleanup does not release application-owned objects or force the .NET runtime to return memory to the operating system.</p>
+</AlertBox>
+
+## Measure steady state and peaks separately
+
+Run a representative write/read mix, warm its caches, and observe both sustained operation and merge peaks. Then stop work, dispose scans, allow maintenance and cleanup to finish, and compare retained objects.
+
+| Observation | Investigate first |
+| --- | --- |
+| Frozen record count keeps increasing. | Merge throughput, storage latency, and maintainer policy. |
+| Memory rises during reads with a stable write set. | Hot block count, materialized values, sparse indexes, threads, and active iterators. |
+| Memory peaks during merges, then stabilizes. | Temporary merge/compression allocations and overlapping old/new segment lifetimes. |
+| Live managed objects fall but process memory stays high. | GC heap reservation, native allocations, and operating-system working-set behavior. |
+| RAM-backed files keep growing after merges. | Retained provider files and reader leases, not just mutable record counts. |
+
+Use managed heap and allocation profiles alongside process counters. Working set, peak working set, and `GC.GetTotalMemory()` answer different questions; none is a precise ZoneTree ownership report by itself.
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Cache tuning and merge maintenance</strong>
+  <p>Measure a growing read-only backlog before changing merge policy. Profile read-driven memory growth before changing cache retention or capacity.</p>
+  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/tuning/read-path-caching/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Read-path caching</BtnLink><BtnLink href="/docs/usage/maintenance/" tone="neutral" variant="outline">Maintenance</BtnLink></Flex>
+</Panel>

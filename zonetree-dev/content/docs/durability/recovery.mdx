@@ -1,0 +1,126 @@
+---
+title: Recovery
+description: Understand automatic incomplete-tail recovery, capture WAL corruption diagnostics, and reuse public readers and segment APIs in specialized recovery tools.
+---
+
+<SectionHeader class="zt-guide-intro" eyebrow="DURABILITY / DIAGNOSTICS AND TOOLS" title="Inspect WALs and build recovery tools" titleTag="h1" titleId="recovery-title" subtitle="ZoneTree handles incomplete WAL tails during startup. For checksum and other read errors, logging and public storage APIs support diagnosis and specialized recovery tools."/>
+
+## WAL corruption diagnostics
+
+Current-format WAL records carry checksums. A mismatch is reported as a read failure; it does not repair the record or establish which bytes should replace it. Reconstructing records that fail checksum validation requires a specialized tool and a policy for deciding which records can be trusted.
+
+| Signal | Where it is reported |
+| --- | --- |
+| Checksum mismatch | An entry in `WriteAheadLogReadLogEntriesResult.Exceptions`, with `Success = false`. |
+| Record read or deserialization failure | Reader diagnostics through `ILogger`, plus errors in the read result. |
+| Normal loading encounters corruption | `WriteAheadLogCorruptionException`, carrying the per-record exception details. |
+| A single incomplete final record | A warning and the [automatic incomplete-tail recovery path](#automatic-recovery-of-incomplete-tails). |
+
+## Automatic recovery of incomplete tails
+
+An interrupted append can leave a final record with an unfinished header, payload, or checksum. ZoneTree handles this specific case automatically when loading a mutable or read-only segment:
+
+1. The WAL reader catches `EndOfStreamException`, stops reading, and reports `IncompleteTailRecordFoundException` through `ILogger.LogWarning()`. The exception records `RecordIndex`, `RecordPosition`, and `FileLength`; `TruncationAmount` is the length after that record's starting position.
+2. The result's `HasFoundIncompleteTailRecord` is true only when this is the **sole** recorded exception. `Success` remains false, and `IncompleteTailRecord` exposes the details.
+3. The segment loader calls `TruncateIncompleteTailRecord()` at `RecordPosition`, discards the unfinished suffix, and rebuilds the segment from the preceding complete records. Subsequent writes can append from the corrected end.
+
+For compressed WALs, the record can be incomplete within the tail block or span a committed block and the tail. Truncation handles that logical record boundary across the compressed storage. A `.tail` file can also contain complete records; its presence alone is not an incomplete-record error.
+
+`ReadLogEntries()` by itself only reports the result. The standard segment loaders perform the truncation. If checksum or other read errors are also present, `HasFoundIncompleteTailRecord` is false and this automatic path does not apply.
+
+## Capture diagnostics in your application
+
+Configure `ZoneTree.Logger.ILogger` through `SetLogger()` for reader warnings and errors. Also log `WriteAheadLogCorruptionException` from opening: its `Exceptions` dictionary carries checksum and other per-record failures.
+
+This integration example uses the built-in console logger for an existing database. Replace it with your `ILogger` adapter to attach application context or forward diagnostics elsewhere:
+
+```csharp
+using ZoneTree;
+using ZoneTree.Exceptions;
+using ZoneTree.Logger;
+
+var logger = new ConsoleLogger(LogLevel.Info);
+
+try
+{
+    using var tree = new ZoneTreeFactory<int, string>()
+        .SetDataDirectory("data/app")
+        .SetLogger(logger)
+        .Open();
+}
+catch (WriteAheadLogCorruptionException error)
+{
+    // Includes the loader's per-record failures in the exception details.
+    logger.LogError(error);
+    throw;
+}
+```
+
+Preserve record indexes and exception details with your application context for the inspection tool or recovery procedure.
+
+## Read a WAL from a specialized tool
+
+ZoneTree exposes its storage building blocks so tools can work below the factory's normal load path. For a WAL selected with the correct implementation and serializers, this helper stops at the first read or checksum failure and returns the diagnostic result:
+
+```csharp
+using ZoneTree.WAL;
+
+public static class WalInspection
+{
+    public static WriteAheadLogReadLogEntriesResult<TKey, TValue> ReadAndReport<TKey, TValue>(
+        IWriteAheadLog<TKey, TValue> wal)
+    {
+        var result = wal.ReadLogEntries(
+            stopReadOnException: true,
+            stopReadOnChecksumFailure: true,
+            sortByOpIndexes: false);
+
+        foreach (var (recordIndex, error) in result.Exceptions)
+            Console.Error.WriteLine($"Record {recordIndex}: {error.Message}");
+
+        return result;
+    }
+}
+```
+
+The caller owns the WAL and decides what to do with the result.
+
+The stop flags control how far reading continues. With continuation enabled, returned key/value lists can include entries associated with errors. Inspect `Success` and `Exceptions` before using records; do not blindly replay the returned lists into a new database. `sortByOpIndexes` controls returned record ordering, not validation.
+
+## Reuse the public storage APIs
+
+| API | Role in a tool |
+| --- | --- |
+| `WriteAheadLogProvider` and concrete WAL implementations | Select the log format and supply the matching key/value serializers. |
+| `IWriteAheadLog.ReadLogEntries()` | Read deserialized records and structured failure details. |
+| `WriteAheadLogEntryReader` and `LogEntry` | Inspect record framing and checksums or compose a reader with custom deserialization callbacks. |
+| `ZoneTreeMetaWAL` | Inspect saved metadata and metadata-log operations to identify the storage shape. |
+| `DiskSegmentFactory` | Open sorted disk segments with compatible options. |
+| `MutableSegmentLoader`, `ReadOnlySegmentLoader`, and `ZoneTreeLoader` | Reuse startup-loading components where their validation and replay behavior fits the tool. |
+
+Work on a copy of the affected files: some APIs create, migrate, flush, truncate, or rewrite files. For example, `GetOrCreateWAL()` can create a missing log, and ordinary tree opening can update metadata.
+
+## Preserve the data contracts
+
+Use the original key/value types, serializers, comparer, compatible hasher, and deletion rules when interpreting the database. A tool must preserve their behavior, not just their class names.
+
+| Contract | What a tool needs to preserve |
+| --- | --- |
+| Key and value types | The types used to interpret records. |
+| Serializers | The binary representation of keys and values. |
+| Comparer | Ordering and equality when reconstructing the keyspace. |
+| Key hasher | Equality-compatible hashing for enabled Bloom filtering. |
+| Deletion rules | The interpretation of tombstones and expiration in stored values. |
+
+See [serializers and comparers](../concepts/serializers-and-comparers.mdx) and [deletion markers and TTL](../concepts/deletion-markers-and-ttl.mdx) for those contracts.
+
+## Inspection and reconstruction workflow
+
+1. Preserve the affected database and any separately configured WAL location, along with the diagnostic logs. Use a separate working copy for inspection.
+2. Identify the affected segment, record failures, and file format with the public readers and metadata APIs.
+3. Use a purpose-built recovery tool to validate candidate records and reconstruct the chosen state. Its policy must account for write ordering, repeated keys, and deletion markers.
+4. Verify the resulting data against application invariants before using it. If a suitable backup is available, [restore and verify that generation](backups.mdx#restore-and-verify-a-generation) instead.
+
+For routine startup and WAL replay, see [opening a tree](../usage/opening-a-tree.mdx).
+
+<Flex wrap="true" class="gap-3 zt-guide-next"><BtnLink href="/docs/durability/backups/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Restore a backup</BtnLink></Flex>

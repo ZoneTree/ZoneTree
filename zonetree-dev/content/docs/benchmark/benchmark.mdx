@@ -2,9 +2,7 @@
 title: Performance benchmarks
 description: Explore profile-store benchmark results by platform, profile count, and parallelism, with interactive charts, engine configurations, and checksum evidence.
 layout:
-  showToc: true
-
-
+  showToc: always
 ---
 
 <div id="benchmark-explorer" data-benchmark-catalog="">
@@ -20,15 +18,50 @@ layout:
 
 <RegorApp src="./modules/explorer.ts"/>
 
-<details class="zt-report-methodology">
-  <summary>Methodology and reproduction</summary>
+<section
+  class="zt-report-methodology"
+  aria-labelledby="benchmark-methodology-title"
+>
+  <header class="zt-methodology-heading">
+    <p class="zt-methodology-eyebrow">Benchmark context</p>
+    <h2 id="benchmark-methodology-title">Methodology and reproduction</h2>
+    <p>
+      One indexed profile-store workload, measured across four database engines.
+      Read each result alongside its hardware, runtime, durability settings, and
+      engine version. Linux and Windows runs can use different query limits and
+      versions.
+    </p>
+  </header>
 
-  Treat each report as evidence for its exact workload, hardware, operating
-  system, .NET runtime, engine configuration, and durability profile. Linux and
-  Windows reports can use different query limits and engine versions. Results
-  can change with CPU, storage, memory pressure, compression settings, WAL
-  settings, segment sizing, and query distribution. ## Workload Each engine
-  stores the same profile model:
+  <div class="zt-methodology-grid">
+    <section
+      class="zt-methodology-card"
+      aria-labelledby="benchmark-workload-title"
+    >
+      <h3 id="benchmark-workload-title">Workload</h3>
+      <p>
+        Each engine stores the same profile records and maintains the same
+        logical indexes:
+      </p>
+      <ul>
+        <li>Individual profile inserts and updates.</li>
+        <li>Primary-key reads and email lookups.</li>
+        <li>
+          Ordered index scans over country/status, creation time, and
+          reputation.
+        </li>
+        <li>Indexed queries that also fetch matching profile records.</li>
+        <li>Reads, lookups, scans, and queries after updates.</li>
+        <li>
+          Final settle or checkpoint, reopen, and persistence verification.
+        </li>
+      </ul>
+      <p>
+        Every measured phase contributes a deterministic checksum. Skipped work
+        or incorrect results cannot count as a successful comparison.
+      </p>
+      <details class="zt-methodology-record">
+        <summary>Profile data model</summary>
 
 ```csharp
 UserProfile(
@@ -42,80 +75,203 @@ UserProfile(
     DisplayName,
     Bio)
 ```
+      </details>
+    </section>
 
-  The benchmark measures: * individual profile inserts, * primary-key reads by
-  user id, * secondary lookup by email, * index-only scans over country/status,
-  created-at, and reputation orderings, * indexed queries that scan an index and
-  fetch matching profiles, * individual profile updates, * post-update reads,
-  lookups, scans, and queries, * final settle/checkpoint, reopen, verification,
-  storage size, and process peak memory. Every phase contributes to
-  deterministic checksums. Incorrect implementations cannot win by skipping
-  reads, omitting index maintenance, or returning different result sets. ##
-  Engine Layout ZoneTree stores the primary profile data and secondary indexes
-  in separate ZoneTree instances. This mirrors how applications commonly build
-  indexing layers on top of ZoneTree. RocksDB stores the primary profile data
-  and secondary indexes in separate RocksDB databases. The benchmark
-  intentionally uses separate writes rather than a `WriteBatch`
-  so the RocksDB layout mirrors the ZoneTree tree layout. SQLite and MySQL store
-  the profile table with native SQL indexes. They maintain secondary indexes
-  inside the database engine. MySQL is a client/server baseline measured over
-  TCP. Its process memory in the reports is the benchmark client's .NET process
-  memory, not the MySQL server or container memory. ## Durability Profile The
-  benchmark uses practical high-throughput durable settings: | Engine |
-  Durability profile | | --- | --- | | ZoneTree | Async compressed WAL,
-  compressed disk segments, application-managed secondary indexes | | RocksDB |
-  WAL enabled, Zstd compression, five separate databases | | SQLite | WAL
-  journal mode, `synchronous=NORMAL`, native SQL indexes | | MySQL |
-  InnoDB, benchmark Docker disables binlog, `innodb_flush_log_at_trx_commit=2`,
-  `sync_binlog=0` | These settings are meant to compare practical
-  service configurations, not identical internal durability mechanisms. ## How
-  To Read The Reports `Completed phase time` is the sum of measured
-  workload phases. It excludes initialization, stabilization, final
-  settle/checkpoint, reopen, verification, and report writing.
-  `Run time` is the full engine run duration, including
-  overhead outside measured phases. `Pre-read stabilize` and
-  `Post-update stabilize` are used for ZoneTree and RocksDB before
-  read/query measurements. This reduces background maintenance and compaction
-  noise in lookup and query phases. `Storage` is measured
-  after the engine settles or checkpoints its data. `Process peak memory`
-  is measured from the benchmark process. For embedded engines, this includes
-  the engine inside the benchmark process. For MySQL, it does not include the
-  server process. Peak memory is a high-water mark, not steady-state memory
-  usage. During reads and scans, ZoneTree can cache decompressed disk blocks in
-  memory; blocks that are not accessed within the configured cache lifetime are
-  released by maintenance. After release, the .NET runtime may keep the reserved
-  memory region available for reuse instead of immediately returning it to the
-  operating system. `Index scan throughput` measures index-only scans.
-  `Query throughput` measures scans that also fetch profile records.
-  ## Current Takeaways In the available reference reports, ZoneTree shows strong
-  performance for this live indexed profile-store workload: * high
-  single-operation insert throughput, * high update throughput while maintaining
-  secondary indexes, * fast primary-key reads and email lookups, * fast ordered
-  index scans and profile-fetching indexed queries, * compact storage compared
-  with RocksDB and SQLite on the same generated data. The main tradeoff visible
-  in the reports is memory. ZoneTree uses more benchmark-process memory in
-  exchange for very high read, write, and query throughput. This is intentional
-  and configurable; for example, disk block cache lifetime controls how long hot
-  blocks stay in memory. Also, .NET process peak memory is a high-water mark, so
-  it does not mean ZoneTree actively uses all of that memory for the whole run.
-  ## Reproduce The Benchmark The benchmark source lives under
-  `benchmarks/profile-store`. From `benchmarks/profile-store`, a full local
-  reference run looks like:
+    <section
+      class="zt-methodology-card"
+      aria-labelledby="benchmark-engine-layout-title"
+    >
+      <h3 id="benchmark-engine-layout-title">Engine layout</h3>
+      <dl class="zt-methodology-definitions">
+        <div>
+          <dt>ZoneTree</dt>
+          <dd>
+            Separate ZoneTree instances hold the primary records and
+            application-managed secondary indexes.
+          </dd>
+        </div>
+        <div>
+          <dt>RocksDB</dt>
+          <dd>
+            Separate databases hold records and indexes. Separate writes, rather
+            than a <code>WriteBatch</code>, mirror the ZoneTree layout.
+          </dd>
+        </div>
+        <div>
+          <dt>SQLite and MySQL</dt>
+          <dd>
+            A profile table uses native SQL indexes, maintained inside the
+            database engine.
+          </dd>
+        </div>
+      </dl>
+      <p class="zt-methodology-note">
+        MySQL is a client/server baseline measured over TCP. Its server or
+        container memory is excluded from the reported client-process memory.
+      </p>
+    </section>
+  </div>
+
+  <section
+    class="zt-methodology-card"
+    aria-labelledby="benchmark-durability-title"
+  >
+    <h3 id="benchmark-durability-title">Durability profile</h3>
+    <p>
+      These practical throughput-oriented configurations use different internal
+      durability mechanisms. Check the selected report for its effective
+      settings.
+    </p>
+    <div
+      class="zt-methodology-table"
+      role="region"
+      aria-label="Durability profiles by database engine"
+      tabindex="0"
+    >
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Engine</th>
+            <th scope="col">Configuration</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">ZoneTree</th>
+            <td>
+              Async compressed WAL, compressed disk segments, and
+              application-managed secondary indexes.
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">RocksDB</th>
+            <td>WAL enabled, Zstd compression, and five separate databases.</td>
+          </tr>
+          <tr>
+            <th scope="row">SQLite</th>
+            <td>
+              WAL journal mode, <code>synchronous=NORMAL</code>, and native SQL
+              indexes.
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">MySQL</th>
+            <td>
+              InnoDB. The benchmark Docker configuration disables binlog and
+              uses <code>innodb_flush_log_at_trx_commit=2</code> and
+              <code>sync_binlog=0</code>.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section
+    class="zt-methodology-card"
+    aria-labelledby="benchmark-reading-title"
+  >
+    <h3 id="benchmark-reading-title">Reading the reports</h3>
+    <dl class="zt-methodology-definitions zt-methodology-metrics">
+      <div>
+        <dt>Completed phase time</dt>
+        <dd>
+          The sum of measured workload phases. Excludes initialization,
+          stabilization, settle or checkpoint, reopen, verification, and report
+          writing.
+        </dd>
+      </div>
+      <div>
+        <dt>Full run time</dt>
+        <dd>
+          The complete engine run, including work outside the measured phases.
+        </dd>
+      </div>
+      <div>
+        <dt>Stabilization</dt>
+        <dd>
+          ZoneTree and RocksDB settle or compact after inserts and updates,
+          before read/query measurements. This reduces background-maintenance
+          noise.
+        </dd>
+      </div>
+      <div>
+        <dt>Storage</dt>
+        <dd>Disk usage after the engine settles or checkpoints its data.</dd>
+      </div>
+      <div>
+        <dt>Process peak memory</dt>
+        <dd>
+          A high-water mark for the benchmark process. Includes embedded
+          engines, but excludes the MySQL server. It is not steady-state memory
+          usage.
+        </dd>
+      </div>
+      <div>
+        <dt>Scan vs. query throughput</dt>
+        <dd>
+          Index scans read index records only. Queries also fetch the matching
+          profile records.
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+  <section
+    class="zt-methodology-card zt-methodology-reproduce"
+    aria-labelledby="benchmark-reproduce-title"
+  >
+    <h3 id="benchmark-reproduce-title">Reproduce the benchmark</h3>
+    <p>
+      Run from <code>benchmarks/profile-store</code> with the .NET SDK and
+      sufficient disk space. Reference runs disable tiered compilation;
+      first-use JIT work inside a measured phase still counts.
+    </p>
 
 ```bash
-dotnet run --project src/ProfileStore.Benchmark.csproj -c Release -- --output results --data data --update-latest --timeout-seconds 1200 --engine zonetree,rocksdb,sqlite --profiles 100K,500K,1M,2M,5M,10M
+export DOTNET_TieredCompilation=0
+dotnet run --project src/ProfileStore.Benchmark.csproj -c Release -- \
+  --engine zonetree,rocksdb,sqlite \
+  --profiles 100K,500K,1M,2M,5M,10M \
+  --parallelism 1,16 \
+  --output results --data data --update-latest \
+  --timeout-seconds 1200
 ```
 
-  The Docker setup provides a benchmark-oriented MySQL container and runs the
-  benchmark in Release mode. See the benchmark README for exact Docker commands
-  and cleanup instructions. ## Use Results Carefully Do not generalize these
-  numbers to every database workload. This benchmark is most relevant when the
-  application needs: * live individual writes instead of bulk imports, * ordered
-  keys and range scans, * secondary indexes maintained by the application or
-  database engine, * profile/document-style values, * predictable reopen and
-  verification behavior, * local or service-side storage where embedding a
-  storage engine is practical. For different record sizes, key distributions,
-  write batching, transaction boundaries, durability requirements, compression
-  choices, or server deployment models, run the benchmark again with the target
-  workload and hardware.
-</details>
+    <p class="zt-methodology-note">
+      In PowerShell, set <code>$env:DOTNET_TieredCompilation = "0"</code> and
+      put the <code>dotnet run</code> command on one line, without the Bash
+      continuation characters.
+    </p>
+    <p>
+      For MySQL, use the benchmark Docker setup or a separately configured
+      server. The
+      <a
+        href="https://github.com/ZoneTree/ZoneTree/blob/main/benchmarks/profile-store/README.md"
+        >benchmark README</a>
+      covers Docker commands, prerequisites, runtime policy, and cleanup.
+    </p>
+  </section>
+
+  <section class="zt-methodology-card" aria-labelledby="benchmark-scope-title">
+    <h3 id="benchmark-scope-title">Tradeoffs and scope</h3>
+    <p>
+      This workload is useful for applications with live individual writes,
+      ordered keys, range scans, secondary indexes, and profile-style values.
+      Compare completed runs on the same documented machine.
+    </p>
+    <p>
+      Read throughput and storage together with memory. ZoneTree can cache
+      decompressed disk blocks during reads and scans; cache lifetime controls
+      when unused blocks are released. The .NET runtime can retain that memory
+      for reuse after release.
+    </p>
+    <p>
+      Results depend on CPU, storage, operating system, runtime, compression,
+      background activity, and query distribution. For different record sizes,
+      write batching, transaction boundaries, durability requirements, or
+      deployment models, rerun with your target workload and hardware.
+    </p>
+  </section>
+</section>
