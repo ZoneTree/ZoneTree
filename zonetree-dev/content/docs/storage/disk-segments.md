@@ -1,6 +1,6 @@
 # Disk Segment Files
 
-Disk segments are immutable persistent record sets. This page describes their physical file shape. For terminology, see [segments](../concepts/segments.md). For sizing and merge tuning, see [disk segment tuning](../tuning/disk-segments.md).
+Disk segments are immutable persistent record sets. This page describes their physical file shape. For terminology, see [segments](../concepts/segments.mdx). For sizing and merge tuning, see [disk segment tuning](../tuning/disk-segments.md).
 
 ## File Categories
 

@@ -70,7 +70,7 @@ ZoneTree orders keys using the configured comparer. Use key layouts that keep re
 
 The comparer, serializers, deletion rules, and application value schema must agree across replicas and during export, restore, and replay. A serialized value copied to another node must retain the same meaning there. Changing ownership does not change that contract.
 
-See [serializers and comparers](../concepts/serializers-and-comparers.md) and [indexes](indexes.md) for key-layout design.
+See [serializers and comparers](../concepts/serializers-and-comparers.mdx) and [indexes](indexes.md) for key-layout design.
 
 ## Write identities and ordering
 
@@ -231,7 +231,7 @@ Calling `ForceDelete` separately from a `Replicator` does not update its compani
 
 Normal reads and iterators hide deletion markers. `includeDeletedRecords: true` exposes markers retained in the collected segments, but compaction can reclaim obsolete markers. A current-state scan is therefore not a permanent history of deletes. Preserve deletion/version information in the distribution layer for as long as delayed operations or disconnected replicas can require it, or require those replicas to bootstrap again.
 
-Custom tombstones and TTL values must have compatible meaning on every replica. See [deletion markers and TTL](../concepts/deletion-markers-and-ttl.md).
+Custom tombstones and TTL values must have compatible meaning on every replica. See [deletion markers and TTL](../concepts/deletion-markers-and-ttl.mdx).
 
 ## Export a partition or an ordered range
 

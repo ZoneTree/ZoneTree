@@ -18,7 +18,7 @@ negative result skips that segment's B+Tree lookup and synchronization; a
 possible match continues through the normal lookup path. The default is `8`
 requested bits per item, and `0` disables the filter.
 
-See [mutable-segment Bloom filters](../concepts/bloom-filters.md) for sizing, false-positive
+See [mutable-segment Bloom filters](../concepts/bloom-filters.mdx) for sizing, false-positive
 behavior, hasher correctness, lifetime, and tuning guidance.
 
 ## Sparse Disk Index

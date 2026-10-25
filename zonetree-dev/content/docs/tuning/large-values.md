@@ -128,7 +128,7 @@ Prefer:
 * clone-and-upsert updates,
 * compact structs when the value is small enough.
 
-See [value mutability](../concepts/value-mutability.md).
+See [value mutability](../concepts/value-mutability.mdx).
 
 ## Reads
 

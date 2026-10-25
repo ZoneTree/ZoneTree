@@ -101,7 +101,7 @@ First actions:
 * benchmark iterator prefetch with the real query limit,
 * review disk compression block size for random-read workloads.
 
-See [read-path caching](../tuning/read-path-caching.md), [key ordering](../concepts/key-ordering.md), and [disk segment tuning](../tuning/disk-segments.md).
+See [read-path caching](../tuning/read-path-caching.md), [key ordering](../concepts/key-ordering.mdx), and [disk segment tuning](../tuning/disk-segments.md).
 
 ## Process Memory Looks High
 

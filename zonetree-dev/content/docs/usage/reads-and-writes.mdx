@@ -56,7 +56,7 @@ var opIndex = tree.Upsert(42, "Updated name");
 
 The latest write becomes the value returned by subsequent ordinary reads. If the key already exists in an older LSM layer, the new record shadows it until maintenance merges the layers.
 
-`Upsert` returns the assigned operation index. Use that value when following the producer's write sequence; it is not a transaction ID or confirmation that the storage device has flushed the write. See [operation indexes](../concepts/op-index.md) and [WAL modes](../durability/wal-modes.md).
+`Upsert` returns the assigned operation index. Use that value when following the producer's write sequence; it is not a transaction ID or confirmation that the storage device has flushed the write. See [operation indexes](../concepts/op-index.mdx) and [WAL modes](../durability/wal-modes.md).
 
 ## Read with TryGet
 
@@ -113,7 +113,7 @@ var markerIndex = tree.ForceDelete(99);
 
 `TryDelete` returns `false` and operation index `0` if its existence check finds no live key. `ForceDelete` writes a deletion marker directly. Ordinary reads and iterators hide records considered deleted.
 
-A deletion marker does not immediately remove old values from every segment. Maintenance eventually reclaims obsolete storage. For custom value types, configure compatible deletion delegates; see [deletion markers and TTL](../concepts/deletion-markers-and-ttl.md).
+A deletion marker does not immediately remove old values from every segment. Maintenance eventually reclaims obsolete storage. For custom value types, configure compatible deletion delegates; see [deletion markers and TTL](../concepts/deletion-markers-and-ttl.mdx).
 
 ## Concurrency and value design
 

@@ -1,0 +1,128 @@
+---
+title: Key Ordering
+description: Design comparer order around query ranges, implement a composite key with a compatible hasher and serializer, and plan ordering changes as storage migrations.
+---
+
+<SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / KEYSPACE DESIGN" title="Put the records you read together" titleTag="h1" titleId="ordering-title" subtitle="A comparer defines both key equality and the order of the tree. Choose that order around the ranges your application needs to seek and scan."/>
+
+## Start with a query, not a key type
+
+Suppose an application reads events from one stream for one tenant. An order of `TenantId → StreamId → Sequence` keeps that stream's records together:
+
+<div class="zt-guide-output">
+```text
+(7, 41, 1)  first event
+(7, 41, 2)  second event
+(7, 41, 3)  third event
+(7, 42, 1)  another stream
+```
+</div>
+
+The scan can seek to `(7, 41, fromSequence)` and stop when tenant or stream changes. Ordering the same fields as `Sequence → TenantId → StreamId` serves a different query: it groups sequence positions and scatters one stream among other streams.
+
+| Access pattern | Useful leading order |
+| --- | --- |
+| One tenant's stream, in sequence | Tenant, stream, sequence. |
+| One entity's time range | Entity, timestamp, a tie-breaker if needed. |
+| Highest scores first within a group | Group, score in the required direction, unique tie-breaker. |
+| Multiple unrelated query orders | Separate secondary indexes with their own key layouts. |
+
+Field names do not establish any of these orders. The comparer implementation does.
+
+## Implement a composite key completely
+
+This console example supplies all three custom-key components: comparer, equality-compatible hasher, and serializer. It prints the first stream's events in sequence order:
+
+```csharp
+using ZoneTree;
+using ZoneTree.Comparers;
+using ZoneTree.Hashers;
+using ZoneTree.Serializers;
+
+using var tree = new ZoneTreeFactory<EventKey, string>()
+    .SetDataDirectory("data/ordered-events")
+    .SetComparer(new EventKeyComparer())
+    .SetKeyHasher(new EventKeyHasher())
+    .SetKeySerializer(new StructSerializer<EventKey>())
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert(new EventKey(7, 41, 2), "Second");
+tree.Upsert(new EventKey(7, 42, 1), "Another stream");
+tree.Upsert(new EventKey(7, 41, 1), "First");
+
+using var iterator = tree.CreateIterator();
+iterator.Seek(new EventKey(7, 41, 1));
+while (iterator.Next())
+{
+    var key = iterator.CurrentKey;
+    if (key.TenantId != 7 || key.StreamId != 41)
+        break;
+
+    Console.WriteLine($"{key.Sequence}: {iterator.CurrentValue}");
+}
+
+readonly record struct EventKey(int TenantId, long StreamId, long Sequence);
+
+sealed class EventKeyComparer : IRefComparer<EventKey>
+{
+    public int Compare(in EventKey x, in EventKey y)
+    {
+        var tenant = x.TenantId.CompareTo(y.TenantId);
+        if (tenant != 0) return tenant;
+        var stream = x.StreamId.CompareTo(y.StreamId);
+        return stream != 0 ? stream : x.Sequence.CompareTo(y.Sequence);
+    }
+}
+
+sealed class EventKeyHasher : IKeyHasher<EventKey>
+{
+    public int GetHashCode(in EventKey key) =>
+        HashCode.Combine(key.TenantId, key.StreamId, key.Sequence);
+}
+```
+
+`CompareTo` avoids the overflow risk of subtracting numeric fields to produce a comparison result. The hasher includes the same equality-defining fields. `StructSerializer<EventKey>` works because every field is unmanaged; its raw struct layout is part of this example's storage contract.
+
+For a long-lived or cross-platform format, choose and version an explicit key encoding rather than assuming a raw struct layout is a portable wire format. See [serializers and comparers](serializers-and-comparers.mdx).
+
+## Keep equality, ordering, and hashing consistent
+
+The comparer must establish a consistent order. A result of `0` means the keys address the same logical record, even if their fields or serialized bytes differ.
+
+For example, a comparer that ignores case makes `"User:42"` and `"USER:42"` the same key. A later write can replace the earlier value. The Bloom-filter hasher must also treat those keys as equal.
+
+Do not let a key's order depend on mutable fields, the current time, or configuration that can change while the tree is open. Avoid mutating key buffers after insertion. A key that changes position without an engine write breaks the assumptions used by lookup, iteration, sparse indexes, and merging.
+
+## Understand strings and byte sequences
+
+| Representation | Default order | Consequence |
+| --- | --- | --- |
+| `int`, `long`, and other supported numeric keys | Built-in ascending comparer. | Numeric ranges can seek directly to numeric bounds. |
+| `string` | Ordinal ascending. | `"item:10"` sorts before `"item:2"`; text order is not numeric order. |
+| `Memory<byte>` | Lexicographic byte order. | A byte prefix sorts before a longer key beginning with that prefix. |
+| Custom key type | You supply the comparer. | Implement every field and direction needed by the query. |
+
+For text keys with embedded numbers, use an appropriate encoding or comparer; a delimiter alone does not create numeric sorting. For byte keys, make sure the byte encoding and the comparer jointly produce the intended order. Use `Memory<byte>` rather than unsupported `byte[]` keys, and retain ownership of the bytes.
+
+## Choose forward or reverse access
+
+A forward iterator follows the configured comparer. A reverse iterator traverses that same order backward. Reverse traversal does not change equality or re-encode the stored data.
+
+Use it for latest-first access when the chosen key layout puts a tenant or entity's newest record at the high end of its range. See [iteration and range scans](../usage/iteration-and-range-scans.mdx) for inclusive seek behavior, stopping bounds, and snapshot visibility.
+
+## Treat ordering changes as migrations
+
+The loader checks the comparer type recorded in metadata when opening a tree. A different comparer class can trigger `TreeComparerMismatchException` before segment loading.
+
+<AlertBox class="zt-guide-callout" tone="accent" title="Matching types do not prove matching behavior" icon="tabler:shield-check">
+  <p>Changing field order, culture rules, normalization, constructor state, or comparison logic inside the same .NET type can invalidate persisted ordering without changing its metadata identity. The application must preserve those semantics across reopen.</p>
+</AlertBox>
+
+When equality or ordering changes, create a new tree with the new components and rebuild the records into it. Resolve any keys that become equal under the new comparer. Do not bypass a metadata mismatch to reinterpret old segments under a different order.
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Make the key contract explicit</strong>
+  <p>Pair your comparer with compatible hashing and a stable persisted representation.</p>
+  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/concepts/serializers-and-comparers/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Serializers and comparers</BtnLink><BtnLink href="/docs/building-systems/indexes/" tone="neutral" variant="outline">Index design</BtnLink></Flex>
+</Panel>

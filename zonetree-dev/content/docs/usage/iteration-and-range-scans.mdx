@@ -72,7 +72,7 @@ The iterator merges visible records across LSM layers. Ordinary iteration return
 | Forward | The target key, or the next key in comparer order. | `Seek(15)` reads `20` first when keys are `10`, `20`, `30`. |
 | Reverse | The target key, or the preceding key in comparer order. | `Seek(25)` reads `20` first for those same keys. |
 
-All boundaries are defined by your comparer, rather than by a universal numeric or string order. For composite keys, construct lower and upper keys that enclose the intended range. See [key ordering](../concepts/key-ordering.md) before designing prefix or time-series layouts.
+All boundaries are defined by your comparer, rather than by a universal numeric or string order. For composite keys, construct lower and upper keys that enclose the intended range. See [key ordering](../concepts/key-ordering.mdx) before designing prefix or time-series layouts.
 
 ## Scan in reverse
 

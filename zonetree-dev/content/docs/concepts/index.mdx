@@ -1,0 +1,36 @@
+---
+title: Concepts
+description: Understand ZoneTree's storage layers, key and serialization contracts, Bloom filtering, deletion rules, operation sequencing, and value ownership.
+nav:
+  icon: iconoir:book
+layout:
+  fullWidth: true
+  showToc: false
+---
+
+<div class="zt-docs-overview">
+  <SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / BUILD THE MENTAL MODEL" title="Understand the contracts behind the APIs" titleTag="h1" titleId="concepts-title" subtitle="Start with the storage architecture. Then decide how keys are ordered, how records are encoded, which values are live, and how your application owns the data it writes."/>
+
+  <Grid columns="1" columnsMd="3" class="gap-3 zt-guide-outcomes">
+    <Panel class="p-0" bodyClass="p-4"><strong>Storage model</strong><p>Layers describe record generations; parts divide a logical disk segment into ranges.</p></Panel>
+    <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>Data contracts</strong><p>Equality, hashing, encoding, and deletion must agree with the application model.</p></Panel>
+    <Panel class="p-0" bodyClass="p-4"><strong>Application rules</strong><p>Own mutable data and define how sequencing, recovery, and replication fit together.</p></Panel>
+  </Grid>
+
+  <Grid columns="1" columnsMd="2" class="gap-4 zt-guide-next zt-docs-paths">
+    <DocCard number="01 / ARCHITECTURE" title="LSM-tree architecture" summary="Follow writes through ordered memory, read-only segments, compaction, and persistent multipart storage." href="/docs/concepts/lsm-tree/" icon="tabler:stack-2" label="Follow the storage lifecycle"/>
+    <DocCard number="02 / STORAGE UNITS" title="Segments and parts" summary="Distinguish memory and disk layers, logical segments, reusable parts, and the counters that describe them." href="/docs/concepts/segments/" icon="tabler:database" label="Name the storage units"/>
+    <DocCard number="03 / QUERY SHAPE" title="Key ordering" summary="Put related records into contiguous comparer order and implement a complete composite-key example." href="/docs/concepts/key-ordering/" icon="tabler:arrows-sort" label="Design the keyspace"/>
+    <DocCard number="04 / DATA CONTRACTS" title="Serializers and comparers" summary="Separate equality, hashing, and persisted bytes. Configure custom components and preserve compatibility." href="/docs/concepts/serializers-and-comparers/" icon="tabler:code" label="Define the contracts"/>
+    <DocCard number="05 / POINT READS" title="Bloom filters" summary="Skip provably absent memory-segment lookups and understand filter allocation, hashing, and false positives." href="/docs/concepts/bloom-filters/" icon="tabler:settings" label="Understand the filter"/>
+    <DocCard number="06 / VISIBILITY" title="Deletion markers and TTL" summary="Choose tombstones, model expiration, and reclaim deleted storage without exposing older values." href="/docs/concepts/deletion-markers-and-ttl/" icon="tabler:shield-check" label="Define what is live"/>
+    <DocCard number="07 / WRITE IDENTITY" title="Operation indexes" summary="Use a producer's write sequence without confusing it with durable delivery, global ordering, or transaction commits." href="/docs/concepts/op-index/" icon="tabler:git-branch" label="Understand write sequencing"/>
+    <DocCard number="08 / OWNERSHIP" title="Value mutability" summary="Keep stored objects and buffers read-only, create replacements, and make cancellation leave no shared mutation." href="/docs/concepts/value-mutability/" icon="tabler:book-2" label="Own stored values safely"/>
+  </Grid>
+
+  <Panel tone="accent" variant="surface" class="p-0 zt-guide-next-panel" bodyClass="p-5">
+    <strong>Put the model into code</strong>
+    <p>The Usage guides turn these contracts into runnable examples for opening a tree, writing records, coordinating updates, and scanning ranges.</p>
+    <BtnLink href="/docs/usage/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Explore the Usage guides</BtnLink>
+  </Panel>
+</div>

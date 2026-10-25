@@ -80,7 +80,7 @@ tree.AtomicUpsert("stats:user:42:views", 1);
 | `TryAtomicAddOrUpdate(key, valueToAdd, updater, result)` | Initialize when absent and update when present. | `true` only when added; use the callback to distinguish update from cancellation. |
 | `TryAtomicAddOrUpdate(key, adder, updater, result)` | Compute both the initial value and later updates. | Either delegate can cancel by returning `false`. |
 
-Successful writes receive normal operation indexes. See [operation indexes](../concepts/op-index.md) for ordering and replay uses.
+Successful writes receive normal operation indexes. See [operation indexes](../concepts/op-index.mdx) for ordering and replay uses.
 
 ## Compare before replacing
 
@@ -126,7 +126,7 @@ Keep callbacks short. Adder/updater delegates in `TryAtomicAddOrUpdate` can run 
 
 If `TValue` is a reference type, copying the local variable does not clone the object. A property change can alter the shared object before ZoneTree accepts a write. Returning `false` cannot undo that mutation.
 
-Prefer immutable values. For a record value, construct a replacement with a `with` expression and assign it to the `ref` parameter. Make the decision before creating the replacement, and write through the API so operation indexing and WAL behavior remain explicit. See [value mutability](../concepts/value-mutability.md).
+Prefer immutable values. For a record value, construct a replacement with a `with` expression and assign it to the `ref` parameter. Make the decision before creating the replacement, and write through the API so operation indexing and WAL behavior remain explicit. See [value mutability](../concepts/value-mutability.mdx).
 
 ## Know when to use a transaction
 

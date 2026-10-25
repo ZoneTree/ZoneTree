@@ -63,7 +63,7 @@ Use `0` bits per item to disable the filter and remove the key-hasher
 requirement. A larger value is not free: it increases memory and does not
 eliminate comparer-based lookup after a possible match.
 
-See [mutable-segment Bloom filters](../concepts/bloom-filters.md) for sizing,
+See [mutable-segment Bloom filters](../concepts/bloom-filters.mdx) for sizing,
 false-positive behavior, and hasher requirements.
 
 ## WAL Defaults
@@ -185,4 +185,4 @@ using var maintainer = zoneTree.CreateMaintainer();
 
 See [disk-segment tuning](../tuning/disk-segments.md),
 [read-path caching](../tuning/read-path-caching.md), and
-[key components](../concepts/serializers-and-comparers.md).
+[key components](../concepts/serializers-and-comparers.mdx).

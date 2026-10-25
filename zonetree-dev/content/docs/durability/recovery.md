@@ -57,7 +57,7 @@ Operation indexes are ZoneTree's producer write sequence. WAL records carry them
 
 During recovery, ZoneTree restores that high-water mark so new writes continue with safe sequence numbers after restart, WAL compaction, or restore. Read-only segment WALs and mutable segment WALs participate in this recovery path.
 
-See [operation indexes](../concepts/op-index.md).
+See [operation indexes](../concepts/op-index.mdx).
 
 ## Incomplete WAL Tails
 

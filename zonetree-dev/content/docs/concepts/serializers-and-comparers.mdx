@@ -1,0 +1,131 @@
+---
+title: Serializers And Comparers
+description: Configure comparison, hashing, and serialization as separate contracts, supply custom value serializers, and preserve format compatibility across application versions.
+---
+
+<SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / DATA CONTRACTS" title="Three components. Three different contracts." titleTag="h1" titleId="components-title" subtitle="The comparer defines equality and order. The hasher supports Bloom membership checks. Serializers turn keys and values into the bytes that recovery and disk reads must understand."/>
+
+<Grid columns="1" columnsMd="3" class="gap-3 zt-guide-outcomes">
+  <Panel class="p-0" bodyClass="p-4"><strong>Comparer</strong><p>Which keys are equal, and which key comes next?</p></Panel>
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>Hasher</strong><p>Can the filter safely rule out a comparer-equal key?</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"><strong>Serializer</strong><p>How are records encoded and decoded across reopen?</p></Panel>
+</Grid>
+
+## Start with the supported defaults
+
+The factory fills missing components for known types. For example, `ZoneTreeFactory<int, string>` can use the built-in integer comparer, compatible key hasher, and key/value serializers without explicit configuration.
+
+| Shape | Built-in support |
+| --- | --- |
+| `byte`, `char`, `DateTime`, `decimal`, `double`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `Guid` | Default serializers, ascending comparers, and compatible hashers. |
+| `string` | UTF-8 serializer, ordinal ascending comparer, and compatible hasher. |
+| `Memory<byte>` | Byte serializer, lexicographic comparer, and content-based hasher. |
+| `bool` | A default serializer; supply comparison and hashing if using it as a filtered key. |
+| Custom classes or structs | Supply the missing components explicitly. A custom unmanaged struct does not automatically receive a serializer or comparer. |
+
+`byte[]` keys and values are rejected; use `Memory<byte>` for byte sequences. A memory wrapper still shares its underlying buffer, so it is not an immutable copy.
+
+## Configure comparison and hashing together
+
+This complete example makes case-insensitive strings one logical key:
+
+```csharp
+using ZoneTree;
+using ZoneTree.Comparers;
+using ZoneTree.Hashers;
+
+using var tree = new ZoneTreeFactory<string, string>()
+    .SetDataDirectory("data/key-components-example")
+    .SetComparer(new StringOrdinalIgnoreCaseComparerAscending())
+    .SetKeyHasher(new OrdinalIgnoreCaseHasher())
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert("User:42", "Ada");
+if (tree.TryGet("USER:42", out var name))
+    Console.WriteLine(name);
+
+sealed class OrdinalIgnoreCaseHasher : IKeyHasher<string>
+{
+    public int GetHashCode(in string key) =>
+        StringComparer.OrdinalIgnoreCase.GetHashCode(key);
+}
+```
+
+`IRefComparer<TKey>.Compare(in x, in y)` returns a negative, zero, or positive result. Zero establishes logical equality. `IKeyHasher<TKey>.GetHashCode(in key)` must return the same hash for every pair of comparer-equal keys.
+
+Unequal keys may collide. Equal keys with unequal hashes can cause a negative Bloom check to hide existing data. The common `"a"`/`"A"` validation check does not verify arbitrary custom behavior.
+
+Setting `MutableSegmentBloomFilterBitsPerItem` to `0` removes the filter's hasher requirement. It does not relax the comparer's ordering contract. See [Bloom filters](bloom-filters.mdx).
+
+## Supply a serializer for custom values
+
+`ISerializer<T>` has two operations: `Serialize(in T entry)` returns `Memory<byte>`, and `Deserialize(Memory<byte> bytes)` returns the value. Custom serializers must support every value that can be written, including deletion markers.
+
+This complete example stores an immutable reference record as JSON. The nullable serializer also preserves the default `null` tombstone:
+
+```csharp
+using System.Text.Json;
+using ZoneTree;
+using ZoneTree.Serializers;
+
+using var tree = new ZoneTreeFactory<int, Profile?>()
+    .SetDataDirectory("data/custom-profile-example")
+    .SetValueSerializer(new ProfileSerializer())
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert(42, new Profile("Ada"));
+if (tree.TryGet(42, out var profile) && profile is not null)
+    Console.WriteLine(profile.Name);
+
+tree.TryDelete(42, out _);
+Console.WriteLine(tree.ContainsKey(42));
+
+sealed record Profile(string Name);
+
+sealed class ProfileSerializer : ISerializer<Profile?>
+{
+    public Memory<byte> Serialize(in Profile? entry) =>
+        JsonSerializer.SerializeToUtf8Bytes(entry);
+
+    public Profile? Deserialize(Memory<byte> bytes) =>
+        JsonSerializer.Deserialize<Profile>(bytes.Span);
+}
+```
+
+This prints `Ada`, then `False`. JSON is an explicit format choice here; the engine does not supply or infer this serializer for `Profile`.
+
+The serializer can be called from concurrent application, recovery, or maintenance work. Keep it safe for concurrent use. Do not retain or mutate input buffers without owning a copy, and do not return a reusable scratch buffer that another operation can overwrite.
+
+## Choose a stable byte representation
+
+| Choice | Contract to preserve |
+| --- | --- |
+| Built-in scalar serializer | The specific serializer's representation and supported values. |
+| `StructSerializer<T>` | An unmanaged type's raw layout. Size, layout, and runtime assumptions are part of compatibility; this is not automatically a portable versioned format. |
+| JSON or another structured format | Field names, options, null handling, validation, and compatibility with older records. |
+| Custom binary format | Explicit field order, widths, byte order, versioning, and malformed-input handling. |
+
+Changing a serializer's output changes what WAL recovery, disk reads, and backup records need to decode. Test a value written by the previous application version with the new reader before treating a deployment as compatible.
+
+## Understand what metadata validates
+
+The loader checks the persisted key type, value type, comparer type, key-serializer type, and value-serializer type. Metadata also records the configured hasher type and Bloom density, but those are not the same persisted-format checks.
+
+<AlertBox class="zt-guide-callout" tone="accent" title="Type identity is only one compatibility check" icon="tabler:shield-check">
+  <p>A serializer or comparer can keep the same .NET type while changing its behavior. Metadata cannot prove that the new code decodes old bytes or preserves old equality and ordering. Version those contracts deliberately.</p>
+</AlertBox>
+
+A compatible hasher can change across reopen without rewriting stored records because the Bloom bit array is not a persisted disk format. The replacement still has to match comparer equality. A serializer or ordering change that cannot read the existing format requires a new tree and a controlled copy or rebuild.
+
+<ExpandablePanel title="Opening trees created with the old byte comparers" class="zt-guide-reference">
+  <p>The current <code>ByteArrayLexicographicComparerAscending</code> orders a byte prefix before longer keys beginning with it; the descending comparer reverses that order. The older <code>ByteArrayComparerAscending</code> placed longer keys before their prefixes.</p>
+  <p>If metadata records an old comparer type, opening with the replacement can throw <code>TreeComparerMismatchException</code>. Export using a version and comparer that correctly read the old tree, then rebuild under the new ordering. Renaming a metadata entry does not reorder the stored records.</p>
+</ExpandablePanel>
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Include deletion and ownership in the data contract</strong>
+  <p>The serializer must round-trip markers, and the application must avoid changing stored objects or buffers behind the engine's write APIs.</p>
+  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/concepts/deletion-markers-and-ttl/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Deletion and TTL</BtnLink><BtnLink href="/docs/concepts/value-mutability/" tone="neutral" variant="outline">Value mutability</BtnLink></Flex>
+</Panel>
