@@ -134,7 +134,7 @@ while (iterator.Next())
 
 `DiskSegmentPrefetchSize` defaults to `0`; values below `2` disable it. Prefetch batches consecutive disk records and can reduce per-record overhead. It can also read beyond a range where your loop stops early.
 
-Set `ContributeToTheBlockCache = true` when later reads are expected to reuse scanned blocks. Those blocks remain eligible for retention until inactive-cache cleanup releases them. Measure the tradeoff with your workload; see [read-path caching](../tuning/read-path-caching.md).
+Set `ContributeToTheBlockCache = true` when later reads are expected to reuse scanned blocks. Those blocks remain eligible for retention until inactive-cache cleanup releases them. Measure the tradeoff with your workload; see [read-path caching](../tuning/read-path-caching.mdx).
 
 ## Include deletion markers when inspecting storage
 

@@ -38,7 +38,7 @@ An illustrative multipart segment with two variable-value parts looks like this:
        12.sparse.z
 ```
 
-These are segment files. The directory also contains metadata and WAL files that describe other parts of the database. Start with the [Storage overview](index.mdx) for the full set of concerns.
+These are segment files. Metadata and any record WALs belong to the wider database layout described in the [Storage overview](index.mdx).
 
 ## Understand the four record layouts
 
@@ -63,7 +63,7 @@ A merge can reuse an eligible part whose key range is unaffected instead of rewr
 - A new descriptor does not imply every part was newly written.
 - Part sizes and reuse eligibility affect merge work and write amplification.
 
-The [segments guide](../concepts/segments.mdx) explains the logical units and reuse rules. [Disk segment tuning](../tuning/disk-segments.md) covers size controls.
+The [segments guide](../concepts/segments.mdx) explains the logical units and reuse rules. [Disk segment tuning](../tuning/disk-segments.mdx) covers size controls.
 
 ## Budget for the sparse index
 

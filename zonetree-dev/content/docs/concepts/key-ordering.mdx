@@ -5,7 +5,7 @@ description: Design comparer order around query ranges, implement a composite ke
 
 <SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / KEYSPACE DESIGN" title="Put the records you read together" titleTag="h1" titleId="ordering-title" subtitle="A comparer defines both key equality and the order of the tree. Choose that order around the ranges your application needs to seek and scan."/>
 
-## Start with a query, not a key type
+## Design keys around range queries
 
 Suppose an application reads events from one stream for one tenant. An order of `TenantId → StreamId → Sequence` keeps that stream's records together:
 

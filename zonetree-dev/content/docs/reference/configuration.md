@@ -183,6 +183,6 @@ using var zoneTree = new ZoneTreeFactory<long, string>()
 using var maintainer = zoneTree.CreateMaintainer();
 ```
 
-See [disk-segment tuning](../tuning/disk-segments.md),
-[read-path caching](../tuning/read-path-caching.md), and
+See [disk-segment tuning](../tuning/disk-segments.mdx),
+[read-path caching](../tuning/read-path-caching.mdx), and
 [key components](../concepts/serializers-and-comparers.mdx).

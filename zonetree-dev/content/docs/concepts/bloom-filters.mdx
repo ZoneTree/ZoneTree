@@ -34,7 +34,7 @@ For fresh sample data, the results are `True` and `False`. Filter use does not c
 | --- | --- |
 | `0` | Disable the mutable-segment Bloom filter; no key hasher is required for this feature. |
 | `1` through `64` | Request this many filter bits per configured mutable-segment item. |
-| Default: `8` | A starting point to measure against the application's point-read and write workload. |
+| Default: `8` | Compare filter memory, absent-key lookup cost, and write throughput before changing this allocation. |
 
 The factory supplies a hasher for supported key types. Custom key types need a compatible `IKeyHasher<TKey>` when filtering is enabled.
 

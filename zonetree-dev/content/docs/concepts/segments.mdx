@@ -51,7 +51,7 @@ Parts are immutable. Compaction writes changed ranges into new parts and may car
 
 The illustration is a useful model, not a promise that every local change rewrites exactly one part. Reuse also depends on merge inputs, range overlap, deletion rules, and part-size constraints. A changed range can produce several replacement parts.
 
-See [write amplification](../tuning/write-amplification.md) for the cost tradeoffs and [disk-segment tuning](../tuning/disk-segments.md) for sizing.
+See [write amplification](../tuning/write-amplification.mdx) for the cost tradeoffs and [disk-segment tuning](../tuning/disk-segments.mdx) for sizing.
 
 ## Recognize the physical layouts
 

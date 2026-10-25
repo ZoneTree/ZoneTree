@@ -68,7 +68,7 @@ That order makes an update visible before older copies have been compacted away.
 
 **Deletion follows the same rule.** A deletion marker in a newer segment hides an older live value. Finding that marker ends the lookup with “not found”; falling through to an older value would incorrectly bring the record back.
 
-Point reads have several accelerators. In-memory segment Bloom filters can reject absent keys. Multipart boundary keys select a candidate disk part, sparse indexes narrow the search within disk data, and caches reduce repeated reads and deserialization. See [read-path caching](../tuning/read-path-caching.md) for the individual mechanisms.
+Point reads have several accelerators. In-memory segment Bloom filters can reject absent keys. Multipart boundary keys select a candidate disk part, sparse indexes narrow the search within disk data, and caches reduce repeated reads and deserialization. See [read-path caching](../tuning/read-path-caching.mdx) for the individual mechanisms.
 
 ### Range scans combine the layers
 
@@ -90,7 +90,7 @@ Reuse depends on more than the absence of updates inside a part. The merge also 
 
 New part targets vary between the configured minimum and maximum record counts, with boundary adjustments during merge. This avoids repeatedly emitting rigid, fully packed parts. Existing files stay immutable: extra capacity below a part's maximum is room for a future **replacement** to grow, rather than space that gets patched in place.
 
-This is where vertical batching and horizontal partitioning work together. Memory segments batch incoming writes; disk parts let compaction concentrate physical rewrite work around affected ranges. See [write amplification](../tuning/write-amplification.md) for examples and sizing tradeoffs.
+This is where vertical batching and horizontal partitioning work together. Memory segments batch incoming writes; disk parts let compaction concentrate physical rewrite work around affected ranges. See [write amplification](../tuning/write-amplification.mdx) for examples and sizing tradeoffs.
 
 ## Keep the normal disk merge layer bounded
 

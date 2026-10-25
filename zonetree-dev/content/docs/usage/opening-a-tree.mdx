@@ -11,7 +11,7 @@ description: Choose OpenOrCreate, Open, or Create; configure a ZoneTreeFactory; 
   titleId="opening-title"
   subtitle="Configure a factory once at startup, choose whether existing data is required, and keep the opened tree alive for the work that uses it."/>
 
-## Start with the application lifetime
+## Create the tree and its maintenance coordinator
 
 This complete example opens a persistent tree and starts the standard maintenance coordinator:
 
@@ -118,8 +118,8 @@ Creating a maintainer is optional. Omitting it means your application must suppl
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Continue with data operations</strong>
   <p>
-    Start with ordinary reads and writes, then add coordination only where the
-    data rule requires it.
+    Ordinary methods read and replace values. Atomic methods coordinate a
+    one-key decision; transactions coordinate related keys in one tree.
   </p>
   <Flex wrap="true" class="gap-3"
     ><BtnLink

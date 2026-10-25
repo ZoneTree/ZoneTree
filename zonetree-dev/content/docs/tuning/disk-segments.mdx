@@ -1,0 +1,90 @@
+---
+title: Disk Segment Tuning
+description: Distinguish mutable capacity, disk-layer rollover, and multipart targets, and apply valid settings while measuring file count, locality, and read cost.
+---
+
+<SectionHeader class="zt-guide-intro" eyebrow="TUNING / PERSISTENT FILE SHAPE" title="Size the layer and its parts independently" titleTag="h1" titleId="disk-segment-tuning-title" subtitle="A mutable-segment limit, a disk-layer threshold, and a part target control different boundaries. Choose the boundary that explains the measured cost."/>
+
+## Separate the three record-count controls
+
+| Control | Default | What it changes |
+| --- | --- | --- |
+| `MutableSegmentMaxItemCount` | `1_000_000` | Capacity of the active writable memory segment before rotation. |
+| `DiskSegmentMaxItemCount` | `20_000_000` | After a normal merge, output larger than this threshold moves to the bottom layer. |
+| `DiskSegmentOptions.MinimumRecordCount` / `MaximumRecordCount` | `1_500_000` / `3_000_000` | New multipart output targets and minimum-size reuse eligibility. |
+
+All three are record counts, not byte budgets. The disk threshold is checked after producing merge output; it is not a hard maximum size for a physical file or the whole database.
+
+For terminology and file ownership, see [segments and parts](../concepts/segments.mdx) and [disk segment files](../storage/disk-segments.mdx).
+
+## Choose a segment mode and target range
+
+`MultiPartDiskSegment` is the default. It represents one logical segment with ordered physical parts and allows eligible parts to be reused. `SingleDiskSegment` uses a single-part layout; it still can have separate data, header, and sparse-index files.
+
+New multipart targets are selected with `Random.Next(minimum, maximum)`, whose upper bound is exclusive. During merging, the creator can extend a target while inside an existing part to favor a useful boundary. Final parts can be smaller, and reused parts keep their existing size. Treat these values as shaping controls rather than strict limits on every part.
+
+| Candidate change | Reason to test it | Cost to compare |
+| --- | --- | --- |
+| Smaller part targets | Local updates or large values rewrite too much data. | File count, per-part cache overhead, merge scheduling, and scan transitions. |
+| Larger part targets | File handling and part transitions dominate with compact values. | Rewriting more data when a range changes. |
+| Earlier disk-layer rollover | Normal merge input keeps growing beyond the desired operating size. | More bottom segments to search and compact later. |
+
+Changing targets does not proactively repartition existing files. Subsequent merges can reuse old parts, including parts larger than a newly lowered maximum. [Write amplification](write-amplification.mdx) explains the reuse conditions and shows how to observe them.
+
+## Use valid values
+
+Under standard option validation:
+
+| Setting | Accepted range |
+| --- | --- |
+| Mutable capacity | At least `1000` records. |
+| Disk-layer threshold | At least `10_000` records. |
+| Minimum part target | At least `1000` records. |
+| Maximum part target | At least `2000` records, and greater than the minimum. |
+| Disk compression block size | 1 MiB through 64 MiB. |
+
+Use ordinary validated settings for tuning experiments. Very small part targets can create significant per-file and per-part overhead even when they are valid.
+
+## Configure the boundaries explicitly
+
+This complete example illustrates where the disk-layer and part controls belong. Use the counts as candidate configuration values, and change one boundary at a time in performance comparisons:
+
+```csharp
+using ZoneTree;
+using ZoneTree.Options;
+
+var directory = Path.Combine("data", "disk-profile", Guid.NewGuid().ToString("N"));
+using var tree = new ZoneTreeFactory<long, string>()
+    .SetDataDirectory(directory)
+    .SetDiskSegmentMaxItemCount(2_000_000)
+    .ConfigureDiskSegmentOptions(options =>
+    {
+        options.DiskSegmentMode = DiskSegmentMode.MultiPartDiskSegment;
+        options.MinimumRecordCount = 100_000;
+        options.MaximumRecordCount = 250_000;
+    })
+    .Create();
+using var maintainer = tree.CreateMaintainer();
+
+for (var key = 0L; key < 5000; ++key)
+    tree.Upsert(key, $"Record {key}");
+
+maintainer.EvictToDisk();
+await maintainer.WaitForBackgroundThreadsAsync();
+
+var disk = tree.Maintenance.DiskSegment;
+Console.WriteLine($"Records: {disk.Length}; parts: {disk.GetPartCount()}");
+Console.WriteLine($"Physical files: {disk.GetFiles().Length}");
+```
+
+The small dataset produces a final part below the configured minimum, which is a normal outcome. With concurrent writers, coordinate the observation before comparing file sets or merge outputs.
+
+## Choose block size and sparse density for reads
+
+Disk compression defaults to Zstd level 0 with 4 MiB blocks. A smaller block can reduce unrelated bytes decompressed for isolated reads, while a larger block can improve locality and compression. A value larger than one block still needs all of its payload bytes. Existing files retain their recorded block size and method; a configuration change alone does not rewrite them. See [compression](../storage/compression.mdx) for a controlled comparison.
+
+`DefaultSparseArrayStepSize` defaults to `1024`. A smaller positive step retains more sampled keys and values and narrows the local search interval. A larger step reduces samples; `0` disables default creation and loading. Include sampled value size in the memory cost, especially for large payloads.
+
+Keep cache and prefetch experiments in [read-path caching](read-path-caching.mdx). File shape changes affect many allocations indirectly, so compare file count and total retained memory as well as query latency.
+
+<Flex wrap="true" class="gap-3 zt-guide-next"><BtnLink href="/docs/tuning/write-amplification/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Measure merge work</BtnLink><BtnLink href="/docs/tuning/read-path-caching/" tone="neutral" variant="outline">Read-cache controls</BtnLink></Flex>

@@ -1,6 +1,6 @@
 ---
 title: WAL Modes
-description: Start with ZoneTree's default AsyncCompressed WAL, understand how logging and recovery work, and choose another mode only for a specific workload requirement.
+description: Understand ZoneTree's default AsyncCompressed WAL, compare logging paths, and manage compressed tails and shutdown.
 ---
 
 <SectionHeader
@@ -9,13 +9,13 @@ description: Start with ZoneTree's default AsyncCompressed WAL, understand how l
   title="Keep writes fast with the default WAL"
   titleTag="h1"
   titleId="wal-modes-title"
-  subtitle="AsyncCompressed is ZoneTree's recommended starting point for ordinary persistent workloads. It keeps logging enabled while moving serialization, compression, and file writes onto a background path."/>
+  subtitle="AsyncCompressed is the recommended mode for ordinary persistent workloads. It moves serialization, compression, and file writes onto a background path."/>
 
 ## Compare logging paths
 
 | Mode | Logging path | When to choose it |
 | --- | --- | --- |
-| **`AsyncCompressed` default** | Enqueues records for background serialization, compression, and writing. | The normal starting point for persistent applications that value write throughput. |
+| **`AsyncCompressed` default** | Enqueues records for background serialization, compression, and writing. | Persistent applications that benefit from keeping logging work off the caller's path. |
 | `SyncCompressed` | Serializes and appends on the caller into a compressed-block stream; the current tail is written separately. | A specific need for caller-side compressed logging, after measuring the workload. |
 | `Sync` | Serializes and appends on the caller through a plain WAL stream, flushing that stream per record. | A specific need for the plain synchronous logging path, accepting its throughput cost. |
 | `None` | Does not log segment records. Metadata and merged disk segments still exist. | Disposable data or a dataset you intentionally rebuild from another source. |

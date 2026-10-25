@@ -9,9 +9,9 @@ description: Run ZoneTree's standard maintainer, control merges and cache cleanu
   title="Keep storage moving in the background"
   titleTag="h1"
   titleId="maintenance-title"
-  subtitle="A maintainer connects segment movement to merge scheduling and inactive-cache cleanup. Start with the standard coordinator, then customize policy when your workload needs it."/>
+  subtitle="The standard maintainer schedules merges after segment movement and periodically cleans inactive read caches. Its controls and events let an application adapt that policy to its workload."/>
 
-## Start with a maintainer
+## Run the standard maintainer
 
 Create one maintainer alongside the tree. This complete program writes a record, requests a merge of current in-memory data, and waits for tracked background work:
 
@@ -42,9 +42,7 @@ For normal service operation, keep the tree and maintainer alive and let the eve
   <p>
     ZoneTree can operate without <code>CreateMaintainer()</code>. Without it,
     you own merge scheduling, retries, cache cleanup, and background-work
-    coordination through <code>tree.Maintenance</code>. Keeping the default
-    maintainer is the starting point for applications that do not need a custom
-    policy.
+    coordination through <code>tree.Maintenance</code>.
   </p>
 </AlertBox>
 
@@ -143,7 +141,7 @@ The cleanup interval is captured when the periodic timer is created; assigning t
 
 Longer retention can help repeated reads and also retain more memory. Cleanup releases inactive block buffers and expired circular key/value cache entries. The .NET runtime may retain released memory for reuse rather than immediately returning it to the operating system.
 
-See [memory usage](../storage/memory-usage.mdx) and [read-path caching](../tuning/read-path-caching.md) when interpreting process memory or changing the cache policy.
+See [memory usage](../storage/memory-usage.mdx) and [read-path caching](../tuning/read-path-caching.mdx) when interpreting process memory or changing the cache policy.
 
 ## Observe progress and failures
 

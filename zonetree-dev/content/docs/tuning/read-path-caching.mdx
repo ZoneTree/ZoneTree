@@ -1,0 +1,89 @@
+---
+title: Read-Path Caching
+description: Match ZoneTree's disk caches, search hints, and iterator prefetch to the workload, with clear allocation scopes and a runnable range-scan example.
+---
+
+<SectionHeader class="zt-guide-intro" eyebrow="TUNING / READ LATENCY AND MEMORY" title="Tune the work each read repeats" titleTag="h1" titleId="read-path-caching-title" subtitle="Storage reads, decompression, deserialization, and searching have different costs. Identify which one dominates before increasing a cache or prefetch buffer."/>
+
+## Match the control to the workload
+
+| Observed workload | First experiment | What to measure |
+| --- | --- | --- |
+| Repeated reads of nearby disk data | Adjust decompressed-block retention. | Warm-read latency and retained memory. |
+| Repeated reads of individual records | Vary circular key/value cache capacities. | Deserialization cost, allocations, and latency under concurrency. |
+| Adjacent ascending or descending `TryGet` calls | Vary search-hint prefetch. | Useful adjacent hits versus unnecessary prefetched values. |
+| Long range scans | Vary iterator prefetch independently. | End-to-end scan time, allocations, and early-termination cost. |
+| Broad scans mixed with a small hot working set | Compare block-cache contribution off and on. | Point-read latency during and after the scan. |
+
+First check that merge backlog and key ordering are not multiplying the work. [Bloom filters](../concepts/bloom-filters.mdx) handle absent memory-segment lookups; [sparse indexes](../storage/disk-segments.mdx#budget-for-the-sparse-index) narrow disk searches. They are separate controls from the caches below.
+
+## Count capacities at their allocation scope
+
+These are `DiskSegmentOptions` settings. A multipart logical segment can contain many physical parts, each with its own applicable caches.
+
+| Setting | Default | Scope and disable behavior |
+| --- | --- | --- |
+| `KeyCacheSize` / `ValueCacheSize` | `1024` each | Circular record-cache slots per physical part; `0` disables the corresponding cache. |
+| `KeyCacheRecordLifeTimeInMillisecond` / `ValueCacheRecordLifeTimeInMillisecond` | `10_000` each | Inactive circular entries become eligible for cleanup. |
+| `MaterializedEntryCacheSize` | `4096` | Chunk slots per decompressed block when created; `0` disables this cache. Each chunk holds positions for 16 keys and 16 values. |
+| `SearchHintPrefetchSize` | `16` | Lazy buffers per physical segment and calling thread; `0` disables search hints. |
+
+Circular caches map record indexes to bounded slots; they are not a global LRU. Collisions can replace useful records, and the capacities can be arbitrary non-negative integers. The slot array is allocated on first insertion.
+
+Materialized chunks reuse deserialized entries across overlapping batched reads. They are aligned by disk record index, so iterator prefetch sizes do not need to be multiples of 16. Single-record reads are not inserted into this cache. Retained object size matters as much as slot count; see [memory ownership](../storage/memory-usage.mdx#count-disk-caches-at-the-right-scope).
+
+## Separate search hints from iterator prefetch
+
+Search hints detect adjacent successful `TryGet` positions on the same calling thread, in either direction. A mismatching next key invalidates the prefetched hint and falls back to ordinary search. Increasing the buffer is most useful for sustained adjacent accesses, not arbitrary ascending keys with gaps between stored positions.
+
+Explicit iterators use `IteratorOptions.DiskSegmentPrefetchSize` instead. Its default is `0`; values below `2` disable prefetch. Larger batches can amortize per-entry work but allocate key/value arrays per low-level iterator and may decode records beyond an early stopping point.
+
+This complete example puts records on disk and scans a bounded range with a 16-entry prefetch buffer:
+
+```csharp
+using ZoneTree;
+
+var directory = Path.Combine("data", "scan-profile", Guid.NewGuid().ToString("N"));
+using var tree = new ZoneTreeFactory<int, int>()
+    .SetDataDirectory(directory)
+    .Create();
+using var maintainer = tree.CreateMaintainer();
+
+for (var key = 0; key < 2000; ++key)
+    tree.Upsert(key, key + 1);
+
+maintainer.EvictToDisk();
+await maintainer.WaitForBackgroundThreadsAsync();
+
+using var iterator = tree.CreateIterator(new IteratorOptions
+{
+    DiskSegmentPrefetchSize = 16,
+    ContributeToTheBlockCache = false
+});
+iterator.Seek(100);
+
+var count = 0;
+while (iterator.Next() && iterator.CurrentKey < 150)
+    ++count;
+
+if (count != 50)
+    throw new InvalidOperationException("Expected keys 100 through 149.");
+
+Console.WriteLine($"Scanned {count} records.");
+```
+
+Compare this prefetch size with `0` and other candidate sizes using the same query. Keep its bounds and consumption behavior identical; a full scan and a scan that stops after a few records are different workloads.
+
+## Decide whether scans should retain shared blocks
+
+`ContributeToTheBlockCache` defaults to `false`. Cold iterator reads then avoid adding their blocks to the shared block-cache dictionary. Set it to `true` when later queries are likely to reuse the scanned data.
+
+Disabling contribution does not make a scan memory-free or cold: it can reuse existing cached blocks, retain reader pins and a device's most recent block, allocate prefetch arrays, and use other cache layers. Dispose scans promptly so they release their readers and segment leases.
+
+## Tune retention separately from capacity
+
+The maintainer's `BlockCacheLifeTime` defaults to one minute, with a 30-second cleanup interval. Longer retention can help repeated reads and also retain more decompressed bytes and attached materialized values. It is not a shared cache-size limit.
+
+Changing the cleanup interval requires restarting the job; use the [maintainer configuration sequence](../storage/memory-usage.mdx#configure-retention-and-observe-the-write-set). To compare cold and warm behavior, record both the engine-cache state and the OS-cache state. Reopening a tree or releasing its read buffers does not by itself clear the operating system's file cache.
+
+<Flex wrap="true" class="gap-3 zt-guide-next"><BtnLink href="/docs/storage/memory-usage/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Memory budget</BtnLink><BtnLink href="/docs/tuning/disk-segments/" tone="neutral" variant="outline">Disk layout controls</BtnLink></Flex>

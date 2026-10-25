@@ -11,7 +11,7 @@ description: Configure comparison, hashing, and serialization as separate contra
   <Panel class="p-0" bodyClass="p-4"><strong>Serializer</strong><p>How are records encoded and decoded across reopen?</p></Panel>
 </Grid>
 
-## Start with the supported defaults
+## Built-in type support
 
 The factory fills missing components for known types. For example, `ZoneTreeFactory<int, string>` can use the built-in integer comparer, compatible key hasher, and key/value serializers without explicit configuration.
 

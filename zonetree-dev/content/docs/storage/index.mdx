@@ -24,9 +24,5 @@ layout:
     <DocCard number="04 / CPU AND I/O" title="Compression" summary="Configure WAL and disk profiles independently and measure block size, cache costs, and workload-specific results." href="/docs/storage/compression/" icon="tabler:arrows-sort" label="Compare compression choices"/>
   </Grid>
 
-  <Panel tone="accent" variant="surface" class="p-0 zt-guide-next-panel" bodyClass="p-5">
-    <strong>Start with the resource you need to understand</strong>
-    <p>Inspecting a data directory? Begin with file layout. Choosing a deployment's backing store? Read providers and WAL modes together. Investigating RAM or read latency? Start with memory ownership, then compression.</p>
-    <Flex wrap="true" class="gap-3"><BtnLink href="/docs/concepts/lsm-tree/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Review the architecture</BtnLink><BtnLink href="/docs/durability/wal-modes/" tone="neutral" variant="outline">Choose a WAL mode</BtnLink></Flex>
-  </Panel>
+  <Flex wrap="true" class="gap-3 zt-guide-next"><BtnLink href="/docs/concepts/lsm-tree/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Review the architecture</BtnLink><BtnLink href="/docs/durability/wal-modes/" tone="neutral" variant="outline">Choose a WAL mode</BtnLink></Flex>
 </div>

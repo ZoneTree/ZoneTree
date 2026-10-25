@@ -13,7 +13,7 @@ description: Budget ZoneTree memory across mutable records, merge backlogs, spar
 
 ## Build a budget by owner
 
-Start with the allocations that stay reachable, then allow headroom for concurrent work and temporary allocations. There is no single setting here that caps the tree's total bytes.
+Account for retained records, indexes, and buffers, plus temporary allocations and overlapping work. There is no single setting here that caps the tree's total bytes.
 
 | Owner | Retained memory | What multiplies it |
 | --- | --- | --- |
@@ -68,7 +68,7 @@ Materialized-entry caching retains deserialized objects in addition to block byt
 
 For a first block-byte estimate, 100 fully populated 4 MiB cached blocks account for about 400 MiB **before** materialized objects, indexes, other caches, and temporary buffers. Use this to check the scale of a measurement, not as a total-memory prediction.
 
-Read [compression](compression.mdx) for block-size tradeoffs and [read-path caching](../tuning/read-path-caching.md) for individual cache controls.
+Read [compression](compression.mdx) for block-size tradeoffs and [read-path caching](../tuning/read-path-caching.mdx) for individual cache controls.
 
 ## Give iterators a short lifetime
 
@@ -78,7 +78,7 @@ Iterators also lease the segments they read. A long-lived scan can keep retired 
 
 ## Configure retention and observe the write set
 
-This complete example uses a smaller mutable capacity and materialized cache as an explicit starting profile. The values illustrate the controls; measure them against your workload before adopting them.
+This program reduces mutable and materialized-cache capacities, configures cleanup, and prints record counts. The values illustrate the controls; measure their effect on your workload.
 
 ```csharp
 using ZoneTree;
@@ -130,6 +130,6 @@ Use managed heap and allocation profiles alongside process counters. Working set
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Tune the owner you actually measured</strong>
-  <p>Start with backlog and cache ownership. Then adjust maintenance, block sizes, or cache capacities one variable at a time.</p>
+  <p>Measure a growing read-only backlog before changing merge policy. Profile read-driven memory growth before changing cache retention or capacity.</p>
   <Flex wrap="true" class="gap-3"><BtnLink href="/docs/tuning/read-path-caching/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Read-path caching</BtnLink><BtnLink href="/docs/usage/maintenance/" tone="neutral" variant="outline">Maintenance</BtnLink><BtnLink href="/docs/operations/diagnostics/" tone="neutral" variant="outline">Diagnostics</BtnLink></Flex>
 </Panel>

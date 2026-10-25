@@ -1,0 +1,88 @@
+---
+title: Write Amplification
+description: Measure rewrite work, understand multipart reuse eligibility, and verify unchanged disk files across a localized update without assuming a hard rewrite bound.
+---
+
+<SectionHeader class="zt-guide-intro" eyebrow="TUNING / MERGE WORK" title="Keep rewrite work close to changed ranges" titleTag="h1" titleId="write-amplification-title" subtitle="Multipart storage can carry eligible unchanged parts into a new disk segment. Write locality, batching, and part boundaries determine how much of that opportunity a workload actually uses."/>
+
+## Define what you are measuring
+
+Write amplification compares internal bytes written with the application's logical write volume. State which bytes your measurement includes: WAL, merge output, metadata, backups, or device-level writes. Compression and filesystem behavior can change the ratio, so a part count or current directory size is not a byte-amplification measurement.
+
+Record overwrite distribution as well as volume. Ten thousand updates concentrated in one range can produce different merge work from the same count spread across the whole keyspace.
+
+## Understand when a part can be reused
+
+<LsmPartReuse/>
+
+For the normal merge's reuse path, the existing part must be larger than `MinimumRecordCount`, and the merge must reach its beginning with no competing newer key inside its range. The output writer must also be at a suitable boundary: empty, or already holding at least the minimum number of records.
+
+An untouched range is therefore a candidate for reuse, not a guarantee of reuse. Small parts and unfinished output can require additional rewriting. A changed range can produce several replacement parts; randomized part targets are not a fixed byte or per-operation rewrite limit.
+
+## Observe reuse in a controlled merge
+
+This complete example uses small, valid part targets so several parts are visible with a modest dataset. It compares data-file identities before and after changing one key:
+
+```csharp
+using ZoneTree;
+
+var directory = Path.Combine("data", "part-reuse", Guid.NewGuid().ToString("N"));
+using var tree = new ZoneTreeFactory<int, int>()
+    .SetDataDirectory(directory)
+    .SetMutableSegmentMaxItemCount(20_000)
+    .ConfigureDiskSegmentOptions(options =>
+    {
+        options.MinimumRecordCount = 1000;
+        options.MaximumRecordCount = 2000;
+    })
+    .Create();
+using var maintainer = tree.CreateMaintainer();
+
+for (var key = 0; key < 12_000; ++key)
+    tree.Upsert(key, key + 1);
+
+maintainer.EvictToDisk();
+await maintainer.WaitForBackgroundThreadsAsync();
+var before = tree.Maintenance.DiskSegment.GetFiles()
+    .Where(file => file.FileName.EndsWith(".data.z"))
+    .Select(file => file.FileName)
+    .ToHashSet();
+
+tree.Upsert(6000, 99_999);
+maintainer.EvictToDisk();
+await maintainer.WaitForBackgroundThreadsAsync();
+var after = tree.Maintenance.DiskSegment.GetFiles()
+    .Where(file => file.FileName.EndsWith(".data.z"))
+    .Select(file => file.FileName)
+    .ToHashSet();
+
+if (!tree.TryGet(6000, out var updated) || updated != 99_999)
+    throw new InvalidOperationException("Expected the updated value.");
+
+Console.WriteLine($"Reused data files: {before.Intersect(after).Count()}");
+Console.WriteLine($"New data files: {after.Except(before).Count()}");
+```
+
+Application writes are coordinated in this example, and both merges finish before inspection. The file counts vary with randomized boundaries. Shared filenames demonstrate reuse; use I/O measurements for the actual bytes written. The part targets here make the mechanism observable, rather than prescribe a production profile.
+
+## Choose the lever that matches the pressure
+
+| Observation | Experiment | Tradeoff to watch |
+| --- | --- | --- |
+| Many small merges rewrite overlapping ranges | Increase write batching through mutable capacity or maintainer merge thresholds. | More retained memory and queued records. |
+| Local updates rewrite large payload ranges | Reduce multipart part targets. | More files, metadata, and part transitions. |
+| A growing current disk segment makes normal merges costly | Evaluate `DiskSegmentMaxItemCount`. | Earlier movement to bottom segments can increase layer fan-in and later compaction work. |
+| Updates touch most parts | Improve key locality where the data model permits it. | Smaller parts alone cannot make broad updates local. |
+| Read-only records continually accumulate | Measure sustained merge CPU and storage throughput. | A smaller mutable segment can increase merge frequency; it does not create more processing capacity. |
+
+The exact count controls and their validation rules are in [disk segment tuning](disk-segments.mdx). Use [key ordering](../concepts/key-ordering.mdx) when redesigning access locality.
+
+## Account for the whole lifecycle
+
+After a normal merge, output larger than `DiskSegmentMaxItemCount` moves to the bottom layer. This gives later normal merges a fresh current disk slot; it shifts work to another layer rather than eliminating future work. Bottom merges are an explicit maintenance choice.
+
+Measure request latency, normal and bottom-merge durations, bytes written, and read-layer fan-in over a representative run. Creating a live backup can add copying work, while retained readers or backups can delay deletion of old files without implying those files were rewritten again.
+
+For diagnostic detail, `LogMergerSuccess` and `LogMergerDrop` are emitted through the logger's trace path. Their skip/drop counts describe part-reuse decisions, not record counts or byte-amplification ratios. See [maintenance](../usage/maintenance.mdx) for scheduling and merge events.
+
+<Flex wrap="true" class="gap-3 zt-guide-next"><BtnLink href="/docs/tuning/disk-segments/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Size segments and parts</BtnLink><BtnLink href="/docs/tuning/large-values/" tone="neutral" variant="outline">Large payload costs</BtnLink></Flex>

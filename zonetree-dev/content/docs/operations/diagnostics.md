@@ -108,7 +108,7 @@ For disk reads, inspect:
 
 For compressed disk segments, decompressed block cache behavior is usually more important than circular key/value caches.
 
-See [read-path caching](../tuning/read-path-caching.md).
+See [read-path caching](../tuning/read-path-caching.mdx).
 
 ## Memory
 

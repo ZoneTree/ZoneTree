@@ -119,4 +119,4 @@ For rebuildable rollups, scan raw data with iterators and write the derived resu
 
 Repeated dashboard reads can benefit from the block cache when disk segments are compressed. Iterator scans do not contribute to the shared block cache by default. Enable `contributeToTheBlockCache` only when the scan represents a useful working set that will be read again.
 
-See [read path caching](../tuning/read-path-caching.md).
+See [read path caching](../tuning/read-path-caching.mdx).
