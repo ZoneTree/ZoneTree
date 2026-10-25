@@ -5,7 +5,7 @@ description: Match ZoneTree's disk caches, search hints, and iterator prefetch t
 
 <SectionHeader class="zt-guide-intro" eyebrow="TUNING / READ LATENCY AND MEMORY" title="Tune the work each read repeats" titleTag="h1" titleId="read-path-caching-title" subtitle="Storage reads, decompression, deserialization, and searching have different costs. Identify which one dominates before increasing a cache or prefetch buffer."/>
 
-## Match the control to the workload
+## Read costs and cache controls
 
 | Observed workload | First experiment | What to measure |
 | --- | --- | --- |
@@ -30,7 +30,7 @@ These are `DiskSegmentOptions` settings. A multipart logical segment can contain
 
 Circular caches map record indexes to bounded slots; they are not a global LRU. Collisions can replace useful records, and the capacities can be arbitrary non-negative integers. The slot array is allocated on first insertion.
 
-Materialized chunks reuse deserialized entries across overlapping batched reads. They are aligned by disk record index, so iterator prefetch sizes do not need to be multiples of 16. Single-record reads are not inserted into this cache. Retained object size matters as much as slot count; see [memory ownership](../storage/memory-usage.mdx#count-disk-caches-at-the-right-scope).
+Materialized chunks reuse deserialized entries across overlapping batched reads. They are aligned by disk record index, so iterator prefetch sizes do not need to be multiples of 16. Single-record reads are not inserted into this cache. Retained object size matters as much as slot count; see [memory ownership](../storage/memory-usage.mdx#disk-cache-allocation-scopes).
 
 ## Separate search hints from iterator prefetch
 

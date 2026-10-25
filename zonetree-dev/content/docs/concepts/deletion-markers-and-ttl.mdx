@@ -3,7 +3,7 @@ title: Deletion Markers And TTL
 description: Define tombstones and expiration predicates, preserve markers through serialization, and use whole-part deletion only when every record is provably deleted.
 ---
 
-<SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / RECORD VISIBILITY" title="Hide the old value with a newer fact" titleTag="h1" titleId="deletion-title" subtitle="A delete writes a value recognized as a tombstone. Reads hide that value and the older versions behind it; compaction reclaims obsolete storage when doing so is safe."/>
+<SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / RECORD VISIBILITY" title="Deletion markers and record visibility" titleTag="h1" titleId="deletion-title" subtitle="A delete writes a value recognized as a tombstone. Reads hide that value and the older versions behind it; compaction reclaims obsolete storage when doing so is safe."/>
 
 ## Separate visibility, durability, and reclamation
 
@@ -57,7 +57,7 @@ It prints `True`, `0`, then `False`. Configure both delegates together:
 
 Your serializer must round-trip the marker as well as live values. Changing deletion rules on an existing tree can change what becomes visible without changing any stored bytes; preserve the rules across reopen or migrate deliberately.
 
-## Use the delete APIs deliberately
+## Delete APIs and tombstone writes
 
 | API | Behavior |
 | --- | --- |
@@ -165,7 +165,7 @@ Console.WriteLine(tree.ContainsKey(42));
 With deletion disabled, every stored value is treated as live, including the default. Do not use delete APIs expecting a key to become absent: the configured marker operation no longer produces a deleted value.
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
-  <strong>Follow the write, not just the visible result</strong>
+  <strong>Deletion writes and maintenance</strong>
   <p>A tombstone participates in write sequencing, recovery, and later merge work.</p>
   <Flex wrap="true" class="gap-3"><BtnLink href="/docs/concepts/op-index/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Operation indexes</BtnLink><BtnLink href="/docs/usage/maintenance/" tone="neutral" variant="outline">Maintenance</BtnLink></Flex>
 </Panel>

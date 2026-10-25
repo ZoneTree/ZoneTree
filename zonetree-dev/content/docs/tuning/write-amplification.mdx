@@ -5,7 +5,7 @@ description: Measure rewrite work, understand multipart reuse eligibility, and v
 
 <SectionHeader class="zt-guide-intro" eyebrow="TUNING / MERGE WORK" title="Keep rewrite work close to changed ranges" titleTag="h1" titleId="write-amplification-title" subtitle="Multipart storage can carry eligible unchanged parts into a new disk segment. Write locality, batching, and part boundaries determine how much of that opportunity a workload actually uses."/>
 
-## Define what you are measuring
+## Write amplification metrics
 
 Write amplification compares internal bytes written with the application's logical write volume. State which bytes your measurement includes: WAL, merge output, metadata, backups, or device-level writes. Compression and filesystem behavior can change the ratio, so a part count or current directory size is not a byte-amplification measurement.
 

@@ -114,7 +114,7 @@ Small unmanaged structs and readonly records containing immutable fields can sim
 For complex values, either make the object graph immutable, deep-copy the mutable parts you change, or transfer exclusive ownership and enforce it. A shallow clone alone is not enough when nested mutable state is still shared.
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
-  <strong>Make every accepted update explicit</strong>
+  <strong>Atomic updates and value serialization</strong>
   <p>Pair safe ownership with the write API that provides the coordination your data rule needs.</p>
   <Flex wrap="true" class="gap-3"><BtnLink href="/docs/usage/atomic-operations/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Atomic updates</BtnLink><BtnLink href="/docs/concepts/serializers-and-comparers/" tone="neutral" variant="outline">Value serialization</BtnLink></Flex>
 </Panel>

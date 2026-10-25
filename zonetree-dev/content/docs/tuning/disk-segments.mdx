@@ -31,7 +31,7 @@ New multipart targets are selected with `Random.Next(minimum, maximum)`, whose u
 
 Changing targets does not proactively repartition existing files. Subsequent merges can reuse old parts, including parts larger than a newly lowered maximum. [Write amplification](write-amplification.mdx) explains the reuse conditions and shows how to observe them.
 
-## Use valid values
+## Option validation ranges
 
 Under standard option validation:
 
@@ -45,7 +45,7 @@ Under standard option validation:
 
 Use ordinary validated settings for tuning experiments. Very small part targets can create significant per-file and per-part overhead even when they are valid.
 
-## Configure the boundaries explicitly
+## Segment and part configuration example
 
 This complete example illustrates where the disk-layer and part controls belong. Use the counts as candidate configuration values, and change one boundary at a time in performance comparisons:
 

@@ -101,7 +101,7 @@ Actual behavior depends on per-word occupancy, probe correlations, hash quality,
 
 Keys are added to the filter before their B+Tree writes are published. Updates and deletion markers also add their hashes. Bits are not cleared for a delete; clearing shared bits could incorrectly rule out another key.
 
-## Know where the filter exists
+## Filter scope and lifetime
 
 | Location or operation | Filter behavior |
 | --- | --- |
@@ -125,7 +125,7 @@ A read-only backlog can retain several filters at once. Reopening rebuilds the a
 Filters can reduce negative-read work and still add cost to writes. Compare single-thread and parallel workloads, and keep the same key distribution when evaluating a setting change.
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
-  <strong>Keep the contracts and the memory budget together</strong>
+  <strong>Hash compatibility and filter memory</strong>
   <p>The hasher must match equality; filter density must fit the number of memory segments your workload retains.</p>
   <Flex wrap="true" class="gap-3"><BtnLink href="/docs/concepts/serializers-and-comparers/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Key components</BtnLink><BtnLink href="/docs/storage/memory-usage/" tone="neutral" variant="outline">Memory usage</BtnLink></Flex>
 </Panel>

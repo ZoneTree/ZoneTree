@@ -68,7 +68,7 @@ incoming A / 10 -> stale for that key
 
 A per-key high-water mark can reject stale updates from the same producer sequence. It does not establish whether a lower-index update for a different key has arrived, or whether all operations up to a checkpoint are durable.
 
-## Know what Replicator applies
+## Replicator update semantics
 
 `ZoneTree.Core.Replicator<TKey, TValue>` maintains a companion tree of latest producer operation indexes by key. Its `OnUpsert` handler compares the incoming index with the one remembered for that key:
 
@@ -87,7 +87,7 @@ The freshness tree and replica are separate stores. The helper does not make the
 </AlertBox>
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
-  <strong>Build the protocol around the token</strong>
+  <strong>Operation indexes in replication</strong>
   <p>Use the storage sequence as one building block alongside capture, durability, acknowledgments, and recovery.</p>
   <Flex wrap="true" class="gap-3"><BtnLink href="/docs/building-systems/partitioning-and-replication/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Partitioning and replication</BtnLink><BtnLink href="/docs/durability/recovery/" tone="neutral" variant="outline">Recovery</BtnLink></Flex>
 </Panel>

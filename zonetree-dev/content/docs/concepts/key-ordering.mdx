@@ -122,7 +122,7 @@ The loader checks the comparer type recorded in metadata when opening a tree. A 
 When equality or ordering changes, create a new tree with the new components and rebuild the records into it. Resolve any keys that become equal under the new comparer. Do not bypass a metadata mismatch to reinterpret old segments under a different order.
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
-  <strong>Make the key contract explicit</strong>
+  <strong>Key serialization, hashing, and index design</strong>
   <p>Pair your comparer with compatible hashing and a stable persisted representation.</p>
   <Flex wrap="true" class="gap-3"><BtnLink href="/docs/concepts/serializers-and-comparers/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Serializers and comparers</BtnLink><BtnLink href="/docs/building-systems/indexes/" tone="neutral" variant="outline">Index design</BtnLink></Flex>
 </Panel>

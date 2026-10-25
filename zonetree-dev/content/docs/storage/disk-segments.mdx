@@ -120,7 +120,7 @@ Merges publish replacement segments rather than rewriting the record data of an 
 Dispose iterators and backup handles promptly. Extra files after a merge can be legitimate while those readers are alive; deleting files based on their age or filename can break an active tree. Use [diagnostics](../operations/diagnostics.md) to investigate failed cleanup.
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
-  <strong>Connect file layout to resource use</strong>
+  <strong>Compression, memory use, and backups</strong>
   <p>Compression controls the block payloads. Memory usage depends on the indexes and read caches built around them.</p>
   <Flex wrap="true" class="gap-3"><BtnLink href="/docs/storage/compression/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Compression</BtnLink><BtnLink href="/docs/storage/memory-usage/" tone="neutral" variant="outline">Memory usage</BtnLink><BtnLink href="/docs/durability/backups/" tone="neutral" variant="outline">Live backups</BtnLink></Flex>
 </Panel>

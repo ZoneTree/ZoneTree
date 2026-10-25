@@ -3,7 +3,7 @@ title: Compression
 description: Configure WAL and disk compression independently, understand block cache costs and persisted settings, and compare profiles with representative workloads.
 ---
 
-<SectionHeader class="zt-guide-intro" eyebrow="STORAGE / COMPRESSION" title="Trade CPU, I/O, and cache memory deliberately" titleTag="h1" titleId="compression-title" subtitle="WAL compression handles recent log records. Disk compression handles sorted random-access blocks. Configure and measure these two paths independently."/>
+<SectionHeader class="zt-guide-intro" eyebrow="STORAGE / COMPRESSION" title="Compression costs: CPU, I/O, and cache memory" titleTag="h1" titleId="compression-title" subtitle="WAL compression handles recent log records. Disk compression handles sorted random-access blocks. Configure and measure these two paths independently."/>
 
 <Grid columns="1" columnsMd="2" class="gap-3 zt-guide-outcomes">
   <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>WAL / recent writes</strong><p>The default is AsyncCompressed with Zstd level 0 and 256 KiB blocks. The WAL mode also determines logging behavior.</p></Panel>

@@ -128,7 +128,7 @@ If `TValue` is a reference type, copying the local variable does not clone the o
 
 Prefer immutable values. For a record value, construct a replacement with a `with` expression and assign it to the `ref` parameter. Make the decision before creating the replacement, and write through the API so operation indexing and WAL behavior remain explicit. See [value mutability](../concepts/value-mutability.mdx).
 
-## Know when to use a transaction
+## Multi-key invariants and transactions
 
 A one-key atomic update does not commit related changes to other keys. Use a [transaction](transactions.mdx) for an invariant such as transferring value between two keys or updating a record and its index entries in the same transactional tree.
 

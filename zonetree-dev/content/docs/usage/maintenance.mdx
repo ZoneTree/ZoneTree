@@ -46,7 +46,7 @@ For normal service operation, keep the tree and maintainer alive and let the eve
   </p>
 </AlertBox>
 
-## Know which layer to use
+## Maintainer and maintenance APIs
 
 | Surface | Responsibility |
 | --- | --- |
@@ -178,7 +178,7 @@ Useful counters on `tree.Maintenance` include:
 
 Physical records can include multiple versions and deletion markers. Use `Count()` or `CountFullScan()` for live-record counts, with the cost and visibility requirements of your workload in mind.
 
-## Own shutdown explicitly
+## Maintainer shutdown and disposal
 
 Stop accepting application work and finish scans before closing storage. Short-lived iterators let old segments and files be reclaimed; long-lived iterators can pin them after a merge.
 
@@ -287,7 +287,7 @@ A `null` return is not proof that maintenance is finished. Observe the existing 
 </ExpandablePanel>
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
-  <strong>Turn maintenance observations into an operating policy</strong>
+  <strong>Diagnostics and production checklist</strong>
   <p>
     Use diagnostics to identify the bottleneck, then change thresholds or
     storage settings against a measured workload.

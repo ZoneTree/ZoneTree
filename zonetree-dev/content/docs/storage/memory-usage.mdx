@@ -49,7 +49,7 @@ bit storage    = 1,048,576 bytes = 1 MiB, plus object/array overhead
 
 Newly frozen mutable segments retain their filters alongside their records. Include those allocations for every simultaneously retained generation. See [Bloom filters](../concepts/bloom-filters.mdx) for filtering behavior and recovery differences.
 
-## Count disk caches at the right scope
+## Disk-cache allocation scopes
 
 These defaults are capacities or retention controls, not a shared byte allowance:
 
@@ -129,7 +129,7 @@ Run a representative write/read mix, warm its caches, and observe both sustained
 Use managed heap and allocation profiles alongside process counters. Working set, peak working set, and `GC.GetTotalMemory()` answer different questions; none is a precise ZoneTree ownership report by itself.
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
-  <strong>Tune the owner you actually measured</strong>
+  <strong>Cache tuning and merge diagnostics</strong>
   <p>Measure a growing read-only backlog before changing merge policy. Profile read-driven memory growth before changing cache retention or capacity.</p>
   <Flex wrap="true" class="gap-3"><BtnLink href="/docs/tuning/read-path-caching/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Read-path caching</BtnLink><BtnLink href="/docs/usage/maintenance/" tone="neutral" variant="outline">Maintenance</BtnLink><BtnLink href="/docs/operations/diagnostics/" tone="neutral" variant="outline">Diagnostics</BtnLink></Flex>
 </Panel>

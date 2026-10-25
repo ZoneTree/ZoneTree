@@ -26,7 +26,7 @@ description: Choose local or RAM-backed files, reopen an in-memory tree correctl
     </p></Panel>
 </Grid>
 
-## Know what the provider controls
+## Provider responsibilities and backing stores
 
 `IFileStreamProvider` supplies file operations and creates `IFileStream` objects. With the default storage components, it backs WALs, metadata, disk segments, and temporary replacement files.
 
@@ -58,7 +58,7 @@ if (tree.TryGet(42, out var name))
 
 The default provider delegates to local file and stream APIs. Whether an acknowledged write survives a particular failure also depends on the [WAL mode](../durability/wal-modes.mdx), flush behavior, and storage device. A local path alone does not define the recovery guarantee.
 
-## Use RAM-backed files deliberately
+## RAM-backed files and provider lifetime
 
 `InMemoryFileStreamProvider` represents the same stream-based storage flow in RAM. A merge still produces serialized segment files; those bytes consume process memory instead of local disk space. The provider is not an instruction to keep all records in the mutable segment.
 
