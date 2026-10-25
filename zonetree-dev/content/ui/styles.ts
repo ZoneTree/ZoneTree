@@ -4,9 +4,13 @@ import { registerHeroMotionStyles } from './hero-motion'
 import { registerLsmArchitectureStyles } from './lsm-styles'
 import { registerBenchmarkReportStyles } from './benchmark-styles'
 import { registerImageGalleryStyles } from './image-gallery-styles'
+import { registerErrorPageStyles } from './error-styles'
+import { registerDocsOverviewStyles } from './docs-overview-styles'
 
 export function registerDocsStyles() {
+  registerErrorPageStyles()
   registerImageGalleryStyles()
+  registerDocsOverviewStyles()
   registerBenchmarkReportStyles()
   themes.forEach((theme, palette) => {
     const context = createDocsStyleContext(theme, palette)

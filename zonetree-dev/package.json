@@ -9,18 +9,18 @@
     "build": "purestack build --content ./content --clean",
     "serve": "purestack serve --content ./content --port 4900 --clean",
     "publish": "purestack publish --content ./content",
-    "deploy": "pgdeploy deploy --host https://zonetree.dev --package ./dist/web --allow-path 'pagefind/*,.ts-ssg/manifest.json'"
+    "deploy": "pgdeploy deploy --host https://zonetree.dev --package ./dist/web --allow-path 'pagefind/*,.ts-ssg/manifest.json,_assets/benchmarks/*.json'"
   },
   "dependencies": {
-    "@purestack/ts-components": "1.1.25",
-    "@purestack/ts-style": "^1.1.25",
-    "@purestack/ts-svg-icons": "1.1.25",
-    "@purestack/ts-util": "^1.1.25",
-    "purestack": "^1.1.25",
+    "@purestack/ts-components": "1.1.27",
+    "@purestack/ts-style": "^1.1.27",
+    "@purestack/ts-svg-icons": "1.1.27",
+    "@purestack/ts-util": "^1.1.27",
+    "purestack": "^1.1.27",
     "regor": "^1.7.7"
   },
   "devDependencies": {
-    "@purestack/ts-minidom": "1.1.25",
+    "@purestack/ts-minidom": "^1.1.27",
     "@types/node": "^26",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",

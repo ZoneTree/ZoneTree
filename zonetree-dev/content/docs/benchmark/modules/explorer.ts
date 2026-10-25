@@ -3,7 +3,7 @@ import {
   defineFlexComponents, defineFormSelectField, defineIconComponents, definePanelComponents, defineBadgeComponents,
 } from '@purestack/ts-components'
 import { iconoir_nav_arrow_down, lucide_chevron_down } from '@purestack/ts-svg-icons'
-import { computed, createApp, defineComponent, html, unref } from 'regor'
+import { computed, createApp, defineComponent, html, observe, onMounted, unref } from 'regor'
 import { defineBenchmarkBarChart } from './bar-chart'
 import { defineBenchmarkChart } from './chart'
 import { defineBenchmarkCharts } from './charts'
@@ -25,6 +25,14 @@ export class BenchmarkExplorer extends BenchmarkState {
   readonly integer = integer
   readonly platformLabel = platformLabel
   readonly profileLabel = profileLabel
+
+  constructor(catalogUrl: string) {
+    super(catalogUrl)
+    const refreshToc = () => queueMicrotask(() => window.tsSsgPageToc?.refresh())
+    onMounted(refreshToc)
+    // Report headings mount asynchronously, and are replaced when reports change.
+    observe(this.loading, refreshToc)
+  }
 }
 
 export function defineBenchmarkExplorer() {

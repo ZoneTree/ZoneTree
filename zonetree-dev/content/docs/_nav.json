@@ -1,7 +1,7 @@
 {
   "pageLinks": true,
   "icons": {
-    "index.md": "iconoir:home",
+    "index.mdx": "iconoir:home",
     "getting-started.md": "iconoir:rocket",
     "usage/": "iconoir:database-script",
     "concepts/": "iconoir:book",
@@ -14,7 +14,7 @@
     "reference/": "iconoir:code"
   },
   "sequence": [
-    "index.md",
+    "index.mdx",
     "getting-started.md",
     "usage/",
     "usage/opening-a-tree.md",
