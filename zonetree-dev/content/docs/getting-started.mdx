@@ -1,0 +1,165 @@
+---
+title: Getting Started
+description: Create a C# console app that opens a persistent ZoneTree, writes and reads records, scans an ordered range, and reopens the same data directory.
+---
+
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="GETTING STARTED"
+  title="Your first persistent tree"
+  titleTag="h1"
+  titleId="getting-started-title"
+  subtitle="Build a small C# application that writes records, reads them back, and scans keys in order. Then reopen the same data directory."/>
+
+<Grid columns="1" columnsMd="3" class="gap-3 zt-guide-outcomes">
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"
+    ><strong>One package</strong>
+    <p>ZoneTree runs inside your .NET process.</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"
+    ><strong>One directory</strong>
+    <p>Open existing data or create a new tree.</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"
+    ><strong>Ordered keys</strong>
+    <p>Read a single record or scan a range.</p></Panel>
+</Grid>
+
+## 1. Create a console app
+
+You need a .NET SDK installed. From a terminal, create a project and add the package:
+
+```sh
+dotnet new console -n ZoneTreeQuickstart
+cd ZoneTreeQuickstart
+dotnet add package ZoneTree
+```
+
+The example uses `int` keys and `string` values. ZoneTree supplies the comparer and serializers for these types.
+
+## 2. Replace Program.cs
+
+Paste this complete program into `Program.cs`:
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/getting-started")
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert(10, "Ada");
+tree.Upsert(20, "Grace");
+tree.Upsert(30, "Linus");
+
+if (tree.TryGet(20, out var name))
+    Console.WriteLine($"Read 20: {name}");
+
+using var iterator = tree.CreateIterator();
+iterator.Seek(10);
+
+while (iterator.Next())
+{
+    if (iterator.CurrentKey >= 30)
+        break;
+
+    Console.WriteLine($"{iterator.CurrentKey}: {iterator.CurrentValue}");
+}
+
+tree.TryDelete(30, out _);
+Console.WriteLine($"Contains 30: {tree.ContainsKey(30)}");
+```
+
+<AlertBox
+  class="zt-guide-callout"
+  tone="accent"
+  title="Keep the tree and its maintainer together"
+  icon="tabler:settings"
+>
+  <p>
+    The maintainer schedules background merges and cleans inactive read caches.
+    Keep it alive while the tree is in use. The <code>using</code> declarations
+    dispose the iterator, maintainer, and tree in reverse order.
+  </p>
+</AlertBox>
+
+## 3. Run and inspect the result
+
+```sh
+dotnet run
+```
+
+With a fresh data directory, the output is:
+
+<div class="zt-guide-output">
+```text
+Read 20: Grace
+10: Ada
+20: Grace
+Contains 30: False
+```
+</div>
+
+Here is what the program does:
+
+| Operation | What to expect |
+| --- | --- |
+| `OpenOrCreate()` | Creates the tree on the first run and opens it on later runs. |
+| `Upsert(key, value)` | Inserts a key or replaces its current value. Repeating the sample updates the same keys. |
+| `TryGet(20, out name)` | Returns `true` and the latest live value for key `20`. |
+| `Seek(10)` followed by `Next()` | Starts at the first key greater than or equal to `10`. The upper-bound check makes the scan `[10, 30)`. |
+| `TryDelete(30, out _)` | Writes a deletion marker when the key exists. Later ordinary reads hide the deleted record. |
+
+The path is relative to the application's working directory. Keep that working directory unchanged when running the example again.
+
+## 4. Open the persisted data
+
+To read without writing the sample records again, replace `Program.cs` with:
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/getting-started")
+    .Open();
+using var maintainer = tree.CreateMaintainer();
+
+if (tree.TryGet(20, out var name))
+    Console.WriteLine($"Persisted 20: {name}");
+```
+
+Run `dotnet run` from the same project directory. It prints `Persisted 20: Grace`. `Open()` requires existing data, so a path mistake fails instead of silently creating another tree.
+
+<AlertBox
+  class="zt-guide-callout"
+  tone="info"
+  title="Choose durability before relying on crash recovery"
+  icon="tabler:shield-check"
+>
+  <p>
+    This example uses the default WAL configuration. A normal close-and-reopen
+    demonstrates persistence; it does not establish what survives a process or
+    machine failure. Read <a href="/docs/durability/wal-modes/">WAL modes</a> to
+    choose the durability boundary your application needs.
+  </p>
+</AlertBox>
+
+## Choose what to learn next
+
+Continue with one of these guides, or [browse the Usage overview](usage/index.mdx) to compare reads, writes, atomic operations, transactions, scans, and maintenance.
+
+<Grid columns="1" columnsMd="2" class="gap-4 zt-guide-next">
+  <DocCard
+    number="NEXT / APPLICATION LIFETIME"
+    title="Open and own a tree"
+    summary="Choose an opening mode, configure the factory, and keep storage resources alive for the right scope."
+    href="/docs/usage/opening-a-tree/"
+    icon="tabler:database"
+    label="Opening a tree"/>
+  <DocCard
+    number="NEXT / DATA OPERATIONS"
+    title="Choose the right API"
+    summary="Match simple writes, conditional changes, single-key updates, and transactions to your data rules."
+    href="/docs/usage/reads-and-writes/"
+    icon="tabler:code"
+    label="Reads and writes"/>
+</Grid>

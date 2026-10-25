@@ -1,0 +1,188 @@
+---
+title: Transactions
+description: Open a transactional ZoneTree, commit related writes, handle aborts and pending dependencies, and use fluent retries or explicit transaction control.
+---
+
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="USAGE / MULTI-KEY COORDINATION"
+  title="Commit related keys together"
+  titleTag="h1"
+  titleId="transactions-title"
+  subtitle="Use a transactional tree when a correctness rule spans several keys. Keep the unit of work short, check the commit result, and make retries safe."/>
+
+<AlertBox
+  class="zt-guide-callout"
+  tone="accent"
+  title="The transaction belongs to one tree"
+  icon="tabler:database"
+>
+  <p>
+    Transactions coordinate keys inside one <code>ITransactionalZoneTree</code>.
+    They do not atomically commit changes to separate ZoneTree instances,
+    another database, or an external service. Related index entries must be in
+    the same transactional tree to share its commit boundary.
+  </p>
+</AlertBox>
+
+## Start with a fluent transaction
+
+This complete console example writes two related keys. It checks the returned result and handles a transaction-abort exception from the pending-wait path:
+
+```csharp
+using ZoneTree;
+using ZoneTree.Exceptions;
+
+using var tree = new ZoneTreeFactory<string, string>()
+    .SetDataDirectory("data/transactions-example")
+    .OpenOrCreateTransactional();
+using var maintainer = tree.CreateMaintainer();
+
+try
+{
+    using var transaction = tree.BeginFluentTransaction();
+    var result = await transaction
+        .Do(id => tree.UpsertNoThrow(id, "order:42:state", "confirmed"))
+        .Do(id => tree.UpsertNoThrow(id, "order:42:receipt", "receipt-42"))
+        .CommitAsync();
+
+    Console.WriteLine($"Committed: {result.Succeeded}");
+    if (result.Succeeded && tree.ReadCommittedTryGet("order:42:state", out var state))
+        Console.WriteLine(state);
+}
+catch (TransactionAbortedException)
+{
+    Console.WriteLine("Transaction aborted; the unit of work did not commit.");
+}
+```
+
+`OpenOrCreateTransactional()` returns the transactional API. It differs from the ordinary tree: reads and writes in a transaction take a transaction ID, and success depends on the commit outcome.
+
+## Choose the smallest coordination scope
+
+| Data rule | API |
+| --- | --- |
+| Replace a value without reading its previous state. | [Ordinary writes](reads-and-writes.mdx). |
+| Compute one key's new value from its current value. | [Atomic operations](atomic-operations.mdx). |
+| Read or change several related keys as one transaction. | Transactional tree. |
+
+Concurrent application threads alone do not require transactions. Use them for a multi-key invariant, and make the reads that decide the writes part of that transaction.
+
+## Understand the transaction lifecycle
+
+1. `BeginTransaction()` allocates a transaction ID.
+2. Reads and writes use that ID.
+3. `PrepareAndCommit` attempts to prepare and commit the work.
+4. A pending transaction must be resolved, or rolled back. An aborted unit of work must be retried from its reads if the application still wants to perform it.
+
+The engine uses optimistic coordination. Conflicts and dependencies can prevent an immediate commit, so checking only the individual write results is insufficient.
+
+| Commit state | What it means | What the caller does |
+| --- | --- | --- |
+| `Committed` | The transaction committed. | Continue with work that depends on success. |
+| `ReadyToCommit` | An explicit `Prepare` succeeded. | Call `Commit` to finish, or roll back. |
+| `PendingTransactions` | There are unresolved transaction dependencies. | Apply a bounded wait/retry policy or roll back. Inspect `PendingTransactionList` when diagnosing dependencies. |
+| `Aborted` | The transaction cannot commit. | Retry the whole unit of work if appropriate. |
+
+`PrepareAndCommit` and other throwing APIs can raise `TransactionAbortedException`. Their `NoThrow` counterparts report abort status in a result. `NoThrow` describes transaction-abort reporting; it does not suppress every possible exception.
+
+## Keep retryable work safe to repeat
+
+The fluent transaction reruns its registered jobs when retrying an attempt that aborts before entering the pending wait. Read current values again inside those jobs; do not reuse a decision from a failed attempt.
+
+If a dependency aborts during the pending wait, `CommitAsync()` can throw `TransactionAbortedException` rather than return a failed result. Handle both outcomes. Using `NoThrow` operations inside the jobs does not make `CommitAsync()` exception-free.
+
+Keep network requests, notifications, and other external side effects outside the retryable jobs. Perform success-dependent follow-up only after the commit succeeds, with the delivery guarantees your application requires.
+
+Attempt and pending-wait limits can be configured:
+
+```csharp
+using var transaction = tree.BeginFluentTransaction()
+    .SetRetryCountForAbortedTransactions(5)
+    .SetRetryCountForPendingTransactions(20);
+
+var result = await transaction
+    .Do(id => tree.UpsertNoThrow(id, "order:43:state", "confirmed"))
+    .CommitAsync();
+```
+
+In the current implementation, the values above allow at most five complete transaction attempts and twenty pending-prepare checks. The aborted setting counts total attempts, despite the setter's retry-oriented name.
+
+Fluent transactions are caller-owned. Dispose them so unfinished work can be rolled back. A failed result or an abort exception is still a failed transaction; do not report success because retries were attempted.
+
+## Use explicit control when you need it
+
+Use explicit transaction IDs when your application owns pending-dependency handling and rollback. This example chooses to roll back any attempt that has not committed, including a pending one:
+
+```csharp
+using ZoneTree.Transactional;
+
+var transactionId = tree.BeginTransaction();
+try
+{
+    var write = tree.UpsertNoThrow(transactionId, "order:44:state", "confirmed");
+    if (!write.IsAborted)
+    {
+        var commit = tree.PrepareAndCommitNoThrow(transactionId);
+        Console.WriteLine(commit.Result);
+    }
+}
+finally
+{
+    if (tree.GetTransactionState(transactionId) == TransactionState.Uncommitted)
+        tree.Rollback(transactionId);
+}
+```
+
+For a wait-and-retry policy, keep ownership of the transaction until it commits or is rolled back. Do not abandon a `PendingTransactions` result; its writes and dependency state still need resolution.
+
+## Read committed data
+
+Use the read-committed helpers when you need committed values without beginning a new transaction:
+
+```csharp
+if (tree.ReadCommittedTryGet("order:42:state", out var state))
+    Console.WriteLine(state);
+```
+
+Passing `currentTransactionId` lets that transaction see its own uncommitted writes while reading committed data from others. Separate read-committed calls do not establish a single snapshot across several keys. Use transactional reads when those values drive a multi-key decision.
+
+## Auto-commit and maintenance
+
+`UpsertAutoCommit` and `DeleteAutoCommit` start and commit a transaction around one write. They are convenient for applications whose writes must use the transactional API, but they add transaction work compared with an ordinary tree's write methods.
+
+Transactional maintenance exposes:
+
+| Surface | Purpose |
+| --- | --- |
+| `tree.Maintenance.ZoneTree` | The underlying storage tree. Do not bypass transaction coordination for transactional records. |
+| `tree.Maintenance.TransactionLog` | Transaction log state and services. |
+| `tree.Maintenance.UncommittedTransactionIds` | Unfinished transactions to investigate. |
+
+For abandoned work, an application-controlled cleanup policy can use:
+
+```csharp
+tree.Maintenance.RollbackUncommittedTransactionIdsBefore(
+    DateTime.UtcNow.AddMinutes(-10));
+```
+
+Choose a cutoff appropriate for your application; age alone does not prove that a transaction has been abandoned. WAL settings still determine storage durability. See [WAL modes](../durability/wal-modes.md) before choosing failure guarantees.
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Keep transaction and storage lifetimes aligned</strong>
+  <p>
+    Finish or roll back application work before closing the tree, and keep a
+    maintainer available while the service is running.
+  </p>
+  <Flex wrap="true" class="gap-3"
+    ><BtnLink
+      href="/docs/usage/maintenance/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Maintenance</BtnLink><BtnLink
+      href="/docs/operations/production-checklist/"
+      tone="neutral"
+      variant="outline"
+      >Production checklist</BtnLink></Flex>
+</Panel>

@@ -38,6 +38,9 @@ Restore those from your private copy before building in a fresh checkout.
 - `content/ui/skin.ts` defines the shared light and dark emerald palettes.
 - `content/ui/styles.ts` generates responsive landing and documentation styles
   through PureStack's typed style builder.
+- `content/docs/getting-started.mdx` and `content/docs/usage/` provide runnable
+  introductions and task-focused API guides. `content/ui/guide-styles.ts` shares
+  their typography, callouts, examples, and onward navigation.
 - `content/ui/components/hero.ts` contains the SVG storage lifecycle: parallel writes, mutable
   segment rollover, read-only segments, compaction, and multipart disk storage.
   Live query requests and results run alongside the storage transitions.

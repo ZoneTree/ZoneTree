@@ -86,4 +86,4 @@ Changing field order, comparison logic, culture rules, or binary encoding change
 
 ZoneTree supports forward and reverse iterators. Reverse iteration is useful for latest-first time-series queries, descending leaderboards, and tail scans over ordered data.
 
-See [iteration and range scans](../usage/iteration-and-range-scans.md).
+See [iteration and range scans](../usage/iteration-and-range-scans.mdx).

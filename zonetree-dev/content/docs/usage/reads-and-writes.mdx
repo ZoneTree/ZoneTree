@@ -1,0 +1,144 @@
+---
+title: Reads And Writes
+description: Read, upsert, add, and delete ZoneTree records; interpret operation indexes; and choose atomic operations or transactions when writes need coordination.
+---
+
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="USAGE / DATA OPERATIONS"
+  title="Read and write with the right guarantees"
+  titleTag="h1"
+  titleId="reads-writes-title"
+  subtitle="Use ordinary operations for independent reads and writes. Choose atomic methods when a write depends on the current value, and transactions when several keys must change together."/>
+
+## A complete read and write example
+
+This program uses an integer key and a string value. Run it in a console project with the `ZoneTree` package installed:
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/read-write-example")
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+var writtenAt = tree.Upsert(42, "Ada");
+if (tree.TryGet(42, out var name))
+    Console.WriteLine($"42: {name}");
+
+if (tree.TryAdd(7, "Grace", out var addedAt))
+    Console.WriteLine($"Added key 7 at operation {addedAt}");
+
+if (tree.TryDelete(7, out var deletedAt))
+    Console.WriteLine($"Deleted key 7 at operation {deletedAt}");
+```
+
+For setup and resource lifetime, see [opening a tree](opening-a-tree.mdx).
+
+## Choose an operation
+
+| Your data rule | API | Important detail |
+| --- | --- | --- |
+| Read the latest live value. | `TryGet` | Returns `false` when missing or considered deleted. |
+| Insert or replace without consulting the old value. | `Upsert` | The ordinary write path for independent updates. |
+| Check for absence, then add. | `TryAdd` | The check and write are not serialized with competing writers. |
+| Check for existence, then delete. | `TryDelete` | Also uses a separate existence check and write. |
+| Write a deletion marker without checking. | `ForceDelete` | Avoids the existence read, even if the key was already absent. |
+| Enforce a conditional change against other atomic operations. | `TryAtomicAdd`, `TryAtomicUpdate`, or an updater method | Every competing write for that invariant must use the atomic path. |
+| Coordinate changes to several keys in one tree. | Transactional API | Requires commit and conflict handling. |
+
+## Insert or replace with Upsert
+
+```csharp
+var opIndex = tree.Upsert(42, "Updated name");
+```
+
+The latest write becomes the value returned by subsequent ordinary reads. If the key already exists in an older LSM layer, the new record shadows it until maintenance merges the layers.
+
+`Upsert` returns the assigned operation index. Use that value when following the producer's write sequence; it is not a transaction ID or confirmation that the storage device has flushed the write. See [operation indexes](../concepts/op-index.md) and [WAL modes](../durability/wal-modes.md).
+
+## Read with TryGet
+
+```csharp
+if (tree.TryGet(42, out var value))
+    Console.WriteLine(value);
+else
+    Console.WriteLine("Key not found");
+```
+
+The read searches the newest layers first and applies the configured deletion logic. Check the boolean before using the output value. A separate `ContainsKey` call is unnecessary when you also need the value, and another writer can change the key between two calls.
+
+<AlertBox
+  class="zt-guide-callout"
+  tone="info"
+  title="Treat returned reference values as read-only"
+  icon="tabler:code"
+>
+  <p>
+    A mutable object can be shared with an in-memory segment. Changing its
+    properties is not a database update and does not produce a WAL record or
+    operation index. Construct a replacement value and write it through the
+    appropriate API. See
+    <a href="/docs/concepts/value-mutability/">value mutability</a>.
+  </p>
+</AlertBox>
+
+## Add only when absent
+
+For a workflow without competing writers to the same key:
+
+```csharp
+if (!tree.TryAdd(99, "New record", out var opIndex))
+    Console.WriteLine("The key already existed at the existence check.");
+```
+
+If the key exists at that check, `TryAdd` returns `false` and sets the operation index to `0`. It does not protect the check-and-write sequence from another writer.
+
+When concurrent inserts must agree on a single winner, use `TryAtomicAdd` and keep competing writes on the atomic path:
+
+```csharp
+if (tree.TryAtomicAdd(100, "Reserved", out var opIndex))
+    Console.WriteLine("Reservation added.");
+```
+
+Ordinary `Upsert` does not participate in the atomic-method lock. See [atomic operations](atomic-operations.mdx) for the coordination rules.
+
+## Delete a record
+
+```csharp
+var deleted = tree.TryDelete(42, out var deleteIndex);
+var markerIndex = tree.ForceDelete(99);
+```
+
+`TryDelete` returns `false` and operation index `0` if its existence check finds no live key. `ForceDelete` writes a deletion marker directly. Ordinary reads and iterators hide records considered deleted.
+
+A deletion marker does not immediately remove old values from every segment. Maintenance eventually reclaims obsolete storage. For custom value types, configure compatible deletion delegates; see [deletion markers and TTL](../concepts/deletion-markers-and-ttl.md).
+
+## Concurrency and value design
+
+The ordinary APIs support concurrent use, but a sequence of calls is not a single atomic action. A `TryGet` followed by `Upsert` can lose an intervening update. Use [single-key atomic operations](atomic-operations.mdx) when the next value depends on the current value.
+
+Use [transactions](transactions.mdx) when the invariant spans several keys in one transactional tree. Choose immutable structs, records, or replacement objects so values are not modified through shared references.
+
+Different key groups can use different write disciplines. For example, profile replacement can use `Upsert` while a separate counter uses atomic methods. Keep the discipline consistent for every writer that can change the same invariant.
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Choose the next operation</strong>
+  <p>
+    Read a range, update one key based on its current value, or coordinate a
+    group of keys.
+  </p>
+  <Flex wrap="true" class="gap-3"
+    ><BtnLink
+      href="/docs/usage/iteration-and-range-scans/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Scan a range</BtnLink><BtnLink
+      href="/docs/usage/atomic-operations/"
+      tone="neutral"
+      variant="outline"
+      >Atomic operations</BtnLink><BtnLink href="/docs/usage/transactions/" tone="neutral" variant="outline"
+      >Transactions</BtnLink></Flex>
+</Panel>

@@ -230,7 +230,7 @@ First actions:
 * inspect `CommitResult.IsPendingTransactions`,
 * roll back abandoned transaction ids with `RollbackUncommittedTransactionIdsBefore(...)` during operational cleanup.
 
-See [transactions](../usage/transactions.md).
+See [transactions](../usage/transactions.mdx).
 
 ## Live Backup Generation Is Skipped
 

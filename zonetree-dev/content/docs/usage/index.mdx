@@ -1,0 +1,102 @@
+---
+title: Usage
+description: Choose a ZoneTree API by coordination scope, and find guides for initialization, reads and writes, atomic operations, transactions, ordered scans, and maintenance.
+layout:
+  fullWidth: true
+  showToc: false
+---
+
+<div class="zt-docs-overview">
+  <SectionHeader
+    class="zt-guide-intro"
+    eyebrow="USAGE / PICK YOUR STARTING POINT"
+    title="Use the right tool for the data rule"
+    titleTag="h1"
+    titleId="usage-title"
+    subtitle="Start with the tree's lifetime. Then choose how much coordination each operation needs, how a scan should see concurrent writes, and who runs maintenance."/>
+
+  <Grid columns="1" columnsMd="3" class="gap-3 zt-guide-outcomes">
+    <Panel class="p-0" bodyClass="p-4"
+      ><strong>Independent writes</strong>
+      <p>
+        Use the ordinary API when a new value does not depend on the current
+        value.
+      </p></Panel>
+    <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"
+      ><strong>One-key decisions</strong>
+      <p>
+        Use atomic methods when the current value determines the accepted
+        update.
+      </p></Panel>
+    <Panel class="p-0" bodyClass="p-4"
+      ><strong>Related keys</strong>
+      <p>
+        Use a transaction when several keys in one tree must share a commit
+        boundary.
+      </p></Panel>
+  </Grid>
+
+  <Grid columns="1" columnsMd="2" class="gap-4 zt-guide-next zt-docs-paths">
+    <DocCard
+      number="01 / LIFETIME"
+      title="Opening a tree"
+      summary="Choose OpenOrCreate, Open, or Create. Configure the factory and keep the tree and maintainer alive for your application."
+      href="/docs/usage/opening-a-tree/"
+      icon="tabler:database"
+      label="Open and own storage"/>
+    <DocCard
+      number="02 / EVERYDAY OPERATIONS"
+      title="Reads and writes"
+      summary="Read live values, replace records, and choose add or delete behavior. Understand which conditional checks need stronger coordination."
+      href="/docs/usage/reads-and-writes/"
+      icon="tabler:code"
+      label="Choose a write API"/>
+    <DocCard
+      number="03 / ONE KEY"
+      title="Atomic operations"
+      summary="Implement counters and conditional replacements, interpret cancellation, and keep competing writers on the same atomic path."
+      href="/docs/usage/atomic-operations/"
+      icon="tabler:shield-check"
+      label="Coordinate one key"/>
+    <DocCard
+      number="04 / SEVERAL KEYS"
+      title="Transactions"
+      summary="Commit related keys in one tree. Handle conflicts, pending dependencies, retries, and unfinished transactions."
+      href="/docs/usage/transactions/"
+      icon="tabler:git-branch"
+      label="Commit a unit of work"/>
+    <DocCard
+      number="05 / ORDERED ACCESS"
+      title="Iteration and ranges"
+      summary="Seek to a lower bound, scan forward or backward, and choose how the iterator sees concurrent writes."
+      href="/docs/usage/iteration-and-range-scans/"
+      icon="tabler:arrows-sort"
+      label="Read an ordered range"/>
+    <DocCard
+      number="06 / BACKGROUND WORK"
+      title="Maintenance"
+      summary="Schedule merges, manage inactive caches, wait for background work, and monitor segment lifecycle events."
+      href="/docs/usage/maintenance/"
+      icon="tabler:settings"
+      label="Run the storage lifecycle"/>
+  </Grid>
+
+  <Panel
+    tone="accent"
+    variant="surface"
+    class="p-0 zt-guide-next-panel"
+    bodyClass="p-5"
+  >
+    <strong>New to ZoneTree?</strong>
+    <p>
+      Run the complete first-tree example before deciding which API your
+      application needs.
+    </p>
+    <BtnLink
+      href="/docs/getting-started/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Getting started</BtnLink>
+  </Panel>
+</div>

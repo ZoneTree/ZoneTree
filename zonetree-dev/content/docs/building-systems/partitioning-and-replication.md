@@ -268,7 +268,7 @@ The iterator merges the collected layers into key order and emits the current va
 
 `ReadOnlyRegion` offers a similar fixed collected view without advancing the mutable segment; it excludes records still in that segment. `AutoRefresh` is useful for live scans, but keys inserted behind its position can be missed. Use the snapshot view plus a captured operation stream for a controlled online transfer.
 
-Dispose export iterators promptly: they pin persistent segments and can delay reclamation of files replaced by compaction. For full iterator behavior, see [iteration and range scans](../usage/iteration-and-range-scans.md).
+Dispose export iterators promptly: they pin persistent segments and can delay reclamation of files replaced by compaction. For full iterator behavior, see [iteration and range scans](../usage/iteration-and-range-scans.mdx).
 
 ### Join the export to the operation stream
 
@@ -329,7 +329,7 @@ ZoneTree's local APIs give the node several useful choices:
 | Stable export | Snapshot iterator | The collected engine view |
 | Recovery of local writes | Configured WAL mode and storage provider | Local recovery according to that mode and provider |
 
-Ordinary `Upsert` does not participate in the atomic methods' coordination lock. Use a compatible write discipline for keys whose correctness depends on atomic read-modify-write. Transactions in one tree also do not commit changes across another tree or node. See [atomic operations](../usage/atomic-operations.md) and [transactions](../usage/transactions.md).
+Ordinary `Upsert` does not participate in the atomic methods' coordination lock. Use a compatible write discipline for keys whose correctness depends on atomic read-modify-write. Transactions in one tree also do not commit changes across another tree or node. See [atomic operations](../usage/atomic-operations.mdx) and [transactions](../usage/transactions.mdx).
 
 Transactional trees expose `BeginTransaction`, `Prepare`, `Commit`, and `Rollback` as separate lifecycle operations, alongside convenience methods that combine steps. These give a coordinating layer explicit local transaction controls. In the built-in optimistic implementation, `Prepare` checks local dependencies and marks the transaction ready in memory. A distributed commit protocol must establish its own durable decision records and recovery rules around those calls. `ZoneTreeFactory.SetTransactionLog` also permits a custom `ITransactionLog<TKey, TValue>` implementation when the integration needs a different transaction-log design.
 
@@ -362,7 +362,7 @@ Treat callbacks as notifications and keep them short; enqueue expensive transfer
 
 Some maintenance record counts include multiple physical versions of a key across segments. Use them as storage-pressure measurements rather than unique-key counts. Coordinate aggregate memory and I/O budgets across hosted partitions, and release iterators and backup activity before removing a replica's files.
 
-See [maintenance](../usage/maintenance.md), [file stream providers](../storage/file-stream-providers.md), and the [API overview](../reference/api-overview.md) for the individual controls.
+See [maintenance](../usage/maintenance.mdx), [file stream providers](../storage/file-stream-providers.md), and the [API overview](../reference/api-overview.md) for the individual controls.
 
 ## Implementation references
 

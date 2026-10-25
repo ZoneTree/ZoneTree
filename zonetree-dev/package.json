@@ -9,7 +9,7 @@
     "build": "purestack build --content ./content --clean",
     "serve": "purestack serve --content ./content --port 4900 --clean",
     "publish": "purestack publish --content ./content",
-    "deploy": "pgdeploy deploy --host https://zonetree.dev --package ./dist/web --allow-path 'pagefind/*,.ts-ssg/manifest.json,_assets/benchmarks/*.json'"
+    "deploy": "pgdeploy deploy --host https://zonetree.dev --package ./dist/web --allow-path 'pagefind/*,.ts-ssg/manifest.json,assets/benchmarks/*.json' --skip-path '.purestack-output'"
   },
   "dependencies": {
     "@purestack/ts-components": "1.1.27",

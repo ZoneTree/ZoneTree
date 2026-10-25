@@ -6,11 +6,13 @@ import { registerBenchmarkReportStyles } from './benchmark-styles'
 import { registerImageGalleryStyles } from './image-gallery-styles'
 import { registerErrorPageStyles } from './error-styles'
 import { registerDocsOverviewStyles } from './docs-overview-styles'
+import { registerGuideStyles } from './guide-styles'
 
 export function registerDocsStyles() {
   registerErrorPageStyles()
   registerImageGalleryStyles()
   registerDocsOverviewStyles()
+  registerGuideStyles()
   registerBenchmarkReportStyles()
   themes.forEach((theme, palette) => {
     const context = createDocsStyleContext(theme, palette)
