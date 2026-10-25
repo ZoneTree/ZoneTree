@@ -9,7 +9,7 @@ layout:
 ---
 
 <div class="zt-docs-overview">
-  <SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / BUILD THE MENTAL MODEL" title="Understand the contracts behind the APIs" titleTag="h1" titleId="concepts-title" subtitle="Connect the LSM storage model with key order, serialization, filtering, deletion, write sequencing, and value ownership."/>
+  <SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / BUILD THE MENTAL MODEL" title="Storage model and API contracts" titleTag="h1" titleId="concepts-title" subtitle="Connect the LSM storage model with key order, serialization, filtering, deletion, write sequencing, and value ownership."/>
 
   <Grid columns="1" columnsMd="3" class="gap-3 zt-guide-outcomes">
     <Panel class="p-0" bodyClass="p-4"><strong>Storage model</strong><p>Layers describe record generations; parts divide a logical disk segment into ranges.</p></Panel>
@@ -22,9 +22,9 @@ layout:
     <DocCard number="02 / STORAGE UNITS" title="Segments and parts" summary="Distinguish memory and disk layers, logical segments, reusable parts, and the counters that describe them." href="/docs/concepts/segments/" icon="tabler:database" label="Name the storage units"/>
     <DocCard number="03 / QUERY SHAPE" title="Key ordering" summary="Put related records into contiguous comparer order and implement a complete composite-key example." href="/docs/concepts/key-ordering/" icon="tabler:arrows-sort" label="Design the keyspace"/>
     <DocCard number="04 / DATA CONTRACTS" title="Serializers and comparers" summary="Separate equality, hashing, and persisted bytes. Configure custom components and preserve compatibility." href="/docs/concepts/serializers-and-comparers/" icon="tabler:code" label="Define the contracts"/>
-    <DocCard number="05 / POINT READS" title="Bloom filters" summary="Skip provably absent memory-segment lookups and understand filter allocation, hashing, and false positives." href="/docs/concepts/bloom-filters/" icon="tabler:settings" label="Understand the filter"/>
+    <DocCard number="05 / POINT READS" title="Bloom filters" summary="Skip provably absent memory-segment lookups and understand filter allocation, hashing, and false positives." href="/docs/concepts/bloom-filters/" icon="tabler:settings" label="How the filter works"/>
     <DocCard number="06 / VISIBILITY" title="Deletion markers and TTL" summary="Choose tombstones, model expiration, and reclaim deleted storage without exposing older values." href="/docs/concepts/deletion-markers-and-ttl/" icon="tabler:shield-check" label="Define what is live"/>
-    <DocCard number="07 / WRITE IDENTITY" title="Operation indexes" summary="Use a producer's write sequence without confusing it with durable delivery, global ordering, or transaction commits." href="/docs/concepts/op-index/" icon="tabler:git-branch" label="Understand write sequencing"/>
+    <DocCard number="07 / WRITE IDENTITY" title="Operation indexes" summary="Use a producer's write sequence without confusing it with durable delivery, global ordering, or transaction commits." href="/docs/concepts/op-index/" icon="tabler:git-branch" label="Write sequencing and replay"/>
     <DocCard number="08 / OWNERSHIP" title="Value mutability" summary="Keep stored objects and buffers read-only, create replacements, and make cancellation leave no shared mutation." href="/docs/concepts/value-mutability/" icon="tabler:book-2" label="Own stored values safely"/>
   </Grid>
 

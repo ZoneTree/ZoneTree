@@ -94,7 +94,7 @@ For example, a comparer that ignores case makes `"User:42"` and `"USER:42"` the 
 
 Do not let a key's order depend on mutable fields, the current time, or configuration that can change while the tree is open. Avoid mutating key buffers after insertion. A key that changes position without an engine write breaks the assumptions used by lookup, iteration, sparse indexes, and merging.
 
-## Understand strings and byte sequences
+## Default ordering for common key types
 
 | Representation | Default order | Consequence |
 | --- | --- | --- |
@@ -105,7 +105,7 @@ Do not let a key's order depend on mutable fields, the current time, or configur
 
 For text keys with embedded numbers, use an appropriate encoding or comparer; a delimiter alone does not create numeric sorting. For byte keys, make sure the byte encoding and the comparer jointly produce the intended order. Use `Memory<byte>` rather than unsupported `byte[]` keys, and retain ownership of the bytes.
 
-## Choose forward or reverse access
+## Forward and reverse traversal
 
 A forward iterator follows the configured comparer. A reverse iterator traverses that same order backward. Reverse traversal does not change equality or re-encode the stored data.
 

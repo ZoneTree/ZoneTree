@@ -91,7 +91,7 @@ With the default capacity of 1,000,000 records, the bit arrays occupy:
 
 These figures exclude object and array overhead. Power-of-two rounding creates steps: a small setting change can double the allocation. At the maximum-size cap, a very large configured segment can receive fewer effective bits per item than requested.
 
-## Understand false positives
+## False positives
 
 A false positive sends a missing key into a B+Tree lookup that eventually fails. It costs work; it does not create a record or change key order.
 

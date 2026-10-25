@@ -46,7 +46,7 @@ For codec defaults and block-size controls, see [compression](../storage/compres
 
 Existing WAL files keep their detected logging mode and recorded compression format. Changing the factory configures newly created WALs; reopening an existing file does not convert it to another mode. The built-in provider detects the existing mode from its filename, so preserve WAL filenames when moving a database.
 
-## Understand the compressed tail
+## Compressed blocks and the tail file
 
 Compressed WALs have a main file of committed blocks and a companion `.tail` file for the unfinished block. Keep both when making an offline copy.
 

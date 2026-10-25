@@ -98,7 +98,7 @@ Returning `false` cancels the new engine write. It cannot undo a change already 
 
 `TryAtomicAddOrUpdate` can retry its adder/updater when a segment freezes or fills. Build replacement values from the input of each invocation, and keep callbacks free of external effects that cannot safely repeat. An in-place increment of a shared object can be applied more than once before one write is accepted.
 
-## Understand shallow immutability
+## Shallow immutability
 
 Records, `readonly` fields, read-only interfaces, and readonly structs do not automatically make their contents immutable:
 

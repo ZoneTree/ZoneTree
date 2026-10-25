@@ -5,7 +5,7 @@ description: Understand automatic incomplete-tail recovery, capture WAL corrupti
 
 <SectionHeader class="zt-guide-intro" eyebrow="DURABILITY / DIAGNOSTICS AND TOOLS" title="Inspect WALs and build recovery tools" titleTag="h1" titleId="recovery-title" subtitle="ZoneTree handles incomplete WAL tails during startup. For checksum and other read errors, logging and public storage APIs support diagnosis and specialized recovery tools."/>
 
-## Understand what detection provides
+## WAL corruption diagnostics
 
 Current-format WAL records carry checksums. A mismatch is reported as a read failure; it does not repair the record or establish which bytes should replace it. Reconstructing records that fail checksum validation requires a specialized tool and a policy for deciding which records can be trusted.
 
@@ -114,7 +114,7 @@ Use the original key/value types, serializers, comparer, compatible hasher, and 
 
 See [serializers and comparers](../concepts/serializers-and-comparers.mdx) and [deletion markers and TTL](../concepts/deletion-markers-and-ttl.mdx) for those contracts.
 
-## Choose a recovery procedure
+## Inspection and reconstruction workflow
 
 1. Preserve the affected database and any separately configured WAL location, along with the diagnostic logs. Use a separate working copy for inspection.
 2. Identify the affected segment, record failures, and file format with the public readers and metadata APIs.

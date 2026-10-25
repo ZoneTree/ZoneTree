@@ -25,7 +25,7 @@ Both paths expose a compression method, method-specific level, and block size, b
 
 Changing compression options does not rewrite existing files. A merge may write new files with the new profile while reusing eligible parts with the earlier profile. Multipart descriptors have their own metadata encoding; disk data-block settings do not configure that encoding.
 
-<AlertBox class="zt-guide-callout" tone="info" title="Choose recovery guarantees through the WAL mode" icon="tabler:shield-check">
+<AlertBox class="zt-guide-callout" tone="info" title="WAL mode and durability" icon="tabler:shield-check">
   <p>A compression method or level does not define when a write is durable. <code>AsyncCompressed</code>, <code>SyncCompressed</code>, plain <code>Sync</code>, and <code>None</code> have different logging and failure behavior. Choose the mode with the <a href="/docs/durability/wal-modes/">WAL modes guide</a>, then tune compression within that choice.</p>
 </AlertBox>
 
@@ -83,7 +83,7 @@ Console.WriteLine($"Read {value.Length} characters after merging.");
 
 The two methods are intentionally independent; this is an example profile, not a universal performance recommendation. `SetDiskSegmentCompressionBlockSize()` is a factory shorthand for the disk block-size option.
 
-## Understand the unit of a disk read
+## Block reads and caching
 
 Disk files contain individually addressable blocks. A cold read locates and reads the relevant compressed block, decompresses it, and serves the requested bytes. Subsequent reads can reuse the decompressed block while it remains cached.
 

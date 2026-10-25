@@ -98,7 +98,7 @@ This prints `Ada`, then `False`. JSON is an explicit format choice here; the eng
 
 The serializer can be called from concurrent application, recovery, or maintenance work. Keep it safe for concurrent use. Do not retain or mutate input buffers without owning a copy, and do not return a reusable scratch buffer that another operation can overwrite.
 
-## Choose a stable byte representation
+## Serializer format contracts
 
 | Choice | Contract to preserve |
 | --- | --- |
@@ -109,7 +109,7 @@ The serializer can be called from concurrent application, recovery, or maintenan
 
 Changing a serializer's output changes what WAL recovery, disk reads, and backup records need to decode. Test a value written by the previous application version with the new reader before treating a deployment as compatible.
 
-## Understand what metadata validates
+## Metadata validation and compatibility
 
 The loader checks the persisted key type, value type, comparer type, key-serializer type, and value-serializer type. Metadata also records the configured hasher type and Bloom density, but those are not the same persisted-format checks.
 

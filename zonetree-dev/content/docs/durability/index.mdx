@@ -9,10 +9,10 @@ layout:
 ---
 
 <div class="zt-docs-overview">
-  <SectionHeader class="zt-guide-intro" eyebrow="DURABILITY / RECOVER AND RESTORE" title="Understand logging, diagnostics, and restore" titleTag="h1" titleId="durability-title" subtitle="Choose a WAL policy, capture storage diagnostics, or restore a backup generation. The recovery guide covers the public APIs available for specialized inspection and recovery tools."/>
+  <SectionHeader class="zt-guide-intro" eyebrow="DURABILITY / RECOVER AND RESTORE" title="Write-ahead logging, recovery, and backups" titleTag="h1" titleId="durability-title" subtitle="Choose a WAL policy, capture storage diagnostics, or restore a backup generation. The recovery guide covers the public APIs available for specialized inspection and recovery tools."/>
 
   <Grid columns="1" columnsMd="3" class="gap-4 zt-guide-next zt-docs-paths">
-    <DocCard number="01 / LOG RECENT WRITES" title="WAL modes" summary="Choose a logging path, understand compressed tails, and close the tree cleanly. AsyncCompressed is the default." href="/docs/durability/wal-modes/" icon="tabler:shield-check" label="Understand the default WAL"/>
+    <DocCard number="01 / LOG RECENT WRITES" title="WAL modes" summary="Choose a logging path, understand compressed tails, and close the tree cleanly. AsyncCompressed is the default." href="/docs/durability/wal-modes/" icon="tabler:shield-check" label="Default WAL behavior"/>
     <DocCard number="02 / INSPECT AND RECOVER" title="Recovery" summary="Capture checksum and reader errors, integrate logging, and reuse public WAL and segment APIs in specialized tools." href="/docs/durability/recovery/" icon="tabler:database" label="Inspect WAL diagnostics"/>
     <DocCard number="03 / RESTORE A GENERATION" title="Backups" summary="Run a complete backup and restore example, then add memory capture policy, scheduling, and retention." href="/docs/durability/backups/" icon="tabler:stack-2" label="Create a verified backup"/>
   </Grid>

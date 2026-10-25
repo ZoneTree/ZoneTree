@@ -53,7 +53,7 @@ tree.TryAtomicAddOrUpdate(
 
 Run it again against the same directory to increment the persisted counter. The callback reports `Added` on initialization and `Updated` on a later increment.
 
-## Understand the coordination boundary
+## Coordination across storage layers
 
 The newest value may be in mutable memory, a read-only segment, or a disk layer. Atomic methods synchronize this sequence across those layers:
 

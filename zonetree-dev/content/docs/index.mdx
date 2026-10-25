@@ -92,7 +92,7 @@ if (tree.TryGet(42, out var value))
         Keep the maintainer alive with the tree to schedule background merges
         and clean inactive caches.
         <a href="/docs/usage/maintenance/"
-          >Understand maintenance <Icon name="tabler:arrow-right"/></a>
+          >Background maintenance <Icon name="tabler:arrow-right"/></a>
       </p>
     </Panel>
   </Grid>
@@ -117,7 +117,7 @@ if (tree.TryGet(42, out var value))
         summary="See how mutable memory, read-only segments, compaction, and disk parts work together. Use that model to understand writes, reads, and maintenance."
         href="/docs/concepts/lsm-tree/"
         icon="tabler:stack-2"
-        label="Understand the architecture"/>
+        label="LSM-tree architecture"/>
       <DocCard
         number="03 / PRODUCTION"
         title="Make the operational choices"
@@ -176,7 +176,7 @@ if (tree.TryGet(42, out var value))
         <ul class="list-none p-0 m-0">
           <li>
             <a href="/docs/concepts/key-ordering/"
-              >Choose key order and prefix layouts</a>
+              >Key ordering and prefix layouts</a>
           </li>
           <li>
             <a href="/docs/usage/iteration-and-range-scans/"
@@ -206,7 +206,7 @@ if (tree.TryGet(42, out var value))
         <ul class="list-none p-0 m-0">
           <li>
             <a href="/docs/durability/wal-modes/"
-              >Choose a write-ahead logging mode</a>
+              >Write-ahead logging modes</a>
           </li>
           <li>
             <a href="/docs/durability/recovery/"
@@ -228,12 +228,12 @@ if (tree.TryGet(42, out var value))
         aria-labelledby="docs-performance-title"
       >
         <Icon name="tabler:database" class="zt-docs-topic-icon"/>
-        <h3 id="docs-performance-title">Understand storage costs</h3>
+        <h3 id="docs-performance-title">Storage costs</h3>
         <p>Work out what drives disk reads, rewrite work, and memory use.</p>
         <ul class="list-none p-0 m-0">
           <li>
             <a href="/docs/storage/disk-segments/"
-              >Understand disk-segment layouts</a>
+              >Disk-segment layouts</a>
           </li>
           <li>
             <a href="/docs/tuning/write-amplification/"
@@ -247,7 +247,7 @@ if (tree.TryGet(42, out var value))
             <a href="/docs/storage/memory-usage/">Account for memory usage</a>
           </li>
           <li>
-            <a href="/docs/storage/compression/">Choose compression settings</a>
+            <a href="/docs/storage/compression/">Compression settings</a>
           </li>
         </ul>
       </Panel>

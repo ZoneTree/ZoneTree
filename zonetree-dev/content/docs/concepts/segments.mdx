@@ -43,7 +43,7 @@ The disk abstraction is `IDiskSegment<TKey, TValue>`. Both single-part and multi
   <p>Layers separate newer and older storage generations. Parts divide one logical disk segment into ordered ranges. A multipart segment still occupies one disk-segment slot or one position in the bottom queue.</p>
 </AlertBox>
 
-## Understand why part reuse matters
+## Immutable parts and reuse
 
 <LsmPartReuse/>
 

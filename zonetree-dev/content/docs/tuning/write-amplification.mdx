@@ -11,7 +11,7 @@ Write amplification compares internal bytes written with the application's logic
 
 Record overwrite distribution as well as volume. Ten thousand updates concentrated in one range can produce different merge work from the same count spread across the whole keyspace.
 
-## Understand when a part can be reused
+## Part reuse conditions
 
 <LsmPartReuse/>
 
@@ -65,7 +65,7 @@ Console.WriteLine($"New data files: {after.Except(before).Count()}");
 
 Application writes are coordinated in this example, and both merges finish before inspection. The file counts vary with randomized boundaries. Shared filenames demonstrate reuse; use I/O measurements for the actual bytes written. The part targets here make the mechanism observable, rather than prescribe a production profile.
 
-## Choose the lever that matches the pressure
+## Rewrite costs and tradeoffs
 
 | Observation | Experiment | Tradeoff to watch |
 | --- | --- | --- |

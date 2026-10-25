@@ -11,7 +11,7 @@ description: Create and verify complete live-backup generations, choose memory c
   titleId="backups-title"
   subtitle="Create a complete live-backup generation while the tree remains open, verify a restore, and configure automatic generation and retention policies."/>
 
-## Choose a backup shape
+## Live backup, offline copy, and rebuild
 
 | Approach | What it captures | When it fits |
 | --- | --- | --- |
@@ -81,7 +81,7 @@ Restore into an unused data directory and, if configured separately, an unused W
 
 Use the local provider, a WAL-enabled target, and compatible [data contracts](recovery.mdx#preserve-the-data-contracts). Restore copies disk files, rebuilds backed-up memory records into a read-only WAL, and creates fresh mutable WAL and metadata files. It does not need the original production WALs.
 
-## Choose the in-memory view
+## In-memory capture modes
 
 Memory records are included by default, including deletion markers needed to hide older records in copied disk files. Their batch is compressed independently of disk files, with Zstd level 0 and 1 MiB blocks by default.
 
@@ -138,7 +138,7 @@ await backup.CreateGenerationAsync();
 Console.WriteLine($"Final completed generation: {backup.CurrentGenerationId}");
 ```
 
-The final-generation sequence stops automatic triggers and waits for active backup work before making the manual request. See [request and completion behavior](#understand-requests-and-completion) below for the individual methods.
+The final-generation sequence stops automatic triggers and waits for active backup work before making the manual request. See [request and completion behavior](#backup-requests-and-completion) below for the individual methods.
 
 ### Schedule choices
 
@@ -151,7 +151,7 @@ The final-generation sequence stops automatic triggers and waits for active back
 
 `BackupAfterMerge` defaults to `true`. Successful **normal** merges request a generation after `Start()`; bottom-segment merges do not. A schedule remains useful when writes stay in memory without enough activity to trigger a normal merge.
 
-## Understand requests and completion
+## Backup requests and completion
 
 Each coordinator runs at most one generation at a time. Requests do not form a backlog:
 

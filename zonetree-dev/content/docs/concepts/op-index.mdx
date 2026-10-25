@@ -42,7 +42,7 @@ With concurrent writers, sequence assignment and method return order are differe
 
 Failed existence checks and cancelled atomic callbacks commonly report operation index `0`. That sentinel is not a new successful write. See [atomic operations](../usage/atomic-operations.mdx) for the specific return contracts.
 
-## Understand the recovery boundary
+## Operation indexes after recovery
 
 WAL records retain their original operation indexes. Reopen combines recovered WAL information with persisted high-water metadata so later allocations continue above the recovered sequence.
 

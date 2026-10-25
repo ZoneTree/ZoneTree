@@ -40,7 +40,7 @@ An illustrative multipart segment with two variable-value parts looks like this:
 
 These are segment files. Metadata and any record WALs belong to the wider database layout described in the [Storage overview](index.mdx).
 
-## Understand the four record layouts
+## Fixed-size and variable-size record layouts
 
 Each physical single-part segment selects a layout from the runtime key and value types. Types with no managed references use the fixed-size path; strings, arrays, and types containing references use the variable-size path.
 
@@ -113,7 +113,7 @@ File IDs depend on the tree's history. An empty current disk slot may enumerate 
   <p><code>GetFiles()</code> describes a segment; it does not freeze the tree or acquire a backup lease. During concurrent maintenance, use the live-backup API to coordinate segment lifetimes and capture in-memory records and restore metadata.</p>
 </AlertBox>
 
-## Understand when files disappear
+## File lifetime after a merge
 
 Merges publish replacement segments rather than rewriting the record data of an active segment. Once a segment is retired, its files can be reclaimed when no reader or backup still leases them. Sparse-index files are auxiliary persisted indexes, separate from that immutable record data.
 

@@ -36,7 +36,7 @@ if (tree.TryDelete(7, out var deletedAt))
 
 For setup and resource lifetime, see [opening a tree](opening-a-tree.mdx).
 
-## Choose an operation
+## Read and write APIs
 
 | Your data rule | API | Important detail |
 | --- | --- | --- |
@@ -124,7 +124,7 @@ Use [transactions](transactions.mdx) when the invariant spans several keys in on
 Different key groups can use different write disciplines. For example, profile replacement can use `Upsert` while a separate counter uses atomic methods. Keep the discipline consistent for every writer that can change the same invariant.
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
-  <strong>Choose the next operation</strong>
+  <strong>Range scans and coordinated updates</strong>
   <p>
     Read a range, update one key based on its current value, or coordinate a
     group of keys.

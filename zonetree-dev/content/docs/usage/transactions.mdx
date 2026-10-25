@@ -58,7 +58,7 @@ catch (TransactionAbortedException)
 
 `OpenOrCreateTransactional()` returns the transactional API. It differs from the ordinary tree: reads and writes in a transaction take a transaction ID, and success depends on the commit outcome.
 
-## Choose the smallest coordination scope
+## Single-key and multi-key coordination
 
 | Data rule | API |
 | --- | --- |
@@ -68,7 +68,7 @@ catch (TransactionAbortedException)
 
 Concurrent application threads alone do not require transactions. Use them for a multi-key invariant, and make the reads that decide the writes part of that transaction.
 
-## Understand the transaction lifecycle
+## Transaction lifecycle
 
 1. `BeginTransaction()` allocates a transaction ID.
 2. Reads and writes use that ID.
