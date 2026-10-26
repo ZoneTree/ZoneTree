@@ -23,5 +23,10 @@ public interface IMutableSegment<TKey, TValue> : IReadOnlySegment<TKey, TValue>
 
   void Freeze();
 
+  /// <summary>
+  /// Syncs the write ahead log records of the completed writes to the disk.
+  /// </summary>
+  Task SyncWALAsync();
+
   IIncrementalIdProvider OpIndexProvider { get; }
 }

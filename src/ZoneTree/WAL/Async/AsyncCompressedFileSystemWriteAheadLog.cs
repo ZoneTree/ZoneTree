@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text;
 using ZoneTree.AbstractFileStream;
+using ZoneTree.Exceptions;
 using ZoneTree.Exceptions.WAL;
 using ZoneTree.Logger;
 using ZoneTree.Options;
@@ -18,17 +19,32 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
 
   readonly IFileStreamProvider FileStreamProvider;
 
-  readonly CompressedFileStream FileStream;
+  CompressedFileStream FileStream;
 
-  readonly BinaryWriter BinaryWriter;
+  BinaryWriter BinaryWriter;
 
   readonly ISerializer<TKey> KeySerializer;
 
   readonly ISerializer<TValue> ValueSerializer;
 
+  readonly int CompressionBlockSize;
+
+  readonly CompressionMethod CompressionMethod;
+
+  readonly int CompressionLevel;
+
   readonly int EmptyQueuePollInterval;
 
   readonly ConcurrentQueue<QueueItem> Queue = new();
+
+  // A queue item with this operation index is a sync request instead of a
+  // record. Its task is in SyncRequests, so records do not grow by a field.
+  // Records have positive operation indexes.
+  const long SyncRequestOpIndex = long.MinValue;
+
+  // The tasks of the sync requests in the queue, in queue order.
+  // Each completes when the records queued before its request are synced.
+  readonly ConcurrentQueue<TaskCompletionSource> SyncRequests = new();
 
   public struct QueueItem : IEquatable<QueueItem>
   {
@@ -81,7 +97,19 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
 
   volatile Task WriteTask;
 
-  readonly ManualResetEventSlim StopWriterSignal = new();
+  // Wakes the writer from its empty queue poll to stop or to serve a sync request.
+  readonly ManualResetEventSlim WakeWriterSignal = new();
+
+  readonly Lock SyncRequestLock = new();
+
+  // Set when the WAL closes. Later sync requests wait for its final sync.
+  TaskCompletionSource ClosedSyncRequest;
+
+  volatile bool IsDropped;
+
+  // A record that could not be written is lost, so sync requests
+  // queued after it cannot be completed successfully anymore.
+  volatile Exception RecordWriteFailure;
 
   public string FilePath { get; }
 
@@ -103,27 +131,35 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
     FilePath = filePath;
     IsLegacyFormat = Path.GetFileNameWithoutExtension(filePath).EndsWith(WriteAheadLogProvider.LegacyWalExtension, StringComparison.Ordinal);
     EmptyQueuePollInterval = options.AsyncCompressedModeOptions.EmptyQueuePollInterval;
-    FileStream = new CompressedFileStream(
-        Logger,
-        fileStreamProvider,
-        filePath,
-        options.CompressionBlockSize,
-        false,
-        0,
-        options.CompressionMethod,
-        options.CompressionLevel);
-    BinaryWriter = new BinaryWriter(FileStream, Encoding.UTF8, true);
-    FileStream.Seek(0, SeekOrigin.End);
+    CompressionBlockSize = options.CompressionBlockSize;
+    CompressionMethod = options.CompressionMethod;
+    CompressionLevel = options.CompressionLevel;
     FileStreamProvider = fileStreamProvider;
     KeySerializer = keySerializer;
     ValueSerializer = valueSerializer;
+    CreateFileStream();
     StartWriter();
+  }
+
+  void CreateFileStream()
+  {
+    FileStream = new CompressedFileStream(
+        Logger,
+        FileStreamProvider,
+        FilePath,
+        CompressionBlockSize,
+        false,
+        0,
+        CompressionMethod,
+        CompressionLevel);
+    BinaryWriter = new BinaryWriter(FileStream, Encoding.UTF8, true);
+    FileStream.Seek(0, SeekOrigin.End);
   }
 
   void StartWriter()
   {
     StopWriter(false);
-    StopWriterSignal.Reset();
+    WakeWriterSignal.Reset();
     isRunning = true;
     WriteTask = Task.Factory.StartNew(
         DoWrite,
@@ -136,7 +172,7 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
   {
     isRunning = false;
     // Wake the writer from its empty queue poll so stopping does not wait for the poll interval.
-    StopWriterSignal.Set();
+    WakeWriterSignal.Set();
     WriteTask?.Wait();
     WriteTask = null;
     if (consumeAll)
@@ -153,34 +189,50 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
 
   void ConsumeQueue()
   {
+    var syncRequests = new List<TaskCompletionSource>();
     lock (SyncRoot)
     {
       while (Queue.TryDequeue(out var q))
       {
-        var keyBytes = KeySerializer.Serialize(q.Key);
-        var valueBytes = ValueSerializer.Serialize(q.Value);
-        AppendLogEntry(keyBytes, valueBytes, q.OpIndex);
+        if (q.OpIndex != SyncRequestOpIndex)
+          WriteRecord(in q);
+        else
+          CollectSyncRequest(syncRequests);
       }
     }
-    FileStream.WriteTail();
+    if (syncRequests.Count > 0)
+      SyncAndComplete(syncRequests);
+    else
+      FileStream.WriteTail();
   }
 
   void DoWrite()
   {
+    var syncRequests = new List<TaskCompletionSource>();
     while (isRunning)
     {
-      while (isRunning && Queue.TryDequeue(out var q))
+      // The sync requests queued until the first one is dequeued share its
+      // disk sync. Writing only the items queued by then keeps a busy queue
+      // from delaying the sync. -1 means no sync request is dequeued yet.
+      var batchLength = -1;
+      while (isRunning && batchLength != 0 && Queue.TryDequeue(out var q))
       {
-        try
+        if (batchLength > 0)
+          --batchLength;
+        if (q.OpIndex != SyncRequestOpIndex)
         {
-          var keyBytes = KeySerializer.Serialize(q.Key);
-          var valueBytes = ValueSerializer.Serialize(q.Value);
-          AppendLogEntry(keyBytes, valueBytes, q.OpIndex);
+          WriteRecord(in q);
+          continue;
         }
-        catch (Exception e)
-        {
-          Logger.LogError(e);
-        }
+        if (batchLength < 0)
+          batchLength = Queue.Count;
+        CollectSyncRequest(syncRequests);
+      }
+      if (syncRequests.Count > 0)
+      {
+        SyncAndComplete(syncRequests);
+        syncRequests.Clear();
+        continue;
       }
       if (isRunning && Queue.IsEmpty)
       {
@@ -190,15 +242,54 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
         }
         catch (Exception e)
         {
-          Logger.LogError(e);
+          LogWriterError(e);
         }
         if (!isRunning)
           break;
         if (EmptyQueuePollInterval == 0)
+        {
           Thread.Yield();
+        }
         else
-          StopWriterSignal.Wait(EmptyQueuePollInterval);
+        {
+          WakeWriterSignal.Wait(EmptyQueuePollInterval);
+          // An item queued before the signal is dequeued in the next loop.
+          WakeWriterSignal.Reset();
+        }
       }
+    }
+  }
+
+  void WriteRecord(in QueueItem q)
+  {
+    try
+    {
+      var keyBytes = KeySerializer.Serialize(q.Key);
+      var valueBytes = ValueSerializer.Serialize(q.Value);
+      AppendLogEntry(keyBytes, valueBytes, q.OpIndex);
+    }
+    catch (Exception e)
+    {
+      RecordWriteFailure ??= e;
+      LogWriterError(e);
+    }
+  }
+
+  /// <summary>
+  /// Logs an error of the writer without throwing.
+  /// </summary>
+  /// <remarks>
+  /// A failing logger must not stop the writer or skip completing sync
+  /// requests, or queued records and sync requests would wait forever.
+  /// </remarks>
+  void LogWriterError(Exception e)
+  {
+    try
+    {
+      Logger.LogError(e);
+    }
+    catch
+    {
     }
   }
 
@@ -207,8 +298,103 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
     Queue.Enqueue(new QueueItem(in key, in value, opIndex));
   }
 
+  public Task SyncAsync()
+  {
+    var syncRequest = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    lock (SyncRequestLock)
+    {
+      if (ClosedSyncRequest != null)
+        return ClosedSyncRequest.Task;
+      SyncRequests.Enqueue(syncRequest);
+      Queue.Enqueue(new QueueItem(default, default, SyncRequestOpIndex));
+    }
+    WakeWriterSignal.Set();
+    return syncRequest.Task;
+  }
+
+  /// <summary>
+  /// Takes the task of a dequeued sync request.
+  /// </summary>
+  void CollectSyncRequest(List<TaskCompletionSource> syncRequests)
+  {
+    // SyncAsync queues the task before the request item.
+    if (SyncRequests.TryDequeue(out var syncRequest))
+      syncRequests.Add(syncRequest);
+  }
+
+  /// <summary>
+  /// Syncs the written records to the disk and completes the sync requests.
+  /// </summary>
+  void SyncAndComplete(List<TaskCompletionSource> syncRequests)
+  {
+    var failure = TrySyncToDisk();
+    foreach (var syncRequest in syncRequests)
+      CompleteSyncRequest(syncRequest, failure);
+    // Log after completing, so callers get the failure even if logging fails.
+    if (failure != null)
+      LogWriterError(failure);
+  }
+
+  Exception TrySyncToDisk()
+  {
+    try
+    {
+      var recordWriteFailure = RecordWriteFailure;
+      if (recordWriteFailure != null)
+        throw new WriteAheadLogSyncFailedException(FilePath, recordWriteFailure);
+      // A closed stream only reports whether its final sync failed.
+      FileStream.SyncToDisk();
+      return null;
+    }
+    catch (Exception e)
+    {
+      return e;
+    }
+  }
+
+  void CompleteSyncRequest(TaskCompletionSource syncRequest, Exception failure)
+  {
+    // A dropped WAL either belongs to a dropped tree or its records were
+    // merged into a disk segment that was synced to the disk before the drop.
+    if (failure == null || IsDropped)
+      syncRequest.TrySetResult();
+    else
+      syncRequest.TrySetException(failure);
+  }
+
+  /// <summary>
+  /// Makes later sync requests wait for the final sync of the WAL.
+  /// </summary>
+  /// <returns>The final sync request.</returns>
+  TaskCompletionSource CloseSyncRequests()
+  {
+    lock (SyncRequestLock)
+    {
+      return ClosedSyncRequest ??=
+          new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+  }
+
+  void Close()
+  {
+    var closedSyncRequest = CloseSyncRequests();
+    try
+    {
+      StopWriter(true);
+      FileStream.Dispose();
+    }
+    catch (Exception e)
+    {
+      CompleteSyncRequest(closedSyncRequest, e);
+      throw;
+    }
+    CompleteSyncRequest(closedSyncRequest, TrySyncToDisk());
+  }
+
   public void Drop()
   {
+    IsDropped = true;
+    var closedSyncRequest = CloseSyncRequests();
     // A merge can drop this WAL while MarkFrozen is still draining the queue.
     // Cancel the appends first so the drain cannot write to the closed stream.
     CancelWriter();
@@ -220,6 +406,11 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
     var tailPath = FilePath + ".tail";
     if (FileStreamProvider.FileExists(tailPath))
       FileStreamProvider.DeleteFile(tailPath);
+    // Every sync request of a dropped WAL completes successfully,
+    // including those whose request items the clear removed.
+    while (SyncRequests.TryDequeue(out var syncRequest))
+      CompleteSyncRequest(syncRequest, null);
+    CompleteSyncRequest(closedSyncRequest, null);
   }
 
   void AppendLogEntry(Memory<byte> keyBytes, Memory<byte> valueBytes, long opIndex)
@@ -259,43 +450,58 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
 
   public void Dispose()
   {
-    StopWriter(true);
-    FileStream.Dispose();
+    Close();
   }
 
   public long ReplaceWriteAheadLog(TKey[] keys, TValue[] values, bool disableBackup)
   {
     lock (SyncRoot)
     {
-      if (!disableBackup && EnableIncrementalBackup)
+      // Write the queued records into the existing file first.
+      // If the replacement fails, the existing file keeps all of them.
+      StopWriter(true);
+      try
       {
-        StopWriter(true);
-        IncrementalLogAppender
-            .AppendLogToTheBackupFile(
-                FileStreamProvider,
-                FilePath + ".full",
-                FileStream.GetFileContentIncludingTail);
+        if (!disableBackup && EnableIncrementalBackup)
+        {
+          IncrementalLogAppender
+              .AppendLogToTheBackupFile(
+                  FileStreamProvider,
+                  FilePath + ".full",
+                  FileStream.GetFileContentIncludingTail);
+        }
+        var existingLength = FileStream.Length;
+        try
+        {
+          var length = FileStream.ReplaceContent(
+              FileStreamProvider,
+              binaryWriter => AppendLogEntries(binaryWriter, keys, values));
+          CreateFileStream();
+          return existingLength - length;
+        }
+        catch (Exception e)
+        {
+          Logger.LogError(e);
+          FileStream.Dispose();
+          CreateFileStream();
+          return existingLength - FileStream.Length;
+        }
       }
-      else
+      finally
       {
-        Queue.Clear();
-        CancelWriter();
-      }
-      // Replacement crash recovery is not required here,
-      // because the async-compressed write ahead log is not durable.
-      // implementing crash recovery here does not make it durable.
-      var existingLength = FileStream.Length;
-      FileStream.SetLength(0);
-      if (isWriterCancelled)
-        isWriterCancelled = false;
-      else
         StartWriter();
-      var len = keys.Length;
-      for (var i = 0; i < len; ++i)
-      {
-        Queue.Enqueue(new QueueItem(in keys[i], in values[i], 0));
       }
-      return 0;
+    }
+  }
+
+  void AppendLogEntries(BinaryWriter binaryWriter, TKey[] keys, TValue[] values)
+  {
+    var len = keys.Length;
+    for (var i = 0; i < len; ++i)
+    {
+      var keyBytes = KeySerializer.Serialize(keys[i]);
+      var valueBytes = ValueSerializer.Serialize(values[i]);
+      LogEntry.AppendLogEntry(binaryWriter, keyBytes, valueBytes, 0, IsLegacyFormat);
     }
   }
 
@@ -303,8 +509,7 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
   {
     try
     {
-      StopWriter(true);
-      FileStream.Dispose();
+      Close();
     }
     catch (Exception e)
     {

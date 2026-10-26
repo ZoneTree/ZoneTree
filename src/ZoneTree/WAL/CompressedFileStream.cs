@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Compression;
+using ZoneTree.Exceptions;
 using ZoneTree.Logger;
 using ZoneTree.Options;
 using ZoneTree.Segments.Block;
@@ -16,6 +17,10 @@ namespace ZoneTree.WAL;
 public sealed class CompressedFileStream : Stream, IDisposable
 {
   readonly Lock SyncRoot = new();
+
+  // Guards the tail file. It is taken before SyncRoot,
+  // so writes do not wait while the tail is synced to the disk.
+  readonly Lock TailLock = new();
 
   readonly ILogger Logger;
 
@@ -63,7 +68,30 @@ public sealed class CompressedFileStream : Stream, IDisposable
 
   volatile bool IsClosed;
 
+  // The main file of an existing stream can hold bytes that were not synced
+  // to disk before this stream opened it, and truncations change it without
+  // a sync. Appended data depends on those bytes, so a sync must include them.
+  bool MainFileMayBeUnsynced;
+
+  bool IsModified;
+
+  // The number of bytes ever written to this stream.
+  // The sync group counts the part of it that is synced to the disk.
+  long WrittenByteCount;
+
+  readonly DiskSyncGroup SyncGroup = new();
+
+  // Once a write or a disk sync fails, the operating system may drop data
+  // that was written before. Later syncs cannot prove durability anymore.
+  volatile Exception DurabilityFailure;
+
   public string FilePath { get; }
+
+  /// <summary>
+  /// Syncs every committed block to the disk. A stream that is synced only
+  /// once at the end, like a temporary replacement file, can disable it.
+  /// </summary>
+  internal bool SyncBlocksOnCommit { get; init; } = true;
 
   public override bool CanRead => FileStream.CanRead;
 
@@ -145,6 +173,7 @@ public sealed class CompressedFileStream : Stream, IDisposable
     if (FileStream.Length > 0)
     {
       CompressionMethod = ReadMetaData().CompressionMethod;
+      MainFileMayBeUnsynced = true;
     }
     else
     {
@@ -282,42 +311,226 @@ public sealed class CompressedFileStream : Stream, IDisposable
       return;
     if (IsClosed || !TailStream.CanWrite)
       return;
-    lock (SyncRoot)
+    lock (TailLock)
     {
-      tailBlock = TailBlock;
-      if (tailBlock.BlockIndex < LastWrittenTailIndex)
-        return;
-      if (tailBlock.BlockIndex == LastWrittenTailIndex &&
-          tailBlock.Length == LastWrittenTailLength)
-        return;
-      if (IsClosed || !TailStream.CanWrite)
-        return;
+      int blockIndex;
+      int length;
+      long writtenByteCount = -1;
+      lock (SyncRoot)
+      {
+        tailBlock = TailBlock;
+        if (tailBlock.BlockIndex < LastWrittenTailIndex)
+          return;
+        if (tailBlock.BlockIndex == LastWrittenTailIndex &&
+            tailBlock.Length == LastWrittenTailLength)
+          return;
+        if (IsClosed || !TailStream.CanWrite)
+          return;
 
-      var writtenLength = LastWrittenTailLength;
-      if (tailBlock.BlockIndex == LastWrittenTailIndex &&
-          tailBlock.Length > writtenLength)
-      {
-        // Within a block the tail only grows: truncations reset
-        // LastWrittenTailIndex. Append the new bytes and then update the
-        // length, which leaves the file identical to a full rewrite.
-        TailStream.Position = 2 * sizeof(int) + writtenLength;
-        BinaryTailWriter.Write(
-            tailBlock.GetBytes(writtenLength, tailBlock.Length - writtenLength).Span);
-        TailStream.Position = sizeof(int);
-        BinaryTailWriter.Write(tailBlock.Length);
+        try
+        {
+          var writtenLength = LastWrittenTailLength;
+          if (tailBlock.BlockIndex == LastWrittenTailIndex &&
+              tailBlock.Length > writtenLength)
+          {
+            // Within a block the tail only grows: truncations reset
+            // LastWrittenTailIndex. Append the new bytes and then update the
+            // length, which leaves the file identical to a full rewrite.
+            TailStream.Position = 2 * sizeof(int) + writtenLength;
+            BinaryTailWriter.Write(
+                tailBlock.GetBytes(writtenLength, tailBlock.Length - writtenLength).Span);
+            TailStream.Position = sizeof(int);
+            BinaryTailWriter.Write(tailBlock.Length);
+          }
+          else
+          {
+            TailStream.Position = 0;
+            BinaryTailWriter.Write(tailBlock.BlockIndex);
+            BinaryTailWriter.Write(tailBlock.Length);
+            var bytes = tailBlock.GetBytes(0, tailBlock.Length);
+            BinaryTailWriter.Write(bytes.Span);
+          }
+        }
+        catch (Exception e)
+        {
+          DurabilityFailure ??= e;
+          throw;
+        }
+        blockIndex = tailBlock.BlockIndex;
+        length = tailBlock.Length;
+        // The bytes written so far are in the tail or in committed blocks,
+        // and they are durable after this sync if the main file is synced.
+        if (!MainFileMayBeUnsynced)
+          writtenByteCount = WrittenByteCount;
       }
-      else
+      // The tail bytes are copied into the tail file stream,
+      // so writes can continue while they are synced to the disk.
+      try
       {
-        TailStream.Position = 0;
-        BinaryTailWriter.Write(tailBlock.BlockIndex);
-        BinaryTailWriter.Write(tailBlock.Length);
-        var bytes = tailBlock.GetBytes(0, tailBlock.Length);
-        BinaryTailWriter.Write(bytes.Span);
+        TailStream.Flush(true);
       }
-      TailStream.Flush(true);
-      LastWrittenTailIndex = tailBlock.BlockIndex;
-      LastWrittenTailLength = tailBlock.Length;
+      catch (Exception e)
+      {
+        DurabilityFailure ??= e;
+        throw;
+      }
+      LastWrittenTailIndex = blockIndex;
+      LastWrittenTailLength = length;
+      if (writtenByteCount >= 0)
+        SyncGroup.SyncedCount = writtenByteCount;
     }
+  }
+
+  /// <summary>
+  /// Syncs everything written to this stream to the disk.
+  /// A closed stream synced its content when it closed,
+  /// so this only reports a failure of that sync.
+  /// </summary>
+  /// <exception cref="WriteAheadLogSyncFailedException">
+  /// A write or a disk sync of this stream has failed.
+  /// </exception>
+  public void SyncToDisk()
+  {
+    if (!SyncGroup.Enter(Volatile.Read(ref WrittenByteCount)))
+    {
+      ThrowIfDurabilityFailed();
+      return;
+    }
+    try
+    {
+      lock (TailLock)
+      {
+        lock (SyncRoot)
+        {
+          ThrowIfDurabilityFailed();
+          if (IsClosed)
+            return;
+          SyncMainFileIfNeeded();
+        }
+        WriteTail();
+      }
+    }
+    catch (Exception e) when (e is not WriteAheadLogSyncFailedException)
+    {
+      throw new WriteAheadLogSyncFailedException(FilePath, e);
+    }
+    finally
+    {
+      SyncGroup.Exit();
+    }
+  }
+
+  void ThrowIfDurabilityFailed()
+  {
+    var failure = DurabilityFailure;
+    if (failure != null)
+      throw new WriteAheadLogSyncFailedException(FilePath, failure);
+  }
+
+  void SyncMainFileIfNeeded()
+  {
+    if (!MainFileMayBeUnsynced || !IsModified)
+      return;
+    SyncMainFile();
+  }
+
+  void SyncMainFile()
+  {
+    try
+    {
+      FileStream.Flush(true);
+    }
+    catch (Exception e)
+    {
+      DurabilityFailure ??= e;
+      throw;
+    }
+    MainFileMayBeUnsynced = false;
+  }
+
+  /// <summary>
+  /// Commits the tail block into the main file even when it is not full,
+  /// and empties the tail file. The main file then holds the whole content
+  /// on the disk, and the empty tail file is valid for any main file.
+  /// </summary>
+  internal void SealTail()
+  {
+    lock (TailLock)
+      lock (SyncRoot)
+      {
+#pragma warning disable CA1513
+        if (IsClosed)
+          throw new global::System.ObjectDisposedException(GetType().FullName);
+#pragma warning restore CA1513
+        if (TailBlock.Length > 0)
+        {
+          CommitTailBlock();
+          CurrentBlock = TailBlock;
+          CurrentBlockPosition = 0;
+        }
+        if (MainFileMayBeUnsynced)
+          SyncMainFile();
+        WriteTail();
+      }
+  }
+
+  /// <summary>
+  /// Replaces the content of the compressed file that this stream opened,
+  /// and closes this stream.
+  /// </summary>
+  /// <remarks>
+  /// A crash at any step leaves either the old or the new content on disk:
+  /// 1. The tail of this stream is sealed into its main file,
+  ///    so the old content does not depend on the tail file anymore.
+  /// 2. The new content is written into a sealed temporary file.
+  /// 3. The temporary file replaces the main file atomically.
+  /// The empty tail file is valid for both main files.
+  /// </remarks>
+  /// <param name="fileStreamProvider">The file stream provider of this stream.</param>
+  /// <param name="writeContent">Writes the new content.</param>
+  /// <returns>The length of the new content.</returns>
+  internal long ReplaceContent(
+      IFileStreamProvider fileStreamProvider,
+      Action<BinaryWriter> writeContent)
+  {
+    lock (TailLock)
+      lock (SyncRoot)
+      {
+        SealTail();
+        Close();
+      }
+    var tmpFilePath = FilePath + ".tmp";
+    var tmpTailFilePath = tmpFilePath + ".tail";
+    if (fileStreamProvider.FileExists(tmpFilePath))
+      fileStreamProvider.DeleteFile(tmpFilePath);
+    if (fileStreamProvider.FileExists(tmpTailFilePath))
+      fileStreamProvider.DeleteFile(tmpTailFilePath);
+    long length;
+    using (var tmpFileStream = new CompressedFileStream(
+        Logger,
+        fileStreamProvider,
+        tmpFilePath,
+        BlockSize,
+        false,
+        0,
+        CompressionMethod,
+        CompressionLevel)
+    {
+      // Nothing depends on the temporary file before it replaces the main
+      // file, so sealing it syncs all of its blocks at once.
+      SyncBlocksOnCommit = false
+    })
+    {
+      using (var binaryWriter = new BinaryWriter(tmpFileStream, Encoding.UTF8, true))
+      {
+        writeContent(binaryWriter);
+      }
+      tmpFileStream.SealTail();
+      length = tmpFileStream.Length;
+    }
+    fileStreamProvider.DeleteFile(tmpTailFilePath);
+    fileStreamProvider.Replace(tmpFilePath, FilePath, null);
+    return length;
   }
 
   bool LoadNextBlock()
@@ -533,22 +746,27 @@ public sealed class CompressedFileStream : Stream, IDisposable
     if (value > _length)
       throw new Exception("Compressed file cannot be expanded with empty bytes.");
 
-    if (value != 0)
-    {
-      // Sync with tail writer
+    // Sync with tail writer
+    lock (TailLock)
       lock (SyncRoot)
       {
-        TruncateFile(value);
+        MainFileMayBeUnsynced = true;
+        IsModified = true;
+        // The next sync must write the truncated tail.
+        SyncGroup.SyncedCount = -1;
+        if (value != 0)
+        {
+          TruncateFile(value);
+          return;
+        }
+        FileStream.SetLength(MetaDataSize);
+        FileStream.Position = MetaDataSize;
+        TailBlock = new DecompressedBlock(TailBlock.BlockIndex, BlockSize, CompressionMethod, CompressionLevel);
+        SkipToTheEnd();
+        CurrentBlockPosition = 0;
+        LastWrittenTailIndex = -1;
+        WriteTail();
       }
-      return;
-    }
-    FileStream.SetLength(MetaDataSize);
-    FileStream.Position = MetaDataSize;
-    TailBlock = new DecompressedBlock(TailBlock.BlockIndex, BlockSize, CompressionMethod, CompressionLevel);
-    SkipToTheEnd();
-    CurrentBlockPosition = 0;
-    LastWrittenTailIndex = -1;
-    WriteTail();
   }
 
   void TruncateFile(long truncatedLength)
@@ -659,6 +877,8 @@ public sealed class CompressedFileStream : Stream, IDisposable
       if (Position != Length)
         throw new Exception("Compressed File Stream can only write to the end of the file.");
 
+      IsModified = true;
+      Volatile.Write(ref WrittenByteCount, WrittenByteCount + buffer.Length);
       var tailBlock = TailBlock;
       if (tailBlock.IsFull && tailBlock.Length < BlockSize)
       {
@@ -703,12 +923,21 @@ public sealed class CompressedFileStream : Stream, IDisposable
         CompressionLevel,
         tailBlock.GetBytes(0, tailBlock.Length),
         ref CompressBuffer);
-    var bw = BinaryWriter;
-    bw.Write(tailBlock.BlockIndex);
-    bw.Write(compressedBytes.Length);
-    bw.Write(tailBlock.Length);
-    bw.Write(compressedBytes.Span);
-    FileStream.Flush(true);
+    try
+    {
+      var bw = BinaryWriter;
+      bw.Write(tailBlock.BlockIndex);
+      bw.Write(compressedBytes.Length);
+      bw.Write(tailBlock.Length);
+      bw.Write(compressedBytes.Span);
+      FileStream.Flush(SyncBlocksOnCommit);
+    }
+    catch (Exception e)
+    {
+      DurabilityFailure ??= e;
+      throw;
+    }
+    MainFileMayBeUnsynced = !SyncBlocksOnCommit;
     // The block is compressed and written, so its buffer can hold the next
     // tail block. This avoids allocating a new block buffer per commit.
     if (tailBlock.Capacity == BlockSize)
@@ -726,23 +955,25 @@ public sealed class CompressedFileStream : Stream, IDisposable
   {
     if (IsClosed)
       return;
-    lock (SyncRoot)
-    {
-      if (IsClosed)
-        return;
-      StopTailWriter();
-      WriteTail();
-      /*
-       * Do not flush any file stream
-       * and do not dispose any binary writer.
-       * Because disposing binary writer also fires a flush.
-       * BinaryWriter and binaryReaders are created
-       * with leaveOpen flag = true.
-       */
-      FileStream.Close();
-      TailStream.Close();
-      IsClosed = true;
-    }
+    lock (TailLock)
+      lock (SyncRoot)
+      {
+        if (IsClosed)
+          return;
+        StopTailWriter();
+        WriteTail();
+        SyncMainFileIfNeeded();
+        /*
+         * Do not flush any file stream
+         * and do not dispose any binary writer.
+         * Because disposing binary writer also fires a flush.
+         * BinaryWriter and binaryReaders are created
+         * with leaveOpen flag = true.
+         */
+        FileStream.Close();
+        TailStream.Close();
+        IsClosed = true;
+      }
   }
 
   public byte[] GetFileContent()

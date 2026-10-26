@@ -14,6 +14,12 @@ public sealed class NullWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TValu
   {
   }
 
+  public Task SyncAsync()
+  {
+    // There are no records to sync.
+    return Task.CompletedTask;
+  }
+
   public WriteAheadLogReadLogEntriesResult<TKey, TValue> ReadLogEntries(
       bool stopReadOnException,
       bool stopReadOnChecksumFailure,

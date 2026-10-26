@@ -341,6 +341,36 @@ public interface IZoneTree<TKey, TValue> : IDisposable
       IteratorOptions iteratorOptions);
 
   /// <summary>
+  /// Syncs the write ahead log records of the writes that completed
+  /// before this call to the disk, so that they survive a power loss.
+  /// </summary>
+  /// <remarks>
+  /// Writes do not wait for disk syncs. Call this method when a write must
+  /// be durable before you acknowledge it. Concurrent calls share disk syncs,
+  /// so waiting for many writes costs about one disk sync.
+  ///
+  /// In AsyncCompressed mode the background writer syncs, and the calling
+  /// thread does not block. In Sync and SyncCompressed modes the calling
+  /// thread syncs. In Sync mode appends to the write ahead log wait for
+  /// the sync.
+  ///
+  /// After a write ahead log write or disk sync fails, later calls fail too,
+  /// because the operating system may have dropped records that were not
+  /// synced yet.
+  /// </remarks>
+  /// <param name="cancellationToken">
+  /// Cancels the wait. It does not cancel the disk sync.
+  /// </param>
+  /// <returns>
+  /// A task that completes when the records are durable.
+  /// It faults with <see cref="Exceptions.WriteAheadLogSyncFailedException"/>
+  /// when they cannot be made durable. In
+  /// <see cref="Options.WriteAheadLogMode.None"/> mode there is no write
+  /// ahead log, and the task completes at once without making writes durable.
+  /// </returns>
+  Task SyncWALAsync(CancellationToken cancellationToken = default);
+
+  /// <summary>
   /// Returns maintenance object belongs to this ZoneTree.
   /// </summary>
   IZoneTreeMaintenance<TKey, TValue> Maintenance { get; }

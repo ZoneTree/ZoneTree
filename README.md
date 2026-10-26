@@ -265,6 +265,8 @@ ZoneTree uses async compressed WAL by default. It is the recommended starting po
 | Compressed WAL with a synchronous caller write path and tail durability tradeoff | Sync compressed WAL |
 | Intentional no-WAL boundary for cache/temp/rebuildable data | No WAL |
 
+Writes do not wait for disk syncs in any WAL mode. When a write must survive a power loss before you acknowledge it, await `zoneTree.SyncWALAsync()`. Concurrent calls share disk syncs.
+
 Disk segments can also use compression and different segment layouts. These options help tune disk space, read patterns, merge behavior, and file-size boundaries.
 
 For long-running services, ZoneTree also supports live backup for built-in non-transactional trees. Live backup creates complete backup generations while the tree remains open for reads and writes, and local backup generations can be restored through `ZoneTreeFactory`.

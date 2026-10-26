@@ -233,6 +233,33 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       }
   }
 
+  public Task SyncWALAsync(CancellationToken cancellationToken = default)
+  {
+    // Read the mutable segment before the read-only segments.
+    // MoveMutableSegmentForward queues the frozen segment before it
+    // publishes the next mutable segment. So a write that completed before
+    // this call is in one of these segments, or a merge has moved it into a
+    // disk segment that was synced to the disk.
+    var mutableSegment = MutableSegment;
+    var readOnlySegments = ReadOnlySegmentQueue.ToLastInFirstArray();
+    var task = mutableSegment.SyncWALAsync();
+    List<Task> syncTasks = null;
+    foreach (var segment in readOnlySegments)
+    {
+      // Read-only segments that were loaded from the disk
+      // hold no writes of this tree instance.
+      if (segment is not IMutableSegment<TKey, TValue> frozenSegment)
+        continue;
+      // The WAL of a frozen segment is synced once it is closed.
+      var syncTask = frozenSegment.SyncWALAsync();
+      if (!syncTask.IsCompletedSuccessfully)
+        (syncTasks ??= [task]).Add(syncTask);
+    }
+    if (syncTasks != null)
+      task = Task.WhenAll(syncTasks);
+    return task.WaitAsync(cancellationToken);
+  }
+
   public int ReleaseReadBuffers(long ticks)
   {
     var total = 0;

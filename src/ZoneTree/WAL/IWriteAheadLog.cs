@@ -25,6 +25,24 @@ public interface IWriteAheadLog<TKey, TValue> : IDisposable
   /// </param>
   void Append(in TKey key, in TValue value, long opIndex);
 
+  /// <summary>
+  /// Syncs the records appended before this call to the disk.
+  /// </summary>
+  /// <remarks>
+  /// Concurrent calls can share one disk sync.
+  /// A frozen, disposed or dropped write ahead log completes the task
+  /// when its final writes are synced.
+  /// After a write or a disk sync fails, later calls fail too,
+  /// because the operating system may have dropped records that
+  /// were not synced yet.
+  /// </remarks>
+  /// <returns>
+  /// A task that completes when the records are durable. It faults with
+  /// <see cref="ZoneTree.Exceptions.WriteAheadLogSyncFailedException"/>
+  /// when the records cannot be made durable.
+  /// </returns>
+  Task SyncAsync();
+
   void Drop();
 
   WriteAheadLogReadLogEntriesResult<TKey, TValue> ReadLogEntries(
