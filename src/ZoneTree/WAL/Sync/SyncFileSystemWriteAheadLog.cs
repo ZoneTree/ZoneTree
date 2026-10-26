@@ -1,6 +1,7 @@
 using System.Text;
 using System.Runtime.CompilerServices;
 using ZoneTree.AbstractFileStream;
+using ZoneTree.Exceptions;
 using ZoneTree.Exceptions.WAL;
 using ZoneTree.Logger;
 using ZoneTree.Serializers;
@@ -39,6 +40,15 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
 
   public int InitialLength { get; private set; }
 
+  long AppendedRecordCount;
+
+  // Counts the appended records that are synced to the disk.
+  readonly DiskSyncGroup SyncGroup = new();
+
+  // Once a write or a disk sync fails, the operating system may drop records
+  // that were written before. Later syncs cannot prove durability anymore.
+  volatile Exception DurabilityFailure;
+
   public SyncFileSystemWriteAheadLog(
       ILogger logger,
       IFileStreamProvider fileStreamProvider,
@@ -73,8 +83,72 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
     var valueBytes = ValueSerializer.Serialize(value);
     lock (SyncRoot)
     {
-      LogEntry.AppendLogEntry(BinaryWriter, keyBytes, valueBytes, opIndex, IsLegacyFormat);
+      try
+      {
+        LogEntry.AppendLogEntry(BinaryWriter, keyBytes, valueBytes, opIndex, IsLegacyFormat);
+      }
+      catch (Exception e)
+      {
+        DurabilityFailure ??= e;
+        throw;
+      }
+      Volatile.Write(ref AppendedRecordCount, AppendedRecordCount + 1);
     }
+  }
+
+  public Task SyncAsync()
+  {
+    try
+    {
+      SyncToDisk();
+      return Task.CompletedTask;
+    }
+    catch (Exception e)
+    {
+      return Task.FromException(e);
+    }
+  }
+
+  void SyncToDisk()
+  {
+    if (!SyncGroup.Enter(Volatile.Read(ref AppendedRecordCount)))
+    {
+      ThrowIfDurabilityFailed();
+      return;
+    }
+    try
+    {
+      lock (SyncRoot)
+      {
+        ThrowIfDurabilityFailed();
+        // Dispose syncs the file and drop happens after a merge moves the
+        // records into a disk segment.
+        if (IsDisposed)
+          return;
+        var count = AppendedRecordCount;
+        try
+        {
+          FileStream.Flush(true);
+        }
+        catch (Exception e)
+        {
+          DurabilityFailure ??= e;
+          throw new WriteAheadLogSyncFailedException(FilePath, e);
+        }
+        SyncGroup.SyncedCount = count;
+      }
+    }
+    finally
+    {
+      SyncGroup.Exit();
+    }
+  }
+
+  void ThrowIfDurabilityFailed()
+  {
+    var failure = DurabilityFailure;
+    if (failure != null)
+      throw new WriteAheadLogSyncFailedException(FilePath, failure);
   }
 
   public void Drop()
@@ -131,8 +205,17 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
 
   void Flush()
   {
-    if (!IsDisposed)
+    if (IsDisposed)
+      return;
+    try
+    {
       FileStream.Flush(true);
+    }
+    catch (Exception e)
+    {
+      DurabilityFailure ??= e;
+      throw;
+    }
   }
 
   public long ReplaceWriteAheadLog(TKey[] keys, TValue[] values, bool disableBackup)
@@ -161,7 +244,7 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
       try
       {
         // Replacement crash recovery:
-        // 1. Write keys and values to the tmp file.
+        // 1. Write keys and values to the tmp file and sync it to the disk.
         // 2. Use Replace API to replace target file.
 
         var tmpFilePath = FilePath + ".tmp";
@@ -193,6 +276,7 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
           tmpFileStream.SetLength(0);
           memoryStream.Position = 0;
           memoryStream.CopyTo(tmpFileStream.ToStream());
+          tmpFileStream.Flush(true);
           diff = existingLength - FileStream.Length;
           FileStream = null;
         }
@@ -200,6 +284,8 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
         // atomic replacement using OS API.
         FileStreamProvider.Replace(tmpFilePath, FilePath, null);
         CreateFileStream();
+        // The replaced content holds the appended records and it is synced.
+        SyncGroup.SyncedCount = AppendedRecordCount;
       }
       catch (Exception e)
       {

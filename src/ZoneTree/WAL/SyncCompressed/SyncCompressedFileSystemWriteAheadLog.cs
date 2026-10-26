@@ -90,6 +90,26 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
     }
   }
 
+  public Task SyncAsync()
+  {
+    try
+    {
+      CompressedFileStream fileStream;
+      lock (SyncRoot)
+      {
+        fileStream = FileStream;
+      }
+      // Appends continue during the disk sync,
+      // and a concurrent caller's sync can cover the records of this call.
+      fileStream.SyncToDisk();
+      return Task.CompletedTask;
+    }
+    catch (Exception e)
+    {
+      return Task.FromException(e);
+    }
+  }
+
   public void Drop()
   {
     FileStream.Dispose();
@@ -144,66 +164,32 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
       }
 
       var existingLength = FileStream.Length;
-      long diff = 0;
       try
       {
-        // Replacement crash recovery:
-        // 1. Write keys and values to the tmp file.
-        // 2. Use Replace API to replace target file.
-
-        FileStream.Dispose();
-        BinaryWriter = null;
-
-        var tmpFilePath = FilePath + ".tmp";
-        var tmpTailFilePath = FilePath + ".tmp.tail";
-        var existingFileStream = FileStream;
-        using (var tmpFileStream = new CompressedFileStream(
-            Logger,
+        var length = FileStream.ReplaceContent(
             FileStreamProvider,
-            tmpFilePath,
-            CompressionBlockSize,
-            EnableTailWriterJob,
-            TailWriterJobInterval,
-            CompressionMethod,
-            CompressionLevel))
-        {
-          FileStream = tmpFileStream;
-          BinaryWriter = new BinaryWriter(tmpFileStream, Encoding.UTF8, true);
-          tmpFileStream.SetLength(0);
-          var len = keys.Length;
-          for (var i = 0; i < len; ++i)
-          {
-            Append(keys[i], values[i], i);
-          }
-          diff = existingLength - FileStream.Length;
-          FileStream = null;
-        }
-
-        // CompressedFileStream tail does not have 100% durability.
-        // Therefore implementing replacement for tail with crash-resilience
-        // is not necessary.
-        FileStreamProvider.Replace(tmpFilePath, FilePath, null);
-        FileStreamProvider.Replace(tmpTailFilePath, FilePath + ".tail", null);
+            binaryWriter => AppendLogEntries(binaryWriter, keys, values));
         CreateFileStream();
+        return existingLength - length;
       }
       catch (Exception e)
       {
         Logger.LogError(e);
-        FileStream?.Dispose();
+        FileStream.Dispose();
         CreateFileStream();
-        diff = existingLength - FileStream.Length;
+        return existingLength - FileStream.Length;
       }
-      finally
-      {
-        if (FileStream == null)
-          CreateFileStream();
-        else if (FileStream.FilePath != FilePath)
-        {
-          FileStream.Dispose();
-          CreateFileStream();
-        }
-      }
-      return diff;
+    }
+  }
+
+  void AppendLogEntries(BinaryWriter binaryWriter, TKey[] keys, TValue[] values)
+  {
+    var len = keys.Length;
+    for (var i = 0; i < len; ++i)
+    {
+      var keyBytes = KeySerializer.Serialize(keys[i]);
+      var valueBytes = ValueSerializer.Serialize(values[i]);
+      LogEntry.AppendLogEntry(binaryWriter, keyBytes, valueBytes, i, IsLegacyFormat);
     }
   }
 

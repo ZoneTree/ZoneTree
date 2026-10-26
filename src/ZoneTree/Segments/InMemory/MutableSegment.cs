@@ -269,6 +269,13 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
     new Thread(FreezeWriteAheadLog).Start();
   }
 
+  public Task SyncWALAsync()
+  {
+    // The write ahead log syncs the records it got before this call.
+    // When freezing closes it, it completes the task after its final sync.
+    return WriteAheadLog.SyncAsync();
+  }
+
   ConcurrentBloomFilter CreateBloomFilter(
       ZoneTreeOptions<TKey, TValue> options)
   {

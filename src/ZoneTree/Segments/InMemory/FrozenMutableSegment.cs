@@ -46,6 +46,11 @@ public sealed class FrozenMutableSegment<TKey, TValue> : IMutableSegment<TKey, T
   {
   }
 
+  public Task SyncWALAsync()
+  {
+    return mutableSegment.SyncWALAsync();
+  }
+
   public IIndexedReader<TKey, TValue> GetIndexedReader()
   {
     throw new NotSupportedException("BTree Indexed Reader is not supported.");

@@ -1,6 +1,6 @@
 ---
 title: WAL Modes
-description: Understand ZoneTree's default AsyncCompressed WAL, compare logging paths, and manage compressed tails and shutdown.
+description: Understand ZoneTree's default AsyncCompressed WAL, compare logging paths, wait for durable writes, and manage compressed tails and shutdown.
 ---
 
 <SectionHeader
@@ -21,6 +21,84 @@ description: Understand ZoneTree's default AsyncCompressed WAL, compare logging 
 | `None` | Does not log segment records. Metadata and merged disk segments still exist. | Disposable data or a dataset you intentionally rebuild from another source. |
 
 AsyncCompressed lets the caller continue before background logging finishes. An abrupt process exit can omit recent queued or unwritten records; normal disposal drains that work.
+
+## Acknowledge durable writes
+
+No WAL mode waits for a disk sync on each write. When writes must survive a power loss before you acknowledge them, await `SyncWALAsync` once per request or batch, after all of its writes:
+
+```csharp
+tree.Upsert(orderKey, order);
+tree.Upsert(stockKey, stock);
+tree.Upsert(auditKey, audit);
+await tree.SyncWALAsync();
+// All three writes survive a power loss. Acknowledge the request.
+```
+
+### What a disk sync costs
+
+A disk sync (`fsync` on Linux, `FlushFileBuffers` on Windows) returns only after the storage device confirms that the data is on stable media. That takes roughly 0.1–1 ms on an NVMe drive, a few milliseconds on a SATA SSD, and around 10 ms on a hard disk. A writer that waits for a sync after every write cannot start its next write until that sync finishes, so its throughput is capped by the sync latency: with 1 ms syncs, it can do at most 1,000 writes per second.
+
+Measured on one machine (Windows, NVMe SSD, 10,000 inserts, AsyncCompressed):
+
+| Pattern | Writes per second |
+| --- | ---: |
+| No `SyncWALAsync` | about 1,000,000 |
+| One writer, sync after every write | about 1,100 |
+| 64 concurrent writers, each syncing after every write | about 32,000 |
+
+Syncing every write made a single writer about 900 times slower. Concurrent waiters share syncs, which recovers part of the cost, but the device latency still sets the pace.
+
+### How much can be lost without a sync
+
+The compressed modes sync the WAL on their own, so their loss window stays small without `SyncWALAsync`:
+
+| Mode | Writes lost on a process crash or power loss |
+| --- | --- |
+| `AsyncCompressed` | Writes since the background writer's last sync. It syncs each full compression block, and the tail whenever its queue becomes empty. Under light load that is about the last `EmptyQueuePollInterval` (100 ms by default). Under sustained load it is at most one compression block (256 KB of WAL data by default) plus the writes still queued. |
+| `SyncCompressed` | Writes since the last tail sync. The tail writer job syncs every `TailWriterJobInterval` (500 ms by default), and full blocks sync when they are committed. |
+| `Sync` | Nothing on a process crash, because each record reaches the operating system. On a power loss, everything that the operating system has not written back yet, because this mode syncs only when the segment closes. |
+
+These windows are far shorter than the operating system's own background writes, and they are small enough for most workloads.
+
+<AlertBox class="zt-guide-callout" tone="info" title="How the operating system writes files" icon="tabler:info-circle">
+  <p>When a program writes to a file, the operating system copies the data into its file cache in memory and returns at once. It writes the cache to the disk later, in the background. By default, Linux writes data that has been cached for 30 seconds and checks every 5 seconds, and Windows writes a part of its cache every second.</p>
+  <p>Cached data survives a crash of your process, but not a power loss or an operating-system crash. Most applications rely on these background writes all the time, without syncing a single write.</p>
+</AlertBox>
+
+### When you need it
+
+The decision depends on how likely a failure is to interrupt a recent write, what losing that update would mean, and the cost of waiting on every save. AsyncCompressed already persists updates automatically. An explicit `SyncWALAsync()` makes the application wait for a particular persistence boundary.
+
+For example, consider the following hypothetical server. These failure rates and exposure times are assumptions for the calculation, not measured industry rates or ZoneTree guarantees:
+
+| Failure | Assumed frequency | Assumed exposure for one write | Approximate chance of overlap for that write |
+| --- | --- | --- | --- |
+| Power cut | Once per year | 100 ms before disk synchronization | 1 in 315 million |
+| Operating-system crash | Once per year | 100 ms before disk synchronization | 1 in 315 million |
+| Application crash | Once per month | 10 ms before the write reaches the OS file cache | 1 in 263 million |
+
+For failures independent of write timing, the chance of overlap is approximately the failure frequency multiplied by the exposed time. These figures use a 365-day year and a [constant-rate failure model](https://www.itl.nist.gov/div898/handbook/apr/section1/apr161.htm). A failure triggered by the request itself does not fit that independence assumption. An application crash only threatens writes still pending inside the process; it does not discard data already in the OS file cache.
+
+Consider a user updating a display name, biography, or notification preference. The application may accept the small chance that a recent edit must be repeated after a failure. In that case, making every save wait for disk synchronization imposes a cost on every update to reduce a risk the product can tolerate. The profile is still persistent data; normal background persistence can be an appropriate choice for it.
+
+Write volume also matters. At 100 writes per second, a 100 ms exposure represents about 10 recent writes at the time of a failure. A small probability for one write can therefore still mean several affected updates on a busy server. Whether that is acceptable depends on the consequences: repeating a profile edit is different from losing a confirmed ledger entry or a message whose sender has deleted its copy.
+
+Use `SyncWALAsync()` when those consequences require an acknowledgment to wait for disk synchronization. It reduces the risk from pending local writes; it does not eliminate network failures, hardware failures, or every other way an operation can fail. One wait after all writes in a request or batch can cover that acknowledgment without paying for a separate wait after each record.
+
+### How the sync works
+
+The task completes when the WAL records of every write that completed before the call are synced to the disk, including writes in segments that are still closing or waiting to merge. Concurrent calls share disk syncs, so many writers waiting together cost about one sync.
+
+| Mode | Who syncs |
+| --- | --- |
+| `AsyncCompressed` | The background writer. The calling thread does not block, and writes keep queuing during the sync. |
+| `SyncCompressed` | The calling thread. Writes keep appending during the sync. |
+| `Sync` | The calling thread. WAL appends wait until the sync finishes. |
+| `None` | Nothing. The task completes at once, and unmerged writes stay in memory only. |
+
+If a WAL write or disk sync fails, the task faults with `WriteAheadLogSyncFailedException`, and later calls keep failing until a merge moves the affected segment into a disk segment. The operating system may drop unsynced data after a failed sync, so a later successful sync would not prove durability. A cancellation token cancels only the wait, not the sync.
+
+`SyncWALAsync` syncs file contents. It does not sync the directory that holds a new WAL file, which some file systems require before a newly created file survives a power loss.
 
 ## Configure only what you need
 
@@ -52,7 +130,7 @@ Compressed WALs have a main file of committed blocks and a companion `.tail` fil
 
 | Mode | How the current tail is written |
 | --- | --- |
-| `AsyncCompressed` | The background writer writes it when the queue becomes empty; draining and disposal also write it. |
+| `AsyncCompressed` | The background writer writes it when the queue becomes empty or `SyncWALAsync` requests a sync; draining and disposal also write it. |
 | `SyncCompressed` | A tail-writer job is enabled by default, with a 500 ms interval. Closing the stream writes the remaining tail. |
 
 The async writer's default `EmptyQueuePollInterval` is 100 ms. These intervals control scheduling, not a maximum persistence delay.
@@ -60,7 +138,7 @@ The async writer's default `EmptyQueuePollInterval` is 100 ms. These intervals c
 <ExpandablePanel title="Stream flushing and disk synchronization" class="zt-guide-reference">
   <p>Waiting for disk synchronization after every record can reduce throughput. Batching and group commit let records or transactions share that cost; <a href="https://www.postgresql.org/docs/current/runtime-config-wal.html">PostgreSQL documents group commit</a> as one example.</p>
   <p>ZoneTree's plain Sync path calls <code>BinaryWriter.Flush()</code> per record. With the local provider this reaches ordinary <code>FileStream.Flush()</code>, while disposal requests <code>Flush(true)</code>. Compressed streams request disk synchronization when committing full blocks or writing the tail, rather than on every partial-block append.</p>
-  <p>These are the built-in implementations' synchronization points, not a recommendation to add per-record disk flushes. Custom WAL and file providers define their own persistence semantics.</p>
+  <p>These are the built-in implementations' synchronization points, not a recommendation to add per-record disk flushes. To wait for durability, use <code>SyncWALAsync</code>, which shares disk syncs between concurrent callers. Custom WAL and file providers define their own persistence semantics.</p>
 </ExpandablePanel>
 
 ## Close the tree cleanly
