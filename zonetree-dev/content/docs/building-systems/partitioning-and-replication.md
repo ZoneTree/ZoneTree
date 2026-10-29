@@ -151,7 +151,7 @@ For example, a transactional outbox can store application state and an outgoing-
 
 A local `Upsert` followed by an unrelated network send leaves a failure window: the process can stop after the local write but before publication. The pipeline needs a durable replay source or a reconciliation procedure for that window. A callback by itself does not close it.
 
-For transactional producers, capture committed transaction meaning and boundaries. Individual underlying storage writes can include transaction work that has not committed yet.
+For transactional producers, capture committed transactions and their boundaries. The storage writes underneath include versions of transactions that have not committed yet, or that later roll back.
 
 The engine WAL serves local recovery. Its files can be compacted or removed as the LSM tree progresses, so a replication stream needs its own retention and consumer-checkpoint policy. `EnableIncrementalBackup` is a WAL-compaction backup option, not a ready-made subscriber or change-feed API.
 
@@ -288,7 +288,7 @@ Bootstrap data and freshness metadata must describe the same base. A newly creat
 
 For whole-partition movement, live backup can transfer the immutable disk files directly and stream recent in-memory records. A generation is a complete restore unit; a store can reuse unchanged segment files across generations.
 
-Built-in live backup supports non-transactional ZoneTrees. Transactional bootstrap needs to preserve the transaction log and its relationship to the data as well.
+Built-in live backup supports non-transactional ZoneTrees. Bootstrap a transactional tree from an offline full copy.
 
 ```csharp
 using ZoneTree;
@@ -331,7 +331,7 @@ ZoneTree's local APIs give the node several useful choices:
 
 Ordinary `Upsert` does not participate in the atomic methods' coordination lock. Use a compatible write discipline for keys whose correctness depends on atomic read-modify-write. Transactions in one tree also do not commit changes across another tree or node. See [atomic operations](../usage/atomic-operations.mdx) and [transactions](../usage/transactions.mdx).
 
-Transactional trees expose `BeginTransaction`, `Prepare`, `Commit`, and `Rollback` as separate lifecycle operations, alongside convenience methods that combine steps. These give a coordinating layer explicit local transaction controls. In the built-in optimistic implementation, `Prepare` checks local dependencies and marks the transaction ready in memory. A distributed commit protocol must establish its own durable decision records and recovery rules around those calls. `ZoneTreeFactory.SetTransactionLog` also permits a custom `ITransactionLog<TKey, TValue>` implementation when the integration needs a different transaction-log design.
+Transactional trees expose `BeginTransaction`, `Commit` or `TryCommit`, and `Rollback`. There is no separate prepare step: a commit checks for conflicts and commits in one call, and a transaction that has not committed cannot be resumed after a restart. A distributed commit protocol must establish its own durable decision records and recovery rules above these local transactions.
 
 The database layer then defines when those local results become externally visible:
 
@@ -371,6 +371,6 @@ The behaviors described here can be traced to these implementations:
 * [Write path and atomic callbacks](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Core/ZoneTree.ReadWrite.cs)
 * [Operation-index allocation during value construction](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Collections/BTree/BTree.Write.OpIndex.cs)
 * [Replica apply and its companion index](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Core/Replicator.cs)
-* [Local transaction prepare, commit, and rollback](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Transactional/OptimisticZoneTree.cs)
+* [Local transaction commit and rollback](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Transactional/TransactionalZoneTree.cs)
 * [Snapshot and backup segment collection](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Core/ZoneTree.Iterators.cs)
 * [Live backup generation](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Backup/LiveBackup.cs) and [restore](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Backup/LiveBackupRestore.cs)

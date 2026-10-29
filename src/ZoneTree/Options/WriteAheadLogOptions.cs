@@ -56,10 +56,8 @@ public sealed class WriteAheadLogOptions
   /// <summary>
   /// Incremental backup is a WAL feature which moves
   /// all WAL data to another incremental log file when it is compacted.
-  /// It is required to compact WAL in memory without data loss in 
-  /// persistent device. Used by Optimistic Transactional ZoneTree for
-  /// transaction log compaction. Enabling backup will make transactions 
-  /// slower.
+  /// It is required to compact WAL in memory without data loss in
+  /// persistent device. Enabling backup makes WAL compaction slower.
   /// Default value is false.
   /// </summary>
   public bool EnableIncrementalBackup { get; set; }

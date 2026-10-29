@@ -9,8 +9,11 @@ namespace ZoneTree.UnitTests;
 public sealed class LegacyWalMigrationTests
 {
   // Real filesystem fixtures generated with main commit 8347664f5e5d1c98a530e2c15eb63ab42118e9e4
-  // (ZoneTree 1.9.9): transaction 1 commits {1:10, 2:20}, then rotates the mutable segment;
-  // transaction 2 commits {3:30}; transaction 3 leaves {2:999, 4:40} uncommitted.
+  // (ZoneTree 1.9.9) by the removed optimistic transaction layer: transaction 1 commits
+  // {1:10, 2:20}, then rotates the mutable segment; transaction 2 commits {3:30};
+  // transaction 3 writes {2:999, 4:40} without committing. That layer wrote in place,
+  // so the tree holds {1:10, 2:999, 3:30, 4:40}. Its transaction log WALs stay in the
+  // fixture and must be migrated with the rest of the directory.
   // Compression uses 128-byte blocks and CompressionMethod.None to keep fixtures tiny.
   string DataDirectory;
 
@@ -28,14 +31,10 @@ public sealed class LegacyWalMigrationTests
     Directory.Delete(DataDirectory, true);
   }
 
-  [TestCase(WriteAheadLogMode.Sync, false)]
-  [TestCase(WriteAheadLogMode.Sync, true)]
-  [TestCase(WriteAheadLogMode.SyncCompressed, false)]
-  [TestCase(WriteAheadLogMode.SyncCompressed, true)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed, false)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed, true)]
-  public void LegacyDatabaseMigratesOnceAndRecoversTransactions(
-      WriteAheadLogMode mode, bool configureTransactionsBeforeOpen)
+  [TestCase(WriteAheadLogMode.Sync)]
+  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  public void LegacyDatabaseMigratesOnce(WriteAheadLogMode mode)
   {
     CopyFixture(mode);
     var originalFiles = LegacyWalFiles();
@@ -44,22 +43,16 @@ public sealed class LegacyWalMigrationTests
     Assert.That(oldEntries.Any(x => x.Checksum != 0), Is.True);
     var provider = new CountingWalProvider(DataDirectory);
     var factory = CreateFactory(mode).SetWriteAheadLogProvider(_ => provider);
-    if (configureTransactionsBeforeOpen)
-    {
-      factory.ConfigureTransactionLog(log => log.CompactionThreshold = int.MaxValue);
-      factory.ConfigureTransactionLog(log => log.CompactionThreshold = int.MaxValue);
-    }
 
-    using (var tree = factory.OpenTransactional())
+    using (var tree = factory.Open())
     {
       Assert.That(provider.MigrationVersions, Is.EqualTo(new[] { new Version("1.9.9.0") }));
-      Assert.That(tree.Maintenance.ZoneTree.Maintenance.MutableSegment.SegmentId, Is.EqualTo(2));
-      Assert.That(tree.Maintenance.ZoneTree.Maintenance.ReadOnlySegments.Count, Is.EqualTo(1));
-      Assert.That(tree.Maintenance.UncommittedTransactionIds, Is.EqualTo(new[] { 3L }));
-      AssertCommitted(tree, 1, 10);
-      AssertCommitted(tree, 2, 20);
-      AssertCommitted(tree, 3, 30);
-      Assert.That(tree.ReadCommittedContainsKey(4), Is.False);
+      Assert.That(tree.Maintenance.MutableSegment.SegmentId, Is.EqualTo(2));
+      Assert.That(tree.Maintenance.ReadOnlySegments.Count, Is.EqualTo(1));
+      AssertValue(tree, 1, 10);
+      AssertValue(tree, 2, 999);
+      AssertValue(tree, 3, 30);
+      AssertValue(tree, 4, 40);
       foreach (var file in originalFiles)
       {
         Assert.That(File.Exists(file), Is.False);
@@ -67,8 +60,7 @@ public sealed class LegacyWalMigrationTests
       }
       Assert.That(Directory.GetFiles(DataDirectory, "*.wal_xxh3.*", SearchOption.AllDirectories), Is.Empty);
 
-      tree.PrepareAndCommit(3);
-      tree.UpsertAutoCommit(5, 50);
+      tree.Upsert(5, 50);
     }
 
     var legacyWal = WalPath("seg", 2, "wal_crc", mode);
@@ -78,37 +70,34 @@ public sealed class LegacyWalMigrationTests
         Is.EqualTo(oldEntries.Select(x => x.Checksum)));
     Assert.That(appendedEntries.Skip(oldEntries.Count).Select(x => x.Checksum), Is.All.Zero);
 
-    using (var tree = CreateFactory(mode).OpenTransactional())
+    using (var tree = CreateFactory(mode).Open())
     {
-      Assert.That(tree.Maintenance.UncommittedTransactionIds, Is.Empty);
-      AssertCommitted(tree, 2, 999);
-      AssertCommitted(tree, 4, 40);
-      AssertCommitted(tree, 5, 50);
-      tree.Maintenance.ZoneTree.Maintenance.MoveMutableSegmentForward();
-      tree.UpsertAutoCommit(6, 60);
+      AssertValue(tree, 2, 999);
+      AssertValue(tree, 4, 40);
+      AssertValue(tree, 5, 50);
+      tree.Maintenance.MoveMutableSegmentForward();
+      tree.Upsert(6, 60);
     }
 
     var newWal = WalPath("seg", 3, "wal_xxh3", mode);
     var newEntries = ReadEntries(newWal, mode);
     Assert.That(newEntries, Is.Not.Empty);
     Assert.That(newEntries.All(x => x.ValidateChecksum()), Is.True);
-    using var reopened = CreateFactory(mode).OpenTransactional();
-    AssertCommitted(reopened, 1, 10);
-    AssertCommitted(reopened, 6, 60);
+    using var reopened = CreateFactory(mode).Open();
+    AssertValue(reopened, 1, 10);
+    AssertValue(reopened, 6, 60);
   }
 
   [Test]
-  public void ProviderSuppliedThroughOptionsMigratesBeforeTransactionConfiguration()
+  public void ProviderSuppliedThroughOptionsMigrates()
   {
     CopyFixture(WriteAheadLogMode.Sync);
     var provider = new CountingWalProvider(DataDirectory);
     var factory = CreateFactory(WriteAheadLogMode.Sync)
-        .Configure(options => options.WriteAheadLogProvider = provider)
-        .ConfigureTransactionLog(log => log.CompactionThreshold = int.MaxValue);
-    using var tree = factory.OpenTransactional();
+        .Configure(options => options.WriteAheadLogProvider = provider);
+    using var tree = factory.Open();
     Assert.That(provider.MigrationVersions, Is.EqualTo(new[] { new Version("1.9.9.0") }));
-    Assert.That(tree.Maintenance.UncommittedTransactionIds, Is.EqualTo(new[] { 3L }));
-    AssertCommitted(tree, 2, 20);
+    AssertValue(tree, 2, 999);
   }
 
   [TestCase(WriteAheadLogMode.Sync)]
@@ -120,9 +109,8 @@ public sealed class LegacyWalMigrationTests
     var original = WalPath("seg", 2, "wal", mode);
     File.Move(original, WalPath("seg", 2, "wal_crc", mode));
     // Compressed tails deliberately retain their old names, as after an interrupted rename.
-    using var tree = CreateFactory(mode).OpenTransactional();
-    AssertCommitted(tree, 2, 20);
-    Assert.That(tree.Maintenance.UncommittedTransactionIds, Is.EqualTo(new[] { 3L }));
+    using var tree = CreateFactory(mode).Open();
+    AssertValue(tree, 2, 999);
     Assert.That(LegacyWalFiles(), Is.Empty);
   }
 
@@ -215,9 +203,9 @@ public sealed class LegacyWalMigrationTests
       => Directory.GetFiles(DataDirectory, "*", SearchOption.AllDirectories)
           .Where(x => Path.GetFileName(x).Contains(".wal.", StringComparison.Ordinal)).ToArray();
 
-  static void AssertCommitted(ITransactionalZoneTree<int, int> tree, int key, int expected)
+  static void AssertValue(IZoneTree<int, int> tree, int key, int expected)
   {
-    Assert.That(tree.ReadCommittedTryGet(key, out var value), Is.True);
+    Assert.That(tree.TryGet(key, out var value), Is.True);
     Assert.That(value, Is.EqualTo(expected));
   }
 

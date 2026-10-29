@@ -100,7 +100,9 @@ using var maintainer = tree.CreateMaintainer();
 
 `OpenTransactional()` requires existing data; `CreateTransactional()` requires that a tree does not already exist. Their opening rules match the non-transactional methods above.
 
-The returned `ITransactionalZoneTree<TKey, TValue>` uses transaction IDs and commit handling. Choose it because an invariant spans multiple keys, rather than merely because several application threads will write. See [transactions](transactions.mdx) for a complete example.
+The returned `ITransactionalZoneTree<TKey, TValue>` reads and writes through transaction objects that commit or roll back. Choose it because an invariant spans multiple keys, rather than merely because several application threads will write. See [transactions](transactions.mdx) for a complete example.
+
+A transactional tree stores every key together with the transaction that wrote it, so its files cannot be opened with `Open()` or `OpenOrCreate()`, and an ordinary tree's files cannot be opened as a transactional tree.
 
 ## Close resources in the right order
 

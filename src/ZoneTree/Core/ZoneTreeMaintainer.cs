@@ -83,20 +83,6 @@ public sealed class ZoneTreeMaintainer<TKey, TValue> : IMaintainer, IDisposable
       StartPeriodicTimer();
   }
 
-  /// <summary>
-  /// Creates a ZoneTreeMaintainer.
-  /// </summary>
-  /// <param name="zoneTree">The transactional ZoneTree</param>
-  /// <param name="logger">The logger</param>
-  public ZoneTreeMaintainer(ITransactionalZoneTree<TKey, TValue> zoneTree, ILogger logger = null)
-  {
-    Logger = logger ?? zoneTree.Logger;
-    ZoneTree = zoneTree.Maintenance.ZoneTree;
-    Maintenance = ZoneTree.Maintenance;
-    AttachEvents();
-    StartPeriodicTimer();
-  }
-
   void AttachEvents()
   {
     Maintenance.OnMutableSegmentMovedForward += OnMutableSegmentMovedForward;

@@ -16,10 +16,10 @@ description: Create and verify complete live-backup generations, choose memory c
 | Approach | What it captures | When it fits |
 | --- | --- | --- |
 | Live backup | Leased immutable segment files, optional streamed memory records, and a generation catalog. | Built-in non-transactional ZoneTree instances that should stay open. |
-| Offline full copy | The complete closed database, including all separately configured WAL and transaction-log locations. | A maintenance window, or a deployment that needs its full file state copied together. |
+| Offline full copy | The complete closed database, including all separately configured WAL locations. | A maintenance window, or a deployment that needs its full file state copied together. |
 | Rebuild from source | The authoritative input and the application's replay position or rebuild procedure. | Derived indexes, caches, and projections whose data can be recreated. |
 
-Built-in live backup requires the built-in non-transactional ZoneTree implementation. A transactional deployment also needs its transaction-log state; use a coordinated offline copy or a backup design that includes that state.
+Built-in live backup requires a non-transactional ZoneTree. Back up a transactional tree with an offline full copy.
 
 ## Restore and verify a generation
 
@@ -215,8 +215,8 @@ For a maintenance-window backup:
 
 1. Finish application writes and scans, stop backup scheduling, and wait for active backup and merge work.
 2. If segment WAL is disabled and memory records must be retained, finish a controlled merge before closing.
-3. Dispose the tree and any transactional wrapper or transaction log it owns.
-4. Copy the entire data directory and every separately configured WAL or transaction-log location from that closed state. Include metadata, multipart parts, WAL companion tails, and supporting files.
+3. Dispose the tree, or the transactional tree that owns it.
+4. Copy the entire data directory and every separately configured WAL location from that closed state. Include metadata, multipart parts, WAL companion tails, and supporting files.
 5. Open the copy separately and verify application-level records before treating the copy as a usable backup.
 
 Keep the deployment's factory configuration with the restore procedure.

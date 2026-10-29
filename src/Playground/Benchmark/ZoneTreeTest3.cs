@@ -1,7 +1,7 @@
 using Humanizer;
 using System.Diagnostics;
-using ZoneTree.Core;
 using ZoneTree.Options;
+using ZoneTree.Transactional;
 
 namespace Playground.Benchmark;
 
@@ -27,21 +27,26 @@ public sealed class ZoneTreeTest3 : ZoneTreeTestBase<int, int>
     stats.RestartStopwatch();
 
     using var zoneTree = OpenOrCreateTransactionalZoneTree();
-    using var maintainer = CreateMaintainer(zoneTree.Maintenance.ZoneTree);
+    using var maintainer = zoneTree.CreateMaintainer();
+    maintainer.ThresholdForMergeOperationStart = TestConfig.ThresholdForMergeOperationStart;
     stats.AddStage("Loaded In");
+
+    void Insert(int x)
+    {
+      using var tx = zoneTree.BeginTransaction(TransactionIsolationLevel.Snapshot);
+      tx.Upsert(x, x + x);
+      tx.Commit();
+    }
 
     if (TestConfig.EnableParalelInserts)
     {
-      Parallel.For(0, count, (x) =>
-      {
-        zoneTree.UpsertAutoCommit(x, x + x);
-      });
+      Parallel.For(0, count, Insert);
     }
     else
     {
       for (var x = 0; x < count; ++x)
       {
-        zoneTree.UpsertAutoCommit(x, x + x);
+        Insert(x);
       }
     }
     stats.AddStage("Inserted In", ConsoleColor.Green);
@@ -63,13 +68,15 @@ public sealed class ZoneTreeTest3 : ZoneTreeTestBase<int, int>
     stats.LogWithColor(GetLabel("Iterate Transactional <int, int>"), ConsoleColor.Cyan);
     stats.RestartStopwatch();
 
-    using var zoneTree = OpenOrCreateZoneTree();
-    using var maintainer = CreateMaintainer(zoneTree);
+    using var zoneTree = OpenOrCreateTransactionalZoneTree();
+    using var maintainer = zoneTree.CreateMaintainer();
+    maintainer.ThresholdForMergeOperationStart = TestConfig.ThresholdForMergeOperationStart;
 
     stats.AddStage("Loaded in", ConsoleColor.DarkYellow);
 
     var off = 0;
-    using var iterator = zoneTree.CreateIterator();
+    using var tx = zoneTree.BeginReadOnlyTransaction();
+    using var iterator = tx.CreateIterator();
     while (iterator.Next())
     {
       if (iterator.CurrentKey * 2 != iterator.CurrentValue)

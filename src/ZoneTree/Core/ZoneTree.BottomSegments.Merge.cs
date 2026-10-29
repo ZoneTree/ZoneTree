@@ -162,6 +162,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     var lastValuesOfEveryPart = bottomDiskSegment.GetLastValuesOfEveryPart();
     var diskSegmentMinimumRecordCount = Options.DiskSegmentOptions.MinimumRecordCount;
     var isRangeDeleted = Options.IsRangeDeleted;
+    var mergeFilter = Options.MergeFilterFactory?.Invoke(!writeDeletedValues);
 
     var dropCount = 0;
     var skipCount = 0;
@@ -246,7 +247,8 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         var part = bottomDiskSegment
             .GetPart(currentPartIndex);
         if (part.Length > diskSegmentMinimumRecordCount &&
-            diskSegmentCreator.CanSkipCurrentPart)
+            diskSegmentCreator.CanSkipCurrentPart &&
+            (mergeFilter == null || mergeFilter.CanSkipPart(minEntry.Key)))
         {
           var lastKey = lastKeysOfEveryPart[currentPartIndex];
           var islastKeySmallerThanAllOtherKeys = true;
@@ -276,12 +278,23 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
             prevKey = lastKey;
             skipElement();
             ++skipCount;
+            mergeFilter?.OnPartSkipped();
             continue;
           }
         }
         ++dropCount;
         Logger.LogTrace(new LogMergerDrop(part.SegmentId, dropCount, skipCount));
 
+      }
+
+      // Deleted records kept for older segments are not filtered.
+      // prevKey is already set, so older duplicates of a dropped key are skipped too.
+      if (mergeFilter != null &&
+          !IsDeleted(minEntry.Key, minEntry.Value) &&
+          !mergeFilter.Keep(minEntry.Key, minEntry.Value))
+      {
+        skipElement();
+        continue;
       }
 
       diskSegmentCreator.Append(minEntry.Key, minEntry.Value, iteratorPosition);

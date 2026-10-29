@@ -41,6 +41,17 @@ public delegate bool IsRangeDeletedDelegate<TKey, TValue>(
 public delegate void MarkValueDeletedDelegate<TValue>(ref TValue value);
 
 /// <summary>
+/// Creates the filter of one merge operation.
+/// </summary>
+/// <typeparam name="TKey">The key type.</typeparam>
+/// <typeparam name="TValue">The value type.</typeparam>
+/// <param name="includesOldestRecords">True when no record older than the
+/// merged records remains outside the merge, so dropping a record cannot expose
+/// an older one.</param>
+/// <returns>The filter, or null to merge without filtering.</returns>
+public delegate IMergeFilter<TKey, TValue> MergeFilterFactory<TKey, TValue>(bool includesOldestRecords);
+
+/// <summary>
 /// Represents configuration options of a ZoneTree.
 /// </summary>
 /// <typeparam name="TKey">The key type</typeparam>
@@ -196,6 +207,28 @@ public sealed class ZoneTreeOptions<TKey, TValue>
   /// If enabled, the tree performs garbage collection on load if it is applicable.
   /// </summary>
   public bool EnableSingleSegmentGarbageCollection { get; set; }
+
+  /// <summary>
+  /// When true, moving the mutable segment forward syncs its write ahead log
+  /// to the disk before the next mutable segment accepts writes.
+  /// Every segment WAL then reaches the disk before any write of a newer
+  /// segment, so after a crash the recovered writes are always a prefix of
+  /// the write order. Without it, a crash can keep a newer segment's writes
+  /// and lose an older segment's unsynced tail.
+  /// Costs one WAL sync per mutable segment move, while writers wait.
+  /// Transactional trees enable it because a commit must never be
+  /// recovered without the writes made before it.
+  /// Default value is false.
+  /// </summary>
+  public bool PreserveWriteOrderAcrossSegments { get; set; }
+
+  /// <summary>
+  /// Optional factory of filters that can drop records while merging segments.
+  /// A new filter is created for every merge, and it sees the merged records in
+  /// key order, after deleted records and older duplicates are removed.
+  /// Null disables filtering.
+  /// </summary>
+  public MergeFilterFactory<TKey, TValue> MergeFilterFactory { get; set; }
 
   /// <summary>
   /// Creates default delete delegates for nullable types if they are not already set.

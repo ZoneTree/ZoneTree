@@ -37,6 +37,23 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       MutableSegment = new FrozenMutableSegment<TKey, TValue>(mutableSegment);
       mutableSegment.Freeze();
       while (!mutableSegment.IsFullyFrozen) Thread.Yield();
+      if (Options.PreserveWriteOrderAcrossSegments)
+      {
+        // Writers retry until the new mutable segment is published.
+        // Syncing here makes every write of this segment durable
+        // before any write of the next segment reaches its WAL.
+        try
+        {
+          mutableSegment.SyncWALAsync().GetAwaiter().GetResult();
+        }
+        catch (Exception e)
+        {
+          // Writers would wait forever if the move stopped here.
+          // The WAL keeps the failure, so SyncWALAsync reports it
+          // until a merge moves the records into a disk segment.
+          Logger.LogError(e);
+        }
+      }
       ReadOnlySegmentQueue.Enqueue(mutableSegment);
       MetaWal.EnqueueMaximumOpIndex(mutableSegment.MaximumOpIndex);
       MetaWal.EnqueueReadOnlySegment(mutableSegment.SegmentId);
@@ -215,6 +232,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         Array.Empty<TValue>();
     var diskSegmentMinimumRecordCount = Options.DiskSegmentOptions.MinimumRecordCount;
     var isRangeDeleted = Options.IsRangeDeleted;
+    var mergeFilter = Options.MergeFilterFactory?.Invoke(!hasBottomSegments);
 
     var dropCount = 0;
     var skipCount = 0;
@@ -298,7 +316,8 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         var part = oldDiskSegment
             .GetPart(currentPartIndex);
         if (part.Length > diskSegmentMinimumRecordCount &&
-            diskSegmentCreator.CanSkipCurrentPart)
+            diskSegmentCreator.CanSkipCurrentPart &&
+            (mergeFilter == null || mergeFilter.CanSkipPart(minEntry.Key)))
         {
           var lastKey = lastKeysOfEveryPart[currentPartIndex];
           var islastKeySmallerThanAllOtherKeys = true;
@@ -328,12 +347,23 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
             prevKey = lastKey;
             skipElement();
             ++skipCount;
+            mergeFilter?.OnPartSkipped();
             continue;
           }
         }
         ++dropCount;
         Logger.LogTrace(new LogMergerDrop(part.SegmentId, dropCount, skipCount));
 
+      }
+
+      // Deleted records kept for older segments are not filtered.
+      // prevKey is already set, so older duplicates of a dropped key are skipped too.
+      if (mergeFilter != null &&
+          !IsDeleted(minEntry.Key, minEntry.Value) &&
+          !mergeFilter.Keep(minEntry.Key, minEntry.Value))
+      {
+        skipElement();
+        continue;
       }
 
       diskSegmentCreator.Append(minEntry.Key, minEntry.Value, iteratorPosition);
