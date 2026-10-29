@@ -19,6 +19,11 @@ namespace ZoneTree.Transactional;
 /// and no older record remains outside the merge, it is dropped too: nothing older can reappear.
 /// Versions of active transactions are kept, and versions of rolled back transactions dropped.
 /// </para>
+/// <para>
+/// A commit hides older versions only once it is durable: synced, or written to the disk
+/// by this merge or an earlier one. Otherwise a crash could keep the merge output but
+/// lose the commit, and recovery would find neither the new value nor the old one.
+/// </para>
 /// </remarks>
 internal sealed class VersionGarbageFilter<TKey, TValue> :
     IMergeFilter<VersionedKey<TKey>, VersionedValue<TValue>>
@@ -38,6 +43,10 @@ internal sealed class VersionGarbageFilter<TKey, TValue> :
 
   readonly long LatestSnapshot;
 
+  readonly long DurableCommitTimestamp;
+
+  readonly long MergedSegmentId;
+
   bool HasCurrentKey;
 
   TKey CurrentKey;
@@ -53,7 +62,9 @@ internal sealed class VersionGarbageFilter<TKey, TValue> :
       TransactionalZoneTree<TKey, TValue> tree,
       IRefComparer<TKey> comparer,
       bool includesOldestRecords,
-      long[] snapshots)
+      long[] snapshots,
+      long durableCommitTimestamp,
+      long mergedSegmentId)
   {
     Tree = tree;
     Comparer = comparer;
@@ -61,6 +72,8 @@ internal sealed class VersionGarbageFilter<TKey, TValue> :
     Snapshots = snapshots;
     Horizon = snapshots[0];
     LatestSnapshot = snapshots[^1];
+    DurableCommitTimestamp = durableCommitTimestamp;
+    MergedSegmentId = mergedSegmentId;
   }
 
   public bool Keep(in VersionedKey<TKey> key, in VersionedValue<TValue> value)
@@ -74,7 +87,12 @@ internal sealed class VersionGarbageFilter<TKey, TValue> :
       NewerCommitTimestamp = long.MaxValue;
       IsCurrentKeyHidden = false;
     }
-    switch (Tree.GetVersionState(key.Version, Horizon, out var commitTimestamp))
+    switch (Tree.GetVersionState(
+        key.Version,
+        Horizon,
+        DurableCommitTimestamp,
+        MergedSegmentId,
+        out var commitTimestamp))
     {
       case VersionState.Aborted:
         return false;

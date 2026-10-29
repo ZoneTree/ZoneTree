@@ -1,6 +1,7 @@
 using ZoneTree.Exceptions;
 using ZoneTree.Logger;
 using ZoneTree.Options;
+using ZoneTree.Serializers;
 using ZoneTree.Transactional;
 
 namespace ZoneTree.UnitTests;
@@ -711,6 +712,67 @@ public sealed class TransactionalZoneTreeTests
     iterator.Dispose();
     tx.Dispose();
     Assert.That(tree.Maintenance.ActiveTransactionCount, Is.Zero);
+  }
+
+  sealed class FailingValueSerializer : ISerializer<int>
+  {
+    public bool FailNext;
+
+    public Memory<byte> Serialize(in int value)
+    {
+      if (FailNext)
+      {
+        FailNext = false;
+        throw new InvalidDataException("Injected serialization failure.");
+      }
+      return BitConverter.GetBytes(value);
+    }
+
+    public int Deserialize(Memory<byte> bytes) => BitConverter.ToInt32(bytes.Span);
+  }
+
+  [Test]
+  public void FailedWriteRollsBackTheTransaction()
+  {
+    var serializer = new FailingValueSerializer();
+    using (var tree = CreateFactory().SetValueSerializer(serializer).OpenOrCreateTransactional())
+    {
+      Write(tree, (1, 10));
+      using var tx = tree.BeginTransaction();
+      serializer.FailNext = true;
+      Assert.Throws<InvalidDataException>(() => tx.Upsert(1, 20));
+      Assert.That(tx.State, Is.EqualTo(TransactionState.Aborted));
+      Assert.Throws<TransactionAbortedException>(() => tx.Commit());
+      Assert.That(ReadCommitted(tree, 1), Is.EqualTo(10));
+    }
+    using var reopened = CreateFactory().SetValueSerializer(serializer).OpenTransactional();
+    Assert.That(ReadCommitted(reopened, 1), Is.EqualTo(10));
+  }
+
+  sealed class BigEndianInt32Serializer : ISerializer<int>
+  {
+    public Memory<byte> Serialize(in int value)
+    {
+      var bytes = new byte[4];
+      System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, value);
+      return bytes;
+    }
+
+    public int Deserialize(Memory<byte> bytes)
+        => System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(bytes.Span);
+  }
+
+  [Test]
+  public void OpeningWithAnotherSerializerIsRejected()
+  {
+    using (var tree = CreateFactory().SetValueSerializer(new BigEndianInt32Serializer())
+        .OpenOrCreateTransactional())
+      Write(tree, (1, 1));
+    Assert.Throws<TransactionalTreeSchemaMismatchException>(
+        () => CreateFactory().OpenTransactional().Dispose());
+    using var reopened = CreateFactory().SetValueSerializer(new BigEndianInt32Serializer())
+        .OpenTransactional();
+    Assert.That(ReadCommitted(reopened, 1), Is.EqualTo(1));
   }
 
   [Test]

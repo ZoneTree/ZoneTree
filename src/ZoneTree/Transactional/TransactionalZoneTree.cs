@@ -93,6 +93,23 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
   /// </summary>
   readonly List<TransactionEntry> AbortedTransactions = new();
 
+  /// <summary>
+  /// Committed entries, in commit order, whose commit record may not be durable yet.
+  /// </summary>
+  readonly Queue<TransactionEntry> NonDurableCommits = new();
+
+  /// <summary>
+  /// Every commit at or before it survives a crash. A merge may drop the versions a
+  /// commit hides only when the commit is durable, otherwise a crash could keep the
+  /// merge but lose the commit, and with it the only remaining value.
+  /// </summary>
+  long DurableCommitTimestamp;
+
+  /// <summary>
+  /// False when the write ahead log is disabled, so syncs make nothing durable.
+  /// </summary>
+  readonly bool HasDurableWriteAheadLog;
+
   long BottomMarker;
 
   long LastMergedDiskSegmentId;
@@ -111,13 +128,16 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
 
   TransactionalZoneTree(
       IZoneTree<VersionedKey<TKey>, VersionedValue<TValue>> storage,
-      IRefComparer<TKey> comparer)
+      ZoneTreeOptions<TKey, TValue> options)
   {
     Storage = storage;
     StorageMaintenance = storage.Maintenance;
-    Comparer = comparer;
-    ConflictIndex = new ConflictIndex<TKey>(comparer);
+    Comparer = options.Comparer;
+    ConflictIndex = new ConflictIndex<TKey>(Comparer);
+    HasDurableWriteAheadLog =
+        options.WriteAheadLogOptions.WriteAheadLogMode != WriteAheadLogMode.None;
     Recover();
+    ValidateSchema(options);
     BottomMarker = GetBottomMarker(0);
     StorageMaintenance.OnDiskSegmentCreated += OnDiskSegmentCreated;
     StorageMaintenance.OnMergeOperationEnded += OnMergeOperationEnded;
@@ -150,7 +170,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
     }
     try
     {
-      owner.Value = new TransactionalZoneTree<TKey, TValue>(storage, options.Comparer);
+      owner.Value = new TransactionalZoneTree<TKey, TValue>(storage, options);
       return owner.Value;
     }
     catch
@@ -188,13 +208,27 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
       RandomAccessDeviceManager = options.RandomAccessDeviceManager,
       EnableSingleSegmentGarbageCollection = options.EnableSingleSegmentGarbageCollection,
       PreserveWriteOrderAcrossSegments = true,
-      MergeFilterFactory = includesOldestRecords =>
-          owner.Value?.CreateMergeFilter(includesOldestRecords),
+      MergeFilterFactory = context => owner.Value?.CreateMergeFilter(context),
     };
   }
 
   /// <summary>
-  /// Restores the clock and the transactions that never committed from the system records.
+  /// The schema records share the clock record kind. Version 0 is the clock reservation.
+  /// </summary>
+  const long ComparerSchemaVersion = 1;
+
+  const long KeySerializerSchemaVersion = 2;
+
+  const long ValueSerializerSchemaVersion = 3;
+
+  /// <summary>
+  /// The stored type hashes of the user comparer and serializers, indexed by schema version.
+  /// </summary>
+  readonly long?[] StoredSchema = new long?[ValueSerializerSchemaVersion + 1];
+
+  /// <summary>
+  /// Restores the clock, the schema and the transactions that never committed
+  /// from the system records.
   /// </summary>
   void Recover()
   {
@@ -207,7 +241,10 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
         break;
       if (key.Kind == VersionedKeyKind.Clock)
       {
-        ReservedClock = iterator.CurrentValue.Meta;
+        if (key.Version == 0)
+          ReservedClock = iterator.CurrentValue.Meta;
+        else if (key.Version < StoredSchema.Length)
+          StoredSchema[key.Version] = iterator.CurrentValue.Meta;
         continue;
       }
       // The transaction did not commit before the tree closed. Its versions may be
@@ -219,6 +256,48 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
     }
     Clock = ReservedClock;
     lastCommitTimestamp = Clock;
+    DurableCommitTimestamp = Clock;
+  }
+
+  /// <summary>
+  /// The storage metadata records the wrapper types only, so the user comparer and
+  /// serializer types are checked here. Reading with another encoding or order would
+  /// silently return wrong data.
+  /// </summary>
+  void ValidateSchema(ZoneTreeOptions<TKey, TValue> options)
+  {
+    ValidateSchemaType(ComparerSchemaVersion, "comparer", options.Comparer);
+    ValidateSchemaType(KeySerializerSchemaVersion, "key serializer", options.KeySerializer);
+    ValidateSchemaType(ValueSerializerSchemaVersion, "value serializer", options.ValueSerializer);
+  }
+
+  void ValidateSchemaType(long version, string component, object instance)
+  {
+    var typeName = instance.GetType().SimplifiedFullName();
+    var hash = HashTypeName(typeName);
+    var stored = StoredSchema[version];
+    if (stored == null)
+    {
+      Storage.Upsert(
+          new VersionedKey<TKey>(VersionedKeyKind.Clock, default, version),
+          VersionedValue<TValue>.FromSystem(hash));
+      return;
+    }
+    if (stored.Value != hash)
+      throw new TransactionalTreeSchemaMismatchException(component, typeName);
+  }
+
+  /// <summary>
+  /// 64-bit FNV-1a of the type name. Stable across processes and platforms.
+  /// </summary>
+  static long HashTypeName(string typeName)
+  {
+    var hash = 14695981039346656037UL;
+    foreach (var c in typeName)
+    {
+      hash = (hash ^ c) * 1099511628211UL;
+    }
+    return unchecked((long)hash);
   }
 
   public ITransaction<TKey, TValue> BeginTransaction(
@@ -327,7 +406,22 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
         entry.CommitTimestamp <= transaction.SnapshotTimestamp;
   }
 
-  internal VersionState GetVersionState(long version, long horizon, out long commitTimestamp)
+  /// <summary>
+  /// Classifies a version for a merge. A commit that may not survive a crash
+  /// counts as active: the merge keeps its version and drops nothing under it.
+  /// </summary>
+  /// <param name="version">The version.</param>
+  /// <param name="horizon">The oldest snapshot.</param>
+  /// <param name="durableCommitTimestamp">Commits at or before it are durable.</param>
+  /// <param name="mergedSegmentId">Commit records in this segment or an older one
+  /// become durable with the merge output.</param>
+  /// <param name="commitTimestamp">The commit timestamp of a committed version.</param>
+  internal VersionState GetVersionState(
+      long version,
+      long horizon,
+      long durableCommitTimestamp,
+      long mergedSegmentId,
+      out long commitTimestamp)
   {
     commitTimestamp = 0;
     if (!Entries.TryGetValue(version, out var entry))
@@ -338,12 +432,31 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
         return VersionState.Aborted;
       case TransactionState.Committed:
         commitTimestamp = entry.CommitTimestamp;
+        if (commitTimestamp > durableCommitTimestamp &&
+            entry.CommitSegmentId > mergedSegmentId)
+          return VersionState.Active;
         return commitTimestamp <= horizon ?
             VersionState.VisibleToAll :
             VersionState.Committed;
       default:
         return VersionState.Active;
     }
+  }
+
+  /// <summary>
+  /// Marks the commits made durable by a write ahead log sync or a merge.
+  /// Called under the state lock.
+  /// </summary>
+  void MarkCommitsDurable(long syncedCommitTimestamp, long mergedSegmentId)
+  {
+    while (NonDurableCommits.TryPeek(out var entry) &&
+        (entry.CommitTimestamp <= syncedCommitTimestamp ||
+         entry.CommitSegmentId <= mergedSegmentId))
+    {
+      NonDurableCommits.Dequeue();
+      DurableCommitTimestamp = entry.CommitTimestamp;
+    }
+    PruneCommittedTransactions();
   }
 
   internal bool HasCommitAfter(in TKey key, long timestamp)
@@ -419,6 +532,8 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
       if (!hasConflict)
       {
         entry.CommitTimestamp = commitTimestamp;
+        // Read after the commit record was written, so it is at or after its segment.
+        entry.CommitSegmentId = StorageMaintenance.MutableSegment.SegmentId;
         entry.State = TransactionState.Committed;
         var keys = transaction.GetWrittenKeys();
         ConflictIndex.Add(keys, commitTimestamp);
@@ -428,6 +543,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
           Volatile.Write(ref lastCommitTimestamp, commitTimestamp);
           CommittedTransactions.Enqueue(entry);
           CommittedWrites.Enqueue((commitTimestamp, keys));
+          NonDurableCommits.Enqueue(entry);
         }
       }
     }
@@ -505,7 +621,9 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
   {
     if (CommittedTransactions.Count > 0)
     {
-      var horizon = GetHorizon();
+      // A missing entry means durable and visible to all, which lets merges
+      // drop the versions it hides.
+      var horizon = Math.Min(GetHorizon(), DurableCommitTimestamp);
       while (CommittedTransactions.TryPeek(out var entry) &&
           entry.CommitTimestamp <= horizon)
       {
@@ -558,17 +676,25 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
   }
 
   internal IMergeFilter<VersionedKey<TKey>, VersionedValue<TValue>> CreateMergeFilter(
-      bool includesOldestRecords)
+      MergeFilterContext context)
   {
     long[] snapshots;
+    long durableCommitTimestamp;
     lock (StateLock)
     {
       // Snapshots that begin during the merge read the latest commit or a later one.
       snapshots = new long[ActiveSnapshots.Count + 1];
       ActiveSnapshots.Keys.CopyTo(snapshots, 0);
       snapshots[^1] = lastCommitTimestamp;
+      durableCommitTimestamp = DurableCommitTimestamp;
     }
-    return new VersionGarbageFilter<TKey, TValue>(this, Comparer, includesOldestRecords, snapshots);
+    return new VersionGarbageFilter<TKey, TValue>(
+        this,
+        Comparer,
+        context.IncludesOldestRecords,
+        snapshots,
+        durableCommitTimestamp,
+        context.NewestMergedSegmentId);
   }
 
   /// <summary>
@@ -621,8 +747,10 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
     Volatile.Write(ref BottomMarker, GetBottomMarker(0));
     if (mergeResult != MergeResult.SUCCESS)
       return;
+    var mergedSegmentId = GetMergedSegmentId();
     lock (StateLock)
     {
+      MarkCommitsDurable(0, mergedSegmentId);
       if (AbortedTransactions.Count == 0)
         return;
       for (var i = AbortedTransactions.Count - 1; i >= 0; --i)
@@ -645,20 +773,30 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
   /// <summary>
   /// True if the segment and every older in-memory segment were merged into the disk segment.
   /// </summary>
-  bool IsSegmentMerged(long segmentId)
+  bool IsSegmentMerged(long segmentId) => segmentId <= GetMergedSegmentId();
+
+  /// <summary>
+  /// The newest mutable segment id whose records are all in disk segments:
+  /// every segment older than the remaining in-memory segments was merged.
+  /// </summary>
+  long GetMergedSegmentId()
   {
-    if (StorageMaintenance.MutableSegment.SegmentId <= segmentId)
-      return false;
+    var oldest = StorageMaintenance.MutableSegment.SegmentId;
     foreach (var segment in StorageMaintenance.ReadOnlySegments)
-    {
-      if (segment.SegmentId <= segmentId)
-        return false;
-    }
-    return true;
+      oldest = Math.Min(oldest, segment.SegmentId);
+    return oldest - 1;
   }
 
-  public Task SyncWALAsync(CancellationToken cancellationToken = default)
-      => Storage.SyncWALAsync(cancellationToken);
+  public async Task SyncWALAsync(CancellationToken cancellationToken = default)
+  {
+    // The sync covers every commit record written before the call.
+    var syncedCommitTimestamp = LastCommitTimestamp;
+    await Storage.SyncWALAsync(cancellationToken).ConfigureAwait(false);
+    if (!HasDurableWriteAheadLog)
+      return;
+    lock (StateLock)
+      MarkCommitsDurable(syncedCommitTimestamp, 0);
+  }
 
   public TimeSpan AutoSyncInterval
   {
@@ -689,7 +827,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
         {
           try
           {
-            await Storage.SyncWALAsync(cancellation.Token).ConfigureAwait(false);
+            await SyncWALAsync(cancellation.Token).ConfigureAwait(false);
           }
           catch (OperationCanceledException)
           {

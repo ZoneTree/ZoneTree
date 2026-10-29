@@ -149,13 +149,23 @@ internal sealed class Transaction<TKey, TValue> : ITransaction<TKey, TValue>
       Rollback();
       throw new TransactionConflictException(TransactionId);
     }
-    if (WrittenKeys == null)
+    try
     {
-      Tree.OnFirstWrite(this);
-      WrittenKeys = new SortedSet<TKey>(new ComparerFromRefComparer<TKey>(Comparer));
+      if (WrittenKeys == null)
+      {
+        WrittenKeys = new SortedSet<TKey>(new ComparerFromRefComparer<TKey>(Comparer));
+        Tree.OnFirstWrite(this);
+      }
+      WrittenKeys.Add(key);
+      Tree.Storage.Upsert(VersionedKey<TKey>.Data(in key, TransactionId), in value);
     }
-    WrittenKeys.Add(key);
-    Tree.Storage.Upsert(VersionedKey<TKey>.Data(in key, TransactionId), in value);
+    catch
+    {
+      // The storage tree can keep a write in memory that its WAL never recorded,
+      // so the transaction must not commit it.
+      Rollback();
+      throw;
+    }
   }
 
   public ITransactionIterator<TKey, TValue> CreateIterator(TransactionIteratorOptions options = null)

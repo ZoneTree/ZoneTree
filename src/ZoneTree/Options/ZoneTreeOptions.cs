@@ -45,11 +45,28 @@ public delegate void MarkValueDeletedDelegate<TValue>(ref TValue value);
 /// </summary>
 /// <typeparam name="TKey">The key type.</typeparam>
 /// <typeparam name="TValue">The value type.</typeparam>
-/// <param name="includesOldestRecords">True when no record older than the
-/// merged records remains outside the merge, so dropping a record cannot expose
-/// an older one.</param>
+/// <param name="context">Describes the merge.</param>
 /// <returns>The filter, or null to merge without filtering.</returns>
-public delegate IMergeFilter<TKey, TValue> MergeFilterFactory<TKey, TValue>(bool includesOldestRecords);
+public delegate IMergeFilter<TKey, TValue> MergeFilterFactory<TKey, TValue>(MergeFilterContext context);
+
+/// <summary>
+/// Describes the merge a filter is created for.
+/// </summary>
+public readonly record struct MergeFilterContext
+{
+  /// <summary>
+  /// True when no record older than the merged records remains outside the
+  /// merge, so dropping a record cannot expose an older one.
+  /// </summary>
+  public bool IncludesOldestRecords { get; init; }
+
+  /// <summary>
+  /// The id of the newest in-memory segment the merge writes to the disk, or 0 when
+  /// the merge only reads disk segments. The records of that segment and of every
+  /// older one are durable once the merge completes, together with its output.
+  /// </summary>
+  public long NewestMergedSegmentId { get; init; }
+}
 
 /// <summary>
 /// Represents configuration options of a ZoneTree.
@@ -216,6 +233,8 @@ public sealed class ZoneTreeOptions<TKey, TValue>
   /// the write order. Without it, a crash can keep a newer segment's writes
   /// and lose an older segment's unsynced tail.
   /// Costs one WAL sync per mutable segment move, while writers wait.
+  /// If that sync fails, the tree stops accepting writes: they throw
+  /// <see cref="Exceptions.WriteOrderBarrierFailedException"/> until the tree is reopened.
   /// Transactional trees enable it because a commit must never be
   /// recovered without the writes made before it.
   /// Default value is false.

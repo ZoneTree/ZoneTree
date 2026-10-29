@@ -1,4 +1,5 @@
 using ZoneTree.AbstractFileStream;
+using ZoneTree.Exceptions;
 using ZoneTree.Logger;
 using ZoneTree.Options;
 
@@ -52,6 +53,85 @@ public sealed class WriteOrderPowerLossTests
     Assert.That(present, Is.EqualTo(Enumerable.Range(0, present.Length)));
     // Every moved segment was synced before the next one accepted writes.
     Assert.That(present.Length, Is.GreaterThanOrEqualTo(300));
+  }
+
+  static int? ReadCommitted(ITransactionalZoneTree<int, int> tree, int key)
+  {
+    using var tx = tree.BeginReadOnlyTransaction();
+    return tx.TryGet(key, out var value) ? value : null;
+  }
+
+  [TestCase(WriteAheadLogMode.Sync, DiskSegmentMode.SingleDiskSegment)]
+  [TestCase(WriteAheadLogMode.Sync, DiskSegmentMode.MultiPartDiskSegment)]
+  [TestCase(WriteAheadLogMode.SyncCompressed, DiskSegmentMode.SingleDiskSegment)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed, DiskSegmentMode.MultiPartDiskSegment)]
+  [TestCase(WriteAheadLogMode.None, DiskSegmentMode.SingleDiskSegment)]
+  public async Task MergeKeepsTheValueAnUnsyncedCommitReplaces(
+      WriteAheadLogMode mode, DiskSegmentMode diskSegmentMode)
+  {
+    var provider = new PowerLossFileStreamProvider();
+    PowerLossFileStreamProvider afterPowerLoss;
+    using (var tree = CreateFactory(provider, mode, 1000)
+        .ConfigureDiskSegmentOptions(options => options.DiskSegmentMode = diskSegmentMode)
+        .CreateTransactional())
+    {
+      var storage = tree.Maintenance.ZoneTree.Maintenance;
+      using (var tx = tree.BeginTransaction())
+      {
+        tx.Upsert(1, 10);
+        tx.Commit();
+      }
+      await tree.SyncWALAsync();
+      storage.MoveMutableSegmentForward();
+      storage.StartMergeOperation()?.Join();
+
+      // The new version reaches the merge, but its commit record stays in the
+      // unsynced mutable segment.
+      using (var tx = tree.BeginTransaction())
+      {
+        tx.Upsert(1, 20);
+        storage.MoveMutableSegmentForward();
+        tx.Commit();
+      }
+      storage.StartMergeOperation()?.Join();
+      afterPowerLoss = provider.SimulatePowerLoss();
+    }
+    using var recovered = CreateFactory(afterPowerLoss, mode, 1000).OpenTransactional();
+    Assert.That(ReadCommitted(recovered, 1), Is.AnyOf(10, 20));
+  }
+
+  [Test]
+  public void FailedRolloverSyncStopsWrites()
+  {
+    var provider = new PowerLossFileStreamProvider();
+    PowerLossFileStreamProvider afterPowerLoss;
+    using (var tree = CreateFactory(provider, WriteAheadLogMode.Sync, 1000).CreateTransactional())
+    {
+      using (var tx = tree.BeginTransaction())
+      {
+        tx.Upsert(0, 100);
+        tx.CommitDurableAsync().GetAwaiter().GetResult();
+      }
+      var storage = tree.Maintenance.ZoneTree.Maintenance;
+      storage.MoveMutableSegmentForward();
+      using (var tx = tree.BeginTransaction())
+      {
+        tx.Upsert(1, 10);
+        var segmentId = storage.MutableSegment.SegmentId;
+        provider.FailDiskSync = path => path.Contains($"/seg/{segmentId}.", StringComparison.Ordinal);
+        storage.MoveMutableSegmentForward();
+        // The next write could reach the disk before the unsynced first one.
+        Assert.Throws<WriteOrderBarrierFailedException>(() => tx.Upsert(2, 20));
+        Assert.That(tx.State, Is.EqualTo(Transactional.TransactionState.Aborted));
+      }
+      Assert.That(ReadCommitted(tree, 0), Is.EqualTo(100), "reads keep working");
+      afterPowerLoss = provider.SimulatePowerLoss();
+      provider.FailDiskSync = null;
+    }
+    using var recovered = CreateFactory(afterPowerLoss, WriteAheadLogMode.Sync, 1000).OpenTransactional();
+    Assert.That(ReadCommitted(recovered, 0), Is.EqualTo(100));
+    Assert.That(ReadCommitted(recovered, 1), Is.Null);
+    Assert.That(ReadCommitted(recovered, 2), Is.Null);
   }
 
   [TestCase(WriteAheadLogMode.Sync)]

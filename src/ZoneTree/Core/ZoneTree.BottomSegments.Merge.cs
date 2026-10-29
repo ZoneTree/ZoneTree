@@ -162,7 +162,10 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     var lastValuesOfEveryPart = bottomDiskSegment.GetLastValuesOfEveryPart();
     var diskSegmentMinimumRecordCount = Options.DiskSegmentOptions.MinimumRecordCount;
     var isRangeDeleted = Options.IsRangeDeleted;
-    var mergeFilter = Options.MergeFilterFactory?.Invoke(!writeDeletedValues);
+    var mergeFilter = Options.MergeFilterFactory?.Invoke(new MergeFilterContext
+    {
+      IncludesOldestRecords = !writeDeletedValues,
+    });
 
     var dropCount = 0;
     var skipCount = 0;

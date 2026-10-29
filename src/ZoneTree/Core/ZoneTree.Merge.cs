@@ -48,10 +48,12 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         }
         catch (Exception e)
         {
-          // Writers would wait forever if the move stopped here.
-          // The WAL keeps the failure, so SyncWALAsync reports it
-          // until a merge moves the records into a disk segment.
+          // A newer segment's writes could reach the disk before these unsynced
+          // ones, so no write may follow. The segment stays readable as the
+          // mutable segment, and every write throws instead of waiting.
           Logger.LogError(e);
+          MutableSegment = new FrozenMutableSegment<TKey, TValue>(mutableSegment, e);
+          return;
         }
       }
       ReadOnlySegmentQueue.Enqueue(mutableSegment);
@@ -232,7 +234,11 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         Array.Empty<TValue>();
     var diskSegmentMinimumRecordCount = Options.DiskSegmentOptions.MinimumRecordCount;
     var isRangeDeleted = Options.IsRangeDeleted;
-    var mergeFilter = Options.MergeFilterFactory?.Invoke(!hasBottomSegments);
+    var mergeFilter = Options.MergeFilterFactory?.Invoke(new MergeFilterContext
+    {
+      IncludesOldestRecords = !hasBottomSegments,
+      NewestMergedSegmentId = roSegments.Max(x => x.SegmentId),
+    });
 
     var dropCount = 0;
     var skipCount = 0;

@@ -20,6 +20,13 @@ internal sealed class TransactionEntry
   /// </summary>
   public long CommitTimestamp { get; set; }
 
+  /// <summary>
+  /// A mutable segment id at or after the segment that holds the commit record.
+  /// The commit is durable once that segment is merged into the disk segment.
+  /// Written before <see cref="State"/> becomes committed.
+  /// </summary>
+  public long CommitSegmentId { get; set; }
+
   public TransactionState State
   {
     get => (TransactionState)Volatile.Read(ref state);
