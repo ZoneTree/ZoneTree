@@ -3,14 +3,26 @@ title: Deletion Markers And TTL
 description: Define tombstones and expiration predicates, preserve markers through serialization, and use whole-part deletion only when every record is provably deleted.
 ---
 
-<SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / RECORD VISIBILITY" title="Deletion markers and record visibility" titleTag="h1" titleId="deletion-title" subtitle="A delete writes a value recognized as a tombstone. Reads hide that value and the older versions behind it; compaction reclaims obsolete storage when doing so is safe."/>
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="CONCEPTS / RECORD VISIBILITY"
+  title="Deletion markers and record visibility"
+  titleTag="h1"
+  titleId="deletion-title"
+  subtitle="A delete writes a value recognized as a tombstone. Reads hide that value and the older versions behind it; compaction reclaims obsolete storage when doing so is safe."/>
 
 ## Separate visibility, durability, and reclamation
 
 <Grid columns="1" columnsMd="3" class="gap-3 zt-guide-outcomes">
-  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>Visibility</strong><p>The deletion predicate decides whether a record is live.</p></Panel>
-  <Panel class="p-0" bodyClass="p-4"><strong>Durability</strong><p>A delete is a write with the configured WAL guarantees.</p></Panel>
-  <Panel class="p-0" bodyClass="p-4"><strong>Reclamation</strong><p>Maintenance removes obsolete records and files later.</p></Panel>
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"
+    ><strong>Visibility</strong>
+    <p>The deletion predicate decides whether a record is live.</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"
+    ><strong>Durability</strong>
+    <p>A delete is a write with the configured WAL guarantees.</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"
+    ><strong>Reclamation</strong>
+    <p>Maintenance removes obsolete records and files later.</p></Panel>
 </Grid>
 
 For one key, a tombstone in a newer layer hides a value in an older layer:
@@ -97,8 +109,19 @@ public record struct ExpiringValue(long Payload, long ExpiresAtUnixMilliseconds)
 
 Under a stable clock, the first record is live and the second is expired. Use a stable, deliberate clock policy in an application whose expiration correctness depends on time. Raw struct serialization also requires preserving the value's layout; see [serializers](serializers-and-comparers.mdx).
 
-<AlertBox class="zt-guide-callout" tone="accent" title="Expiration is evaluated when a record is inspected" icon="tabler:shield-check">
-  <p>The predicate does not schedule a callback or immediately reclaim disk space at the deadline. Snapshot iterators can also observe a record becoming expired because they do not freeze the clock used by your predicate. Use an application scheduler or an expiration index when work must happen at a particular time.</p>
+<AlertBox
+  class="zt-guide-callout"
+  tone="accent"
+  title="Expiration is evaluated when a record is inspected"
+  icon="tabler:shield-check"
+>
+  <p>
+    The predicate does not schedule a callback or immediately reclaim disk space
+    at the deadline. Snapshot iterators can also observe a record becoming
+    expired because they do not freeze the clock used by your predicate. Use an
+    application scheduler or an expiration index when work must happen at a
+    particular time.
+  </p>
 </AlertBox>
 
 Treat expiration as a one-way visibility decision for records that maintenance may discard. If a clock or policy change makes an expired value live again, a record already reclaimed by compaction cannot be reconstructed by reversing that predicate.
@@ -166,6 +189,16 @@ With deletion disabled, every stored value is treated as live, including the def
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Deletion writes and maintenance</strong>
-  <p>A tombstone participates in write sequencing, recovery, and later merge work.</p>
-  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/concepts/op-index/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Operation indexes</BtnLink><BtnLink href="/docs/usage/maintenance/" tone="neutral" variant="outline">Maintenance</BtnLink></Flex>
+  <p>
+    A tombstone participates in write sequencing, recovery, and later merge
+    work.
+  </p>
+  <Flex wrap="true" class="gap-3"
+    ><BtnLink
+      href="/docs/concepts/op-index/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Operation indexes</BtnLink><BtnLink href="/docs/usage/maintenance/" tone="neutral" variant="outline"
+      >Maintenance</BtnLink></Flex>
 </Panel>

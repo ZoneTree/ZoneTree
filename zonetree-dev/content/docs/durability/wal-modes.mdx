@@ -60,9 +60,24 @@ The compressed modes sync the WAL on their own, so their loss window stays small
 
 These windows are far shorter than the operating system's own background writes, and they are small enough for most workloads.
 
-<AlertBox class="zt-guide-callout" tone="info" title="How the operating system writes files" icon="tabler:info-circle">
-  <p>When a program writes to a file, the operating system copies the data into its file cache in memory and returns at once. It writes the cache to the disk later, in the background. By default, Linux writes data that has been cached for 30 seconds and checks every 5 seconds, and Windows writes a part of its cache every second.</p>
-  <p>Cached data survives a crash of your process, but not a power loss or an operating-system crash. Most applications rely on these background writes all the time, without syncing a single write.</p>
+<AlertBox
+  class="zt-guide-callout"
+  tone="info"
+  title="How the operating system writes files"
+  icon="tabler:info-circle"
+>
+  <p>
+    When a program writes to a file, the operating system copies the data into
+    its file cache in memory and returns at once. It writes the cache to the
+    disk later, in the background. By default, Linux writes data that has been
+    cached for 30 seconds and checks every 5 seconds, and Windows writes a part
+    of its cache every second.
+  </p>
+  <p>
+    Cached data survives a crash of your process, but not a power loss or an
+    operating-system crash. Most applications rely on these background writes
+    all the time, without syncing a single write.
+  </p>
 </AlertBox>
 
 ### When you need it
@@ -135,10 +150,32 @@ Compressed WALs have a main file of committed blocks and a companion `.tail` fil
 
 The async writer's default `EmptyQueuePollInterval` is 100 ms. These intervals control scheduling, not a maximum persistence delay.
 
-<ExpandablePanel title="Stream flushing and disk synchronization" class="zt-guide-reference">
-  <p>Waiting for disk synchronization after every record can reduce throughput. Batching and group commit let records or transactions share that cost; <a href="https://www.postgresql.org/docs/current/runtime-config-wal.html">PostgreSQL documents group commit</a> as one example.</p>
-  <p>ZoneTree's plain Sync path calls <code>BinaryWriter.Flush()</code> per record. With the local provider this reaches ordinary <code>FileStream.Flush()</code>, while disposal requests <code>Flush(true)</code>. Compressed streams request disk synchronization when committing full blocks or writing the tail, rather than on every partial-block append.</p>
-  <p>These are the built-in implementations' synchronization points, not a recommendation to add per-record disk flushes. To wait for durability, use <code>SyncWALAsync</code>, which shares disk syncs between concurrent callers. Custom WAL and file providers define their own persistence semantics.</p>
+<ExpandablePanel
+  title="Stream flushing and disk synchronization"
+  class="zt-guide-reference"
+>
+  <p>
+    Waiting for disk synchronization after every record can reduce throughput.
+    Batching and group commit let records or transactions share that cost;
+    <a href="https://www.postgresql.org/docs/current/runtime-config-wal.html"
+      >PostgreSQL documents group commit</a>
+    as one example.
+  </p>
+  <p>
+    ZoneTree's plain Sync path calls <code>BinaryWriter.Flush()</code> per
+    record. With the local provider this reaches ordinary
+    <code>FileStream.Flush()</code>, while disposal requests
+    <code>Flush(true)</code>. Compressed streams request disk synchronization
+    when committing full blocks or writing the tail, rather than on every
+    partial-block append.
+  </p>
+  <p>
+    These are the built-in implementations' synchronization points, not a
+    recommendation to add per-record disk flushes. To wait for durability, use
+    <code>SyncWALAsync</code>, which shares disk syncs between concurrent
+    callers. Custom WAL and file providers define their own persistence
+    semantics.
+  </p>
 </ExpandablePanel>
 
 ## Close the tree cleanly
@@ -153,4 +190,11 @@ Async logging may serialize a key or value after the write call returns. Treat s
 
 With `None`, metadata and merged disk records remain, but unmerged writes cannot be recovered after closing. For a controlled handoff without WAL, finish the required merge with writers coordinated, as shown in [file stream providers](../storage/file-stream-providers.mdx).
 
-<Flex wrap="true" class="gap-3 zt-guide-next"><BtnLink href="/docs/durability/recovery/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Recovery</BtnLink><BtnLink href="/docs/durability/" tone="neutral" variant="outline">Durability overview</BtnLink></Flex>
+<Flex wrap="true" class="gap-3 zt-guide-next"
+  ><BtnLink
+    href="/docs/durability/recovery/"
+    tone="accent"
+    icon="tabler:arrow-right"
+    iconPosition="end"
+    >Recovery</BtnLink><BtnLink href="/docs/durability/" tone="neutral" variant="outline"
+    >Durability overview</BtnLink></Flex>

@@ -3,12 +3,32 @@ title: Disk Segment Files
 description: Read ZoneTree's disk file layouts, multipart descriptors, and sparse indexes, and understand how merges and reader leases affect file lifetime.
 ---
 
-<SectionHeader class="zt-guide-intro" eyebrow="STORAGE / PHYSICAL LAYOUT" title="Read the files behind a disk segment" titleTag="h1" titleId="disk-segments-title" subtitle="A logical disk segment can own several files and reuse parts from earlier merges. Understand that structure before interpreting a directory listing or planning a backup."/>
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="STORAGE / PHYSICAL LAYOUT"
+  title="Read the files behind a disk segment"
+  titleTag="h1"
+  titleId="disk-segments-title"
+  subtitle="A logical disk segment can own several files and reuse parts from earlier merges. Understand that structure before interpreting a directory listing or planning a backup."/>
 
 <Grid columns="1" columnsMd="3" class="gap-3 zt-guide-outcomes">
-  <Panel class="p-0" bodyClass="p-4"><strong>Sorted records</strong><p>Data and optional headers provide random access to serialized keys and values.</p></Panel>
-  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>Reusable ranges</strong><p>A multipart descriptor connects ordered parts into one logical segment.</p></Panel>
-  <Panel class="p-0" bodyClass="p-4"><strong>Reader leases</strong><p>Retired files remain available while an iterator or backup still needs them.</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"
+    ><strong>Sorted records</strong>
+    <p>
+      Data and optional headers provide random access to serialized keys and
+      values.
+    </p></Panel>
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"
+    ><strong>Reusable ranges</strong>
+    <p>
+      A multipart descriptor connects ordered parts into one logical segment.
+    </p></Panel>
+  <Panel class="p-0" bodyClass="p-4"
+    ><strong>Reader leases</strong>
+    <p>
+      Retired files remain available while an iterator or backup still needs
+      them.
+    </p></Panel>
 </Grid>
 
 ## Recognize the file categories
@@ -109,8 +129,18 @@ foreach (var segment in segments)
 
 File IDs depend on the tree's history. An empty current disk slot may enumerate no files even when bottom segments contain records.
 
-<AlertBox class="zt-guide-callout" tone="info" title="A file listing is not a live backup" icon="tabler:shield-check">
-  <p><code>GetFiles()</code> describes a segment; it does not freeze the tree or acquire a backup lease. During concurrent maintenance, use the live-backup API to coordinate segment lifetimes and capture in-memory records and restore metadata.</p>
+<AlertBox
+  class="zt-guide-callout"
+  tone="info"
+  title="A file listing is not a live backup"
+  icon="tabler:shield-check"
+>
+  <p>
+    <code>GetFiles()</code> describes a segment; it does not freeze the tree or
+    acquire a backup lease. During concurrent maintenance, use the live-backup
+    API to coordinate segment lifetimes and capture in-memory records and
+    restore metadata.
+  </p>
 </AlertBox>
 
 ## File lifetime after a merge
@@ -121,6 +151,20 @@ Dispose iterators and backup handles promptly. Extra files after a merge can be 
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Compression, memory use, and backups</strong>
-  <p>Compression controls the block payloads. Memory usage depends on the indexes and read caches built around them.</p>
-  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/storage/compression/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Compression</BtnLink><BtnLink href="/docs/storage/memory-usage/" tone="neutral" variant="outline">Memory usage</BtnLink><BtnLink href="/docs/durability/backups/" tone="neutral" variant="outline">Live backups</BtnLink></Flex>
+  <p>
+    Compression controls the block payloads. Memory usage depends on the indexes
+    and read caches built around them.
+  </p>
+  <Flex wrap="true" class="gap-3"
+    ><BtnLink
+      href="/docs/storage/compression/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Compression</BtnLink><BtnLink
+      href="/docs/storage/memory-usage/"
+      tone="neutral"
+      variant="outline"
+      >Memory usage</BtnLink><BtnLink href="/docs/durability/backups/" tone="neutral" variant="outline"
+      >Live backups</BtnLink></Flex>
 </Panel>

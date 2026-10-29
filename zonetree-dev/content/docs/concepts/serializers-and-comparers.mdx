@@ -3,12 +3,24 @@ title: Serializers And Comparers
 description: Configure comparison, hashing, and serialization as separate contracts, supply custom value serializers, and preserve format compatibility across application versions.
 ---
 
-<SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / DATA CONTRACTS" title="Three components. Three different contracts." titleTag="h1" titleId="components-title" subtitle="The comparer defines equality and order. The hasher supports Bloom membership checks. Serializers turn keys and values into the bytes that recovery and disk reads must understand."/>
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="CONCEPTS / DATA CONTRACTS"
+  title="Three components. Three different contracts."
+  titleTag="h1"
+  titleId="components-title"
+  subtitle="The comparer defines equality and order. The hasher supports Bloom membership checks. Serializers turn keys and values into the bytes that recovery and disk reads must understand."/>
 
 <Grid columns="1" columnsMd="3" class="gap-3 zt-guide-outcomes">
-  <Panel class="p-0" bodyClass="p-4"><strong>Comparer</strong><p>Which keys are equal, and which key comes next?</p></Panel>
-  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>Hasher</strong><p>Can the filter safely rule out a comparer-equal key?</p></Panel>
-  <Panel class="p-0" bodyClass="p-4"><strong>Serializer</strong><p>How are records encoded and decoded across reopen?</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"
+    ><strong>Comparer</strong>
+    <p>Which keys are equal, and which key comes next?</p></Panel>
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"
+    ><strong>Hasher</strong>
+    <p>Can the filter safely rule out a comparer-equal key?</p></Panel>
+  <Panel class="p-0" bodyClass="p-4"
+    ><strong>Serializer</strong>
+    <p>How are records encoded and decoded across reopen?</p></Panel>
 </Grid>
 
 ## Built-in type support
@@ -113,19 +125,55 @@ Changing a serializer's output changes what WAL recovery, disk reads, and backup
 
 The loader checks the persisted key type, value type, comparer type, key-serializer type, and value-serializer type. Metadata also records the configured hasher type and Bloom density, but those are not the same persisted-format checks.
 
-<AlertBox class="zt-guide-callout" tone="accent" title="Type identity is only one compatibility check" icon="tabler:shield-check">
-  <p>A serializer or comparer can keep the same .NET type while changing its behavior. Metadata cannot prove that the new code decodes old bytes or preserves old equality and ordering. Version those contracts deliberately.</p>
+<AlertBox
+  class="zt-guide-callout"
+  tone="accent"
+  title="Type identity is only one compatibility check"
+  icon="tabler:shield-check"
+>
+  <p>
+    A serializer or comparer can keep the same .NET type while changing its
+    behavior. Metadata cannot prove that the new code decodes old bytes or
+    preserves old equality and ordering. Version those contracts deliberately.
+  </p>
 </AlertBox>
 
 A compatible hasher can change across reopen without rewriting stored records because the Bloom bit array is not a persisted disk format. The replacement still has to match comparer equality. A serializer or ordering change that cannot read the existing format requires a new tree and a controlled copy or rebuild.
 
-<ExpandablePanel title="Opening trees created with the old byte comparers" class="zt-guide-reference">
-  <p>The current <code>ByteArrayLexicographicComparerAscending</code> orders a byte prefix before longer keys beginning with it; the descending comparer reverses that order. The older <code>ByteArrayComparerAscending</code> placed longer keys before their prefixes.</p>
-  <p>If metadata records an old comparer type, opening with the replacement can throw <code>TreeComparerMismatchException</code>. Export using a version and comparer that correctly read the old tree, then rebuild under the new ordering. Renaming a metadata entry does not reorder the stored records.</p>
+<ExpandablePanel
+  title="Opening trees created with the old byte comparers"
+  class="zt-guide-reference"
+>
+  <p>
+    The current <code>ByteArrayLexicographicComparerAscending</code> orders a
+    byte prefix before longer keys beginning with it; the descending comparer
+    reverses that order. The older
+    <code>ByteArrayComparerAscending</code> placed longer keys before their
+    prefixes.
+  </p>
+  <p>
+    If metadata records an old comparer type, opening with the replacement can
+    throw <code>TreeComparerMismatchException</code>. Export using a version and
+    comparer that correctly read the old tree, then rebuild under the new
+    ordering. Renaming a metadata entry does not reorder the stored records.
+  </p>
 </ExpandablePanel>
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Include deletion and ownership in the data contract</strong>
-  <p>The serializer must round-trip markers, and the application must avoid changing stored objects or buffers behind the engine's write APIs.</p>
-  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/concepts/deletion-markers-and-ttl/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Deletion and TTL</BtnLink><BtnLink href="/docs/concepts/value-mutability/" tone="neutral" variant="outline">Value mutability</BtnLink></Flex>
+  <p>
+    The serializer must round-trip markers, and the application must avoid
+    changing stored objects or buffers behind the engine's write APIs.
+  </p>
+  <Flex wrap="true" class="gap-3"
+    ><BtnLink
+      href="/docs/concepts/deletion-markers-and-ttl/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Deletion and TTL</BtnLink><BtnLink
+      href="/docs/concepts/value-mutability/"
+      tone="neutral"
+      variant="outline"
+      >Value mutability</BtnLink></Flex>
 </Panel>

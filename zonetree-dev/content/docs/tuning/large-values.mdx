@@ -3,7 +3,13 @@ title: Large Values
 description: Translate record limits into payload costs, choose direct values or external references, and tune large-value reads, memory, and merges with representative data.
 ---
 
-<SectionHeader class="zt-guide-intro" eyebrow="TUNING / PAYLOAD SIZE" title="Budget large values in bytes and work" titleTag="h1" titleId="large-values-title" subtitle="Compare direct payloads, references, and split records. Translate their record counts into retained memory, serialized bytes, and merge I/O."/>
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="TUNING / PAYLOAD SIZE"
+  title="Budget large values in bytes and work"
+  titleTag="h1"
+  titleId="large-values-title"
+  subtitle="Compare direct payloads, references, and split records. Translate their record counts into retained memory, serialized bytes, and merge I/O."/>
 
 ## Payload storage models
 
@@ -83,4 +89,14 @@ Iterator prefetch can also materialize multiple large values at once. For short 
 
 If most queries only need metadata, a separate compact index can keep those queries on small values and fetch external content only for selected results. Coordinate reference and content lifetimes so readers can resolve the referenced payload throughout their operation.
 
-<Flex wrap="true" class="gap-3 zt-guide-next"><BtnLink href="/docs/storage/compression/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Compression profiles</BtnLink><BtnLink href="/docs/tuning/write-amplification/" tone="neutral" variant="outline">Rewrite costs</BtnLink></Flex>
+<Flex wrap="true" class="gap-3 zt-guide-next"
+  ><BtnLink
+    href="/docs/storage/compression/"
+    tone="accent"
+    icon="tabler:arrow-right"
+    iconPosition="end"
+    >Compression profiles</BtnLink><BtnLink
+    href="/docs/tuning/write-amplification/"
+    tone="neutral"
+    variant="outline"
+    >Rewrite costs</BtnLink></Flex>

@@ -3,11 +3,26 @@ title: Bloom Filters
 description: Understand mutable-segment Bloom membership checks, allocation sizing, comparer-compatible hashing, filter lifetime, and workload-based tuning.
 ---
 
-<SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / NEGATIVE LOOKUPS" title="Skip the lookup when a key cannot be there" titleTag="h1" titleId="bloom-title" subtitle="A mutable-segment Bloom filter can rule out a key before ZoneTree enters that segment's B+Tree. A possible match still goes through the ordinary comparer-based lookup."/>
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="CONCEPTS / NEGATIVE LOOKUPS"
+  title="Skip the lookup when a key cannot be there"
+  titleTag="h1"
+  titleId="bloom-title"
+  subtitle="A mutable-segment Bloom filter can rule out a key before ZoneTree enters that segment's B+Tree. A possible match still goes through the ordinary comparer-based lookup."/>
 
 <Grid columns="1" columnsMd="2" class="gap-3 zt-guide-outcomes">
-  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>Definitely absent</strong><p>Skip this segment's B+Tree and continue searching the remaining layers.</p></Panel>
-  <Panel class="p-0" bodyClass="p-4"><strong>Possibly present</strong><p>Perform the normal lookup. The filter does not establish that a live record exists.</p></Panel>
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"
+    ><strong>Definitely absent</strong>
+    <p>
+      Skip this segment's B+Tree and continue searching the remaining layers.
+    </p></Panel>
+  <Panel class="p-0" bodyClass="p-4"
+    ><strong>Possibly present</strong>
+    <p>
+      Perform the normal lookup. The filter does not establish that a live
+      record exists.
+    </p></Panel>
 </Grid>
 
 ## Configure a filter
@@ -40,8 +55,17 @@ The factory supplies a hasher for supported key types. Custom key types need a c
 
 ## Match hashing to key equality
 
-<AlertBox class="zt-guide-callout" tone="accent" title="Comparer-equal keys must have equal hashes" icon="tabler:shield-check">
-  <p>A hash collision between unequal keys can add unnecessary work. Different hashes for keys the comparer considers equal can hide a real key behind a negative filter result. That is a correctness error, not a tuning tradeoff.</p>
+<AlertBox
+  class="zt-guide-callout"
+  tone="accent"
+  title="Comparer-equal keys must have equal hashes"
+  icon="tabler:shield-check"
+>
+  <p>
+    A hash collision between unequal keys can add unnecessary work. Different
+    hashes for keys the comparer considers equal can hide a real key behind a
+    negative filter result. That is a correctness error, not a tuning tradeoff.
+  </p>
 </AlertBox>
 
 For example, a case-insensitive string comparer needs case-insensitive hashing:
@@ -126,6 +150,19 @@ Filters can reduce negative-read work and still add cost to writes. Compare sing
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Hash compatibility and filter memory</strong>
-  <p>The hasher must match equality; filter density must fit the number of memory segments your workload retains.</p>
-  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/concepts/serializers-and-comparers/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Key components</BtnLink><BtnLink href="/docs/storage/memory-usage/" tone="neutral" variant="outline">Memory usage</BtnLink></Flex>
+  <p>
+    The hasher must match equality; filter density must fit the number of memory
+    segments your workload retains.
+  </p>
+  <Flex wrap="true" class="gap-3"
+    ><BtnLink
+      href="/docs/concepts/serializers-and-comparers/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Key components</BtnLink><BtnLink
+      href="/docs/storage/memory-usage/"
+      tone="neutral"
+      variant="outline"
+      >Memory usage</BtnLink></Flex>
 </Panel>
