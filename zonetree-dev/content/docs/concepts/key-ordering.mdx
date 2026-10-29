@@ -3,7 +3,13 @@ title: Key Ordering
 description: Design comparer order around query ranges, implement a composite key with a compatible hasher and serializer, and plan ordering changes as storage migrations.
 ---
 
-<SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / KEYSPACE DESIGN" title="Put the records you read together" titleTag="h1" titleId="ordering-title" subtitle="A comparer defines both key equality and the order of the tree. Choose that order around the ranges your application needs to seek and scan."/>
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="CONCEPTS / KEYSPACE DESIGN"
+  title="Put the records you read together"
+  titleTag="h1"
+  titleId="ordering-title"
+  subtitle="A comparer defines both key equality and the order of the tree. Choose that order around the ranges your application needs to seek and scan."/>
 
 ## Design keys around range queries
 
@@ -115,14 +121,37 @@ Use it for latest-first access when the chosen key layout puts a tenant or entit
 
 The loader checks the comparer type recorded in metadata when opening a tree. A different comparer class can trigger `TreeComparerMismatchException` before segment loading.
 
-<AlertBox class="zt-guide-callout" tone="accent" title="Matching types do not prove matching behavior" icon="tabler:shield-check">
-  <p>Changing field order, culture rules, normalization, constructor state, or comparison logic inside the same .NET type can invalidate persisted ordering without changing its metadata identity. The application must preserve those semantics across reopen.</p>
+<AlertBox
+  class="zt-guide-callout"
+  tone="accent"
+  title="Matching types do not prove matching behavior"
+  icon="tabler:shield-check"
+>
+  <p>
+    Changing field order, culture rules, normalization, constructor state, or
+    comparison logic inside the same .NET type can invalidate persisted ordering
+    without changing its metadata identity. The application must preserve those
+    semantics across reopen.
+  </p>
 </AlertBox>
 
 When equality or ordering changes, create a new tree with the new components and rebuild the records into it. Resolve any keys that become equal under the new comparer. Do not bypass a metadata mismatch to reinterpret old segments under a different order.
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Key serialization, hashing, and range scans</strong>
-  <p>Pair your comparer with compatible hashing and a stable persisted representation.</p>
-  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/concepts/serializers-and-comparers/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Serializers and comparers</BtnLink><BtnLink href="/docs/usage/iteration-and-range-scans/" tone="neutral" variant="outline">Range scans</BtnLink></Flex>
+  <p>
+    Pair your comparer with compatible hashing and a stable persisted
+    representation.
+  </p>
+  <Flex wrap="true" class="gap-3"
+    ><BtnLink
+      href="/docs/concepts/serializers-and-comparers/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Serializers and comparers</BtnLink><BtnLink
+      href="/docs/usage/iteration-and-range-scans/"
+      tone="neutral"
+      variant="outline"
+      >Range scans</BtnLink></Flex>
 </Panel>

@@ -3,7 +3,13 @@ title: Read-Path Caching
 description: Match ZoneTree's disk caches, search hints, and iterator prefetch to the workload, with clear allocation scopes and a runnable range-scan example.
 ---
 
-<SectionHeader class="zt-guide-intro" eyebrow="TUNING / READ LATENCY AND MEMORY" title="Tune the work each read repeats" titleTag="h1" titleId="read-path-caching-title" subtitle="Storage reads, decompression, deserialization, and searching have different costs. Identify which one dominates before increasing a cache or prefetch buffer."/>
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="TUNING / READ LATENCY AND MEMORY"
+  title="Tune the work each read repeats"
+  titleTag="h1"
+  titleId="read-path-caching-title"
+  subtitle="Storage reads, decompression, deserialization, and searching have different costs. Identify which one dominates before increasing a cache or prefetch buffer."/>
 
 ## Read costs and cache controls
 
@@ -86,4 +92,11 @@ The maintainer's `BlockCacheLifeTime` defaults to one minute, with a 30-second c
 
 Changing the cleanup interval requires restarting the job; use the [maintainer configuration sequence](../storage/memory-usage.mdx#configure-retention-and-observe-the-write-set). To compare cold and warm behavior, record both the engine-cache state and the OS-cache state. Reopening a tree or releasing its read buffers does not by itself clear the operating system's file cache.
 
-<Flex wrap="true" class="gap-3 zt-guide-next"><BtnLink href="/docs/storage/memory-usage/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Memory budget</BtnLink><BtnLink href="/docs/tuning/disk-segments/" tone="neutral" variant="outline">Disk layout controls</BtnLink></Flex>
+<Flex wrap="true" class="gap-3 zt-guide-next"
+  ><BtnLink
+    href="/docs/storage/memory-usage/"
+    tone="accent"
+    icon="tabler:arrow-right"
+    iconPosition="end"
+    >Memory budget</BtnLink><BtnLink href="/docs/tuning/disk-segments/" tone="neutral" variant="outline"
+    >Disk layout controls</BtnLink></Flex>

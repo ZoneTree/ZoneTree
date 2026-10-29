@@ -9,24 +9,77 @@ layout:
 ---
 
 <div class="zt-docs-overview">
-  <SectionHeader class="zt-guide-intro" eyebrow="TUNING / MEASURE BEFORE CHANGING" title="Read caching, merge costs, and storage sizing" titleTag="h1" titleId="tuning-title" subtitle="Compare a representative workload against the default configuration, then use read latency, merge I/O, file shape, or payload cost to choose an experiment."/>
+  <SectionHeader
+    class="zt-guide-intro"
+    eyebrow="TUNING / MEASURE BEFORE CHANGING"
+    title="Read caching, merge costs, and storage sizing"
+    titleTag="h1"
+    titleId="tuning-title"
+    subtitle="Compare a representative workload against the default configuration, then use read latency, merge I/O, file shape, or payload cost to choose an experiment."/>
 
   <Grid columns="1" columnsMd="2" class="gap-4 zt-guide-next zt-docs-paths">
-    <DocCard number="01 / READ WORK" title="Read-path caching" summary="Separate block retention, deserialized-record caches, sequential lookup hints, and scan prefetch." href="/docs/tuning/read-path-caching/" icon="tabler:settings" label="Match caches to reads"/>
-    <DocCard number="02 / MERGE WORK" title="Write amplification" summary="Understand reuse eligibility and observe unchanged data files across a localized update." href="/docs/tuning/write-amplification/" icon="tabler:git-branch" label="Measure rewrite work"/>
-    <DocCard number="03 / FILE SHAPE" title="Disk segment tuning" summary="Distinguish writable capacity, disk-layer rollover, part targets, block size, and sparse density." href="/docs/tuning/disk-segments/" icon="tabler:database" label="Segment and part sizing"/>
-    <DocCard number="04 / PAYLOAD COST" title="Large values" summary="Translate record counts into bytes, evaluate value ownership, and compare direct payloads with references." href="/docs/tuning/large-values/" icon="tabler:stack-2" label="Budget payload work"/>
+    <DocCard
+      number="01 / READ WORK"
+      title="Read-path caching"
+      summary="Separate block retention, deserialized-record caches, sequential lookup hints, and scan prefetch."
+      href="/docs/tuning/read-path-caching/"
+      icon="tabler:settings"
+      label="Match caches to reads"/>
+    <DocCard
+      number="02 / MERGE WORK"
+      title="Write amplification"
+      summary="Understand reuse eligibility and observe unchanged data files across a localized update."
+      href="/docs/tuning/write-amplification/"
+      icon="tabler:git-branch"
+      label="Measure rewrite work"/>
+    <DocCard
+      number="03 / FILE SHAPE"
+      title="Disk segment tuning"
+      summary="Distinguish writable capacity, disk-layer rollover, part targets, block size, and sparse density."
+      href="/docs/tuning/disk-segments/"
+      icon="tabler:database"
+      label="Segment and part sizing"/>
+    <DocCard
+      number="04 / PAYLOAD COST"
+      title="Large values"
+      summary="Translate record counts into bytes, evaluate value ownership, and compare direct payloads with references."
+      href="/docs/tuning/large-values/"
+      icon="tabler:stack-2"
+      label="Budget payload work"/>
   </Grid>
 
-  <Panel tone="accent" variant="surface" class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <Panel
+    tone="accent"
+    variant="surface"
+    class="p-0 zt-guide-next-panel"
+    bodyClass="p-5"
+  >
     <strong>Make each experiment comparable</strong>
     <ol>
-      <li>Fix the dataset, key distribution, payload sizes, concurrency, and query bounds.</li>
-      <li>Separate cold and warm reads, and state the engine-cache and OS-cache conditions.</li>
-      <li>Change one control or coupled target range, and record the exact options.</li>
-      <li>Compare latency distributions, throughput, allocations, retained memory, and I/O through a representative maintenance cycle.</li>
+      <li>
+        Fix the dataset, key distribution, payload sizes, concurrency, and query
+        bounds.
+      </li>
+      <li>
+        Separate cold and warm reads, and state the engine-cache and OS-cache
+        conditions.
+      </li>
+      <li>
+        Change one control or coupled target range, and record the exact
+        options.
+      </li>
+      <li>
+        Compare latency distributions, throughput, allocations, retained memory,
+        and I/O through a representative maintenance cycle.
+      </li>
     </ol>
   </Panel>
 
-  <Flex wrap="true" class="gap-3 zt-guide-next"><BtnLink href="/docs/storage/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Storage fundamentals</BtnLink></Flex>
+  <Flex wrap="true" class="gap-3 zt-guide-next"
+    ><BtnLink
+      href="/docs/storage/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Storage fundamentals</BtnLink></Flex>
 </div>

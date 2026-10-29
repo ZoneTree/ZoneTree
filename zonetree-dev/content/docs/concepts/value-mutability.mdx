@@ -3,10 +3,26 @@ title: Value Mutability
 description: Own stored objects and buffers, replace values through write APIs, understand shallow immutability, and avoid observable mutations in cancelled or retried atomic delegates.
 ---
 
-<SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / VALUE OWNERSHIP" title="A value change needs an engine write" titleTag="h1" titleId="mutability-title" subtitle="An in-memory segment can retain the object or buffer your application supplied. Treat inserted and returned values as read-only, and construct a replacement before updating the tree."/>
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="CONCEPTS / VALUE OWNERSHIP"
+  title="A value change needs an engine write"
+  titleTag="h1"
+  titleId="mutability-title"
+  subtitle="An in-memory segment can retain the object or buffer your application supplied. Treat inserted and returned values as read-only, and construct a replacement before updating the tree."/>
 
-<AlertBox class="zt-guide-callout" tone="accent" title="A shared reference is not an update API" icon="tabler:shield-check">
-  <p>Changing a stored object or buffer directly can change visible memory without appending a new write or assigning another operation index. Recovery, cached reads, and disk reads can then disagree with that observation.</p>
+<AlertBox
+  class="zt-guide-callout"
+  tone="accent"
+  title="A shared reference is not an update API"
+  icon="tabler:shield-check"
+>
+  <p>
+    Changing a stored object or buffer directly can change visible memory
+    without appending a new write or assigning another operation index.
+    Recovery, cached reads, and disk reads can then disagree with that
+    observation.
+  </p>
 </AlertBox>
 
 ## Copy at the ownership boundary
@@ -115,6 +131,19 @@ For complex values, either make the object graph immutable, deep-copy the mutabl
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Atomic updates and value serialization</strong>
-  <p>Pair safe ownership with the write API that provides the coordination your data rule needs.</p>
-  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/usage/atomic-operations/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Atomic updates</BtnLink><BtnLink href="/docs/concepts/serializers-and-comparers/" tone="neutral" variant="outline">Value serialization</BtnLink></Flex>
+  <p>
+    Pair safe ownership with the write API that provides the coordination your
+    data rule needs.
+  </p>
+  <Flex wrap="true" class="gap-3"
+    ><BtnLink
+      href="/docs/usage/atomic-operations/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Atomic updates</BtnLink><BtnLink
+      href="/docs/concepts/serializers-and-comparers/"
+      tone="neutral"
+      variant="outline"
+      >Value serialization</BtnLink></Flex>
 </Panel>

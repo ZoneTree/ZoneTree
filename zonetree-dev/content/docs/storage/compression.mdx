@@ -3,11 +3,27 @@ title: Compression
 description: Configure WAL and disk compression independently, understand block cache costs and persisted settings, and compare profiles with representative workloads.
 ---
 
-<SectionHeader class="zt-guide-intro" eyebrow="STORAGE / COMPRESSION" title="Compression costs: CPU, I/O, and cache memory" titleTag="h1" titleId="compression-title" subtitle="WAL compression handles recent log records. Disk compression handles sorted random-access blocks. Configure and measure these two paths independently."/>
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="STORAGE / COMPRESSION"
+  title="Compression costs: CPU, I/O, and cache memory"
+  titleTag="h1"
+  titleId="compression-title"
+  subtitle="WAL compression handles recent log records. Disk compression handles sorted random-access blocks. Configure and measure these two paths independently."/>
 
 <Grid columns="1" columnsMd="2" class="gap-3 zt-guide-outcomes">
-  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>WAL / recent writes</strong><p>The default is AsyncCompressed with Zstd level 0 and 256 KiB blocks. The WAL mode also determines logging behavior.</p></Panel>
-  <Panel class="p-0" bodyClass="p-4"><strong>Disk / sorted records</strong><p>The default is Zstd level 0 and 4 MiB blocks. Reads decompress the blocks containing the requested data.</p></Panel>
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"
+    ><strong>WAL / recent writes</strong>
+    <p>
+      The default is AsyncCompressed with Zstd level 0 and 256 KiB blocks. The
+      WAL mode also determines logging behavior.
+    </p></Panel>
+  <Panel class="p-0" bodyClass="p-4"
+    ><strong>Disk / sorted records</strong>
+    <p>
+      The default is Zstd level 0 and 4 MiB blocks. Reads decompress the blocks
+      containing the requested data.
+    </p></Panel>
 </Grid>
 
 ## Separate the two paths
@@ -25,8 +41,20 @@ Both paths expose a compression method, method-specific level, and block size, b
 
 Changing compression options does not rewrite existing files. A merge may write new files with the new profile while reusing eligible parts with the earlier profile. Multipart descriptors have their own metadata encoding; disk data-block settings do not configure that encoding.
 
-<AlertBox class="zt-guide-callout" tone="info" title="WAL mode and durability" icon="tabler:shield-check">
-  <p>A compression method or level does not define when a write is durable. <code>AsyncCompressed</code>, <code>SyncCompressed</code>, plain <code>Sync</code>, and <code>None</code> have different logging and failure behavior. Choose the mode with the <a href="/docs/durability/wal-modes/">WAL modes guide</a>, then tune compression within that choice.</p>
+<AlertBox
+  class="zt-guide-callout"
+  tone="info"
+  title="WAL mode and durability"
+  icon="tabler:shield-check"
+>
+  <p>
+    A compression method or level does not define when a write is durable.
+    <code>AsyncCompressed</code>, <code>SyncCompressed</code>, plain
+    <code>Sync</code>, and <code>None</code> have different logging and failure
+    behavior. Choose the mode with the
+    <a href="/docs/durability/wal-modes/">WAL modes guide</a>, then tune
+    compression within that choice.
+  </p>
 </AlertBox>
 
 ## Select a method and its own level
@@ -128,6 +156,20 @@ Compare newly written datasets when you want a clean profile comparison. Reopeni
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Evaluate compression as part of the storage budget</strong>
-  <p>Pair physical file measurements with cache ownership and read patterns before changing the defaults.</p>
-  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/storage/memory-usage/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Memory usage</BtnLink><BtnLink href="/docs/tuning/large-values/" tone="neutral" variant="outline">Large values</BtnLink><BtnLink href="/docs/storage/disk-segments/" tone="neutral" variant="outline">Disk segment files</BtnLink></Flex>
+  <p>
+    Pair physical file measurements with cache ownership and read patterns
+    before changing the defaults.
+  </p>
+  <Flex wrap="true" class="gap-3"
+    ><BtnLink
+      href="/docs/storage/memory-usage/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Memory usage</BtnLink><BtnLink href="/docs/tuning/large-values/" tone="neutral" variant="outline"
+      >Large values</BtnLink><BtnLink
+      href="/docs/storage/disk-segments/"
+      tone="neutral"
+      variant="outline"
+      >Disk segment files</BtnLink></Flex>
 </Panel>

@@ -3,7 +3,13 @@ title: Operation Indexes
 description: Interpret per-tree write sequence indexes, preserve recovered high-water marks, and distinguish per-key replication freshness from global ordering or exactly-once delivery.
 ---
 
-<SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / WRITE SEQUENCING" title="Identify a write in its producer's sequence" titleTag="h1" titleId="op-index-title" subtitle="Successful ordinary-tree writes receive operation indexes from the tree's increasing sequence. Use them as write identities and freshness tokens with an explicit producer, recovery boundary, and replay protocol."/>
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="CONCEPTS / WRITE SEQUENCING"
+  title="Identify a write in its producer's sequence"
+  titleTag="h1"
+  titleId="op-index-title"
+  subtitle="Successful ordinary-tree writes receive operation indexes from the tree's increasing sequence. Use them as write identities and freshness tokens with an explicit producer, recovery boundary, and replay protocol."/>
 
 ## Observe the assigned index
 
@@ -82,12 +88,31 @@ Equal-index replay can be logically idempotent when it repeats the same value, b
 
 The freshness tree and replica are separate stores. The helper does not make their writes one crash-atomic transaction, add transport, establish a global replay order, or resolve conflicting producers. Those are responsibilities of the surrounding replication protocol.
 
-<AlertBox class="zt-guide-callout" tone="accent" title="Define freshness within one producer history" icon="tabler:git-branch">
-  <p>Comparing two numbers only makes sense when they belong to the same sequence. Add producer identity and a restore or failover policy before using operation indexes across nodes.</p>
+<AlertBox
+  class="zt-guide-callout"
+  tone="accent"
+  title="Define freshness within one producer history"
+  icon="tabler:git-branch"
+>
+  <p>
+    Comparing two numbers only makes sense when they belong to the same
+    sequence. Add producer identity and a restore or failover policy before
+    using operation indexes across nodes.
+  </p>
 </AlertBox>
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Operation indexes in replication</strong>
-  <p>Use the storage sequence as one building block alongside capture, durability, acknowledgments, and recovery.</p>
-  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/building-systems/partitioning-and-replication/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Partitioning and replication</BtnLink><BtnLink href="/docs/durability/recovery/" tone="neutral" variant="outline">Recovery</BtnLink></Flex>
+  <p>
+    Use the storage sequence as one building block alongside capture,
+    durability, acknowledgments, and recovery.
+  </p>
+  <Flex wrap="true" class="gap-3"
+    ><BtnLink
+      href="/docs/building-systems/partitioning-and-replication/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Partitioning and replication</BtnLink><BtnLink href="/docs/durability/recovery/" tone="neutral" variant="outline"
+      >Recovery</BtnLink></Flex>
 </Panel>

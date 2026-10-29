@@ -3,17 +3,42 @@ title: Segments
 description: Distinguish ZoneTree's memory and disk layers, logical disk segments, reusable parts, physical layouts, and segment lifecycle counters.
 ---
 
-<SectionHeader class="zt-guide-intro" eyebrow="CONCEPTS / STORAGE UNITS" title="One keyspace, several ordered segments" titleTag="h1" titleId="segments-title" subtitle="A segment is an ordered record set. ZoneTree combines segments to present the latest live value for each key while writes, compaction, and file cleanup happen on different timelines."/>
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="CONCEPTS / STORAGE UNITS"
+  title="One keyspace, several ordered segments"
+  titleTag="h1"
+  titleId="segments-title"
+  subtitle="A segment is an ordered record set. ZoneTree combines segments to present the latest live value for each key while writes, compaction, and file cleanup happen on different timelines."/>
 
 ## Storage layers
 
 For the wider set of storage and data contracts, [browse the Concepts overview](index.mdx).
 
 <Grid columns="1" columnsMd="2" class="gap-3 zt-guide-outcomes">
-  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"><strong>01 / Mutable memory</strong><p>The active writable segment accepts new records and updates. Its configured WAL supports recovery.</p></Panel>
-  <Panel class="p-0" bodyClass="p-4"><strong>02 / Read-only memory</strong><p>Older memory segments stop accepting writes and wait for normal merges.</p></Panel>
-  <Panel class="p-0" bodyClass="p-4"><strong>03 / Current disk segment</strong><p>The <code>DiskSegment</code> slot holds the persistent segment used by a normal merge.</p></Panel>
-  <Panel class="p-0" bodyClass="p-4"><strong>04 / Bottom disk segments</strong><p>Persistent segments below the current disk slot form a separate queue with explicit bottom-merge operations.</p></Panel>
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"
+    ><strong>01 / Mutable memory</strong>
+    <p>
+      The active writable segment accepts new records and updates. Its
+      configured WAL supports recovery.
+    </p></Panel>
+  <Panel class="p-0" bodyClass="p-4"
+    ><strong>02 / Read-only memory</strong>
+    <p>
+      Older memory segments stop accepting writes and wait for normal merges.
+    </p></Panel>
+  <Panel class="p-0" bodyClass="p-4"
+    ><strong>03 / Current disk segment</strong>
+    <p>
+      The <code>DiskSegment</code> slot holds the persistent segment used by a
+      normal merge.
+    </p></Panel>
+  <Panel class="p-0" bodyClass="p-4"
+    ><strong>04 / Bottom disk segments</strong>
+    <p>
+      Persistent segments below the current disk slot form a separate queue with
+      explicit bottom-merge operations.
+    </p></Panel>
 </Grid>
 
 These are storage layers inside one tree. They do not create separate application keyspaces. A point read checks newer data before older data; an iterator merges its collected sources into key order.
@@ -39,8 +64,17 @@ The disk abstraction is `IDiskSegment<TKey, TValue>`. Both single-part and multi
 | Multipart segment | One logical segment whose descriptor points to ordered parts. |
 | Part | An immutable disk-segment unit that can be carried into a later multipart result when eligible. |
 
-<AlertBox class="zt-guide-callout" tone="accent" title="A part is not another LSM layer" icon="tabler:stack-2">
-  <p>Layers separate newer and older storage generations. Parts divide one logical disk segment into ordered ranges. A multipart segment still occupies one disk-segment slot or one position in the bottom queue.</p>
+<AlertBox
+  class="zt-guide-callout"
+  tone="accent"
+  title="A part is not another LSM layer"
+  icon="tabler:stack-2"
+>
+  <p>
+    Layers separate newer and older storage generations. Parts divide one
+    logical disk segment into ordered ranges. A multipart segment still occupies
+    one disk-segment slot or one position in the bottom queue.
+  </p>
 </AlertBox>
 
 ## Immutable parts and reuse
@@ -95,6 +129,19 @@ Dispose scan-owned resources promptly. If obsolete files remain, inspect active 
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Bloom filters and disk storage</strong>
-  <p>Understand which reads can avoid a memory-tree lookup, then inspect the cost of compaction and caching.</p>
-  <Flex wrap="true" class="gap-3"><BtnLink href="/docs/concepts/bloom-filters/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Bloom filters</BtnLink><BtnLink href="/docs/storage/disk-segments/" tone="neutral" variant="outline">Disk storage</BtnLink></Flex>
+  <p>
+    Understand which reads can avoid a memory-tree lookup, then inspect the cost
+    of compaction and caching.
+  </p>
+  <Flex wrap="true" class="gap-3"
+    ><BtnLink
+      href="/docs/concepts/bloom-filters/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Bloom filters</BtnLink><BtnLink
+      href="/docs/storage/disk-segments/"
+      tone="neutral"
+      variant="outline"
+      >Disk storage</BtnLink></Flex>
 </Panel>

@@ -3,7 +3,13 @@ title: Write Amplification
 description: Measure rewrite work, understand multipart reuse eligibility, and verify unchanged disk files across a localized update without assuming a hard rewrite bound.
 ---
 
-<SectionHeader class="zt-guide-intro" eyebrow="TUNING / MERGE WORK" title="Keep rewrite work close to changed ranges" titleTag="h1" titleId="write-amplification-title" subtitle="Multipart storage can carry eligible unchanged parts into a new disk segment. Write locality, batching, and part boundaries determine how much of that opportunity a workload actually uses."/>
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="TUNING / MERGE WORK"
+  title="Keep rewrite work close to changed ranges"
+  titleTag="h1"
+  titleId="write-amplification-title"
+  subtitle="Multipart storage can carry eligible unchanged parts into a new disk segment. Write locality, batching, and part boundaries determine how much of that opportunity a workload actually uses."/>
 
 ## Write amplification metrics
 
@@ -85,4 +91,11 @@ Measure request latency, normal and bottom-merge durations, bytes written, and r
 
 For diagnostic detail, `LogMergerSuccess` and `LogMergerDrop` are emitted through the logger's trace path. Their skip/drop counts describe part-reuse decisions, not record counts or byte-amplification ratios. See [maintenance](../usage/maintenance.mdx) for scheduling and merge events.
 
-<Flex wrap="true" class="gap-3 zt-guide-next"><BtnLink href="/docs/tuning/disk-segments/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Size segments and parts</BtnLink><BtnLink href="/docs/tuning/large-values/" tone="neutral" variant="outline">Large payload costs</BtnLink></Flex>
+<Flex wrap="true" class="gap-3 zt-guide-next"
+  ><BtnLink
+    href="/docs/tuning/disk-segments/"
+    tone="accent"
+    icon="tabler:arrow-right"
+    iconPosition="end"
+    >Size segments and parts</BtnLink><BtnLink href="/docs/tuning/large-values/" tone="neutral" variant="outline"
+    >Large payload costs</BtnLink></Flex>

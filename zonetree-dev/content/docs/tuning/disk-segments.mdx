@@ -3,7 +3,13 @@ title: Disk Segment Tuning
 description: Distinguish mutable capacity, disk-layer rollover, and multipart targets, and apply valid settings while measuring file count, locality, and read cost.
 ---
 
-<SectionHeader class="zt-guide-intro" eyebrow="TUNING / PERSISTENT FILE SHAPE" title="Size the layer and its parts independently" titleTag="h1" titleId="disk-segment-tuning-title" subtitle="A mutable-segment limit, a disk-layer threshold, and a part target control different boundaries. Choose the boundary that explains the measured cost."/>
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="TUNING / PERSISTENT FILE SHAPE"
+  title="Size the layer and its parts independently"
+  titleTag="h1"
+  titleId="disk-segment-tuning-title"
+  subtitle="A mutable-segment limit, a disk-layer threshold, and a part target control different boundaries. Choose the boundary that explains the measured cost."/>
 
 ## Separate the three record-count controls
 
@@ -87,4 +93,14 @@ Disk compression defaults to Zstd level 0 with 4 MiB blocks. A smaller block can
 
 Keep cache and prefetch experiments in [read-path caching](read-path-caching.mdx). File shape changes affect many allocations indirectly, so compare file count and total retained memory as well as query latency.
 
-<Flex wrap="true" class="gap-3 zt-guide-next"><BtnLink href="/docs/tuning/write-amplification/" tone="accent" icon="tabler:arrow-right" iconPosition="end">Measure merge work</BtnLink><BtnLink href="/docs/tuning/read-path-caching/" tone="neutral" variant="outline">Read-cache controls</BtnLink></Flex>
+<Flex wrap="true" class="gap-3 zt-guide-next"
+  ><BtnLink
+    href="/docs/tuning/write-amplification/"
+    tone="accent"
+    icon="tabler:arrow-right"
+    iconPosition="end"
+    >Measure merge work</BtnLink><BtnLink
+    href="/docs/tuning/read-path-caching/"
+    tone="neutral"
+    variant="outline"
+    >Read-cache controls</BtnLink></Flex>
