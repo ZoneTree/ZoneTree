@@ -536,6 +536,8 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   /// A transactional tree stores every key with the id of the transaction that wrote it,
   /// so its files are not compatible with a tree opened by <see cref="OpenOrCreate"/>.
   /// The deletion delegates are not used: transactions delete keys themselves.
+  /// A merge filter factory or a range deletion delegate is rejected with
+  /// <see cref="InvalidOptionValueException"/>.
   /// </remarks>
   /// <returns>The transactional ZoneTree.</returns>
   public ITransactionalZoneTree<TKey, TValue> OpenOrCreateTransactional()

@@ -25,6 +25,12 @@ namespace ZoneTree.Transactional.Mvcc;
 /// by this merge or an earlier one. Otherwise a crash could keep the merge output but
 /// lose the commit, and recovery would find neither the new value nor the old one.
 /// </para>
+/// <para>
+/// A version without an entry is committed unless the storage tree deleted it for a
+/// rollback the tree forgot, and its deletion can be in a segment outside the merge.
+/// So before such a version hides an older one, the filter looks up its newest stored
+/// copy, and a deletion hides nothing. Keys with a single version never need the lookup.
+/// </para>
 /// </remarks>
 internal sealed class VersionGarbageFilter<TKey, TValue> :
     IMergeFilter<VersionedKey<TKey>, VersionedValue<TValue>>
@@ -59,6 +65,14 @@ internal sealed class VersionGarbageFilter<TKey, TValue> :
 
   bool IsCurrentKeyHidden;
 
+  /// <summary>
+  /// True while the version that hides the current key has no entry
+  /// and its newest stored copy was not looked up.
+  /// </summary>
+  bool IsHidingUnconfirmed;
+
+  VersionedKey<TKey> HidingVersion;
+
   public VersionGarbageFilter(
       MvccZoneTree<TKey, TValue> tree,
       IRefComparer<TKey> comparer,
@@ -87,13 +101,15 @@ internal sealed class VersionGarbageFilter<TKey, TValue> :
       HasCurrentKey = true;
       NewerCommitTimestamp = long.MaxValue;
       IsCurrentKeyHidden = false;
+      IsHidingUnconfirmed = false;
     }
-    switch (Tree.GetVersionState(
+    var state = Tree.GetVersionState(
         key.Version,
         Horizon,
         DurableCommitTimestamp,
         MergedSegmentId,
-        out var commitTimestamp))
+        out var commitTimestamp);
+    switch (state)
     {
       case VersionState.Aborted:
         return false;
@@ -108,13 +124,39 @@ internal sealed class VersionGarbageFilter<TKey, TValue> :
           return isNeeded;
         }
     }
-    if (IsCurrentKeyHidden)
+    if (IsCurrentKeyHidden && IsHidingConfirmed())
       return false;
-    IsCurrentKeyHidden = true;
+    Hide(in key, state);
     // Every snapshot sees this version, unless a newer one hides it from all of them.
     if (Horizon >= NewerCommitTimestamp)
       return false;
     return !(IncludesOldestRecords && value.Kind == VersionedValueKind.Tombstone);
+  }
+
+  /// <summary>
+  /// Makes a version visible to every snapshot hide the older versions of the current key.
+  /// </summary>
+  void Hide(in VersionedKey<TKey> version, VersionState state)
+  {
+    IsCurrentKeyHidden = true;
+    IsHidingUnconfirmed = state == VersionState.Unregistered;
+    if (IsHidingUnconfirmed)
+      HidingVersion = version;
+  }
+
+  /// <summary>
+  /// Checks, before the first older version is dropped, that a hiding version without
+  /// an entry was not deleted for a rollback. A deleted one hides nothing.
+  /// </summary>
+  bool IsHidingConfirmed()
+  {
+    if (!IsHidingUnconfirmed)
+      return true;
+    IsHidingUnconfirmed = false;
+    if (!Tree.IsDeletedVersion(in HidingVersion))
+      return true;
+    IsCurrentKeyHidden = false;
+    return false;
   }
 
   /// <summary>
@@ -132,41 +174,10 @@ internal sealed class VersionGarbageFilter<TKey, TValue> :
   {
     // A copied part would keep the older versions of the current key
     // that this filter drops, including the ones under a dropped delete.
+    // Any other part starts after the current key, so the next record is
+    // a new key, even one whose newer versions are in the copied part.
     return !(HasCurrentKey &&
         firstKey.Kind == VersionedKeyKind.Data &&
         Comparer.Compare(in CurrentKey, in firstKey.Key) == 0);
-  }
-
-  public void OnPartSkipped(
-      in VersionedKey<TKey> lastKey, in VersionedValue<TValue> lastValue)
-  {
-    // The next part may continue the last key of the copied part. The copied
-    // part ends with the oldest version of that key so far, and a committed
-    // or visible version decides alone what it hides of the older ones.
-    // Otherwise the rest is treated as a new key, which keeps it unless a
-    // version visible to all hides it.
-    HasCurrentKey = false;
-    if (lastKey.Kind != VersionedKeyKind.Data ||
-        lastValue.Kind == VersionedValueKind.Deleted)
-      return;
-    switch (Tree.GetVersionState(
-        lastKey.Version,
-        Horizon,
-        DurableCommitTimestamp,
-        MergedSegmentId,
-        out var commitTimestamp))
-    {
-      case VersionState.Committed:
-        NewerCommitTimestamp = commitTimestamp;
-        IsCurrentKeyHidden = false;
-        break;
-      case VersionState.VisibleToAll:
-        IsCurrentKeyHidden = true;
-        break;
-      default:
-        return;
-    }
-    CurrentKey = lastKey.Key;
-    HasCurrentKey = true;
   }
 }

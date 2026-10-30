@@ -5,7 +5,6 @@ using ZoneTree.Core;
 using ZoneTree.Exceptions;
 using ZoneTree.Logger;
 using ZoneTree.Options;
-using ZoneTree.Segments;
 using ZoneTree.Transactional.Conflicts;
 using ZoneTree.Transactional.Versioning;
 
@@ -28,6 +27,12 @@ namespace ZoneTree.Transactional.Mvcc;
 /// committed. After a crash, a remaining status record means the transaction never
 /// committed. The storage tree syncs each segment's WAL before the next segment accepts
 /// writes, so a recovered commit always comes with every write made before it.
+/// </para>
+/// <para>
+/// A rollback deletes its versions and then its status record in the storage tree.
+/// The tree forgets the rollback once no transaction that began before the deletions
+/// is active: the deletions hide the versions from readers, and merges drop the
+/// versions where they meet the deletions.
 /// </para>
 /// <para>
 /// Two committed transactions that wrote the same key never overlap, because the later
@@ -87,16 +92,10 @@ public sealed class MvccZoneTree<TKey, TValue> :
   readonly Queue<(long CommitTimestamp, TKey[] Keys)> CommittedWrites = new();
 
   /// <summary>
-  /// Rolled back transactions waiting for a merge to combine their deletions
-  /// with every stored version.
+  /// Rolled back transactions whose versions were deleted, in rollback order.
+  /// They are forgotten once no transaction that began before the deletions is active.
   /// </summary>
-  readonly List<TransactionEntry> AbortedTransactions = new();
-
-  /// <summary>
-  /// Rolled back transactions whose deletions were merged. They are forgotten
-  /// once no transaction that began before the deletions is active.
-  /// </summary>
-  readonly List<TransactionEntry> MergedAbortedTransactions = new();
+  readonly Queue<TransactionEntry> RolledBackTransactions = new();
 
   /// <summary>
   /// Committed entries, in commit order, whose commit record may not be durable yet.
@@ -114,10 +113,6 @@ public sealed class MvccZoneTree<TKey, TValue> :
   /// False when the write ahead log is disabled, so syncs make nothing durable.
   /// </summary>
   readonly bool HasDurableWriteAheadLog;
-
-  long BottomMarker;
-
-  long LastMergedDiskSegmentId;
 
   TimeSpan autoSyncInterval;
 
@@ -144,10 +139,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
         options.WriteAheadLogOptions.WriteAheadLogMode != WriteAheadLogMode.None;
     Recover();
     ValidateSchema(options);
-    BottomMarker = GetBottomMarker(0);
-    StorageMaintenance.OnDiskSegmentCreated += OnDiskSegmentCreated;
     StorageMaintenance.OnMergeOperationEnded += OnMergeOperationEnded;
-    StorageMaintenance.OnBottomSegmentsMergeOperationEnded += OnBottomSegmentsMergeOperationEnded;
   }
 
   /// <summary>
@@ -158,6 +150,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
       bool canCreate,
       bool canOpen)
   {
+    RejectUnsupportedOptions(options);
     var owner = new StrongBox<MvccZoneTree<TKey, TValue>>();
     var storageOptions = CreateStorageOptions(options, owner);
     var loader = new ZoneTreeLoader<VersionedKey<TKey>, VersionedValue<TValue>>(storageOptions);
@@ -184,6 +177,24 @@ public sealed class MvccZoneTree<TKey, TValue> :
       storage.Dispose();
       throw;
     }
+  }
+
+  /// <summary>
+  /// The storage tree holds versions, not user records, so the options that act on
+  /// user records cannot apply. They are rejected rather than silently ignored.
+  /// </summary>
+  static void RejectUnsupportedOptions(ZoneTreeOptions<TKey, TValue> options)
+  {
+    if (options.MergeFilterFactory != null)
+      throw new InvalidOptionValueException(
+          nameof(options.MergeFilterFactory),
+          options.MergeFilterFactory,
+          "A transactional tree filters its merges itself");
+    if (options.IsRangeDeleted != null)
+      throw new InvalidOptionValueException(
+          nameof(options.IsRangeDeleted),
+          options.IsRangeDeleted,
+          "A transactional tree deletes keys only with transactions");
   }
 
   static ZoneTreeOptions<VersionedKey<TKey>, VersionedValue<TValue>> CreateStorageOptions(
@@ -253,13 +264,11 @@ public sealed class MvccZoneTree<TKey, TValue> :
           StoredSchema[key.Version] = iterator.CurrentValue.Meta;
         continue;
       }
-      // The transaction did not commit before the tree closed. Its versions may be
-      // anywhere in the tree, so it stays registered as rolled back.
-      var transactionId = key.TransactionId;
-      Entries[transactionId] = new TransactionEntry(transactionId, TransactionState.Aborted)
-      {
-        IsPermanent = true
-      };
+      // The transaction did not commit before the tree closed, and its versions
+      // were not all deleted. They may be anywhere in the tree, so it stays
+      // registered as rolled back.
+      var transactionId = key.Version;
+      Entries[transactionId] = new TransactionEntry(transactionId, TransactionState.Aborted);
     }
     Clock = ReservedClock;
     lastCommitTimestamp = Clock;
@@ -422,7 +431,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
   {
     commitTimestamp = 0;
     if (!Entries.TryGetValue(version, out var entry))
-      return VersionState.VisibleToAll;
+      return VersionState.Unregistered;
     switch (entry.State)
     {
       case TransactionState.Aborted:
@@ -461,9 +470,6 @@ public sealed class MvccZoneTree<TKey, TValue> :
 
   internal void OnFirstWrite(MvccTransaction<TKey, TValue> transaction)
   {
-    // Read the marker before the first write, so a later move of
-    // a disk segment to the bottom segments is never missed.
-    transaction.Entry.BottomMarker = Volatile.Read(ref BottomMarker);
     Storage.Upsert(
         VersionedKey<TKey>.TransactionStatus(transaction.TransactionId),
         VersionedValue<TValue>.FromSystem(PendingStatus));
@@ -567,36 +573,35 @@ public sealed class MvccZoneTree<TKey, TValue> :
     }
     var entry = transaction.Entry;
     var isDeleted = false;
+    // Readers and merges ignore the versions from now on.
+    entry.State = TransactionState.Aborted;
+    if (!transaction.HasWrites)
     {
-      // Readers and merges ignore the versions from now on.
-      entry.State = TransactionState.Aborted;
-      if (!transaction.HasWrites)
+      Entries.TryRemove(entry.Id, out _);
+    }
+    else
+    {
+      try
       {
-        Entries.TryRemove(entry.Id, out _);
+        foreach (var key in transaction.WrittenKeysForRollback)
+          Storage.ForceDelete(VersionedKey<TKey>.Data(in key, transaction.TransactionId));
+        // The storage tree keeps the write order across a crash, so a recovered
+        // tree keeps the pending status record unless it keeps every deletion.
+        Storage.ForceDelete(VersionedKey<TKey>.TransactionStatus(transaction.TransactionId));
+        isDeleted = true;
       }
-      else
+      catch (Exception e)
       {
-        try
-        {
-          foreach (var key in transaction.WrittenKeysForRollback)
-            Storage.ForceDelete(VersionedKey<TKey>.Data(in key, transaction.TransactionId));
-          isDeleted = true;
-        }
-        catch (Exception e)
-        {
-          // The entry and the pending status record stay, so the versions stay invisible.
-          entry.IsPermanent = true;
-          Logger.LogError(e);
-        }
+        // Versions may lack their deletions, so the entry stays for good.
+        Logger.LogError(e);
       }
     }
     lock (StateLock)
     {
       if (isDeleted)
       {
-        entry.AbortSegmentId = StorageMaintenance.MutableSegment.SegmentId;
         entry.AbortSequence = Clock;
-        AbortedTransactions.Add(entry);
+        RolledBackTransactions.Enqueue(entry);
       }
       EndTransactionLocked(transaction);
     }
@@ -622,7 +627,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
   {
     Active.RemoveWriter(transaction);
     PruneCommittedTransactions();
-    RemoveReleasedAbortedTransactions();
+    ForgetRolledBackTransactions();
   }
 
   /// <summary>
@@ -658,32 +663,66 @@ public sealed class MvccZoneTree<TKey, TValue> :
   }
 
   /// <summary>
-  /// Forgets rolled back transactions whose versions no reader or merge can meet.
-  /// Called under the state lock.
+  /// Forgets the rolled back transactions whose deletions every active
+  /// transaction reads. Called under the state lock.
   /// </summary>
-  void RemoveReleasedAbortedTransactions()
+  /// <remarks>
+  /// From then on the deletions hide the versions from readers, and merges
+  /// drop the versions where they meet the deletions.
+  /// </remarks>
+  void ForgetRolledBackTransactions()
   {
-    if (MergedAbortedTransactions.Count == 0)
+    if (RolledBackTransactions.Count == 0)
       return;
+    // A transaction that began before the deletions may hold an iterator
+    // over segments that have the versions without the deletions.
     var oldestBeginSequence = Active.OldestBeginSequence(long.MaxValue);
-    for (var i = MergedAbortedTransactions.Count - 1; i >= 0; --i)
+    while (RolledBackTransactions.TryPeek(out var entry) &&
+        entry.AbortSequence < oldestBeginSequence)
     {
-      var entry = MergedAbortedTransactions[i];
-      // A transaction that began before the deletions may hold an iterator over
-      // segments that still have the versions without the deletions.
-      if (oldestBeginSequence <= entry.AbortSequence)
-        continue;
-      try
-      {
-        Storage.ForceDelete(VersionedKey<TKey>.TransactionStatus(entry.Id));
-      }
-      catch (Exception e)
-      {
-        Logger.LogError(e);
-        continue;
-      }
+      RolledBackTransactions.Dequeue();
       Entries.TryRemove(entry.Id, out _);
-      MergedAbortedTransactions.RemoveAt(i);
+    }
+  }
+
+  /// <summary>
+  /// Checks whether the newest stored copy of a version is a deletion. The versions
+  /// of a forgotten rollback have no entry, like the committed ones, and only their
+  /// deletions tell them apart.
+  /// </summary>
+  internal bool IsDeletedVersion(in VersionedKey<TKey> key)
+  {
+    var probe = new DeletionProbe(Comparer, in key);
+    Storage.VisitSegments(in key, ref probe);
+    return probe.IsDeleted;
+  }
+
+  /// <summary>
+  /// Finds the newest stored copy of a version. A deletion is newer than
+  /// the version it deletes, and segments are visited newest first.
+  /// </summary>
+  struct DeletionProbe : ISegmentRecordVisitor<VersionedKey<TKey>, VersionedValue<TValue>>
+  {
+    readonly IRefComparer<TKey> Comparer;
+
+    readonly VersionedKey<TKey> Key;
+
+    public bool IsDeleted;
+
+    public DeletionProbe(IRefComparer<TKey> comparer, in VersionedKey<TKey> key)
+    {
+      Comparer = comparer;
+      Key = key;
+    }
+
+    public SegmentVisitAction Visit(in VersionedKey<TKey> key, in VersionedValue<TValue> value)
+    {
+      if (key.Kind != Key.Kind ||
+          key.Version != Key.Version ||
+          Comparer.Compare(in key.Key, in Key.Key) != 0)
+        return SegmentVisitAction.NextSegment;
+      IsDeleted = value.Kind == VersionedValueKind.Deleted;
+      return SegmentVisitAction.Stop;
     }
   }
 
@@ -708,75 +747,19 @@ public sealed class MvccZoneTree<TKey, TValue> :
   }
 
   /// <summary>
-  /// The highest bottom segment id, excluding the given one. It changes whenever
-  /// a disk segment moves to the bottom segments or bottom segments merge.
+  /// Commit records merged into the disk segment are durable with it. Read-only
+  /// transactions end without the state lock, so every merge end also forgets
+  /// what they kept.
   /// </summary>
-  long GetBottomMarker(long excludedSegmentId)
-  {
-    long marker = 0;
-    foreach (var segment in StorageMaintenance.BottomSegments)
-    {
-      var id = segment.SegmentId;
-      if (id != excludedSegmentId && id > marker)
-        marker = id;
-    }
-    return marker;
-  }
-
-  void OnDiskSegmentCreated(
-      IZoneTreeMaintenance<VersionedKey<TKey>, VersionedValue<TValue>> zoneTree,
-      IDiskSegment<VersionedKey<TKey>, VersionedValue<TValue>> newDiskSegment,
-      bool isBottomSegment)
-  {
-    if (!isBottomSegment)
-      Volatile.Write(ref LastMergedDiskSegmentId, newDiskSegment.SegmentId);
-  }
-
-  void OnBottomSegmentsMergeOperationEnded(
-      IZoneTreeMaintenance<VersionedKey<TKey>, VersionedValue<TValue>> zoneTree,
-      MergeResult mergeResult)
-  {
-    Volatile.Write(ref BottomMarker, GetBottomMarker(0));
-  }
-
-  /// <summary>
-  /// Decides which rolled back transactions had their deletions merged.
-  /// </summary>
-  /// <remarks>
-  /// A merge that takes the segment holding the deletions also takes every newer
-  /// segment's older copies and the disk segment, so the deletions remove every
-  /// version. Only versions that reached the bottom segments before that merge can
-  /// survive. That needs a disk segment to move to the bottom segments between the
-  /// first write and the merge, and then the transaction stays registered for good.
-  /// </remarks>
   void OnMergeOperationEnded(
       IZoneTreeMaintenance<VersionedKey<TKey>, VersionedValue<TValue>> zoneTree,
       MergeResult mergeResult)
   {
-    var markerBeforeMerge = GetBottomMarker(Volatile.Read(ref LastMergedDiskSegmentId));
-    Volatile.Write(ref BottomMarker, GetBottomMarker(0));
-    if (mergeResult != MergeResult.SUCCESS)
-      return;
-    var mergedSegmentId = GetMergedSegmentId();
+    var mergedSegmentId = mergeResult == MergeResult.SUCCESS ? GetMergedSegmentId() : 0;
     lock (StateLock)
     {
       MarkCommitsDurable(0, mergedSegmentId);
-      if (AbortedTransactions.Count == 0)
-        return;
-      for (var i = AbortedTransactions.Count - 1; i >= 0; --i)
-      {
-        var entry = AbortedTransactions[i];
-        if (entry.AbortSegmentId > mergedSegmentId)
-          continue;
-        AbortedTransactions.RemoveAt(i);
-        if (entry.BottomMarker != markerBeforeMerge)
-        {
-          entry.IsPermanent = true;
-          continue;
-        }
-        MergedAbortedTransactions.Add(entry);
-      }
-      RemoveReleasedAbortedTransactions();
+      ForgetRolledBackTransactions();
     }
   }
 
@@ -913,9 +896,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
       isDisposed = true;
       StopAutoSync();
     }
-    StorageMaintenance.OnDiskSegmentCreated -= OnDiskSegmentCreated;
     StorageMaintenance.OnMergeOperationEnded -= OnMergeOperationEnded;
-    StorageMaintenance.OnBottomSegmentsMergeOperationEnded -= OnBottomSegmentsMergeOperationEnded;
   }
 
   public void Dispose()

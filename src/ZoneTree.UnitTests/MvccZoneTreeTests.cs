@@ -3,7 +3,6 @@ using ZoneTree.Logger;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 using ZoneTree.Transactional;
-using ZoneTree.Transactional.Mvcc;
 using ZoneTree.Transactional.Versioning;
 
 namespace ZoneTree.UnitTests;
@@ -72,7 +71,16 @@ public sealed class MvccZoneTreeTests
   }
 
   static int CountStoredVersions(ITransactionalZoneTree<int, int> tree, int key)
-      => StoredVersions(tree, key).Count;
+  {
+    using var iterator = tree.Maintenance.ZoneTree.CreateIterator(IteratorType.NoRefresh, false, false);
+    iterator.Seek(VersionedKey<int>.Data(key, long.MaxValue));
+    var count = 0;
+    while (iterator.Next() &&
+        iterator.CurrentKey.Kind == VersionedKeyKind.Data &&
+        iterator.CurrentKey.Key == key)
+      ++count;
+    return count;
+  }
 
   static void MergeAll(ITransactionalZoneTree<int, int> tree)
   {
@@ -358,9 +366,8 @@ public sealed class MvccZoneTreeTests
   [TestCase(DiskSegmentMode.MultiPartDiskSegment)]
   public void MergeDropsVersionsNoSnapshotNeeds(DiskSegmentMode diskSegmentMode)
   {
-    // A merge copies a part it can skip without filtering it, so the records
-    // fit in one part here. ACopiedPartHidesOlderVersionsOfItsLastKey covers
-    // the versions that continue after a copied part.
+    // A merge copies a part it can skip without filtering it,
+    // so the records fit in one part here.
     using var tree = CreateFactory(diskSegmentMode: diskSegmentMode)
         .ConfigureDiskSegmentOptions(options =>
         {
@@ -398,65 +405,88 @@ public sealed class MvccZoneTreeTests
   }
 
   [Test]
-  public void ACopiedPartHidesOlderVersionsOfItsLastKey()
-  {
-    // A merge can copy a part that ends with the newest version of a key
-    // and filter the next part, which continues with the older versions.
-    using var tree = CreateFactory().OpenOrCreateTransactional();
-    Write(tree, (7, 0));
-    using var oldReader = tree.BeginReadOnlyTransaction();
-    Write(tree, (7, 1));
-    MergeAll(tree);
-    var versions = StoredVersions(tree, 7);
-    Assert.That(versions, Has.Count.EqualTo(2), "the old snapshot keeps the older version");
-    var (newest, older) = (versions[0], versions[1]);
-
-    var filter = CreateMergeFilter(tree);
-    filter.OnPartSkipped(newest.Key, newest.Value);
-    Assert.That(filter.Keep(older.Key, older.Value), Is.True,
-        "the old snapshot reads the older version");
-
-    oldReader.Dispose();
-    filter = CreateMergeFilter(tree);
-    filter.OnPartSkipped(newest.Key, newest.Value);
-    Assert.That(filter.Keep(older.Key, older.Value), Is.False,
-        "the copied version hides the older one from every snapshot");
-  }
-
-  static IMergeFilter<VersionedKey<int>, VersionedValue<int>> CreateMergeFilter(
-      ITransactionalZoneTree<int, int> tree)
-      => ((MvccZoneTree<int, int>)tree).CreateMergeFilter(new MergeFilterContext());
-
-  static List<KeyValuePair<VersionedKey<int>, VersionedValue<int>>> StoredVersions(
-      ITransactionalZoneTree<int, int> tree, int key)
-  {
-    using var iterator = tree.Maintenance.ZoneTree.CreateIterator(IteratorType.NoRefresh, false, false);
-    iterator.Seek(VersionedKey<int>.Data(key, long.MaxValue));
-    var versions = new List<KeyValuePair<VersionedKey<int>, VersionedValue<int>>>();
-    while (iterator.Next() &&
-        iterator.CurrentKey.Kind == VersionedKeyKind.Data &&
-        iterator.CurrentKey.Key == key)
-      versions.Add(iterator.Current);
-    return versions;
-  }
-
-  [Test]
-  public void RolledBackVersionsAreForgottenAfterMerge()
+  public void RollbacksAreForgottenOnceOlderTransactionsEnd()
   {
     using var tree = CreateFactory().OpenOrCreateTransactional();
     Write(tree, (1, 1));
     using (var tx = tree.BeginTransaction())
     {
       tx.Upsert(1, 2);
-      tx.Upsert(2, 2);
       tx.Rollback();
     }
-    Assert.That(tree.Maintenance.AbortedTransactionCount, Is.EqualTo(1));
-    MergeAll(tree);
+    Assert.That(tree.Maintenance.AbortedTransactionCount, Is.Zero,
+        "no older transaction can read past the deletions");
+
+    var older = tree.BeginTransaction();
+    using (var tx = tree.BeginTransaction())
+    {
+      tx.Upsert(1, 3);
+      tx.Upsert(2, 3);
+      tx.Rollback();
+    }
+    Assert.That(tree.Maintenance.AbortedTransactionCount, Is.EqualTo(1),
+        "an older transaction may read segments without the deletions");
+    older.Dispose();
     Assert.That(tree.Maintenance.AbortedTransactionCount, Is.Zero);
+
+    MergeAll(tree);
     Assert.That(CountStoredVersions(tree, 1), Is.EqualTo(1));
     Assert.That(CountStoredVersions(tree, 2), Is.Zero);
     Assert.That(ReadCommitted(tree, 1), Is.EqualTo(1));
+  }
+
+  [Test]
+  public void MergeKeepsTheValueUnderAForgottenRollback()
+  {
+    using var tree = CreateFactory().OpenOrCreateTransactional();
+    var maintenance = tree.Maintenance.ZoneTree.Maintenance;
+    Write(tree, (1, 1));
+    MergeAll(tree);
+    using (var tx = tree.BeginTransaction())
+    {
+      tx.Upsert(1, 2);
+      maintenance.MoveMutableSegmentForward();
+      // The deletion goes to the mutable segment, the version stays in a read-only one.
+      tx.Rollback();
+    }
+    Assert.That(tree.Maintenance.AbortedTransactionCount, Is.Zero);
+
+    // The merge meets the version without its deletion.
+    maintenance.StartMergeOperation()?.Join();
+    Assert.That(ReadCommitted(tree, 1), Is.EqualTo(1));
+    MergeAll(tree);
+    Assert.That(ReadCommitted(tree, 1), Is.EqualTo(1));
+    Assert.That(CountStoredVersions(tree, 1), Is.EqualTo(1));
+  }
+
+  [Test]
+  public void BottomMergeKeepsTheValuesUnderAForgottenRollback()
+  {
+    using var tree = CreateFactory()
+        .Configure(options => options.DiskSegmentMaxItemCount = 10)
+        .OpenOrCreateTransactional();
+    var maintenance = tree.Maintenance.ZoneTree.Maintenance;
+    Write(tree, Enumerable.Range(0, 20).Select(x => (x, 1)).ToArray());
+    MergeAll(tree);
+    using (var tx = tree.BeginTransaction())
+    {
+      for (var key = 0; key < 20; ++key)
+        tx.Upsert(key, 2);
+      // The versions move to a bottom segment before the rollback deletes them.
+      MergeAll(tree);
+      tx.Rollback();
+    }
+    Assert.That(maintenance.BottomSegments.Count, Is.GreaterThanOrEqualTo(2));
+    Assert.That(tree.Maintenance.AbortedTransactionCount, Is.Zero);
+
+    // The bottom merge meets the versions without their deletions.
+    maintenance.StartBottomSegmentsMergeOperation(0, int.MaxValue)?.Join();
+    MergeAll(tree);
+    maintenance.StartBottomSegmentsMergeOperation(0, int.MaxValue)?.Join();
+    using var reader = tree.BeginReadOnlyTransaction();
+    Assert.That(Scan(reader), Is.EqualTo(
+        Enumerable.Range(0, 20).Select(x => KeyValuePair.Create(x, 1)).ToList()));
+    Assert.That(CountStoredVersions(tree, 7), Is.EqualTo(1));
   }
 
   [Test]
@@ -818,6 +848,22 @@ public sealed class MvccZoneTreeTests
     using var reopened = CreateFactory().SetValueSerializer(new BigEndianInt32Serializer())
         .OpenTransactional();
     Assert.That(ReadCommitted(reopened, 1), Is.EqualTo(1));
+  }
+
+  [Test]
+  public void OptionsForUserRecordsAreRejected()
+  {
+    var filterFactory = Assert.Throws<InvalidOptionValueException>(() => CreateFactory()
+        .Configure(options => options.MergeFilterFactory = _ => null)
+        .OpenOrCreateTransactional());
+    Assert.That(filterFactory.Option, Is.EqualTo("MergeFilterFactory"));
+    var rangeDeletion = Assert.Throws<InvalidOptionValueException>(() => CreateFactory()
+        .SetIsRangeDeletedDelegate((in int _, in int _, in int _, in int _) => false)
+        .OpenOrCreateTransactional());
+    Assert.That(rangeDeletion.Option, Is.EqualTo("IsRangeDeleted"));
+    Assert.Throws<DatabaseNotFoundException>(
+        () => CreateFactory().OpenTransactional().Dispose(),
+        "a rejected open creates no tree");
   }
 
   [Test]

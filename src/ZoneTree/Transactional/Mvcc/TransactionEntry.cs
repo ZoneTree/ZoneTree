@@ -5,9 +5,12 @@ namespace ZoneTree.Transactional.Mvcc;
 /// Readers and merges look it up by the version of a record.
 /// </summary>
 /// <remarks>
-/// A missing entry means the versions are committed and visible to every snapshot.
+/// A missing entry means the versions are committed and visible to every snapshot,
+/// unless the storage tree deleted them for a rollback.
 /// Entries of committed transactions are removed once every active snapshot sees them.
-/// Entries of rolled back transactions stay until their versions cannot be read anymore.
+/// Entries of rolled back transactions are removed once no transaction that began before
+/// the deletions of their versions is active. A rollback whose versions were not all deleted,
+/// because of a crash or a storage failure, stays registered for good.
 /// </remarks>
 internal sealed class TransactionEntry
 {
@@ -34,24 +37,9 @@ internal sealed class TransactionEntry
   }
 
   /// <summary>
-  /// The highest bottom segment id at the first write.
-  /// </summary>
-  public long BottomMarker { get; set; }
-
-  /// <summary>
-  /// The mutable segment id after the rollback deleted the versions.
-  /// </summary>
-  public long AbortSegmentId { get; set; }
-
-  /// <summary>
   /// The clock after the rollback deleted the versions.
   /// </summary>
   public long AbortSequence { get; set; }
-
-  /// <summary>
-  /// True if the versions may outlive the deletions, so the entry is never removed.
-  /// </summary>
-  public bool IsPermanent { get; set; }
 
   public TransactionEntry(long id, TransactionState state)
   {

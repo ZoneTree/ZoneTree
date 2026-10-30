@@ -140,7 +140,10 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
   public ISerializer<TValue> ValueSerializer => Options.ValueSerializer;
 
-  public long LastOpIndex => IncrementalIdProvider.LastId;
+  /// <summary>
+  /// The last op index issued to a write. The mutable segments share one provider.
+  /// </summary>
+  public long LastOpIndex => MutableSegment.OpIndexProvider.LastId;
 
   public ZoneTree(ZoneTreeOptions<TKey, TValue> options)
   {

@@ -177,6 +177,51 @@ public sealed class LiveBackupTests
   }
 
   [Test]
+  public async Task RestoredTreeContinuesAfterTheBackedUpOpIndexes()
+  {
+    var dataPath = "data/RestoredTreeContinuesAfterTheBackedUpOpIndexes";
+    var backupPath = "data/RestoredTreeContinuesAfterTheBackedUpOpIndexes.Backup";
+    var restorePath = "data/RestoredTreeContinuesAfterTheBackedUpOpIndexes.Restore";
+    DeleteDirectory(dataPath);
+    DeleteDirectory(backupPath);
+    DeleteDirectory(restorePath);
+
+    long lastOpIndex;
+    using (var zoneTree = new ZoneTreeFactory<int, int>()
+        .SetDataDirectory(dataPath)
+        .SetWriteAheadLogDirectory(dataPath)
+        .OpenOrCreate())
+    {
+      // Rewrites issue more op indexes than the backup has records.
+      lastOpIndex = 0;
+      for (var i = 0; i < 1000; ++i)
+        lastOpIndex = zoneTree.Upsert(i % 100, i % 100);
+
+      using var backup = zoneTree.CreateLiveBackup(backupPath);
+      backup.Start();
+      backup.CreateGeneration();
+      backup.Stop();
+
+      zoneTree.Maintenance.Drop();
+    }
+
+    using (var restored = await new ZoneTreeFactory<int, int>()
+        .SetDataDirectory(restorePath)
+        .SetWriteAheadLogDirectory(restorePath)
+        .RestoreFromLatestLiveBackup(backupPath))
+    {
+      // Op indexes order the records of a write ahead log,
+      // so they never go back to values the original tree issued.
+      Assert.That(restored.Upsert(1000, 1000), Is.GreaterThan(lastOpIndex));
+      Assert.That(restored.TryGet(99, out var value), Is.True);
+      Assert.That(value, Is.EqualTo(99));
+      restored.Maintenance.Drop();
+    }
+
+    DeleteDirectory(backupPath);
+  }
+
+  [Test]
   public async Task LocalLiveBackupRestorePreservesDeletedInMemoryRecords()
   {
     var dataPath = "data/LocalLiveBackupRestorePreservesDeletedInMemoryRecords";

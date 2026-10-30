@@ -11,6 +11,12 @@ internal enum VersionState : byte
   VisibleToAll,
 
   /// <summary>
+  /// Has no entry: committed and visible to every active and future snapshot,
+  /// unless the storage tree deleted it for a forgotten rollback.
+  /// </summary>
+  Unregistered,
+
+  /// <summary>
   /// Committed after the oldest active snapshot.
   /// </summary>
   Committed,

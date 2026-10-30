@@ -27,7 +27,10 @@ public interface ITransactionalZoneTreeMaintenance<TKey, TValue>
   long LastCommitTimestamp { get; }
 
   /// <summary>
-  /// The number of rolled back transactions whose versions may still be stored.
+  /// The number of rolled back transactions the tree keeps registered. The end of a
+  /// writing transaction or a merge forgets the ones no active transaction began
+  /// before. A crash or a storage failure that left versions without deletions keeps
+  /// them for good.
   /// Reads skip these versions and merges drop them.
   /// </summary>
   int AbortedTransactionCount { get; }
