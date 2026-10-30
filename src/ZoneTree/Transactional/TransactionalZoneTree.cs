@@ -49,6 +49,11 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
 
   readonly IRefComparer<TKey> Comparer;
 
+  /// <summary>
+  /// The user key comparer for the collections of the transactions.
+  /// </summary>
+  internal IComparer<TKey> KeyComparer { get; }
+
   readonly ConflictIndex<TKey> ConflictIndex;
 
   readonly ConcurrentDictionary<long, TransactionEntry> Entries = new();
@@ -67,16 +72,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
 
   long lastCommitTimestamp;
 
-  int activeTransactionCount;
-
-  readonly SortedDictionary<long, int> ActiveSnapshots = new();
-
-  /// <summary>
-  /// The snapshots of the transactions that can write. Only they check conflicts.
-  /// </summary>
-  readonly SortedDictionary<long, int> ActiveWriterSnapshots = new();
-
-  readonly SortedDictionary<long, int> ActiveBeginSequences = new();
+  readonly ActiveTransactions<TKey, TValue> Active = new();
 
   /// <summary>
   /// Committed entries, in commit order, until every snapshot sees them.
@@ -89,9 +85,16 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
   readonly Queue<(long CommitTimestamp, TKey[] Keys)> CommittedWrites = new();
 
   /// <summary>
-  /// Rolled back transactions whose versions may still be read.
+  /// Rolled back transactions waiting for a merge to combine their deletions
+  /// with every stored version.
   /// </summary>
   readonly List<TransactionEntry> AbortedTransactions = new();
+
+  /// <summary>
+  /// Rolled back transactions whose deletions were merged. They are forgotten
+  /// once no transaction that began before the deletions is active.
+  /// </summary>
+  readonly List<TransactionEntry> MergedAbortedTransactions = new();
 
   /// <summary>
   /// Committed entries, in commit order, whose commit record may not be durable yet.
@@ -133,6 +136,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
     Storage = storage;
     StorageMaintenance = storage.Maintenance;
     Comparer = options.Comparer;
+    KeyComparer = new ComparerFromRefComparer<TKey>(Comparer);
     ConflictIndex = new ConflictIndex<TKey>(Comparer);
     HasDurableWriteAheadLog =
         options.WriteAheadLogOptions.WriteAheadLogMode != WriteAheadLogMode.None;
@@ -249,7 +253,8 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
       }
       // The transaction did not commit before the tree closed. Its versions may be
       // anywhere in the tree, so it stays registered as rolled back.
-      Entries[key.Version] = new TransactionEntry(key.Version, TransactionState.Aborted)
+      var transactionId = key.TransactionId;
+      Entries[transactionId] = new TransactionEntry(transactionId, TransactionState.Aborted)
       {
         IsPermanent = true
       };
@@ -305,27 +310,55 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
   {
     if (IsReadOnly)
       throw new ZoneTreeIsReadOnlyException();
+    Transaction<TKey, TValue> transaction;
     lock (StateLock)
     {
       var snapshotTimestamp = lastCommitTimestamp;
       var id = NextTimestamp();
-      var entry = new TransactionEntry(id, TransactionState.Active);
-      Entries[id] = entry;
-      Register(snapshotTimestamp, id, isWriter: true);
-      return new Transaction<TKey, TValue>(
-          this, Comparer, entry, id, snapshotTimestamp, isolationLevel);
+      transaction = new Transaction<TKey, TValue>(
+          this,
+          Comparer,
+          new TransactionEntry(id, TransactionState.Active),
+          id,
+          snapshotTimestamp,
+          isolationLevel);
+      Active.AddWriter(transaction);
     }
+    // Readers look up the entry only for versions of this transaction,
+    // and it writes none before this returns.
+    Entries[transaction.TransactionId] = transaction.Entry;
+    return transaction;
   }
 
   public ITransaction<TKey, TValue> BeginReadOnlyTransaction()
   {
-    lock (StateLock)
+    // Join the bucket of the latest snapshot without the state lock. A bucket of an
+    // older snapshot is never joined, so a reader sees every commit that finished
+    // before it began, including the caller's own.
+    var bucket = Active.CurrentBucket;
+    if (bucket == null ||
+        bucket.SnapshotTimestamp != Volatile.Read(ref lastCommitTimestamp) ||
+        !bucket.TryJoin())
     {
-      var snapshotTimestamp = lastCommitTimestamp;
-      Register(snapshotTimestamp, Clock, isWriter: false);
-      return new Transaction<TKey, TValue>(
-          this, Comparer, null, Clock, snapshotTimestamp, TransactionIsolationLevel.Snapshot);
+      lock (StateLock)
+      {
+        bucket = Active.CurrentBucket;
+        if (bucket == null ||
+            bucket.SnapshotTimestamp != lastCommitTimestamp ||
+            !bucket.TryJoin())
+          bucket = Active.AddBucket(lastCommitTimestamp, Clock);
+      }
     }
+    return new Transaction<TKey, TValue>(
+        this,
+        Comparer,
+        null,
+        bucket.BeginSequence,
+        bucket.SnapshotTimestamp,
+        TransactionIsolationLevel.Snapshot)
+    {
+      Bucket = bucket
+    };
   }
 
   /// <summary>
@@ -345,51 +378,11 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
     return next;
   }
 
-  void Register(long snapshotTimestamp, long beginSequence, bool isWriter)
-  {
-    Increment(ActiveSnapshots, snapshotTimestamp);
-    if (isWriter)
-      Increment(ActiveWriterSnapshots, snapshotTimestamp);
-    Increment(ActiveBeginSequences, beginSequence);
-    ++activeTransactionCount;
-  }
-
-  void Unregister(long snapshotTimestamp, long beginSequence, bool isWriter)
-  {
-    Decrement(ActiveSnapshots, snapshotTimestamp);
-    if (isWriter)
-      Decrement(ActiveWriterSnapshots, snapshotTimestamp);
-    Decrement(ActiveBeginSequences, beginSequence);
-    --activeTransactionCount;
-  }
-
-  static void Increment(SortedDictionary<long, int> counts, long key)
-  {
-    counts.TryGetValue(key, out var count);
-    counts[key] = count + 1;
-  }
-
-  static void Decrement(SortedDictionary<long, int> counts, long key)
-  {
-    var count = counts[key] - 1;
-    if (count == 0)
-      counts.Remove(key);
-    else
-      counts[key] = count;
-  }
-
-  static long Minimum(SortedDictionary<long, int> counts, long defaultValue)
-  {
-    foreach (var key in counts.Keys)
-      return key;
-    return defaultValue;
-  }
-
   /// <summary>
   /// The oldest snapshot timestamp in use. Every commit at or before it
   /// is visible to every active and future snapshot. Called under the state lock.
   /// </summary>
-  long GetHorizon() => Minimum(ActiveSnapshots, lastCommitTimestamp);
+  long GetHorizon() => Active.OldestSnapshot(lastCommitTimestamp);
 
   /// <summary>
   /// Checks whether a version is in the snapshot of a transaction.
@@ -563,54 +556,69 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
 
   void RollbackCore(Transaction<TKey, TValue> transaction)
   {
-    try
+    if (transaction.Bucket != null)
     {
-      var entry = transaction.Entry;
-      if (entry == null)
-        return;
+      transaction.Bucket.Leave();
+      return;
+    }
+    var entry = transaction.Entry;
+    var isDeleted = false;
+    {
       // Readers and merges ignore the versions from now on.
       entry.State = TransactionState.Aborted;
       if (!transaction.HasWrites)
       {
         Entries.TryRemove(entry.Id, out _);
-        return;
       }
-      try
+      else
       {
-        foreach (var key in transaction.WrittenKeysForRollback)
-          Storage.ForceDelete(VersionedKey<TKey>.Data(in key, transaction.TransactionId));
+        try
+        {
+          foreach (var key in transaction.WrittenKeysForRollback)
+            Storage.ForceDelete(VersionedKey<TKey>.Data(in key, transaction.TransactionId));
+          isDeleted = true;
+        }
+        catch (Exception e)
+        {
+          // The entry and the pending status record stay, so the versions stay invisible.
+          entry.IsPermanent = true;
+          Logger.LogError(e);
+        }
       }
-      catch (Exception e)
-      {
-        // The entry and the pending status record stay, so the versions stay invisible.
-        entry.IsPermanent = true;
-        Logger.LogError(e);
-        return;
-      }
-      lock (StateLock)
+    }
+    lock (StateLock)
+    {
+      if (isDeleted)
       {
         entry.AbortSegmentId = StorageMaintenance.MutableSegment.SegmentId;
         entry.AbortSequence = Clock;
         AbortedTransactions.Add(entry);
       }
-    }
-    finally
-    {
-      EndTransaction(transaction);
+      EndTransactionLocked(transaction);
     }
   }
 
   void EndTransaction(Transaction<TKey, TValue> transaction)
   {
-    lock (StateLock)
+    if (transaction.Bucket != null)
     {
-      Unregister(
-          transaction.SnapshotTimestamp,
-          transaction.BeginSequence,
-          isWriter: !transaction.IsReadOnly);
-      PruneCommittedTransactions();
-      RemoveReleasedAbortedTransactions();
+      // Read-only transactions leave without the state lock; a later
+      // writer or merge prunes what their snapshot kept.
+      transaction.Bucket.Leave();
+      return;
     }
+    lock (StateLock)
+      EndTransactionLocked(transaction);
+  }
+
+  /// <summary>
+  /// Releases the snapshot of the transaction. Called under the state lock.
+  /// </summary>
+  void EndTransactionLocked(Transaction<TKey, TValue> transaction)
+  {
+    Active.RemoveWriter(transaction);
+    PruneCommittedTransactions();
+    RemoveReleasedAbortedTransactions();
   }
 
   /// <summary>
@@ -635,7 +643,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
     {
       // Read-only transactions never check conflicts, so a long report
       // does not keep the committed keys.
-      var writerHorizon = Minimum(ActiveWriterSnapshots, lastCommitTimestamp);
+      var writerHorizon = Active.OldestWriterSnapshot(lastCommitTimestamp);
       while (CommittedWrites.TryPeek(out var item) &&
           item.CommitTimestamp <= writerHorizon)
       {
@@ -651,15 +659,15 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
   /// </summary>
   void RemoveReleasedAbortedTransactions()
   {
-    if (AbortedTransactions.Count == 0)
+    if (MergedAbortedTransactions.Count == 0)
       return;
-    var oldestBeginSequence = Minimum(ActiveBeginSequences, long.MaxValue);
-    for (var i = AbortedTransactions.Count - 1; i >= 0; --i)
+    var oldestBeginSequence = Active.OldestBeginSequence(long.MaxValue);
+    for (var i = MergedAbortedTransactions.Count - 1; i >= 0; --i)
     {
-      var entry = AbortedTransactions[i];
+      var entry = MergedAbortedTransactions[i];
       // A transaction that began before the deletions may hold an iterator over
       // segments that still have the versions without the deletions.
-      if (!entry.AreDeletionsMerged || oldestBeginSequence <= entry.AbortSequence)
+      if (oldestBeginSequence <= entry.AbortSequence)
         continue;
       try
       {
@@ -671,7 +679,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
         continue;
       }
       Entries.TryRemove(entry.Id, out _);
-      AbortedTransactions.RemoveAt(i);
+      MergedAbortedTransactions.RemoveAt(i);
     }
   }
 
@@ -683,9 +691,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
     lock (StateLock)
     {
       // Snapshots that begin during the merge read the latest commit or a later one.
-      snapshots = new long[ActiveSnapshots.Count + 1];
-      ActiveSnapshots.Keys.CopyTo(snapshots, 0);
-      snapshots[^1] = lastCommitTimestamp;
+      snapshots = Active.GetSnapshots(lastCommitTimestamp);
       durableCommitTimestamp = DurableCommitTimestamp;
     }
     return new VersionGarbageFilter<TKey, TValue>(
@@ -756,24 +762,19 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
       for (var i = AbortedTransactions.Count - 1; i >= 0; --i)
       {
         var entry = AbortedTransactions[i];
-        if (entry.AreDeletionsMerged || !IsSegmentMerged(entry.AbortSegmentId))
+        if (entry.AbortSegmentId > mergedSegmentId)
           continue;
+        AbortedTransactions.RemoveAt(i);
         if (entry.BottomMarker != markerBeforeMerge)
         {
           entry.IsPermanent = true;
-          AbortedTransactions.RemoveAt(i);
           continue;
         }
-        entry.AreDeletionsMerged = true;
+        MergedAbortedTransactions.Add(entry);
       }
       RemoveReleasedAbortedTransactions();
     }
   }
-
-  /// <summary>
-  /// True if the segment and every older in-memory segment were merged into the disk segment.
-  /// </summary>
-  bool IsSegmentMerged(long segmentId) => segmentId <= GetMergedSegmentId();
 
   /// <summary>
   /// The newest mutable segment id whose records are all in disk segments:
@@ -880,7 +881,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
     get
     {
       lock (StateLock)
-        return activeTransactionCount;
+        return Active.Count;
     }
   }
 

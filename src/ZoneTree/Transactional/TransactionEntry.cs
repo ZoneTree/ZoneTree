@@ -49,11 +49,6 @@ internal sealed class TransactionEntry
   public long AbortSequence { get; set; }
 
   /// <summary>
-  /// True once a merge combined the deletions with every stored version.
-  /// </summary>
-  public bool AreDeletionsMerged { get; set; }
-
-  /// <summary>
   /// True if the versions may outlive the deletions, so the entry is never removed.
   /// </summary>
   public bool IsPermanent { get; set; }

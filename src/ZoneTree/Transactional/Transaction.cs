@@ -18,15 +18,23 @@ internal sealed class Transaction<TKey, TValue> : ITransaction<TKey, TValue>
 
   readonly IRefComparer<TKey> Comparer;
 
-  readonly List<KeyRange<TKey>> ReadRanges = new();
+  List<KeyRange<TKey>> ReadRanges;
 
-  readonly List<TransactionIterator<TKey, TValue>> OpenIterators = new();
+  List<TransactionIterator<TKey, TValue>> OpenIterators;
 
-  SortedSet<TKey> WrittenKeys;
+  KeyList<TKey> WrittenKeys;
 
-  SortedSet<TKey> ReadKeys;
+  KeyList<TKey> ReadKeys;
 
-  IZoneTreeIterator<VersionedKey<TKey>, VersionedValue<TValue>> PointReader;
+  /// <summary>
+  /// True while the tree counts a writing transaction as active. Guarded by the tree state lock.
+  /// </summary>
+  internal bool IsRegistered;
+
+  /// <summary>
+  /// The snapshot bucket of a read-only transaction.
+  /// </summary>
+  internal SnapshotBucket Bucket { get; init; }
 
   TransactionState state;
 
@@ -100,32 +108,66 @@ internal sealed class Transaction<TKey, TValue> : ITransaction<TKey, TValue>
     EnsureActive();
     if (TracksReads)
     {
-      ReadKeys ??= new SortedSet<TKey>(new ComparerFromRefComparer<TKey>(Comparer));
+      ReadKeys ??= new KeyList<TKey>(Tree.KeyComparer);
       ReadKeys.Add(key);
     }
-    PointReader ??= Tree.CreateStorageIterator(
-        reverse: false,
-        contributeToTheBlockCache: true,
-        diskSegmentPrefetchSize: 0);
-    var reader = PointReader;
-    reader.Seek(VersionedKey<TKey>.Data(in key, long.MaxValue));
-    while (reader.Next())
+    var reader = new PointReader(this, in key);
+    Tree.Storage.VisitSegments(VersionedKey<TKey>.Data(in key, long.MaxValue), ref reader);
+    if (!reader.IsFound || reader.Value.Kind == VersionedValueKind.Tombstone)
     {
-      var storedKey = reader.CurrentKey;
-      if (storedKey.Kind != VersionedKeyKind.Data ||
-          Comparer.Compare(in storedKey.Key, in key) != 0)
-        break;
-      // Versions come newest first, and the newest visible one is the value.
-      if (!IsVisible(storedKey.Version))
-        continue;
-      var storedValue = reader.CurrentValue;
-      if (storedValue.Kind == VersionedValueKind.Tombstone)
-        break;
-      value = storedValue.Value;
-      return true;
+      value = default;
+      return false;
     }
-    value = default;
-    return false;
+    value = reader.Value.Value;
+    return true;
+  }
+
+  /// <summary>
+  /// Finds the newest version of a key the transaction can see.
+  /// </summary>
+  /// <remarks>
+  /// Segments are visited newest first, and within a segment the versions of a key
+  /// come newest first. Writes go to the newest segment, and two committed writers of
+  /// a key never overlap, so a visible version is never older than one in an older
+  /// segment: the first visible version is the value. A deletion marker hides the
+  /// copies of its version in older segments.
+  /// </remarks>
+  struct PointReader : ISegmentRecordVisitor<VersionedKey<TKey>, VersionedValue<TValue>>
+  {
+    readonly Transaction<TKey, TValue> Transaction;
+
+    readonly TKey Key;
+
+    List<long> DeletedVersions;
+
+    public bool IsFound;
+
+    public VersionedValue<TValue> Value;
+
+    public PointReader(Transaction<TKey, TValue> transaction, in TKey key)
+    {
+      Transaction = transaction;
+      Key = key;
+    }
+
+    public SegmentVisitAction Visit(in VersionedKey<TKey> key, in VersionedValue<TValue> value)
+    {
+      if (key.Kind != VersionedKeyKind.Data ||
+          Transaction.Comparer.Compare(in key.Key, in Key) != 0)
+        return SegmentVisitAction.NextSegment;
+      if (value.Kind == VersionedValueKind.Deleted)
+      {
+        (DeletedVersions ??= new List<long>()).Add(key.Version);
+        return SegmentVisitAction.NextRecord;
+      }
+      if (DeletedVersions != null && DeletedVersions.Contains(key.Version))
+        return SegmentVisitAction.NextRecord;
+      if (!Transaction.IsVisible(key.Version))
+        return SegmentVisitAction.NextRecord;
+      IsFound = true;
+      Value = value;
+      return SegmentVisitAction.Stop;
+    }
   }
 
   public void Upsert(in TKey key, in TValue value)
@@ -153,7 +195,7 @@ internal sealed class Transaction<TKey, TValue> : ITransaction<TKey, TValue>
     {
       if (WrittenKeys == null)
       {
-        WrittenKeys = new SortedSet<TKey>(new ComparerFromRefComparer<TKey>(Comparer));
+        WrittenKeys = new KeyList<TKey>(Tree.KeyComparer);
         Tree.OnFirstWrite(this);
       }
       WrittenKeys.Add(key);
@@ -182,13 +224,13 @@ internal sealed class Transaction<TKey, TValue> : ITransaction<TKey, TValue>
   {
     EnsureActive();
     var iterator = new TransactionIterator<TKey, TValue>(this, Tree, Comparer, reverse, options);
-    OpenIterators.Add(iterator);
+    (OpenIterators ??= new()).Add(iterator);
     return iterator;
   }
 
   internal void OnIteratorDisposed(TransactionIterator<TKey, TValue> iterator)
   {
-    OpenIterators.Remove(iterator);
+    OpenIterators?.Remove(iterator);
   }
 
   /// <summary>
@@ -196,7 +238,7 @@ internal sealed class Transaction<TKey, TValue> : ITransaction<TKey, TValue>
   /// </summary>
   internal int AddReadRange(in KeyRange<TKey> range)
   {
-    ReadRanges.Add(range);
+    (ReadRanges ??= new()).Add(range);
     return ReadRanges.Count - 1;
   }
 
@@ -211,24 +253,22 @@ internal sealed class Transaction<TKey, TValue> : ITransaction<TKey, TValue>
   /// </summary>
   internal bool HasConflict(ConflictIndex<TKey> conflictIndex)
   {
-    if (conflictIndex.HasCommitAfter(WrittenKeys, SnapshotTimestamp))
+    if (conflictIndex.HasCommitAfter(WrittenKeys.Items, SnapshotTimestamp))
       return true;
     if (!TracksReads)
       return false;
-    if (ReadKeys != null && conflictIndex.HasCommitAfter(ReadKeys, SnapshotTimestamp))
+    if (ReadKeys != null && conflictIndex.HasCommitAfter(ReadKeys.Items, SnapshotTimestamp))
       return true;
-    return ReadRanges.Count > 0 &&
+    return ReadRanges != null &&
         conflictIndex.HasCommitAfter(ReadRanges, SnapshotTimestamp);
   }
 
   internal TKey[] GetWrittenKeys()
   {
-    var keys = new TKey[WrittenKeys.Count];
-    WrittenKeys.CopyTo(keys);
-    return keys;
+    return WrittenKeys.ToDistinctArray();
   }
 
-  internal IEnumerable<TKey> WrittenKeysForRollback => WrittenKeys;
+  internal IEnumerable<TKey> WrittenKeysForRollback => WrittenKeys.Items;
 
   public void Commit()
   {
@@ -283,8 +323,8 @@ internal sealed class Transaction<TKey, TValue> : ITransaction<TKey, TValue>
   /// </summary>
   void ReleaseReaders()
   {
-    PointReader?.Dispose();
-    PointReader = null;
+    if (OpenIterators == null)
+      return;
     for (var i = OpenIterators.Count - 1; i >= 0; --i)
       OpenIterators[i].Dispose();
   }

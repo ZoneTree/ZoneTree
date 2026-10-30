@@ -71,8 +71,35 @@ public readonly struct VersionedKey<TKey> : IEquatable<VersionedKey<TKey>>
   /// <summary>
   /// Creates the key of a transaction status record.
   /// </summary>
+  /// <remarks>
+  /// Transaction ids grow by one, so storing them as they are would send every status
+  /// write of concurrent transactions to the same leaf of the storage tree. The version
+  /// is the id multiplied by an odd constant, a bijection that spreads consecutive ids
+  /// over the key space. <see cref="TransactionId"/> reverses it.
+  /// </remarks>
   public static VersionedKey<TKey> TransactionStatus(long transactionId)
-      => new(VersionedKeyKind.TransactionStatus, default, transactionId);
+      => new(VersionedKeyKind.TransactionStatus, default,
+          unchecked(transactionId * StatusMultiplier));
+
+  /// <summary>
+  /// The transaction id of a transaction status record.
+  /// </summary>
+  public long TransactionId => unchecked(Version * StatusMultiplierInverse);
+
+  const long StatusMultiplier = unchecked((long)0x9E3779B97F4A7C15UL);
+
+  static readonly long StatusMultiplierInverse = Inverse(StatusMultiplier);
+
+  /// <summary>
+  /// The multiplicative inverse of an odd number modulo 2^64 by Newton's iteration.
+  /// </summary>
+  static long Inverse(long odd)
+  {
+    var inverse = odd;
+    for (var i = 0; i < 6; ++i)
+      inverse = unchecked(inverse * (2 - odd * inverse));
+    return inverse;
+  }
 
   /// <summary>
   /// The key of the clock reservation record.
