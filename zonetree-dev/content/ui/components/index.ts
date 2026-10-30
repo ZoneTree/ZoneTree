@@ -1,6 +1,7 @@
 import { defineStorageHero } from './hero'
 import { defineStackTechnology } from './stack-technology'
 import { defineDocCard } from './doc-card'
+import { defineTransactionSpotlight } from './transaction-spotlight'
 import { defineDistributedFoundation } from './distributed-foundation'
 import { defineAnalyticsSpotlight } from './analytics-spotlight'
 import { defineFullTextSearchSpotlight } from './full-text-search-spotlight'
@@ -17,6 +18,7 @@ export function defineDocsComponents() {
     StorageHero: defineStorageHero(),
     StackTechnology: defineStackTechnology(),
     DocCard: defineDocCard(),
+    TransactionSpotlight: defineTransactionSpotlight(),
     DistributedFoundation: defineDistributedFoundation(),
     AnalyticsSpotlight: defineAnalyticsSpotlight(),
     FullTextSearchSpotlight: defineFullTextSearchSpotlight(),
