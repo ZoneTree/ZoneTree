@@ -310,6 +310,8 @@ public sealed class MvccZoneTree<TKey, TValue> :
   public ITransaction<TKey, TValue> BeginTransaction(
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable)
   {
+    if (!Enum.IsDefined(isolationLevel))
+      throw new ArgumentOutOfRangeException(nameof(isolationLevel), isolationLevel, null);
     if (IsReadOnly)
       throw new ZoneTreeIsReadOnlyException();
     MvccTransaction<TKey, TValue> transaction;

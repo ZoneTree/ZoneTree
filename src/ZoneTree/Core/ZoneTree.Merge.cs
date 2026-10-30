@@ -353,7 +353,8 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
             prevKey = lastKey;
             skipElement();
             ++skipCount;
-            mergeFilter?.OnPartSkipped();
+            mergeFilter?.OnPartSkipped(
+                lastKey, lastValuesOfEveryPart[currentPartIndex]);
             continue;
           }
         }

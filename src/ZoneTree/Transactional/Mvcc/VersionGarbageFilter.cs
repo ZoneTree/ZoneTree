@@ -137,10 +137,36 @@ internal sealed class VersionGarbageFilter<TKey, TValue> :
         Comparer.Compare(in CurrentKey, in firstKey.Key) == 0);
   }
 
-  public void OnPartSkipped()
+  public void OnPartSkipped(
+      in VersionedKey<TKey> lastKey, in VersionedValue<TValue> lastValue)
   {
-    // The copied part may end with versions of a key that continues after it.
-    // Treating the rest as a new key keeps them unless a version visible to all hides them.
+    // The next part may continue the last key of the copied part. The copied
+    // part ends with the oldest version of that key so far, and a committed
+    // or visible version decides alone what it hides of the older ones.
+    // Otherwise the rest is treated as a new key, which keeps it unless a
+    // version visible to all hides it.
     HasCurrentKey = false;
+    if (lastKey.Kind != VersionedKeyKind.Data ||
+        lastValue.Kind == VersionedValueKind.Deleted)
+      return;
+    switch (Tree.GetVersionState(
+        lastKey.Version,
+        Horizon,
+        DurableCommitTimestamp,
+        MergedSegmentId,
+        out var commitTimestamp))
+    {
+      case VersionState.Committed:
+        NewerCommitTimestamp = commitTimestamp;
+        IsCurrentKeyHidden = false;
+        break;
+      case VersionState.VisibleToAll:
+        IsCurrentKeyHidden = true;
+        break;
+      default:
+        return;
+    }
+    CurrentKey = lastKey.Key;
+    HasCurrentKey = true;
   }
 }

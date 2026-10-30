@@ -3,6 +3,7 @@ using ZoneTree.Logger;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 using ZoneTree.Transactional;
+using ZoneTree.Transactional.Mvcc;
 using ZoneTree.Transactional.Versioning;
 
 namespace ZoneTree.UnitTests;
@@ -71,16 +72,7 @@ public sealed class MvccZoneTreeTests
   }
 
   static int CountStoredVersions(ITransactionalZoneTree<int, int> tree, int key)
-  {
-    using var iterator = tree.Maintenance.ZoneTree.CreateIterator(IteratorType.NoRefresh, false, false);
-    iterator.Seek(VersionedKey<int>.Data(key, long.MaxValue));
-    var count = 0;
-    while (iterator.Next() &&
-        iterator.CurrentKey.Kind == VersionedKeyKind.Data &&
-        iterator.CurrentKey.Key == key)
-      ++count;
-    return count;
-  }
+      => StoredVersions(tree, key).Count;
 
   static void MergeAll(ITransactionalZoneTree<int, int> tree)
   {
@@ -366,7 +358,16 @@ public sealed class MvccZoneTreeTests
   [TestCase(DiskSegmentMode.MultiPartDiskSegment)]
   public void MergeDropsVersionsNoSnapshotNeeds(DiskSegmentMode diskSegmentMode)
   {
-    using var tree = CreateFactory(diskSegmentMode: diskSegmentMode).OpenOrCreateTransactional();
+    // A merge copies a part it can skip without filtering it, so the records
+    // fit in one part here. ACopiedPartHidesOlderVersionsOfItsLastKey covers
+    // the versions that continue after a copied part.
+    using var tree = CreateFactory(diskSegmentMode: diskSegmentMode)
+        .ConfigureDiskSegmentOptions(options =>
+        {
+          options.MinimumRecordCount = 1000;
+          options.MaximumRecordCount = 2000;
+        })
+        .OpenOrCreateTransactional();
     for (var i = 0; i < 100; ++i)
       Write(tree, (i, 0));
     MergeAll(tree);
@@ -394,6 +395,49 @@ public sealed class MvccZoneTreeTests
     var records = Scan(reader);
     Assert.That(records.Count, Is.EqualTo(99));
     Assert.That(records.Where(x => x.Key != 7).All(x => x.Value == 0), Is.True);
+  }
+
+  [Test]
+  public void ACopiedPartHidesOlderVersionsOfItsLastKey()
+  {
+    // A merge can copy a part that ends with the newest version of a key
+    // and filter the next part, which continues with the older versions.
+    using var tree = CreateFactory().OpenOrCreateTransactional();
+    Write(tree, (7, 0));
+    using var oldReader = tree.BeginReadOnlyTransaction();
+    Write(tree, (7, 1));
+    MergeAll(tree);
+    var versions = StoredVersions(tree, 7);
+    Assert.That(versions, Has.Count.EqualTo(2), "the old snapshot keeps the older version");
+    var (newest, older) = (versions[0], versions[1]);
+
+    var filter = CreateMergeFilter(tree);
+    filter.OnPartSkipped(newest.Key, newest.Value);
+    Assert.That(filter.Keep(older.Key, older.Value), Is.True,
+        "the old snapshot reads the older version");
+
+    oldReader.Dispose();
+    filter = CreateMergeFilter(tree);
+    filter.OnPartSkipped(newest.Key, newest.Value);
+    Assert.That(filter.Keep(older.Key, older.Value), Is.False,
+        "the copied version hides the older one from every snapshot");
+  }
+
+  static IMergeFilter<VersionedKey<int>, VersionedValue<int>> CreateMergeFilter(
+      ITransactionalZoneTree<int, int> tree)
+      => ((MvccZoneTree<int, int>)tree).CreateMergeFilter(new MergeFilterContext());
+
+  static List<KeyValuePair<VersionedKey<int>, VersionedValue<int>>> StoredVersions(
+      ITransactionalZoneTree<int, int> tree, int key)
+  {
+    using var iterator = tree.Maintenance.ZoneTree.CreateIterator(IteratorType.NoRefresh, false, false);
+    iterator.Seek(VersionedKey<int>.Data(key, long.MaxValue));
+    var versions = new List<KeyValuePair<VersionedKey<int>, VersionedValue<int>>>();
+    while (iterator.Next() &&
+        iterator.CurrentKey.Kind == VersionedKeyKind.Data &&
+        iterator.CurrentKey.Key == key)
+      versions.Add(iterator.Current);
+    return versions;
   }
 
   [Test]
@@ -774,6 +818,43 @@ public sealed class MvccZoneTreeTests
     using var reopened = CreateFactory().SetValueSerializer(new BigEndianInt32Serializer())
         .OpenTransactional();
     Assert.That(ReadCommitted(reopened, 1), Is.EqualTo(1));
+  }
+
+  [Test]
+  public void DisposedIteratorRejectsUse()
+  {
+    using var tree = CreateFactory().OpenOrCreateTransactional();
+    Write(tree, (1, 1));
+    using var tx = tree.BeginReadOnlyTransaction();
+    var iterator = tx.CreateIterator();
+    iterator.Dispose();
+    Assert.Throws<ObjectDisposedException>(() => iterator.Next());
+    Assert.Throws<ObjectDisposedException>(() => iterator.Seek(1));
+    Assert.Throws<ObjectDisposedException>(() => iterator.SeekFirst());
+  }
+
+  [Test]
+  public void IteratorWithoutARecordRejectsCurrent()
+  {
+    using var tree = CreateFactory().OpenOrCreateTransactional();
+    Write(tree, (1, 10));
+    using var tx = tree.BeginReadOnlyTransaction();
+    using var iterator = tx.CreateIterator();
+    Assert.Throws<ZoneTreeIteratorPositionException>(() => _ = iterator.CurrentKey);
+    Assert.That(iterator.Next(), Is.True);
+    Assert.That(iterator.Current, Is.EqualTo(KeyValuePair.Create(1, 10)));
+    Assert.That(iterator.Next(), Is.False);
+    Assert.Throws<ZoneTreeIteratorPositionException>(() => _ = iterator.CurrentValue);
+    Assert.Throws<ZoneTreeIteratorPositionException>(() => _ = iterator.Current);
+  }
+
+  [Test]
+  public void UndefinedIsolationLevelIsRejected()
+  {
+    using var tree = CreateFactory().OpenOrCreateTransactional();
+    Assert.Throws<ArgumentOutOfRangeException>(
+        () => tree.BeginTransaction((TransactionIsolationLevel)7));
+    Assert.That(tree.Maintenance.ActiveTransactionCount, Is.Zero);
   }
 
   [Test]

@@ -10,7 +10,7 @@ namespace ZoneTree.Options;
 /// drops them, or keeps them while older records remain outside the merge.
 /// Multi-part disk segments can copy a whole part without reading its records.
 /// The merge asks <see cref="CanSkipPart"/> first and reports the copy with
-/// <see cref="OnPartSkipped"/>; the filter does not see the records of a copied part.
+/// <see cref="OnPartSkipped"/>; the filter sees only the last record of a copied part.
 /// </remarks>
 /// <typeparam name="TKey">The key type.</typeparam>
 /// <typeparam name="TValue">The value type.</typeparam>
@@ -34,7 +34,10 @@ public interface IMergeFilter<TKey, TValue>
 
   /// <summary>
   /// Called after the merge copied a whole part. The next record follows
-  /// the last key of the copied part.
+  /// the last record of the copied part.
   /// </summary>
-  void OnPartSkipped();
+  /// <param name="lastKey">The last key of the copied part.</param>
+  /// <param name="lastValue">The value of the last key in the copied part.
+  /// It may be a deleted record.</param>
+  void OnPartSkipped(in TKey lastKey, in TValue lastValue);
 }

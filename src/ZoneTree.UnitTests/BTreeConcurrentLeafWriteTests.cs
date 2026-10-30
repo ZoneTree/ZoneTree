@@ -162,4 +162,40 @@ public sealed class BTreeConcurrentLeafWriteTests
       tree.Validate();
     }
   }
+
+  [TestCase(BTreeLockMode.NodeLevelMonitor)]
+  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
+  [TestCase(BTreeLockMode.TopLevelMonitor)]
+  [TestCase(BTreeLockMode.TopLevelReaderWriter)]
+  public async Task ThrowingCallbacksBelowTheRootReleaseTheLeaf(BTreeLockMode lockMode)
+  {
+    var tree = new BTree<int, int>(new Int32ComparerAscending(), lockMode,
+        nodeSize: 4, leafSize: 4);
+    for (var key = 0; key < 64; key += 2)
+      tree.Upsert(key, key, out _);
+
+    // An existing key reaches the updater, a new key the adder.
+    // Both reach the value getter.
+    foreach (var key in new[] { 20, 21 })
+    {
+      Assert.Throws<InvalidOperationException>(() =>
+          tree.AddOrUpdate(key,
+              (ref int _) => throw new InvalidOperationException(),
+              (ref int _) => throw new InvalidOperationException(), out _));
+      Assert.Throws<InvalidOperationException>(() =>
+          tree.Upsert(key, _ => throw new InvalidOperationException(), out _, out _));
+    }
+
+    await Task.Run(() =>
+    {
+      tree.Upsert(20, 42, out _);
+      tree.Upsert(21, 43, out _);
+    }).WaitAsync(TimeSpan.FromSeconds(10));
+    Assert.That(tree.TryGetValue(20, out var updated), Is.True);
+    Assert.That(updated, Is.EqualTo(42));
+    Assert.That(tree.TryGetValue(21, out var added), Is.True);
+    Assert.That(added, Is.EqualTo(43));
+    Assert.That(tree.Length, Is.EqualTo(33));
+    tree.Validate();
+  }
 }

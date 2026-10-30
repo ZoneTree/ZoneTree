@@ -66,8 +66,17 @@ internal static class ArgumentOutOfRangeException
 
 namespace ZoneTree.Transactional
 {
-internal static class ArgumentOutOfRangeException
+internal sealed class ArgumentOutOfRangeException
+    : global::System.ArgumentOutOfRangeException
 {
+  public ArgumentOutOfRangeException(
+      string paramName,
+      object actualValue,
+      string message)
+      : base(paramName, actualValue, message)
+  {
+  }
+
   public static void ThrowIfLessThan(
       TimeSpan value,
       TimeSpan other,

@@ -1,4 +1,5 @@
 using ZoneTree.Comparers;
+using ZoneTree.Exceptions;
 using ZoneTree.Transactional.Conflicts;
 using ZoneTree.Transactional.Versioning;
 
@@ -53,9 +54,15 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
 
   bool isDisposed;
 
-  public TKey CurrentKey { get; private set; }
+  TKey currentKey;
 
-  public TValue CurrentValue { get; private set; }
+  TValue currentValue;
+
+  public TKey CurrentKey =>
+      HasCurrent ? currentKey : throw new ZoneTreeIteratorPositionException();
+
+  public TValue CurrentValue =>
+      HasCurrent ? currentValue : throw new ZoneTreeIteratorPositionException();
 
   public bool HasCurrent { get; private set; }
 
@@ -79,7 +86,7 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
 
   public void Seek(in TKey key)
   {
-    Transaction.EnsureActive();
+    EnsureUsable();
     ResetPosition();
     // The newest version sorts first, so a forward seek starts at the newest
     // version of the key and a reverse seek at its oldest.
@@ -92,7 +99,7 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
 
   public void SeekFirst()
   {
-    Transaction.EnsureActive();
+    EnsureUsable();
     ResetPosition();
     Inner.SeekFirst();
     // The range starts at the start of the key space (the end in reverse)
@@ -102,7 +109,7 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
 
   public bool Next()
   {
-    Transaction.EnsureActive();
+    EnsureUsable();
     if (!IsPositioned)
       SeekFirst();
     var found = IsReverse ? NextReverse() : NextForward();
@@ -210,9 +217,19 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
 
   void SetCurrent(in TKey key, in TValue value)
   {
-    CurrentKey = key;
-    CurrentValue = value;
+    currentKey = key;
+    currentValue = value;
     HasCurrent = true;
+  }
+
+  /// <summary>
+  /// An iterator of an ended transaction reports the end of the transaction,
+  /// and a disposed one of an active transaction reports its disposal.
+  /// </summary>
+  void EnsureUsable()
+  {
+    Transaction.EnsureActive();
+    ObjectDisposedException.ThrowIf(isDisposed, this);
   }
 
   void ResetPosition()
