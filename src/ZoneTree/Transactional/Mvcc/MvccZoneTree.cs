@@ -789,7 +789,11 @@ public sealed class MvccZoneTree<TKey, TValue> :
     get => autoSyncInterval;
     set
     {
-      ArgumentOutOfRangeException.ThrowIfLessThan(value, TimeSpan.Zero);
+      if (value != TimeSpan.Zero &&
+          (value.TotalMilliseconds < 1 || value.TotalMilliseconds >= uint.MaxValue))
+        throw new ArgumentOutOfRangeException(
+            nameof(value), value,
+            "The interval must be zero or at least 1 millisecond and less than 4294967295 milliseconds.");
       lock (AutoSyncLock)
       {
         StopAutoSync();

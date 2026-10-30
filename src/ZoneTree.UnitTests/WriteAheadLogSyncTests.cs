@@ -3,6 +3,7 @@ using ZoneTree.AbstractFileStream;
 using ZoneTree.Exceptions;
 using ZoneTree.Logger;
 using ZoneTree.Options;
+using ZoneTree.Serializers;
 using ZoneTree.WAL;
 
 namespace ZoneTree.UnitTests;
@@ -284,6 +285,45 @@ public sealed class WriteAheadLogSyncTests
     tree.Maintenance.StartMergeOperation().Join();
     tree.Upsert(4, 5);
     await tree.SyncWALAsync();
+  }
+
+  /// <summary>
+  /// Serializes integers, and fails for one value.
+  /// </summary>
+  sealed class FailingValueSerializer(int failingValue) : ISerializer<int>
+  {
+    readonly Int32Serializer Inner = new();
+
+    public int Deserialize(Memory<byte> bytes) => Inner.Deserialize(bytes);
+
+    public Memory<byte> Serialize(in int entry)
+    {
+      if (entry == failingValue)
+        throw new InvalidOperationException("The serializer failed.");
+      return Inner.Serialize(in entry);
+    }
+  }
+
+  [Test]
+  public void AsyncWriteAheadLogKeepsOnlyTheRecordsBeforeAFailedOne()
+  {
+    // A later record, such as a transaction's commit, must not survive without
+    // an earlier one. The background writer serializes the records.
+    const int failingValue = -1;
+    var provider = new InMemoryFileStreamProvider();
+    using (var tree = CreateFactory(provider, WriteAheadLogMode.AsyncCompressed)
+        .SetValueSerializer(new FailingValueSerializer(failingValue))
+        .Create())
+    {
+      for (var key = 0; key < 100; ++key)
+        tree.Upsert(key, key == 50 ? failingValue : key + 1);
+      Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWALAsync());
+    }
+    using var reopened = CreateFactory(provider, WriteAheadLogMode.AsyncCompressed)
+        .SetValueSerializer(new FailingValueSerializer(failingValue))
+        .Open();
+    var present = Enumerable.Range(0, 100).Where(key => reopened.TryGet(key, out _)).ToArray();
+    Assert.That(present, Is.EqualTo(Enumerable.Range(0, 50).ToArray()));
   }
 
   [Test]

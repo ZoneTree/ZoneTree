@@ -794,8 +794,11 @@ public sealed class MvccZoneTreeTests
     Assert.That(records.Count, Is.EqualTo(accounts));
     Assert.That(records.Sum(x => x.Value), Is.EqualTo(accounts * initialBalance));
     Assert.That(tree.Maintenance.AbortedTransactionCount, Is.Zero);
-    // With no older snapshot left, a merge keeps one version per key.
-    Assert.That(Enumerable.Range(0, accounts).All(x => CountStoredVersions(tree, x) == 1), Is.True);
+    // With no older snapshot left, a merge keeps one version per key. A merge copies
+    // a part it can skip without filtering it, so the older versions of a multi-part
+    // segment can stay until a later merge rewrites their part.
+    if (diskSegmentMode == DiskSegmentMode.SingleDiskSegment)
+      Assert.That(Enumerable.Range(0, accounts).All(x => CountStoredVersions(tree, x) == 1), Is.True);
   }
 
   [Test]
@@ -1063,9 +1066,11 @@ public sealed class MvccZoneTreeTests
         Write(tree, (1, 0));
         var tx = tree.BeginTransaction();
         var concurrent = tree.BeginTransaction();
-        tx.Upsert(1, 1);
-        tx.Upsert(2, 2);
+        // Four descending keys make the commit's sort shift elements.
+        tx.Upsert(4, 4);
         tx.Upsert(3, 3);
+        tx.Upsert(2, 2);
+        tx.Upsert(1, 1);
         concurrent.Upsert(2, 20);
 
         comparer.FailAt(failAt);
@@ -1090,10 +1095,12 @@ public sealed class MvccZoneTreeTests
 
         // Readers see the outcome the transaction reported, before and after a later commit.
         Assert.That(ReadCommitted(tree, 3), Is.EqualTo(isCommitted ? 3 : null), at);
-        Write(tree, (4, 4));
+        Write(tree, (5, 5));
         Assert.That(ReadCommitted(tree, 1), Is.EqualTo(isCommitted ? 1 : 0), at);
         Assert.That(ReadCommitted(tree, 2), Is.EqualTo(isCommitted ? 2 : null), at);
-        Assert.That(ReadCommitted(tree, 4), Is.EqualTo(4), at);
+        Assert.That(ReadCommitted(tree, 3), Is.EqualTo(isCommitted ? 3 : null), at);
+        Assert.That(ReadCommitted(tree, 4), Is.EqualTo(isCommitted ? 4 : null), at);
+        Assert.That(ReadCommitted(tree, 5), Is.EqualTo(5), at);
         if (!comparer.HasFailed)
         {
           TestContext.Out.WriteLine($"The commit made {failAt - 1} comparisons.");

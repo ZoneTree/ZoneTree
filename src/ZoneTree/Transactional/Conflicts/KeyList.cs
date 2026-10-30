@@ -5,11 +5,15 @@ namespace ZoneTree.Transactional.Conflicts;
 /// removed only when the list doubles and when the keys are taken, so a short
 /// transaction allocates little and a long one stays bounded by its distinct keys.
 /// </summary>
+/// <remarks>
+/// The keys are sorted in a copy. A sort can lose an element when the comparer throws,
+/// and a rollback reads the list to find every key the transaction wrote.
+/// </remarks>
 internal sealed class KeyList<TKey>
 {
   readonly IComparer<TKey> Comparer;
 
-  readonly List<TKey> Keys = new();
+  List<TKey> Keys = new();
 
   int CompactionThreshold = 64;
 
@@ -25,7 +29,7 @@ internal sealed class KeyList<TKey>
     Keys.Add(key);
     if (Keys.Count >= CompactionThreshold)
     {
-      Compact();
+      Keys = new List<TKey>(SortDistinct());
       CompactionThreshold = Math.Max(64, Keys.Count * 2);
     }
   }
@@ -33,23 +37,22 @@ internal sealed class KeyList<TKey>
   /// <summary>
   /// Returns the distinct keys in ascending order.
   /// </summary>
-  public TKey[] ToDistinctArray()
-  {
-    Compact();
-    return Keys.ToArray();
-  }
+  public TKey[] ToDistinctArray() => SortDistinct();
 
-  void Compact()
+  /// <summary>
+  /// Returns a sorted copy of the keys without duplicates.
+  /// </summary>
+  TKey[] SortDistinct()
   {
-    if (Keys.Count < 2)
-      return;
-    Keys.Sort(Comparer);
-    var length = 1;
-    for (var i = 1; i < Keys.Count; ++i)
+    var keys = Keys.ToArray();
+    Array.Sort(keys, Comparer);
+    var length = Math.Min(keys.Length, 1);
+    for (var i = 1; i < keys.Length; ++i)
     {
-      if (Comparer.Compare(Keys[length - 1], Keys[i]) != 0)
-        Keys[length++] = Keys[i];
+      if (Comparer.Compare(keys[length - 1], keys[i]) != 0)
+        keys[length++] = keys[i];
     }
-    Keys.RemoveRange(length, Keys.Count - length);
+    Array.Resize(ref keys, length);
+    return keys;
   }
 }
