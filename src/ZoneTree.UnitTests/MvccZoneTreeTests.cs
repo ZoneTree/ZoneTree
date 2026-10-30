@@ -1,3 +1,4 @@
+using ZoneTree.Comparers;
 using ZoneTree.Exceptions;
 using ZoneTree.Logger;
 using ZoneTree.Options;
@@ -1013,6 +1014,97 @@ public sealed class MvccZoneTreeTests
     tree.IsReadOnly = true;
     Assert.Throws<ZoneTreeIsReadOnlyException>(() => tree.BeginTransaction());
     Assert.That(ReadCommitted(tree, 1), Is.EqualTo(1));
+  }
+
+  /// <summary>
+  /// Compares integers, and throws at a chosen comparison.
+  /// </summary>
+  sealed class FailingComparer : IRefComparer<int>
+  {
+    int ComparisonsUntilFailure;
+
+    public bool HasFailed { get; private set; }
+
+    public void FailAt(int comparison)
+    {
+      ComparisonsUntilFailure = comparison;
+      HasFailed = false;
+    }
+
+    public void Disarm()
+    {
+      ComparisonsUntilFailure = 0;
+    }
+
+    public int Compare(in int x, in int y)
+    {
+      if (ComparisonsUntilFailure > 0 && --ComparisonsUntilFailure == 0)
+      {
+        HasFailed = true;
+        throw new InvalidOperationException("The comparer failed.");
+      }
+      return x.CompareTo(y);
+    }
+  }
+
+  [Test]
+  public void ACommitIsAtomicWhereverTheComparerFails()
+  {
+    // Fails each comparison the commit makes in turn, until the commit makes no more.
+    var root = DataDirectory;
+    try
+    {
+      for (var failAt = 1; ; ++failAt)
+      {
+        Assert.That(failAt, Is.LessThan(1000), "the commit kept comparing");
+        DataDirectory = Path.Combine(root, failAt.ToString());
+        var comparer = new FailingComparer();
+        using var tree = CreateFactory().SetComparer(comparer).OpenOrCreateTransactional();
+        Write(tree, (1, 0));
+        var tx = tree.BeginTransaction();
+        var concurrent = tree.BeginTransaction();
+        tx.Upsert(1, 1);
+        tx.Upsert(2, 2);
+        tx.Upsert(3, 3);
+        concurrent.Upsert(2, 20);
+
+        comparer.FailAt(failAt);
+        var hasThrown = false;
+        try
+        {
+          tx.Commit();
+        }
+        catch (InvalidOperationException)
+        {
+          hasThrown = true;
+        }
+        comparer.Disarm();
+        var isCommitted = tx.State == TransactionState.Committed;
+        var at = $"comparer failure at comparison {failAt}";
+        Assert.That(isCommitted || tx.State == TransactionState.Aborted, Is.True, at);
+        Assert.That(isCommitted, Is.EqualTo(!hasThrown), at);
+        if (isCommitted)
+          Assert.That(concurrent.TryCommit(), Is.False, $"{at}: the commit's keys must conflict");
+        concurrent.Dispose();
+        Assert.That(tree.Maintenance.ActiveTransactionCount, Is.Zero, at);
+
+        // Readers see the outcome the transaction reported, before and after a later commit.
+        Assert.That(ReadCommitted(tree, 3), Is.EqualTo(isCommitted ? 3 : null), at);
+        Write(tree, (4, 4));
+        Assert.That(ReadCommitted(tree, 1), Is.EqualTo(isCommitted ? 1 : 0), at);
+        Assert.That(ReadCommitted(tree, 2), Is.EqualTo(isCommitted ? 2 : null), at);
+        Assert.That(ReadCommitted(tree, 4), Is.EqualTo(4), at);
+        if (!comparer.HasFailed)
+        {
+          TestContext.Out.WriteLine($"The commit made {failAt - 1} comparisons.");
+          break;
+        }
+      }
+    }
+    finally
+    {
+      DataDirectory = root;
+    }
   }
 
   [Test]

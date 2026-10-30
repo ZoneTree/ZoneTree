@@ -187,25 +187,30 @@ internal sealed class MvccTransaction<TKey, TValue> :
     }
     ReleaseReaders();
     bool isCommitted;
-    long commitTimestamp;
     try
     {
-      isCommitted = Tree.Commit(this, out commitTimestamp);
+      isCommitted = Tree.Commit(this);
     }
     catch
     {
-      // The tree rolled the transaction back before throwing.
-      state = TransactionState.Aborted;
+      // A failure before the commit point rolled the transaction back,
+      // and one after it leaves the transaction committed.
+      if (state == TransactionState.Active)
+        state = TransactionState.Aborted;
       throw;
     }
     if (!isCommitted)
-    {
       state = TransactionState.Aborted;
-      return false;
-    }
+    return isCommitted;
+  }
+
+  /// <summary>
+  /// Marks the transaction committed. Called by the tree at the commit point.
+  /// </summary>
+  internal void OnCommitted(long commitTimestamp)
+  {
     CommitTimestamp = commitTimestamp;
     state = TransactionState.Committed;
-    return true;
   }
 
   public async Task CommitDurableAsync(CancellationToken cancellationToken = default)

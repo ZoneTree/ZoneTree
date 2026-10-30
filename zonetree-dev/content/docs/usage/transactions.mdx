@@ -179,7 +179,7 @@ A committed transaction is visible at once but is durable only after the write a
 | --- | --- |
 | This commit must survive a power loss before you acknowledge it. | `await tree.ExecuteDurableAsync(...)`, `await tx.CommitDurableAsync()` or `await tx.TryCommitDurableAsync()` |
 | Several commits must be durable; acknowledge them together. | Commit each, then `await tree.SyncWALAsync()` once. |
-| Bound how much a power loss can lose without waiting on syncs. | `tree.AutoSyncInterval = TimeSpan.FromMilliseconds(10)` |
+| Bound how much a power loss can lose without waiting on syncs. | `tree.AutoSyncInterval = TimeSpan.FromMilliseconds(500)` |
 
 Concurrent durable commits and `SyncWALAsync` callers share disk syncs, so many committing threads pay for one sync together. A single thread that waits after every commit pays a full sync per commit.
 

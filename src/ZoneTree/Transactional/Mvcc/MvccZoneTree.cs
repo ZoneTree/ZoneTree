@@ -486,20 +486,26 @@ public sealed class MvccZoneTree<TKey, TValue> :
   /// <summary>
   /// Commits the transaction, or rolls it back if it conflicts.
   /// </summary>
-  internal bool Commit(MvccTransaction<TKey, TValue> transaction, out long commitTimestamp)
+  /// <remarks>
+  /// Every step that calls the key comparer or can fail runs before the commit point,
+  /// and a failure there rolls the transaction back. After the commit point only plain
+  /// state changes publish the commit, so a commit is never reported as rolled back.
+  /// </remarks>
+  internal bool Commit(MvccTransaction<TKey, TValue> transaction)
   {
     var entry = transaction.Entry;
     if (!transaction.HasWrites)
     {
       // Nothing to publish: the transaction is equivalent to running at its snapshot.
-      commitTimestamp = transaction.SnapshotTimestamp;
+      transaction.OnCommitted(transaction.SnapshotTimestamp);
       Entries.TryRemove(entry.Id, out _);
       EndTransaction(transaction);
       return true;
     }
 
     var hasConflict = false;
-    commitTimestamp = 0;
+    long commitTimestamp = 0;
+    TKey[] keys = null;
     lock (CommitLock)
     {
       try
@@ -510,25 +516,35 @@ public sealed class MvccZoneTree<TKey, TValue> :
             transaction.ConflictsWith(ConflictIndex);
         if (!hasConflict)
         {
+          keys = transaction.GetWrittenKeys();
           lock (StateLock)
             commitTimestamp = NextTimestamp();
+          // Committers check conflicts under this lock, so none sees the keys before the
+          // commit point. Writers that see them early conflict with a commit that follows.
+          ConflictIndex.Add(keys, commitTimestamp);
           // The commit point: a single record, durable with the next WAL sync.
           Storage.ForceDelete(VersionedKey<TKey>.TransactionStatus(transaction.TransactionId));
         }
       }
       catch
       {
+        if (commitTimestamp != 0)
+        {
+          // The keys added for a failed commit can only make transactions that began
+          // before it conflict. They are pruned like the keys of a commit.
+          lock (StateLock)
+            CommittedWrites.Enqueue((commitTimestamp, keys));
+        }
         Rollback(transaction);
         throw;
       }
       if (!hasConflict)
       {
+        transaction.OnCommitted(commitTimestamp);
         entry.CommitTimestamp = commitTimestamp;
         // Read after the commit record was written, so it is at or after its segment.
         entry.CommitSegmentId = StorageMaintenance.MutableSegment.SegmentId;
         entry.State = TransactionState.Committed;
-        var keys = transaction.GetWrittenKeys();
-        ConflictIndex.Add(keys, commitTimestamp);
         lock (StateLock)
         {
           // New snapshots include the commit only after its entry says committed.
@@ -598,8 +614,17 @@ public sealed class MvccZoneTree<TKey, TValue> :
   void EndTransactionLocked(MvccTransaction<TKey, TValue> transaction)
   {
     Active.RemoveWriter(transaction);
-    PruneCommittedTransactions();
-    ForgetRolledBackTransactions();
+    // The transaction ended whatever follows. The bookkeeping calls the key
+    // comparer, and a failure leaves its work to the next call.
+    try
+    {
+      PruneCommittedTransactions();
+      ForgetRolledBackTransactions();
+    }
+    catch (Exception e)
+    {
+      Logger.LogError(e);
+    }
   }
 
   /// <summary>
@@ -628,8 +653,9 @@ public sealed class MvccZoneTree<TKey, TValue> :
       while (CommittedWrites.TryPeek(out var item) &&
           item.CommitTimestamp <= writerHorizon)
       {
-        CommittedWrites.Dequeue();
+        // Removed before the item, so a failure leaves the keys to a later call.
         ConflictIndex.Remove(item.Keys, item.CommitTimestamp);
+        CommittedWrites.Dequeue();
       }
     }
   }
