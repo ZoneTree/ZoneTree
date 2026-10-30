@@ -1,6 +1,6 @@
 using ZoneTree.Comparers;
 
-namespace ZoneTree.Transactional;
+namespace ZoneTree.Transactional.Conflicts;
 
 /// <summary>
 /// Maps each key written by a recent commit to the timestamp of its latest commit.

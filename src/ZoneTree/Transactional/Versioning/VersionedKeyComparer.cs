@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using ZoneTree.Comparers;
 
-namespace ZoneTree.Transactional;
+namespace ZoneTree.Transactional.Versioning;
 
 /// <summary>
 /// Orders versioned keys by kind, then by user key, then by version descending.

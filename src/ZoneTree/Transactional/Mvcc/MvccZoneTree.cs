@@ -6,8 +6,10 @@ using ZoneTree.Exceptions;
 using ZoneTree.Logger;
 using ZoneTree.Options;
 using ZoneTree.Segments;
+using ZoneTree.Transactional.Conflicts;
+using ZoneTree.Transactional.Versioning;
 
-namespace ZoneTree.Transactional;
+namespace ZoneTree.Transactional.Mvcc;
 
 /// <summary>
 /// A transactional ZoneTree that stores every version of a key in a single storage tree,
@@ -35,7 +37,7 @@ namespace ZoneTree.Transactional;
 /// </remarks>
 /// <typeparam name="TKey">The key type.</typeparam>
 /// <typeparam name="TValue">The value type.</typeparam>
-public sealed class TransactionalZoneTree<TKey, TValue> :
+public sealed class MvccZoneTree<TKey, TValue> :
     ITransactionalZoneTree<TKey, TValue>,
     ITransactionalZoneTreeMaintenance<TKey, TValue>
 {
@@ -129,7 +131,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
 
   IZoneTreeMaintenance<VersionedKey<TKey>, VersionedValue<TValue>> StorageMaintenance { get; }
 
-  TransactionalZoneTree(
+  MvccZoneTree(
       IZoneTree<VersionedKey<TKey>, VersionedValue<TValue>> storage,
       ZoneTreeOptions<TKey, TValue> options)
   {
@@ -151,12 +153,12 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
   /// <summary>
   /// Opens or creates a transactional tree with the given user options.
   /// </summary>
-  internal static TransactionalZoneTree<TKey, TValue> Load(
+  internal static MvccZoneTree<TKey, TValue> Load(
       ZoneTreeOptions<TKey, TValue> options,
       bool canCreate,
       bool canOpen)
   {
-    var owner = new StrongBox<TransactionalZoneTree<TKey, TValue>>();
+    var owner = new StrongBox<MvccZoneTree<TKey, TValue>>();
     var storageOptions = CreateStorageOptions(options, owner);
     var loader = new ZoneTreeLoader<VersionedKey<TKey>, VersionedValue<TValue>>(storageOptions);
     ZoneTree<VersionedKey<TKey>, VersionedValue<TValue>> storage;
@@ -174,7 +176,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
     }
     try
     {
-      owner.Value = new TransactionalZoneTree<TKey, TValue>(storage, options);
+      owner.Value = new MvccZoneTree<TKey, TValue>(storage, options);
       return owner.Value;
     }
     catch
@@ -186,7 +188,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
 
   static ZoneTreeOptions<VersionedKey<TKey>, VersionedValue<TValue>> CreateStorageOptions(
       ZoneTreeOptions<TKey, TValue> options,
-      StrongBox<TransactionalZoneTree<TKey, TValue>> owner)
+      StrongBox<MvccZoneTree<TKey, TValue>> owner)
   {
     return new ZoneTreeOptions<VersionedKey<TKey>, VersionedValue<TValue>>
     {
@@ -310,12 +312,12 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
   {
     if (IsReadOnly)
       throw new ZoneTreeIsReadOnlyException();
-    Transaction<TKey, TValue> transaction;
+    MvccTransaction<TKey, TValue> transaction;
     lock (StateLock)
     {
       var snapshotTimestamp = lastCommitTimestamp;
       var id = NextTimestamp();
-      transaction = new Transaction<TKey, TValue>(
+      transaction = new MvccTransaction<TKey, TValue>(
           this,
           Comparer,
           new TransactionEntry(id, TransactionState.Active),
@@ -349,7 +351,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
           bucket = Active.AddBucket(lastCommitTimestamp, Clock);
       }
     }
-    return new Transaction<TKey, TValue>(
+    return new MvccTransaction<TKey, TValue>(
         this,
         Comparer,
         null,
@@ -387,7 +389,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
   /// <summary>
   /// Checks whether a version is in the snapshot of a transaction.
   /// </summary>
-  internal bool IsVisible(long version, Transaction<TKey, TValue> transaction)
+  internal bool IsVisible(long version, MvccTransaction<TKey, TValue> transaction)
   {
     // A version above the snapshot either is the transaction's own write or
     // belongs to a transaction that began later, so it commits after the snapshot.
@@ -455,7 +457,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
   internal bool HasCommitAfter(in TKey key, long timestamp)
       => ConflictIndex.HasCommitAfter(in key, timestamp);
 
-  internal void OnFirstWrite(Transaction<TKey, TValue> transaction)
+  internal void OnFirstWrite(MvccTransaction<TKey, TValue> transaction)
   {
     // Read the marker before the first write, so a later move of
     // a disk segment to the bottom segments is never missed.
@@ -486,7 +488,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
   /// <summary>
   /// Commits the transaction, or rolls it back if it conflicts.
   /// </summary>
-  internal bool Commit(Transaction<TKey, TValue> transaction, out long commitTimestamp)
+  internal bool Commit(MvccTransaction<TKey, TValue> transaction, out long commitTimestamp)
   {
     var entry = transaction.Entry;
     if (!transaction.HasWrites)
@@ -549,12 +551,12 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
     return true;
   }
 
-  internal void Rollback(Transaction<TKey, TValue> transaction)
+  internal void Rollback(MvccTransaction<TKey, TValue> transaction)
   {
     RollbackCore(transaction);
   }
 
-  void RollbackCore(Transaction<TKey, TValue> transaction)
+  void RollbackCore(MvccTransaction<TKey, TValue> transaction)
   {
     if (transaction.Bucket != null)
     {
@@ -598,7 +600,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
     }
   }
 
-  void EndTransaction(Transaction<TKey, TValue> transaction)
+  void EndTransaction(MvccTransaction<TKey, TValue> transaction)
   {
     if (transaction.Bucket != null)
     {
@@ -614,7 +616,7 @@ public sealed class TransactionalZoneTree<TKey, TValue> :
   /// <summary>
   /// Releases the snapshot of the transaction. Called under the state lock.
   /// </summary>
-  void EndTransactionLocked(Transaction<TKey, TValue> transaction)
+  void EndTransactionLocked(MvccTransaction<TKey, TValue> transaction)
   {
     Active.RemoveWriter(transaction);
     PruneCommittedTransactions();

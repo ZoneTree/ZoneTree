@@ -1,4 +1,4 @@
-namespace ZoneTree.Transactional;
+namespace ZoneTree.Transactional.Conflicts;
 
 /// <summary>
 /// An inclusive key range. A missing bound is unbounded.

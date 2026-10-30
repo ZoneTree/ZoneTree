@@ -1,10 +1,12 @@
 using ZoneTree.Comparers;
 using ZoneTree.Exceptions;
+using ZoneTree.Transactional.Conflicts;
+using ZoneTree.Transactional.Versioning;
 
-namespace ZoneTree.Transactional;
+namespace ZoneTree.Transactional.Mvcc;
 
 /// <summary>
-/// A transaction of <see cref="TransactionalZoneTree{TKey, TValue}"/>.
+/// A transaction of <see cref="MvccZoneTree{TKey, TValue}"/>.
 /// </summary>
 /// <remarks>
 /// Writes go to the storage tree at once, stored under the transaction id, and stay
@@ -12,15 +14,15 @@ namespace ZoneTree.Transactional;
 /// it wrote to detect conflicts and to roll back, and in serializable mode the keys
 /// and ranges it read.
 /// </remarks>
-internal sealed class Transaction<TKey, TValue> : ITransaction<TKey, TValue>
+internal sealed class MvccTransaction<TKey, TValue> : ITransaction<TKey, TValue>
 {
-  readonly TransactionalZoneTree<TKey, TValue> Tree;
+  readonly MvccZoneTree<TKey, TValue> Tree;
 
   readonly IRefComparer<TKey> Comparer;
 
   List<KeyRange<TKey>> ReadRanges;
 
-  List<TransactionIterator<TKey, TValue>> OpenIterators;
+  List<MvccTransactionIterator<TKey, TValue>> OpenIterators;
 
   KeyList<TKey> WrittenKeys;
 
@@ -70,8 +72,8 @@ internal sealed class Transaction<TKey, TValue> : ITransaction<TKey, TValue>
   internal bool TracksReads =>
       IsolationLevel == TransactionIsolationLevel.Serializable && !IsReadOnly;
 
-  public Transaction(
-      TransactionalZoneTree<TKey, TValue> tree,
+  public MvccTransaction(
+      MvccZoneTree<TKey, TValue> tree,
       IRefComparer<TKey> comparer,
       TransactionEntry entry,
       long beginSequence,
@@ -134,7 +136,7 @@ internal sealed class Transaction<TKey, TValue> : ITransaction<TKey, TValue>
   /// </remarks>
   struct PointReader : ISegmentRecordVisitor<VersionedKey<TKey>, VersionedValue<TValue>>
   {
-    readonly Transaction<TKey, TValue> Transaction;
+    readonly MvccTransaction<TKey, TValue> Transaction;
 
     readonly TKey Key;
 
@@ -144,7 +146,7 @@ internal sealed class Transaction<TKey, TValue> : ITransaction<TKey, TValue>
 
     public VersionedValue<TValue> Value;
 
-    public PointReader(Transaction<TKey, TValue> transaction, in TKey key)
+    public PointReader(MvccTransaction<TKey, TValue> transaction, in TKey key)
     {
       Transaction = transaction;
       Key = key;
@@ -220,15 +222,15 @@ internal sealed class Transaction<TKey, TValue> : ITransaction<TKey, TValue>
     return CreateIterator(true, options);
   }
 
-  TransactionIterator<TKey, TValue> CreateIterator(bool reverse, TransactionIteratorOptions options)
+  MvccTransactionIterator<TKey, TValue> CreateIterator(bool reverse, TransactionIteratorOptions options)
   {
     EnsureActive();
-    var iterator = new TransactionIterator<TKey, TValue>(this, Tree, Comparer, reverse, options);
+    var iterator = new MvccTransactionIterator<TKey, TValue>(this, Tree, Comparer, reverse, options);
     (OpenIterators ??= new()).Add(iterator);
     return iterator;
   }
 
-  internal void OnIteratorDisposed(TransactionIterator<TKey, TValue> iterator)
+  internal void OnIteratorDisposed(MvccTransactionIterator<TKey, TValue> iterator)
   {
     OpenIterators?.Remove(iterator);
   }

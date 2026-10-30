@@ -1,4 +1,4 @@
-namespace ZoneTree.Transactional;
+namespace ZoneTree.Transactional.Mvcc;
 
 /// <summary>
 /// Counts the read-only transactions that read the same snapshot, so they begin and

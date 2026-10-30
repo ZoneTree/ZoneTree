@@ -1,4 +1,4 @@
-namespace ZoneTree.Transactional;
+namespace ZoneTree.Transactional.Versioning;
 
 /// <summary>
 /// The kinds of values in a transactional tree.

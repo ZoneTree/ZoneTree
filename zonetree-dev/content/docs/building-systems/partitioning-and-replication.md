@@ -371,6 +371,6 @@ The behaviors described here can be traced to these implementations:
 * [Write path and atomic callbacks](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Core/ZoneTree.ReadWrite.cs)
 * [Operation-index allocation during value construction](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Collections/BTree/BTree.Write.OpIndex.cs)
 * [Replica apply and its companion index](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Core/Replicator.cs)
-* [Local transaction commit and rollback](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Transactional/TransactionalZoneTree.cs)
+* [Local transaction commit and rollback](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Transactional/Mvcc/MvccZoneTree.cs)
 * [Snapshot and backup segment collection](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Core/ZoneTree.Iterators.cs)
 * [Live backup generation](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Backup/LiveBackup.cs) and [restore](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Backup/LiveBackupRestore.cs)

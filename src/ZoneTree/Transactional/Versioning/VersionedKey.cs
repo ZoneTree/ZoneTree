@@ -1,4 +1,4 @@
-namespace ZoneTree.Transactional;
+namespace ZoneTree.Transactional.Versioning;
 
 /// <summary>
 /// The kinds of records in a transactional tree, in their storage order.

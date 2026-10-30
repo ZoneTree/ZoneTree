@@ -1,4 +1,4 @@
-namespace ZoneTree.Transactional;
+namespace ZoneTree.Transactional.Mvcc;
 
 /// <summary>
 /// The status of a transaction that can own versions in the storage tree.

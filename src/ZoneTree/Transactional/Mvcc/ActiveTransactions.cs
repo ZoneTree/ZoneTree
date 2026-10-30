@@ -1,4 +1,4 @@
-namespace ZoneTree.Transactional;
+namespace ZoneTree.Transactional.Mvcc;
 
 // The queues only reference the transactions; their callers own and dispose them.
 #pragma warning disable CA2000
@@ -16,7 +16,7 @@ namespace ZoneTree.Transactional;
 /// </remarks>
 internal sealed class ActiveTransactions<TKey, TValue>
 {
-  readonly Queue<Transaction<TKey, TValue>> Writers = new();
+  readonly Queue<MvccTransaction<TKey, TValue>> Writers = new();
 
   readonly Queue<SnapshotBucket> Buckets = new();
 
@@ -40,14 +40,14 @@ internal sealed class ActiveTransactions<TKey, TValue>
     }
   }
 
-  public void AddWriter(Transaction<TKey, TValue> transaction)
+  public void AddWriter(MvccTransaction<TKey, TValue> transaction)
   {
     transaction.IsRegistered = true;
     Writers.Enqueue(transaction);
     ++WriterCount;
   }
 
-  public void RemoveWriter(Transaction<TKey, TValue> transaction)
+  public void RemoveWriter(MvccTransaction<TKey, TValue> transaction)
   {
     transaction.IsRegistered = false;
     --WriterCount;

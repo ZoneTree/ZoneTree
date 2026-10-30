@@ -1,7 +1,8 @@
 using ZoneTree.Comparers;
 using ZoneTree.Options;
+using ZoneTree.Transactional.Versioning;
 
-namespace ZoneTree.Transactional;
+namespace ZoneTree.Transactional.Mvcc;
 
 /// <summary>
 /// Drops the versions no snapshot can read while the storage tree merges.
@@ -28,7 +29,7 @@ namespace ZoneTree.Transactional;
 internal sealed class VersionGarbageFilter<TKey, TValue> :
     IMergeFilter<VersionedKey<TKey>, VersionedValue<TValue>>
 {
-  readonly TransactionalZoneTree<TKey, TValue> Tree;
+  readonly MvccZoneTree<TKey, TValue> Tree;
 
   readonly IRefComparer<TKey> Comparer;
 
@@ -59,7 +60,7 @@ internal sealed class VersionGarbageFilter<TKey, TValue> :
   bool IsCurrentKeyHidden;
 
   public VersionGarbageFilter(
-      TransactionalZoneTree<TKey, TValue> tree,
+      MvccZoneTree<TKey, TValue> tree,
       IRefComparer<TKey> comparer,
       bool includesOldestRecords,
       long[] snapshots,

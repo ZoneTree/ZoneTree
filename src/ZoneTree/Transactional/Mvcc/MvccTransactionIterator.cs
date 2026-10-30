@@ -1,6 +1,8 @@
 using ZoneTree.Comparers;
+using ZoneTree.Transactional.Conflicts;
+using ZoneTree.Transactional.Versioning;
 
-namespace ZoneTree.Transactional;
+namespace ZoneTree.Transactional.Mvcc;
 
 /// <summary>
 /// Iterates the snapshot of a transaction over the versions in the storage tree.
@@ -17,9 +19,9 @@ namespace ZoneTree.Transactional;
 /// snapshot that writes inside the range, even a new key, conflicts.
 /// </para>
 /// </remarks>
-internal sealed class TransactionIterator<TKey, TValue> : ITransactionIterator<TKey, TValue>
+internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterator<TKey, TValue>
 {
-  readonly Transaction<TKey, TValue> Transaction;
+  readonly MvccTransaction<TKey, TValue> Transaction;
 
   readonly IRefComparer<TKey> Comparer;
 
@@ -59,9 +61,9 @@ internal sealed class TransactionIterator<TKey, TValue> : ITransactionIterator<T
 
   public KeyValuePair<TKey, TValue> Current => KeyValuePair.Create(CurrentKey, CurrentValue);
 
-  public TransactionIterator(
-      Transaction<TKey, TValue> transaction,
-      TransactionalZoneTree<TKey, TValue> tree,
+  public MvccTransactionIterator(
+      MvccTransaction<TKey, TValue> transaction,
+      MvccZoneTree<TKey, TValue> tree,
       IRefComparer<TKey> comparer,
       bool isReverse,
       TransactionIteratorOptions options)

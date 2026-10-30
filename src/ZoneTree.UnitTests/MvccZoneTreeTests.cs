@@ -3,10 +3,11 @@ using ZoneTree.Logger;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 using ZoneTree.Transactional;
+using ZoneTree.Transactional.Versioning;
 
 namespace ZoneTree.UnitTests;
 
-public sealed class TransactionalZoneTreeTests
+public sealed class MvccZoneTreeTests
 {
   string DataDirectory;
 
@@ -14,7 +15,7 @@ public sealed class TransactionalZoneTreeTests
   public void SetUp()
   {
     DataDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory,
-        nameof(TransactionalZoneTreeTests), Guid.NewGuid().ToString("N"));
+        nameof(MvccZoneTreeTests), Guid.NewGuid().ToString("N"));
   }
 
   [TearDown]

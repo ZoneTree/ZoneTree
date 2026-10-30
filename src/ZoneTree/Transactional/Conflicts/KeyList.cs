@@ -1,4 +1,4 @@
-namespace ZoneTree.Transactional;
+namespace ZoneTree.Transactional.Conflicts;
 
 /// <summary>
 /// The keys a transaction read or wrote. Adding is a list append; duplicates are

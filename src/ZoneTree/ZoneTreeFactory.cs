@@ -11,7 +11,7 @@ using ZoneTree.Segments.RandomAccess;
 using ZoneTree.PresetTypes;
 using ZoneTree.Backup;
 using ZoneTree.Hashers;
-using ZoneTree.Transactional;
+using ZoneTree.Transactional.Mvcc;
 
 namespace ZoneTree;
 
@@ -531,6 +531,8 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   /// Opens or creates a transactional ZoneTree.
   /// </summary>
   /// <remarks>
+  /// The tree is a <see cref="MvccZoneTree{TKey, TValue}"/>: multi-version, with optimistic
+  /// snapshot and serializable transactions.
   /// A transactional tree stores every key with the id of the transaction that wrote it,
   /// so its files are not compatible with a tree opened by <see cref="OpenOrCreate"/>.
   /// The deletion delegates are not used: transactions delete keys themselves.
@@ -540,7 +542,7 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   {
     FillMissingOptionsForKnownTypes();
     InitWriteAheadLogProvider();
-    return TransactionalZoneTree<TKey, TValue>.Load(Options, canCreate: true, canOpen: true);
+    return MvccZoneTree<TKey, TValue>.Load(Options, canCreate: true, canOpen: true);
   }
 
   /// <summary>
@@ -553,7 +555,7 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   {
     FillMissingOptionsForKnownTypes();
     InitWriteAheadLogProvider();
-    return TransactionalZoneTree<TKey, TValue>.Load(Options, canCreate: true, canOpen: false);
+    return MvccZoneTree<TKey, TValue>.Load(Options, canCreate: true, canOpen: false);
   }
 
   /// <summary>
@@ -566,7 +568,7 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   {
     FillMissingOptionsForKnownTypes();
     InitWriteAheadLogProvider();
-    return TransactionalZoneTree<TKey, TValue>.Load(Options, canCreate: false, canOpen: true);
+    return MvccZoneTree<TKey, TValue>.Load(Options, canCreate: false, canOpen: true);
   }
 
   /// <summary>

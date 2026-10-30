@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using ZoneTree.Serializers;
 
-namespace ZoneTree.Transactional;
+namespace ZoneTree.Transactional.Versioning;
 
 /// <summary>
 /// Serializes a versioned value as its kind and its payload:
