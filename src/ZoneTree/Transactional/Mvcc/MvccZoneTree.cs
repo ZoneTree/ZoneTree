@@ -332,7 +332,6 @@ public sealed class MvccZoneTree<TKey, TValue> :
           this,
           Comparer,
           new TransactionEntry(id, TransactionState.Active),
-          id,
           snapshotTimestamp,
           isolationLevel);
       Active.AddWriter(transaction);
@@ -343,7 +342,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
     return transaction;
   }
 
-  public ITransaction<TKey, TValue> BeginReadOnlyTransaction()
+  public IReadTransaction<TKey, TValue> BeginReadOnlyTransaction()
   {
     // Join the bucket of the latest snapshot without the state lock. A bucket of an
     // older snapshot is never joined, so a reader sees every commit that finished
@@ -362,16 +361,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
           bucket = Active.AddBucket(lastCommitTimestamp, Clock);
       }
     }
-    return new MvccTransaction<TKey, TValue>(
-        this,
-        Comparer,
-        null,
-        bucket.BeginSequence,
-        bucket.SnapshotTimestamp,
-        TransactionIsolationLevel.Snapshot)
-    {
-      Bucket = bucket
-    };
+    return new MvccReadTransaction<TKey, TValue>(this, Comparer, bucket);
   }
 
   /// <summary>
@@ -400,7 +390,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
   /// <summary>
   /// Checks whether a version is in the snapshot of a transaction.
   /// </summary>
-  internal bool IsVisible(long version, MvccTransaction<TKey, TValue> transaction)
+  internal bool IsVisible(long version, MvccReader<TKey, TValue> transaction)
   {
     // A version above the snapshot either is the transaction's own write or
     // belongs to a transaction that began later, so it commits after the snapshot.
@@ -503,8 +493,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
     {
       // Nothing to publish: the transaction is equivalent to running at its snapshot.
       commitTimestamp = transaction.SnapshotTimestamp;
-      if (entry != null)
-        Entries.TryRemove(entry.Id, out _);
+      Entries.TryRemove(entry.Id, out _);
       EndTransaction(transaction);
       return true;
     }
@@ -518,7 +507,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
         // Commits only happen under this lock, so no commit since the snapshot means no conflict.
         hasConflict =
             Volatile.Read(ref lastCommitTimestamp) > transaction.SnapshotTimestamp &&
-            transaction.HasConflict(ConflictIndex);
+            transaction.ConflictsWith(ConflictIndex);
         if (!hasConflict)
         {
           lock (StateLock)
@@ -529,7 +518,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
       }
       catch
       {
-        RollbackCore(transaction);
+        Rollback(transaction);
         throw;
       }
       if (!hasConflict)
@@ -552,7 +541,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
     }
     if (hasConflict)
     {
-      RollbackCore(transaction);
+      Rollback(transaction);
       return false;
     }
     EndTransaction(transaction);
@@ -561,16 +550,6 @@ public sealed class MvccZoneTree<TKey, TValue> :
 
   internal void Rollback(MvccTransaction<TKey, TValue> transaction)
   {
-    RollbackCore(transaction);
-  }
-
-  void RollbackCore(MvccTransaction<TKey, TValue> transaction)
-  {
-    if (transaction.Bucket != null)
-    {
-      transaction.Bucket.Leave();
-      return;
-    }
     var entry = transaction.Entry;
     var isDeleted = false;
     // Readers and merges ignore the versions from now on.
@@ -609,13 +588,6 @@ public sealed class MvccZoneTree<TKey, TValue> :
 
   void EndTransaction(MvccTransaction<TKey, TValue> transaction)
   {
-    if (transaction.Bucket != null)
-    {
-      // Read-only transactions leave without the state lock; a later
-      // writer or merge prunes what their snapshot kept.
-      transaction.Bucket.Leave();
-      return;
-    }
     lock (StateLock)
       EndTransactionLocked(transaction);
   }

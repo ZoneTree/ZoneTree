@@ -64,7 +64,7 @@ internal static class ArgumentOutOfRangeException
 }
 }
 
-namespace ZoneTree.Transactional
+namespace ZoneTree.Transactional.Mvcc
 {
 internal sealed class ArgumentOutOfRangeException
     : global::System.ArgumentOutOfRangeException

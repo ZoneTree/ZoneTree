@@ -52,7 +52,7 @@ public sealed class MvccZoneTreeTests
     tx.Commit();
   }
 
-  static int? Read(ITransaction<int, int> tx, int key)
+  static int? Read(IReadTransaction<int, int> tx, int key)
       => tx.TryGet(key, out var value) ? value : null;
 
   static int? ReadCommitted(ITransactionalZoneTree<int, int> tree, int key)
@@ -61,7 +61,7 @@ public sealed class MvccZoneTreeTests
     return Read(tx, key);
   }
 
-  static List<KeyValuePair<int, int>> Scan(ITransaction<int, int> tx, bool reverse = false)
+  static List<KeyValuePair<int, int>> Scan(IReadTransaction<int, int> tx, bool reverse = false)
   {
     using var iterator = reverse ? tx.CreateReverseIterator() : tx.CreateIterator();
     var result = new List<KeyValuePair<int, int>>();
@@ -161,14 +161,22 @@ public sealed class MvccZoneTreeTests
     Assert.That(second.State, Is.EqualTo(TransactionState.Aborted));
     Assert.That(ReadCommitted(tree, 1), Is.EqualTo(1));
 
-    // A write after the conflicting commit fails at once.
+    // A write after the conflicting commit is not stored, and the commit fails.
     using var third = tree.BeginTransaction(isolationLevel);
     using var fourth = tree.BeginTransaction(isolationLevel);
     third.Upsert(1, 3);
     third.Commit();
-    Assert.Throws<TransactionConflictException>(() => fourth.Upsert(1, 4));
+    fourth.Upsert(1, 4);
+    Assert.That(fourth.HasConflict, Is.True);
+    Assert.That(fourth.State, Is.EqualTo(TransactionState.Active));
+    Assert.That(Read(fourth, 1), Is.EqualTo(1), "the conflicting write is not stored");
+    fourth.Upsert(2, 4);
+    Assert.That(Read(fourth, 2), Is.Null, "later writes are not stored either");
+    Assert.That(fourth.TryCommit(), Is.False);
     Assert.That(fourth.State, Is.EqualTo(TransactionState.Aborted));
+    Assert.Throws<TransactionAbortedException>(() => fourth.Commit());
     Assert.That(ReadCommitted(tree, 1), Is.EqualTo(3));
+    Assert.That(ReadCommitted(tree, 2), Is.Null);
   }
 
   [Test]
@@ -187,6 +195,116 @@ public sealed class MvccZoneTreeTests
     a.Commit();
     var isCommitted = b.TryCommit();
     Assert.That(isCommitted, Is.EqualTo(isolationLevel == TransactionIsolationLevel.Snapshot));
+  }
+
+  [Test]
+  public void ReadsForUpdatePreventWriteSkewInSnapshotIsolation()
+  {
+    using var tree = CreateFactory().OpenOrCreateTransactional();
+    Write(tree, (1, 1), (2, 1));
+    using var a = tree.BeginTransaction(TransactionIsolationLevel.Snapshot);
+    using var b = tree.BeginTransaction(TransactionIsolationLevel.Snapshot);
+    using var reader = tree.BeginTransaction(TransactionIsolationLevel.Snapshot);
+    foreach (var transaction in new[] { a, b, reader })
+    {
+      Assert.That(transaction.TryGetForUpdate(1, out var first), Is.True);
+      Assert.That(transaction.TryGetForUpdate(2, out var second), Is.True);
+      Assert.That(first + second, Is.EqualTo(2));
+    }
+    a.Upsert(1, 0);
+    b.Upsert(2, 0);
+    a.Commit();
+    Assert.That(b.TryCommit(), Is.False, "b read key 1 for update and a committed it");
+    Assert.That(reader.TryCommit(), Is.True, "a transaction that writes nothing commits at its snapshot");
+  }
+
+  [Test]
+  public void RangeReadsInclusiveBoundsInBothDirections()
+  {
+    using var tree = CreateFactory().OpenOrCreateTransactional();
+    Write(tree, Enumerable.Range(1, 9).Select(x => (x, x * 10)).ToArray());
+    using var tx = tree.BeginTransaction();
+    tx.Upsert(4, -4);
+    tx.Delete(5);
+    tx.Upsert(6, -6);
+    var expected = new[]
+    {
+      KeyValuePair.Create(3, 30),
+      KeyValuePair.Create(4, -4),
+      KeyValuePair.Create(6, -6),
+      KeyValuePair.Create(7, 70),
+    };
+    Assert.That(tx.Range(3, 7), Is.EqualTo(expected));
+    Assert.That(tx.Range(3, 7, reverse: true), Is.EqualTo(expected.Reverse()));
+    Assert.That(tx.Range(7, 3), Is.Empty);
+    Assert.That(tx.Range(10, 20), Is.Empty);
+
+    using var reader = tree.BeginReadOnlyTransaction();
+    Assert.That(reader.Range(4, 5).Select(x => x.Value), Is.EqualTo(new[] { 40, 50 }));
+    var pending = reader.Range(1, 9);
+    reader.Dispose();
+    Assert.Throws<ObjectDisposedException>(() => pending.ToList(),
+        "a range is read while it is enumerated");
+  }
+
+  [Test]
+  public void SerializableRangeProtectsExactlyWhatItRead()
+  {
+    using var tree = CreateFactory().OpenOrCreateTransactional();
+    Write(tree, (1, 1), (2, 2), (20, 20));
+
+    bool CommitsAfter(Action<ITransaction<int, int>> read, int insertedKey)
+    {
+      using var tx = tree.BeginTransaction();
+      read(tx);
+      Write(tree, (insertedKey, insertedKey));
+      tx.Upsert(100, 100);
+      var isCommitted = tx.TryCommit();
+      using (var cleanup = tree.BeginTransaction())
+      {
+        cleanup.Delete(insertedKey);
+        cleanup.Commit();
+      }
+      return isCommitted;
+    }
+
+    // A finished range protects up to its bounds, beyond the last stored key.
+    Assert.That(CommitsAfter(tx => tx.Range(0, 10).ToList(), 10), Is.False);
+    Assert.That(CommitsAfter(tx => tx.Range(0, 10).ToList(), 11), Is.True);
+    Assert.That(CommitsAfter(tx => tx.Range(5, 15, reverse: true).ToList(), 5), Is.False);
+    Assert.That(CommitsAfter(tx => tx.Range(5, 15, reverse: true).ToList(), 4), Is.True);
+    // A range stopped early protects up to the last key it read.
+    Assert.That(CommitsAfter(tx => tx.Range(0, 10).Take(1).ToList(), 0), Is.False);
+    Assert.That(CommitsAfter(tx => tx.Range(0, 10).Take(1).ToList(), 9), Is.True);
+    // A snapshot transaction protects only its writes.
+    using (var snapshot = tree.BeginTransaction(TransactionIsolationLevel.Snapshot))
+    {
+      snapshot.Range(0, 10).ToList();
+      Write(tree, (3, 3));
+      snapshot.Upsert(100, 100);
+      Assert.That(snapshot.TryCommit(), Is.True);
+    }
+  }
+
+  [Test]
+  public async Task TryCommitDurableAsyncReportsConflicts()
+  {
+    using var tree = CreateFactory(walMode: WriteAheadLogMode.AsyncCompressed).OpenOrCreateTransactional();
+    using (var tx = tree.BeginTransaction())
+    {
+      tx.Upsert(1, 1);
+      Assert.That(await tx.TryCommitDurableAsync(), Is.True);
+      Assert.That(tx.State, Is.EqualTo(TransactionState.Committed));
+    }
+    using (var tx = tree.BeginTransaction())
+    {
+      tx.TryGet(1, out _);
+      Write(tree, (1, 2));
+      tx.Upsert(2, 2);
+      Assert.That(await tx.TryCommitDurableAsync(), Is.False);
+      Assert.That(tx.State, Is.EqualTo(TransactionState.Aborted));
+    }
+    Assert.That(ReadCommitted(tree, 2), Is.Null);
   }
 
   [TestCase(false)]
@@ -298,14 +416,22 @@ public sealed class MvccZoneTreeTests
   }
 
   [Test]
-  public void ReadOnlyTransactionsCannotWrite()
+  public void ReadOnlyTransactionsEndWhenDisposed()
   {
     using var tree = CreateFactory().OpenOrCreateTransactional();
-    using var tx = tree.BeginReadOnlyTransaction();
-    Assert.That(tx.TransactionId, Is.Zero);
-    Assert.Throws<TransactionIsReadOnlyException>(() => tx.Upsert(1, 1));
-    Assert.That(tx.TryCommit(), Is.True);
-    Assert.That(tx.CommitTimestamp, Is.EqualTo(tx.SnapshotTimestamp));
+    Write(tree, (1, 1));
+    var reader = tree.BeginReadOnlyTransaction();
+    Assert.That(reader, Is.Not.InstanceOf<ITransaction<int, int>>(), "a read-only transaction cannot write");
+    Assert.That(reader.SnapshotTimestamp, Is.EqualTo(tree.Maintenance.LastCommitTimestamp));
+    Assert.That(Read(reader, 1), Is.EqualTo(1));
+    Assert.That(tree.Maintenance.ActiveTransactionCount, Is.EqualTo(1));
+    var iterator = reader.CreateIterator();
+    reader.Dispose();
+    Assert.That(tree.Maintenance.ActiveTransactionCount, Is.Zero);
+    Assert.Throws<ObjectDisposedException>(() => reader.TryGet(1, out _));
+    Assert.Throws<ObjectDisposedException>(() => reader.Range(0, 2));
+    Assert.Throws<ObjectDisposedException>(() => iterator.Next(), "the iterator ended with it");
+    reader.Dispose();
   }
 
   [Test]
@@ -582,19 +708,13 @@ public sealed class MvccZoneTreeTests
       {
         var from = random.Next(accounts);
         var to = (from + 1 + random.Next(accounts - 1)) % accounts;
-        try
-        {
-          using var tx = tree.BeginTransaction(isolationLevel);
-          tx.TryGet(from, out var fromBalance);
-          tx.TryGet(to, out var toBalance);
-          tx.Upsert(from, fromBalance - 1);
-          tx.Upsert(to, toBalance + 1);
-          if (tx.TryCommit())
-            Interlocked.Increment(ref committed);
-        }
-        catch (TransactionConflictException)
-        {
-        }
+        using var tx = tree.BeginTransaction(isolationLevel);
+        tx.TryGet(from, out var fromBalance);
+        tx.TryGet(to, out var toBalance);
+        tx.Upsert(from, fromBalance - 1);
+        tx.Upsert(to, toBalance + 1);
+        if (tx.TryCommit())
+          Interlocked.Increment(ref committed);
       }
     }));
     var reader = Task.Run(() =>
@@ -654,18 +774,12 @@ public sealed class MvccZoneTreeTests
       {
         var from = random.Next(accounts);
         var to = (from + 1 + random.Next(accounts - 1)) % accounts;
-        try
-        {
-          using var tx = tree.BeginTransaction();
-          tx.TryGet(from, out var fromBalance);
-          tx.TryGet(to, out var toBalance);
-          tx.Upsert(from, fromBalance - 1);
-          tx.Upsert(to, toBalance + 1);
-          tx.TryCommit();
-        }
-        catch (TransactionConflictException)
-        {
-        }
+        using var tx = tree.BeginTransaction();
+        tx.TryGet(from, out var fromBalance);
+        tx.TryGet(to, out var toBalance);
+        tx.Upsert(from, fromBalance - 1);
+        tx.Upsert(to, toBalance + 1);
+        tx.TryCommit();
       }
     })).ToArray();
     Task.WaitAll(writers);
@@ -693,19 +807,13 @@ public sealed class MvccZoneTreeTests
     {
       while (true)
       {
-        try
+        using var tx = tree.BeginTransaction(isolationLevel);
+        tx.TryGet(0, out var counter);
+        tx.Upsert(0, counter + 1);
+        if (tx.TryCommit())
         {
-          using var tx = tree.BeginTransaction(isolationLevel);
-          tx.TryGet(0, out var counter);
-          tx.Upsert(0, counter + 1);
-          if (tx.TryCommit())
-          {
-            Interlocked.Increment(ref committed);
-            return;
-          }
-        }
-        catch (TransactionConflictException)
-        {
+          Interlocked.Increment(ref committed);
+          return;
         }
       }
     });
@@ -727,25 +835,19 @@ public sealed class MvccZoneTreeTests
       start.SignalAndWait();
       for (var i = 0; i < 20; ++i)
       {
-        try
+        using var tx = tree.BeginTransaction(isolationLevel);
+        using (var iterator = tx.CreateIterator())
         {
-          using var tx = tree.BeginTransaction(isolationLevel);
-          using (var iterator = tx.CreateIterator())
-          {
-            var count = 0;
-            iterator.Seek(0);
-            while (iterator.Next() && iterator.CurrentKey < 1000)
-              ++count;
-            if (count >= limit)
-              return;
-          }
-          tx.Upsert(worker * 100 + i, 1);
-          Thread.Yield();
-          tx.TryCommit();
+          var count = 0;
+          iterator.Seek(0);
+          while (iterator.Next() && iterator.CurrentKey < 1000)
+            ++count;
+          if (count >= limit)
+            return;
         }
-        catch (TransactionConflictException)
-        {
-        }
+        tx.Upsert(worker * 100 + i, 1);
+        Thread.Yield();
+        tx.TryCommit();
       }
     });
     using var reader = tree.BeginReadOnlyTransaction();
@@ -911,5 +1013,143 @@ public sealed class MvccZoneTreeTests
     tree.IsReadOnly = true;
     Assert.Throws<ZoneTreeIsReadOnlyException>(() => tree.BeginTransaction());
     Assert.That(ReadCommitted(tree, 1), Is.EqualTo(1));
+  }
+
+  [Test]
+  public void ExecuteCommitsAndReturnsTheResult()
+  {
+    using var tree = CreateFactory().OpenOrCreateTransactional();
+    var result = tree.Execute(tx =>
+    {
+      tx.Upsert(1, 5);
+      return 42;
+    });
+    Assert.That(result, Is.EqualTo(42));
+    tree.Execute(tx => tx.Upsert(2, 6));
+    Assert.That(ReadCommitted(tree, 1), Is.EqualTo(5));
+    Assert.That(ReadCommitted(tree, 2), Is.EqualTo(6));
+    Assert.That(tree.Maintenance.ActiveTransactionCount, Is.Zero);
+  }
+
+  [Test]
+  public void ExecuteRetriesConflicts()
+  {
+    using var tree = CreateFactory().OpenOrCreateTransactional();
+    Write(tree, (1, 1), (2, 1));
+
+    // A write to a key committed after the snapshot conflicts at once.
+    var attempts = 0;
+    var result = tree.Execute(tx =>
+    {
+      ++attempts;
+      tx.TryGet(1, out var value);
+      if (attempts == 1)
+        Write(tree, (1, 100));
+      tx.Upsert(1, value + 1);
+      return value + 1;
+    });
+    Assert.That(attempts, Is.EqualTo(2));
+    Assert.That(result, Is.EqualTo(101));
+    Assert.That(ReadCommitted(tree, 1), Is.EqualTo(101));
+
+    // A read that a newer commit changed conflicts at the commit.
+    attempts = 0;
+    tree.Execute(tx =>
+    {
+      ++attempts;
+      tx.TryGet(2, out var value);
+      if (attempts == 1)
+        Write(tree, (2, 200));
+      tx.Upsert(3, value);
+    });
+    Assert.That(attempts, Is.EqualTo(2));
+    Assert.That(ReadCommitted(tree, 3), Is.EqualTo(200));
+  }
+
+  [Test]
+  public void ExecuteThrowsTheConflictAfterTheLastAttempt()
+  {
+    using var tree = CreateFactory().OpenOrCreateTransactional();
+    var attempts = 0;
+    Assert.Throws<TransactionConflictException>(() => tree.Execute(tx =>
+    {
+      ++attempts;
+      tx.TryGet(1, out _);
+      Write(tree, (1, attempts));
+      tx.Upsert(2, attempts);
+    }, maxAttempts: 3));
+    Assert.That(attempts, Is.EqualTo(3));
+    Assert.That(ReadCommitted(tree, 2), Is.Null);
+    Assert.That(tree.Maintenance.ActiveTransactionCount, Is.Zero);
+    Assert.Throws<ArgumentOutOfRangeException>(
+        () => tree.Execute(tx => tx.Upsert(1, 1), maxAttempts: 0));
+  }
+
+  [Test]
+  public void ExecuteRollsBackWhenTheBodyThrowsOrEndsTheTransaction()
+  {
+    using var tree = CreateFactory().OpenOrCreateTransactional();
+    Assert.Throws<InvalidOperationException>(() => tree.Execute(tx =>
+    {
+      tx.Upsert(1, 1);
+      throw new InvalidOperationException("abandon");
+    }));
+    Assert.Throws<InvalidOperationException>(() => tree.Execute(tx =>
+    {
+      tx.Upsert(2, 2);
+      tx.Commit();
+    }));
+    Assert.Throws<InvalidOperationException>(() => tree.Execute(tx =>
+    {
+      tx.Upsert(3, 3);
+      tx.Rollback();
+    }));
+    Assert.That(ReadCommitted(tree, 1), Is.Null);
+    Assert.That(ReadCommitted(tree, 3), Is.Null);
+    Assert.That(tree.Maintenance.ActiveTransactionCount, Is.Zero);
+  }
+
+  [Test]
+  public async Task ExecuteDurableAsyncCommits()
+  {
+    using var tree = CreateFactory(walMode: WriteAheadLogMode.AsyncCompressed).OpenOrCreateTransactional();
+    var result = await tree.ExecuteDurableAsync(tx =>
+    {
+      tx.Upsert(1, 1);
+      return 7;
+    });
+    await tree.ExecuteDurableAsync(tx => tx.Upsert(2, 2));
+    Assert.That(result, Is.EqualTo(7));
+    Assert.That(ReadCommitted(tree, 1), Is.EqualTo(1));
+    Assert.That(ReadCommitted(tree, 2), Is.EqualTo(2));
+  }
+
+  [Test]
+  public void SingleKeyOperations()
+  {
+    using var tree = CreateFactory().OpenOrCreateTransactional();
+    Assert.That(tree.TryGet(1, out _), Is.False);
+    tree.Upsert(1, 10);
+    Assert.That(tree.TryGet(1, out var value), Is.True);
+    Assert.That(value, Is.EqualTo(10));
+    Assert.That(tree.ContainsKey(1), Is.True);
+    Assert.That(tree.AddOrUpdate(1, 0, x => x + 1), Is.EqualTo(11));
+    Assert.That(tree.AddOrUpdate(2, 5, x => x + 1), Is.EqualTo(5));
+    Assert.That(tree.TryDelete(1), Is.True);
+    Assert.That(tree.TryDelete(1), Is.False);
+    Assert.That(tree.ContainsKey(1), Is.False);
+    Assert.That(ReadCommitted(tree, 2), Is.EqualTo(5));
+    Assert.That(tree.Maintenance.ActiveTransactionCount, Is.Zero);
+  }
+
+  [Test]
+  public void ConcurrentAddOrUpdateLosesNoUpdate()
+  {
+    using var tree = CreateFactory().OpenOrCreateTransactional();
+    using var maintainer = tree.CreateMaintainer();
+    Parallel.For(0, 2000, new ParallelOptions { MaxDegreeOfParallelism = 8 },
+        _ => tree.AddOrUpdate(0, 1, x => x + 1));
+    maintainer.WaitForBackgroundThreads();
+    Assert.That(ReadCommitted(tree, 0), Is.EqualTo(2000));
   }
 }

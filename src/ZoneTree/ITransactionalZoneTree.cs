@@ -21,6 +21,10 @@ namespace ZoneTree;
 /// <see cref="SyncWALAsync"/> when it must survive a power loss. Concurrent waiters
 /// share disk syncs, so syncing once per batch of commits is cheaper than once per commit.
 /// </para>
+/// <para>
+/// <see cref="TransactionalZoneTreeExtensions"/> runs transactions with conflict retries
+/// and offers single-key operations.
+/// </para>
 /// <para>This interface is thread-safe. A transaction must be used by one thread at a time.</para>
 /// </remarks>
 /// <typeparam name="TKey">The key type.</typeparam>
@@ -38,10 +42,10 @@ public interface ITransactionalZoneTree<TKey, TValue> : IDisposable
 
   /// <summary>
   /// Begins a transaction that only reads. It reads a consistent snapshot,
-  /// never conflicts and keeps no read set.
+  /// never conflicts and keeps no read set. Disposing it ends it.
   /// </summary>
   /// <returns>The transaction.</returns>
-  ITransaction<TKey, TValue> BeginReadOnlyTransaction();
+  IReadTransaction<TKey, TValue> BeginReadOnlyTransaction();
 
   /// <summary>
   /// Syncs the write ahead log to the disk. Every transaction committed before the

@@ -163,14 +163,19 @@ using var zoneTree = new ZoneTreeFactory<int, string>()
     .OpenOrCreateTransactional();
 using var maintainer = zoneTree.CreateMaintainer();
 
-using var tx = zoneTree.BeginTransaction();
-tx.Upsert(1, "first");
-tx.Upsert(2, "second");
-if (!tx.TryCommit())
-    Console.WriteLine("Conflict: retry the transaction from its first read.");
+// Runs the body and commits it, retrying from the start on a conflict.
+zoneTree.Execute(tx =>
+{
+    tx.Upsert(1, "first");
+    tx.Upsert(2, "second");
+});
+
+using var snapshot = zoneTree.BeginReadOnlyTransaction();
+foreach (var (key, value) in snapshot.Range(1, 2))
+    Console.WriteLine($"{key} = {value}");
 ```
 
-Transactions are multi-version and optimistic: reads never block, and a commit fails only when another transaction committed a conflicting write after this one began. `Serializable`, the default, also protects the keys and ranges a transaction read; `Snapshot` checks only writes to the same key. A commit is visible at once. Await `tx.CommitDurableAsync()` or `zoneTree.SyncWALAsync()` when it must survive a power loss.
+Transactions are multi-version and optimistic: reads never block, and a commit fails only when another transaction committed a conflicting write after this one began; `Execute` retries it. `Serializable`, the default, also protects the keys and ranges a transaction read; `Snapshot` checks only the keys it wrote or read with `TryGetForUpdate`. A commit is visible at once. Use `ExecuteDurableAsync`, `tx.CommitDurableAsync()` or `zoneTree.SyncWALAsync()` when it must survive a power loss.
 
 Use transactions when your data model requires coordination across multiple keys. For simple high-throughput writes, the non-transactional API is usually the better path.
 

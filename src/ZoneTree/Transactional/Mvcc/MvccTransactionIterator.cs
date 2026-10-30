@@ -16,19 +16,32 @@ namespace ZoneTree.Transactional.Mvcc;
 /// </para>
 /// <para>
 /// In a serializable transaction, the iterator records the range from its seek key
-/// to the last key it read, or to the end once it is exhausted. A commit after the
-/// snapshot that writes inside the range, even a new key, conflicts.
+/// to the last key it read, or to its bound or the end once it is exhausted. A commit
+/// after the snapshot that writes inside the range, even a new key, conflicts.
+/// </para>
+/// <para>
+/// A bounded iterator ends before the first key past its bound: above it,
+/// or below it in reverse.
 /// </para>
 /// </remarks>
 internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterator<TKey, TValue>
 {
-  readonly MvccTransaction<TKey, TValue> Transaction;
+  readonly MvccReader<TKey, TValue> Transaction;
+
+  /// <summary>
+  /// The transaction whose read set the iterated ranges join, or null.
+  /// </summary>
+  readonly MvccTransaction<TKey, TValue> ReadSet;
 
   readonly IRefComparer<TKey> Comparer;
 
   readonly IZoneTreeIterator<VersionedKey<TKey>, VersionedValue<TValue>> Inner;
 
   readonly bool IsReverse;
+
+  readonly bool HasBound;
+
+  readonly TKey Bound;
 
   bool IsPositioned;
 
@@ -69,15 +82,21 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
   public KeyValuePair<TKey, TValue> Current => KeyValuePair.Create(CurrentKey, CurrentValue);
 
   public MvccTransactionIterator(
-      MvccTransaction<TKey, TValue> transaction,
+      MvccReader<TKey, TValue> transaction,
       MvccZoneTree<TKey, TValue> tree,
       IRefComparer<TKey> comparer,
       bool isReverse,
-      TransactionIteratorOptions options)
+      TransactionIteratorOptions options,
+      bool hasBound,
+      TKey bound)
   {
     Transaction = transaction;
+    ReadSet = transaction is MvccTransaction<TKey, TValue> { TracksReads: true } writer ?
+        writer : null;
     Comparer = comparer;
     IsReverse = isReverse;
+    HasBound = hasBound;
+    Bound = bound;
     Inner = tree.CreateStorageIterator(
         isReverse,
         options?.ContributeToTheBlockCache ?? false,
@@ -116,11 +135,18 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
     if (!found)
     {
       HasCurrent = false;
-      // An exhausted iterator has read up to the end of the key space.
+      // An exhausted iterator has read up to its bound,
+      // or up to the end of the key space.
       if (IsReverse)
-        Range.HasLow = false;
+      {
+        Range.Low = Bound;
+        Range.HasLow = HasBound;
+      }
       else
-        Range.HasHigh = false;
+      {
+        Range.High = Bound;
+        Range.HasHigh = HasBound;
+      }
     }
     // Every key examined during the call joins the read set,
     // including skipped versions after the last returned key.
@@ -150,6 +176,11 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
       // System records sort before the data records.
       if (key.Kind != VersionedKeyKind.Data)
         continue;
+      if (IsPastBound(in key.Key))
+      {
+        IsExhausted = true;
+        return false;
+      }
       Extend(in key.Key);
       if (HasGroup && Comparer.Compare(in GroupKey, in key.Key) == 0)
       {
@@ -204,15 +235,31 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
   bool FetchPending()
   {
     // System records sort before the data records, so they end a reverse iteration.
-    if (NextStored() && Inner.CurrentKey.Kind == VersionedKeyKind.Data)
+    if (NextStored())
     {
-      PendingKey = Inner.CurrentKey;
-      PendingValue = Inner.CurrentValue;
-      HasPending = true;
-      return true;
+      var key = Inner.CurrentKey;
+      if (key.Kind == VersionedKeyKind.Data)
+      {
+        if (!IsPastBound(in key.Key))
+        {
+          PendingKey = key;
+          PendingValue = Inner.CurrentValue;
+          HasPending = true;
+          return true;
+        }
+        IsExhausted = true;
+      }
     }
     HasPending = false;
     return false;
+  }
+
+  bool IsPastBound(in TKey key)
+  {
+    if (!HasBound)
+      return false;
+    var result = Comparer.Compare(in key, in Bound);
+    return IsReverse ? result < 0 : result > 0;
   }
 
   void SetCurrent(in TKey key, in TValue value)
@@ -268,12 +315,12 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
 
   void PublishRange()
   {
-    if (!Transaction.TracksReads)
+    if (ReadSet == null)
       return;
     if (RangeIndex < 0)
-      RangeIndex = Transaction.AddReadRange(in Range);
+      RangeIndex = ReadSet.AddReadRange(in Range);
     else
-      Transaction.UpdateReadRange(RangeIndex, in Range);
+      ReadSet.UpdateReadRange(RangeIndex, in Range);
   }
 
   public void Dispose()

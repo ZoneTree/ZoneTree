@@ -1,5 +1,4 @@
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Exceptions;
 using ZoneTree.Logger;
 using ZoneTree.Options;
 using ZoneTree.Transactional;
@@ -14,6 +13,7 @@ namespace ZoneTree.UnitTests;
 /// <list type="bullet">
 /// <item>Every read and scan equals the snapshot of the transaction plus its own writes.</item>
 /// <item>A commit never overwrites a key committed after its snapshot (first committer wins).</item>
+/// <item>A commit that wrote never follows a commit to a key it read for update after its snapshot.</item>
 /// <item>A serializable commit read nothing that changed before it committed: every key and
 /// every scanned range it observed still holds the observed values at its commit.</item>
 /// <item>The committed state survives merges, garbage collection and reopens.</item>
@@ -71,7 +71,12 @@ public sealed class MvccZoneTreeModelTests
 
   sealed class ModelTransaction
   {
-    public ITransaction<int, int> Transaction;
+    public IReadTransaction<int, int> Transaction;
+
+    /// <summary>
+    /// The transaction, or null when it is read-only.
+    /// </summary>
+    public ITransaction<int, int> Writer;
 
     public Dictionary<int, int?> Snapshot;
 
@@ -87,11 +92,14 @@ public sealed class MvccZoneTreeModelTests
     /// </summary>
     public readonly List<(int Key, int? Value)> Reads = new();
 
+    public readonly HashSet<int> ReadsForUpdate = new();
+
     public readonly List<ScanRecord> Scans = new();
 
+    public long TransactionId => Writer?.TransactionId ?? 0;
+
     public bool IsSerializable =>
-        Transaction.IsolationLevel == TransactionIsolationLevel.Serializable &&
-        !Transaction.IsReadOnly;
+        Writer?.IsolationLevel == TransactionIsolationLevel.Serializable;
 
     public int? Expected(int key)
         => Writes.TryGetValue(key, out var own) ? own : Snapshot.GetValueOrDefault(key);
@@ -127,21 +135,31 @@ public sealed class MvccZoneTreeModelTests
         return;
       }
       var model = Active[random.Next(Active.Count)];
-      if (choice < 40)
+      if (choice < 35)
         Read(model);
+      else if (choice < 40)
+      {
+        if (model.Writer != null)
+          ReadForUpdate(model);
+      }
       else if (choice < 65)
       {
-        if (!model.Transaction.IsReadOnly)
+        if (model.Writer != null)
           Write(model);
       }
-      else if (choice < 75)
+      else if (choice < 70)
         Scan(model);
+      else if (choice < 75)
+        ReadRange(model);
       else if (choice < 88)
         Commit(model);
       else if (choice < 92)
       {
         Active.Remove(model);
-        model.Transaction.Rollback();
+        if (model.Writer != null)
+          model.Writer.Rollback();
+        else
+          model.Transaction.Dispose();
       }
       else if (choice < 96)
         Tree.Maintenance.ZoneTree.Maintenance.MoveMutableSegmentForward();
@@ -161,14 +179,16 @@ public sealed class MvccZoneTreeModelTests
 
     ModelTransaction Begin()
     {
-      var transaction = random.Next(4) == 0 ?
-          Tree.BeginReadOnlyTransaction() :
+      var writer = random.Next(4) == 0 ?
+          null :
           Tree.BeginTransaction(random.Next(2) == 0 ?
               TransactionIsolationLevel.Snapshot :
               TransactionIsolationLevel.Serializable);
+      var transaction = writer ?? Tree.BeginReadOnlyTransaction();
       return new ModelTransaction
       {
         Transaction = transaction,
+        Writer = writer,
         Snapshot = new Dictionary<int, int?>(Committed),
         SnapshotTimestamp = transaction.SnapshotTimestamp,
       };
@@ -180,30 +200,76 @@ public sealed class MvccZoneTreeModelTests
       var found = model.Transaction.TryGet(key, out var value);
       var expected = model.Expected(key);
       Assert.That(found ? value : (int?)null, Is.EqualTo(expected),
-          $"read of key {key} in transaction {model.Transaction.TransactionId}");
+          $"read of key {key} in transaction {model.TransactionId}");
       if (!model.Writes.ContainsKey(key))
         model.Reads.Add((key, expected));
+    }
+
+    void ReadForUpdate(ModelTransaction model)
+    {
+      var key = random.Next(KeyCount);
+      var found = model.Writer.TryGetForUpdate(key, out var value);
+      var expected = model.Expected(key);
+      Assert.That(found ? value : (int?)null, Is.EqualTo(expected),
+          $"read for update of key {key} in transaction {model.TransactionId}");
+      model.ReadsForUpdate.Add(key);
+      if (!model.Writes.ContainsKey(key))
+        model.Reads.Add((key, expected));
+    }
+
+    void ReadRange(ModelTransaction model)
+    {
+      var reverse = random.Next(2) == 0;
+      var from = random.Next(KeyCount);
+      var to = random.Next(KeyCount);
+      var limit = random.Next(3) == 0 ? int.MaxValue : 1 + random.Next(6);
+      var expected = Enumerable.Range(from, Math.Max(0, to - from + 1))
+          .Select(key => (Key: key, Value: model.Expected(key)))
+          .Where(x => x.Value.HasValue)
+          .Select(x => KeyValuePair.Create(x.Key, x.Value.Value));
+      if (reverse)
+        expected = expected.Reverse();
+      var expectedList = expected.Take(limit).ToList();
+
+      var actual = model.Transaction.Range(from, to, reverse).Take(limit).ToList();
+      Assert.That(actual, Is.EqualTo(expectedList),
+          $"range [{from}, {to}] reverse={reverse} limit={limit}");
+      if (from > to)
+        return;
+
+      // An enumeration to the end observed the whole range,
+      // one stopped early up to its last key.
+      var isComplete = actual.Count < limit;
+      model.Scans.Add(new ScanRecord
+      {
+        OwnKeysAtScan = new HashSet<int>(model.Writes.Keys),
+        Observed = actual.ToDictionary(x => x.Key, x => x.Value),
+        HasLow = true,
+        Low = isComplete || !reverse ? from : actual[^1].Key,
+        HasHigh = true,
+        High = isComplete || reverse ? to : actual[^1].Key,
+      });
     }
 
     void Write(ModelTransaction model)
     {
       var key = random.Next(KeyCount);
       int? value = random.Next(4) == 0 ? null : NextValue++;
-      try
+      var hadConflict = model.Writer.HasConflict;
+      if (value.HasValue)
+        model.Writer.Upsert(key, value.Value);
+      else
+        model.Writer.Delete(key);
+      Assert.That(model.Writer.State, Is.EqualTo(TransactionState.Active));
+      if (model.Writer.HasConflict)
       {
-        if (value.HasValue)
-          model.Transaction.Upsert(key, value.Value);
-        else
-          model.Transaction.Delete(key);
-        model.Writes[key] = value;
+        // Only a key committed after the snapshot conflicts, and a conflicting
+        // transaction stores no more writes.
+        if (!hadConflict)
+          Assert.That(LastCommitOfKey.GetValueOrDefault(key), Is.GreaterThan(model.SnapshotTimestamp));
+        return;
       }
-      catch (TransactionConflictException)
-      {
-        // Only a key committed after the snapshot fails a write.
-        Assert.That(LastCommitOfKey.GetValueOrDefault(key), Is.GreaterThan(model.SnapshotTimestamp));
-        Assert.That(model.Transaction.State, Is.EqualTo(TransactionState.Aborted));
-        Active.Remove(model);
-      }
+      model.Writes[key] = value;
     }
 
     void Scan(ModelTransaction model)
@@ -260,13 +326,26 @@ public sealed class MvccZoneTreeModelTests
     void Commit(ModelTransaction model)
     {
       Active.Remove(model);
-      if (!model.Transaction.TryCommit())
+      if (model.Writer == null)
       {
-        Assert.That(model.Transaction.State, Is.EqualTo(TransactionState.Aborted));
+        model.Transaction.Dispose();
         return;
       }
+      var hasConflict = model.Writer.HasConflict;
+      if (!model.Writer.TryCommit())
+      {
+        Assert.That(model.Writer.State, Is.EqualTo(TransactionState.Aborted));
+        return;
+      }
+      Assert.That(hasConflict, Is.False, "a transaction with a conflicting write committed");
+      // A transaction that wrote nothing commits at its snapshot.
       if (model.Writes.Count == 0)
         return;
+      foreach (var key in model.ReadsForUpdate)
+      {
+        Assert.That(LastCommitOfKey.GetValueOrDefault(key), Is.LessThanOrEqualTo(model.SnapshotTimestamp),
+            $"key {key} read for update changed before the commit");
+      }
       foreach (var key in model.Writes.Keys)
       {
         Assert.That(LastCommitOfKey.GetValueOrDefault(key), Is.LessThanOrEqualTo(model.SnapshotTimestamp),
@@ -274,7 +353,7 @@ public sealed class MvccZoneTreeModelTests
       }
       if (model.IsSerializable)
         CheckSerializableReads(model);
-      var commitTimestamp = model.Transaction.CommitTimestamp;
+      var commitTimestamp = model.Writer.CommitTimestamp;
       foreach (var (key, value) in model.Writes)
       {
         Committed[key] = value;

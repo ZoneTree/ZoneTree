@@ -46,7 +46,7 @@ For setup and resource lifetime, see [opening a tree](opening-a-tree.mdx).
 | Check for existence, then delete. | `TryDelete` | Also uses a separate existence check and write. |
 | Write a deletion marker without checking. | `ForceDelete` | Avoids the existence read, even if the key was already absent. |
 | Enforce a conditional change against other atomic operations. | `TryAtomicAdd`, `TryAtomicUpdate`, or an updater method | Every competing write for that invariant must use the atomic path. |
-| Coordinate changes to several keys in one tree. | Transactional API | Requires commit and conflict handling. |
+| Coordinate changes to several keys in one tree. | Transactional API | `Execute` commits and retries conflicts. |
 
 ## Insert or replace with Upsert
 
