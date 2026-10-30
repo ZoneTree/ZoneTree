@@ -1,6 +1,7 @@
 using ZoneTree.Collections;
 using ZoneTree.Collections.BTree;
 using ZoneTree.Core;
+using ZoneTree.Exceptions;
 using ZoneTree.Hashers;
 
 namespace ZoneTree.Segments.InMemory;
@@ -9,9 +10,25 @@ public sealed class FrozenMutableSegment<TKey, TValue> : IMutableSegment<TKey, T
 {
   private IMutableSegment<TKey, TValue> mutableSegment;
 
-  public FrozenMutableSegment(IMutableSegment<TKey, TValue> mutableSegment)
+  /// <summary>
+  /// When set, writes throw instead of waiting for the next mutable segment.
+  /// </summary>
+  readonly Exception WriteFailure;
+
+  public FrozenMutableSegment(
+      IMutableSegment<TKey, TValue> mutableSegment,
+      Exception writeFailure = null)
   {
     this.mutableSegment = mutableSegment;
+    WriteFailure = writeFailure;
+  }
+
+  AddOrUpdateResult RetryOrThrow(out long opIndex)
+  {
+    if (WriteFailure != null)
+      throw new WriteOrderBarrierFailedException(WriteFailure);
+    opIndex = 0;
+    return AddOrUpdateResult.RETRY_SEGMENT_IS_FROZEN;
   }
 
   public bool IsFrozen => true;
@@ -33,8 +50,7 @@ public sealed class FrozenMutableSegment<TKey, TValue> : IMutableSegment<TKey, T
 
   public AddOrUpdateResult Delete(in TKey key, out long opIndex)
   {
-    opIndex = 0;
-    return AddOrUpdateResult.RETRY_SEGMENT_IS_FROZEN;
+    return RetryOrThrow(out opIndex);
   }
 
   public void Drop()
@@ -73,13 +89,11 @@ public sealed class FrozenMutableSegment<TKey, TValue> : IMutableSegment<TKey, T
 
   public AddOrUpdateResult Upsert(in TKey key, in TValue value, out long opIndex)
   {
-    opIndex = 0;
-    return AddOrUpdateResult.RETRY_SEGMENT_IS_FROZEN;
+    return RetryOrThrow(out opIndex);
   }
 
   public AddOrUpdateResult Upsert(in TKey key, GetValueDelegate<TKey, TValue> valueGetter, out long opIndex)
   {
-    opIndex = 0;
-    return AddOrUpdateResult.RETRY_SEGMENT_IS_FROZEN;
+    return RetryOrThrow(out opIndex);
   }
 }

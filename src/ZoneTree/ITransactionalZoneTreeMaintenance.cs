@@ -1,61 +1,54 @@
-using ZoneTree.Transactional;
+using ZoneTree.Transactional.Versioning;
 
 namespace ZoneTree;
 
 /// <summary>
-/// The interface for the maintenance of a transactional ZoneTree.
+/// The maintenance view of a transactional ZoneTree.
 /// </summary>
-/// <typeparam name="TKey">The key type</typeparam>
-/// <typeparam name="TValue">The value type</typeparam>
+/// <typeparam name="TKey">The key type.</typeparam>
+/// <typeparam name="TValue">The value type.</typeparam>
 public interface ITransactionalZoneTreeMaintenance<TKey, TValue>
 {
   /// <summary>
-  /// Underlying non-transactional ZoneTree.
+  /// The storage tree. Every user key is stored with the id of the transaction that
+  /// wrote it. Writing to the storage tree directly bypasses the transactions.
   /// </summary>
-  IZoneTree<TKey, TValue> ZoneTree { get; }
+  IZoneTree<VersionedKey<TKey>, VersionedValue<TValue>> ZoneTree { get; }
 
   /// <summary>
-  /// Transaction Log instance.
+  /// The number of transactions that have not ended.
   /// </summary>
-  ITransactionLog<TKey, TValue> TransactionLog { get; }
+  int ActiveTransactionCount { get; }
 
   /// <summary>
-  /// Retrieves uncommitted transaction ids.
+  /// The commit timestamp of the latest committed transaction.
+  /// New transactions read the snapshot of this timestamp.
   /// </summary>
-  IReadOnlyList<long> UncommittedTransactionIds { get; }
+  long LastCommitTimestamp { get; }
 
   /// <summary>
-  /// Saves tree meta data and clears the meta wal record.
-  /// After calling this method, the JSON meta file contains 
-  /// up to date tree meta data.
-  /// 
-  /// Saving meta file helps following:
-  /// 1. Reduce the size of meta wal file.
-  /// 2. Make Json meta file up to date to analyze parts of the LSM tree.
-  /// Because Meta WAL file is not human readable.
-  /// 
-  /// It is up to user to decide when and how frequently save the meta file.
+  /// The number of rolled back transactions the tree keeps registered. The end of a
+  /// writing transaction or a merge forgets the ones no active transaction began
+  /// before. A crash or a storage failure that left versions without deletions keeps
+  /// them for good.
+  /// Reads skip these versions and merges drop them.
+  /// </summary>
+  int AbortedTransactionCount { get; }
+
+  /// <summary>
+  /// The number of keys kept to detect conflicts. Keys written by a commit stay until
+  /// every writing transaction that began before the commit has ended.
+  /// Read-only transactions do not keep them.
+  /// </summary>
+  int ConflictIndexCount { get; }
+
+  /// <summary>
+  /// Saves the storage tree metadata.
   /// </summary>
   void SaveMetaData();
 
   /// <summary>
-  /// Removes the transactional tree from the universe.
-  /// Destroys the tree, transaction logs, entire data and WAL store or folder.
+  /// Disposes the tree and deletes its files.
   /// </summary>
   void Drop();
-
-  /// <summary>
-  /// Rollbacks all uncommitted transactions.
-  /// </summary>
-  /// <returns>Count of rollbacked transactions.</returns>
-  int RollbackAllUncommitted();
-
-  /// <summary>
-  /// Rollbacks all uncommitted transaction ids started before given date-time.
-  /// Transaction log memory usage increases by state uncommitted transaction ids.
-  /// Those must be rollbacked.
-  /// </summary>
-  /// <param name="dateTime">Max start time (exclusive)</param>
-  /// <returns>Count of rollbacked transactions.</returns>
-  int RollbackUncommittedTransactionIdsBefore(DateTime dateTime);
 }

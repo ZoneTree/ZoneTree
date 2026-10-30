@@ -52,6 +52,13 @@ public sealed class ZoneTreeIterator<TKey, TValue> : IZoneTreeIterator<TKey, TVa
 
   bool IsHeapFilled;
 
+  /// <summary>
+  /// True between a seek and the next read, while the position is the seek key.
+  /// </summary>
+  bool HasSeekKey;
+
+  TKey SeekKey;
+
   volatile bool DoesRequireRefresh;
 
   public TKey CurrentKey
@@ -128,23 +135,30 @@ public sealed class ZoneTreeIterator<TKey, TValue> : IZoneTreeIterator<TKey, TVa
       Refresh();
     if (!IsHeapFilled)
       SeekFirst();
-    if (SingleIterator != null)
-      return NextSingleIterator();
-    return IsReverseIterator ? PrevInternal() : NextInternal();
+    var result = SingleIterator != null ?
+        NextSingleIterator() :
+        IsReverseIterator ? PrevInternal() : NextInternal();
+    HasSeekKey = false;
+    return result;
   }
 
   public void Seek(in TKey key)
   {
+    HasSeekKey = false;
     if (DoesRequireRefresh || Heap == null)
     {
       ClearMarkers();
       Refresh();
     }
     SeekInternal(in key, true);
+    // A refresh before the next read restores this position.
+    SeekKey = key;
+    HasSeekKey = true;
   }
 
   public void SeekFirst()
   {
+    HasSeekKey = false;
     ClearMarkers();
     if (Heap == null)
     {
@@ -310,6 +324,10 @@ public sealed class ZoneTreeIterator<TKey, TValue> : IZoneTreeIterator<TKey, TVa
     if (HasCurrent)
     {
       SeekInternal(in currentKey, false);
+    }
+    else if (HasSeekKey)
+    {
+      SeekInternal(in SeekKey, true);
     }
   }
 

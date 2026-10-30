@@ -15,7 +15,7 @@ ConsoleLogger.DefaultLogLevel = LogLevel.Info;
 
 TestConfig.PrintConfig();
 
-var testCase = 3;
+var testCase = 5;
 
 if (testCase == 1)
 {
@@ -113,6 +113,5 @@ if (testCase == 4)
 
 if (testCase == 5)
 {
-  // Enable LOG_DEADLOCK_PREVENTION preprocessor on BTree.Write to see deadlock logs.
   new DeadlockFinder().RunDeadLockFinder();
 }

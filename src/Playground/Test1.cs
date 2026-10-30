@@ -23,45 +23,22 @@ public sealed class Test1
         .ConfigureWriteAheadLogOptions(x =>
         {
           x.WriteAheadLogMode = WriteAheadLogMode.Sync;
-          x.EnableIncrementalBackup = true;
         })
         .OpenOrCreateTransactional();
-    using var basicMaintainer = new ZoneTreeMaintainer<int, int>(zoneTree);
+    using var basicMaintainer = zoneTree.CreateMaintainer();
 
+    // Transactions that did not commit before the last close are rolled back on load.
     Console.WriteLine("Loaded: " + stopWatch.ElapsedMilliseconds);
-
-    stopWatch.Restart();
-    var uncommitted = zoneTree.Maintenance.TransactionLog.UncommittedTransactionIds;
-    Console.WriteLine($"found {uncommitted.Count} uncommitted transactions.");
-    foreach (var u in uncommitted)
-    {
-      zoneTree.Rollback(u);
-    }
-    Console.WriteLine("uncommitted transactions are rollbacked. Elapsed:"
-        + stopWatch.ElapsedMilliseconds);
+    Console.WriteLine($"found {zoneTree.Maintenance.AbortedTransactionCount} rolled back transactions.");
     stopWatch.Restart();
 
-    var transactional = true;
-    if (transactional)
+    Parallel.For(0, n, (x) =>
     {
-      Parallel.For(0, n, (x) =>
-      {
-        var tx = zoneTree.BeginTransaction();
-        zoneTree.Upsert(tx, x, x + x);
-        zoneTree.Upsert(tx, -x, -x - x);
-        zoneTree.Prepare(tx);
-        zoneTree.Commit(tx);
-      });
-    }
-    else
-    {
-      var data = zoneTree.Maintenance.ZoneTree;
-      Parallel.For(0, n, (x) =>
-      {
-        data.Upsert(x, x + x);
-        data.Upsert(-x, -x - x);
-      });
-    }
+      using var tx = zoneTree.BeginTransaction();
+      tx.Upsert(x, x + x);
+      tx.Upsert(-x, -x - x);
+      tx.TryCommit();
+    });
     Console.WriteLine("Elapsed: " + stopWatch.ElapsedMilliseconds);
     basicMaintainer.WaitForBackgroundThreads();
     zoneTree.Maintenance.SaveMetaData();

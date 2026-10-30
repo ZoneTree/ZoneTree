@@ -63,6 +63,86 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     }
   }
 
+  public void VisitSegments<TVisitor>(in TKey key, ref TVisitor visitor)
+      where TVisitor : struct, ISegmentRecordVisitor<TKey, TValue>
+  {
+    // Segments are read in the order TryGet reads them, newest first and without
+    // the tree locks. A segment that moves forward or merges during the visit can
+    // be read twice, but no record is missed.
+    if (VisitSeekableSegment(MutableSegment.GetSeekableIterator(), in key, ref visitor) ==
+        SegmentVisitAction.Stop)
+      return;
+    if (!ReadOnlySegmentQueue.IsEmpty)
+    {
+      foreach (var segment in ReadOnlySegmentQueue)
+      {
+        if (VisitSeekableSegment(segment.GetSeekableIterator(), in key, ref visitor) ==
+            SegmentVisitAction.Stop)
+          return;
+      }
+    }
+
+    while (true)
+    {
+      try
+      {
+        if (VisitDiskSegment(DiskSegment, in key, ref visitor) == SegmentVisitAction.Stop)
+          return;
+        var bottomSegments = BottomSegmentQueue;
+        if (bottomSegments.IsEmpty)
+          return;
+        foreach (var segment in bottomSegments)
+        {
+          if (VisitDiskSegment(segment, in key, ref visitor) == SegmentVisitAction.Stop)
+            return;
+        }
+        return;
+      }
+      catch (DiskSegmentIsDroppingException)
+      {
+        // A merge replaced the segment. Its records are in the newer disk segments.
+        continue;
+      }
+    }
+  }
+
+  static SegmentVisitAction VisitSeekableSegment<TVisitor>(
+      ISeekableIterator<TKey, TValue> iterator,
+      in TKey key,
+      ref TVisitor visitor)
+      where TVisitor : struct, ISegmentRecordVisitor<TKey, TValue>
+  {
+    if (!iterator.SeekToFirstGreaterOrEqualElement(in key))
+      return SegmentVisitAction.NextSegment;
+    do
+    {
+      var action = visitor.Visit(iterator.CurrentKey, iterator.CurrentValue);
+      if (action != SegmentVisitAction.NextRecord)
+        return action;
+    } while (iterator.Next());
+    return SegmentVisitAction.NextSegment;
+  }
+
+  static SegmentVisitAction VisitDiskSegment<TVisitor>(
+      IDiskSegment<TKey, TValue> segment,
+      in TKey key,
+      ref TVisitor visitor)
+      where TVisitor : struct, ISegmentRecordVisitor<TKey, TValue>
+  {
+    var length = segment.Length;
+    if (length == 0)
+      return SegmentVisitAction.NextSegment;
+    for (var position = segment.GetFirstGreaterOrEqualPosition(in key);
+        position < length;
+        ++position)
+    {
+      var action = visitor.Visit(segment.GetKey(position), segment.GetValue(position));
+      if (action != SegmentVisitAction.NextRecord)
+        return action;
+    }
+    return SegmentVisitAction.NextSegment;
+  }
+
   public bool TryGet(in TKey key, out TValue value)
   {
     var keyHashProvider = new KeyHashProvider<TKey>();

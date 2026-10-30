@@ -156,8 +156,6 @@ public sealed partial class BTree<TKey, TValue>
       }
       var previousNode = node;
       node = node.Children[position];
-      if (node == null)
-        node = node.Children[position - 1];
       node.ReadLock();
       previousNode.ReadUnlock();
     }
@@ -185,8 +183,6 @@ public sealed partial class BTree<TKey, TValue>
         ++position;
       }
       node = node.Children[position];
-      if (node == null)
-        node = node.Children[position - 1];
     }
   }
 
@@ -202,42 +198,15 @@ public sealed partial class BTree<TKey, TValue>
     TopLevelLocker = NoLock.Instance;
     var newRoot = Root.CloneWithNoLock();
 
-    // iterate all leafs and link them.
-    var queue = new Queue<Node>();
-    var leafs = new Queue<LeafNode>();
-    if (newRoot is LeafNode leafRoot)
-      leafs.Enqueue(leafRoot);
-    else
-      queue.Enqueue(newRoot);
-    while (queue.Count > 0)
+    // The cloned leaves are not linked yet.
+    var leaves = CollectLeaves(newRoot);
+    for (var i = 1; i < leaves.Count; ++i)
     {
-      var node = queue.Dequeue();
-      var children = node.Children;
-      if (children != null)
-      {
-        var len = node.Length + 1;
-        for (int i = 0; i < len; i++)
-        {
-          var child = children[i];
-          if (child is LeafNode leafNode)
-            leafs.Enqueue(leafNode);
-          else
-            queue.Enqueue(child);
-        }
-      }
+      leaves[i - 1].Next = leaves[i];
+      leaves[i].Previous = leaves[i - 1];
     }
-    var leaf = leafs.Dequeue();
-    var first = leaf;
-    while (leafs.Count > 0)
-    {
-      var next = leafs.Dequeue();
-      leaf.Next = next;
-      next.Previous = leaf;
-      leaf = next;
-    }
-    var last = leaf;
-    FirstLeafNode = first;
-    LastLeafNode = last;
+    FirstLeafNode = leaves[0];
+    LastLeafNode = leaves[^1];
     Root = newRoot;
     IsReadOnly = true;
   }
@@ -247,42 +216,55 @@ public sealed partial class BTree<TKey, TValue>
     Root.Validate(Comparer);
   }
 
+  /// <summary>
+  /// Checks that the leaf list links the leaves of the tree in order in both
+  /// directions, from the first leaf to the last. The caller ensures that
+  /// no write runs during the check.
+  /// </summary>
   public void ValidateLeafs()
   {
-    var root = Root;
+    var leaves = CollectLeaves(Root);
+    if (FirstLeafNode != leaves[0])
+      throw new Exception("The first leaf is not the leftmost leaf of the tree.");
+    if (LastLeafNode != leaves[^1])
+      throw new Exception("The last leaf is not the rightmost leaf of the tree.");
+    if (leaves[0].Previous != null)
+      throw new Exception("The first leaf links to a previous leaf.");
+    if (leaves[^1].Next != null)
+      throw new Exception("The last leaf links to a next leaf.");
+    for (var i = 1; i < leaves.Count; ++i)
+    {
+      var left = leaves[i - 1];
+      var right = leaves[i];
+      if (left == right)
+        throw new Exception($"Leaf {i} appears twice in the tree.");
+      if (left.Next != right)
+        throw new Exception($"Leaf {i - 1} does not link to leaf {i} as its next leaf.");
+      if (right.Previous != left)
+        throw new Exception($"Leaf {i} does not link to leaf {i - 1} as its previous leaf.");
+    }
+  }
 
+  /// <summary>
+  /// Returns the leaves under a node from left to right.
+  /// All leaves are at the same depth, so a breadth-first walk meets them in order.
+  /// </summary>
+  static List<LeafNode> CollectLeaves(Node root)
+  {
+    var leaves = new List<LeafNode>();
     var queue = new Queue<Node>();
-    var leafs = new Queue<LeafNode>();
-    if (root is LeafNode leafRoot)
-      leafs.Enqueue(leafRoot);
-    else
-      queue.Enqueue(root);
+    queue.Enqueue(root);
     while (queue.Count > 0)
     {
       var node = queue.Dequeue();
-      var children = node.Children;
-      if (children != null)
+      if (node is LeafNode leaf)
       {
-        var len = node.Length + 1;
-        for (int i = 0; i < len; i++)
-        {
-          var child = children[i];
-          if (child is LeafNode leafNode)
-            leafs.Enqueue(leafNode);
-          else
-            queue.Enqueue(child);
-        }
+        leaves.Add(leaf);
+        continue;
       }
+      for (var i = 0; i <= node.Length; ++i)
+        queue.Enqueue(node.Children[i]);
     }
-    var leaf = leafs.Dequeue();
-    while (leafs.Count > 0)
-    {
-      var next = leafs.Dequeue();
-      if (leaf == next)
-        throw new Exception("Found equal leafs on both side.");
-      leaf.Next = next;
-      next.Previous = leaf;
-      leaf = next;
-    }
+    return leaves;
   }
 }

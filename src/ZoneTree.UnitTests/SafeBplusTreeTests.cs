@@ -139,6 +139,77 @@ public sealed class SafeBTreeTests
     Assert.That(iterator.SeekToFirstGreaterOrEqualElement(in last), Is.False);
   }
 
+  [TestCase(2)]
+  [TestCase(3)]
+  public void SmallestNodesSplitCorrectly(int size)
+  {
+    var tree = new BTree<int, int>(
+        new Int32ComparerAscending(), BTreeLockMode.NodeLevelReaderWriter,
+        nodeSize: size, leafSize: size);
+    var keys = Enumerable.Range(0, 1000).ToArray();
+    new Random(size).Shuffle(keys);
+    foreach (var key in keys)
+      tree.Upsert(key, key, out _);
+    tree.Validate();
+    tree.ValidateLeafs();
+    var iterator = new BTreeSeekableIterator<int, int>(tree);
+    for (var key = 0; key < keys.Length; ++key)
+    {
+      Assert.That(iterator.Next(), Is.True);
+      Assert.That(iterator.CurrentKey, Is.EqualTo(key));
+    }
+    Assert.That(iterator.Next(), Is.False);
+  }
+
+  [Test]
+  public void NodesThatCannotSplitAreRejected()
+  {
+    var comparer = new Int32ComparerAscending();
+    Assert.Throws<ArgumentOutOfRangeException>(() =>
+        new BTree<int, int>(comparer, BTreeLockMode.NoLock, nodeSize: 1));
+    Assert.Throws<ArgumentOutOfRangeException>(() =>
+        new BTree<int, int>(comparer, BTreeLockMode.NoLock, leafSize: 1));
+  }
+
+  [TestCase(false, 0)]
+  [TestCase(false, 100)]
+  [TestCase(true, 0)]
+  [TestCase(true, 100)]
+  public void FailedSeeksLeaveTheIteratorAtAnEnd(bool isFrozen, int count)
+  {
+    // As in the indexed iterators, a failed forward seek ends after the last
+    // key, and a failed reverse seek before the first key.
+    var tree = new BTree<int, int>(
+        new Int32ComparerAscending(), BTreeLockMode.NodeLevelReaderWriter,
+        nodeSize: 4, leafSize: 4);
+    for (var i = 0; i < count; ++i)
+      tree.Upsert(i, i, out _);
+    if (isFrozen)
+      tree.SetTreeReadOnlyAndLockFree();
+    ISeekableIterator<int, int> iterator = isFrozen
+        ? new FrozenBTreeSeekableIterator<int, int>(tree)
+        : new BTreeSeekableIterator<int, int>(tree);
+    var hasKeys = count > 0;
+
+    var afterLast = count;
+    Assert.That(iterator.SeekToFirstGreaterOrEqualElement(in afterLast), Is.False);
+    Assert.That(iterator.HasCurrent, Is.False);
+    Assert.That(iterator.Next(), Is.False);
+    Assert.That(iterator.SeekToFirstGreaterOrEqualElement(in afterLast), Is.False);
+    Assert.That(iterator.Prev(), Is.EqualTo(hasKeys));
+    if (hasKeys)
+      Assert.That(iterator.CurrentKey, Is.EqualTo(count - 1));
+
+    var beforeFirst = -1;
+    Assert.That(iterator.SeekToLastSmallerOrEqualElement(in beforeFirst), Is.False);
+    Assert.That(iterator.HasCurrent, Is.False);
+    Assert.That(iterator.Prev(), Is.False);
+    Assert.That(iterator.SeekToLastSmallerOrEqualElement(in beforeFirst), Is.False);
+    Assert.That(iterator.Next(), Is.EqualTo(hasKeys));
+    if (hasKeys)
+      Assert.That(iterator.CurrentKey, Is.EqualTo(0));
+  }
+
   int GetLastNodeSmallerOrEqual(BTreeSeekableIterator<int, int> iterator, int key)
   {
     iterator.SeekToLastSmallerOrEqualElement(in key);

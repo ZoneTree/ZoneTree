@@ -120,6 +120,23 @@ while (iterator.Next() && iterator.CurrentKey < 200)
     Console.WriteLine($"{iterator.CurrentKey}: {iterator.CurrentValue}");
 ```
         </TabPane>
+        <TabPane id="transaction" label="Transaction">
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<string, string>()
+    .SetDataDirectory("data/my-transactions")
+    .OpenOrCreateTransactional();
+using var maintainer = tree.CreateMaintainer();
+
+// Commit both writes together; retry on conflicts.
+tree.Execute(tx =>
+{
+    tx.Upsert("user:42:name", "Ada");
+    tx.Upsert("email:ada@example.com", "42");
+});
+```
+        </TabPane>
       </Tabs>
       <p class="zt-code-note">
         One tree per data directory. The maintainer handles background merges
@@ -127,6 +144,8 @@ while (iterator.Next() && iterator.CurrentKey < 200)
       </p>
     </div>
   </section>
+
+  <TransactionSpotlight/>
 
   <section
     class="zt-section zt-performance"

@@ -107,8 +107,8 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
 
   volatile bool IsDropped;
 
-  // A record that could not be written is lost, so sync requests
-  // queued after it cannot be completed successfully anymore.
+  // A record that could not be written is lost, so no later record is written
+  // and sync requests queued after it cannot be completed successfully anymore.
   volatile Exception RecordWriteFailure;
 
   public string FilePath { get; }
@@ -262,6 +262,11 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
 
   void WriteRecord(in QueueItem q)
   {
+    // The log keeps the records before a failed one. A later record, such as a
+    // transaction's commit, must not survive a crash without it. A partly written
+    // record is an incomplete tail, which loading truncates.
+    if (RecordWriteFailure != null)
+      return;
     try
     {
       var keyBytes = KeySerializer.Serialize(q.Key);

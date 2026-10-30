@@ -1,6 +1,6 @@
 ---
 title: Transactions
-description: Open a transactional ZoneTree, commit related writes, handle aborts and pending dependencies, and use fluent retries or explicit transaction control.
+description: Open a transactional ZoneTree, read consistent snapshots and ranges, commit related writes, choose an isolation level, handle conflicts, and decide when commits must be durable.
 ---
 
 <SectionHeader
@@ -9,7 +9,7 @@ description: Open a transactional ZoneTree, commit related writes, handle aborts
   title="Commit related keys together"
   titleTag="h1"
   titleId="transactions-title"
-  subtitle="Use a transactional tree when a correctness rule spans several keys. Keep the unit of work short, check the commit result, and make retries safe."/>
+  subtitle="Use a transactional tree when a correctness rule spans several keys. Every transaction reads a consistent snapshot, commits all of its writes or none of them, and retries cleanly when it conflicts."/>
 
 <AlertBox
   class="zt-guide-callout"
@@ -25,38 +25,67 @@ description: Open a transactional ZoneTree, commit related writes, handle aborts
   </p>
 </AlertBox>
 
-## Commit related writes with the fluent API
+## Commit related writes
 
-This complete console example writes two related keys. It checks the returned result and handles a transaction-abort exception from the pending-wait path:
+This complete console example moves an amount between two accounts. It reads both balances inside the transaction and writes both. `Execute` commits the transaction and retries the whole unit of work when it conflicts:
 
 ```csharp
 using ZoneTree;
-using ZoneTree.Exceptions;
 
-using var tree = new ZoneTreeFactory<string, string>()
+using var tree = new ZoneTreeFactory<string, long>()
     .SetDataDirectory("data/transactions-example")
     .OpenOrCreateTransactional();
 using var maintainer = tree.CreateMaintainer();
 
-try
+bool Transfer(string from, string to, long amount)
 {
-    using var transaction = tree.BeginFluentTransaction();
-    var result = await transaction
-        .Do(id => tree.UpsertNoThrow(id, "order:42:state", "confirmed"))
-        .Do(id => tree.UpsertNoThrow(id, "order:42:receipt", "receipt-42"))
-        .CommitAsync();
-
-    Console.WriteLine($"Committed: {result.Succeeded}");
-    if (result.Succeeded && tree.ReadCommittedTryGet("order:42:state", out var state))
-        Console.WriteLine(state);
-}
-catch (TransactionAbortedException)
-{
-    Console.WriteLine("Transaction aborted; the unit of work did not commit.");
+    return tree.Execute(tx =>
+    {
+        tx.TryGet(from, out var fromBalance);
+        tx.TryGet(to, out var toBalance);
+        if (fromBalance < amount)
+            return false;
+        tx.Upsert(from, fromBalance - amount);
+        tx.Upsert(to, toBalance + amount);
+        return true;
+    });
 }
 ```
 
-`OpenOrCreateTransactional()` returns the transactional API. It differs from the ordinary tree: reads and writes in a transaction take a transaction ID, and success depends on the commit outcome.
+`Execute` begins a transaction, runs the body, commits it, and returns the body's result. A conflict starts the body again with a new snapshot, so the body may run more than once:
+
+- Keep the body free of effects outside the transaction, such as sending messages, and decide on them after `Execute` returns.
+- Do not commit or roll back inside the body; `Execute` rejects a body that ends its transaction.
+- Throw to abandon the work: the transaction is rolled back and the exception propagates.
+- A long body can check `tx.HasConflict` to stop early; the attempt fails at its commit anyway.
+- `maxAttempts` bounds the attempts; after the last one, the conflict is thrown. By default it retries until it commits. Every conflict means another transaction committed, so the tree as a whole always makes progress.
+
+`ExecuteDurableAsync` does the same and then waits until the commit is durable.
+
+## Manage a transaction yourself
+
+`BeginTransaction()` returns an `ITransaction<TKey, TValue>` when you need to control the commit. Reads and writes go through the transaction, and disposing a transaction that has not committed rolls it back:
+
+```csharp
+using var tx = tree.BeginTransaction();
+tx.Upsert("a", 1);
+tx.Upsert("b", 2);
+if (!tx.TryCommit())
+    Console.WriteLine("Conflict: retry the transaction from its first read.");
+```
+
+## Single-key operations
+
+A transactional tree also offers operations that each run in a transaction of their own:
+
+| Operation | Behavior |
+| --- | --- |
+| `tree.TryGet(key, out value)`, `tree.ContainsKey(key)` | Reads the latest snapshot. |
+| `tree.Upsert(key, value)` | Writes the key; a concurrent commit to it makes the write retry, and the last commit wins. |
+| `tree.TryDelete(key)` | Deletes the key and returns whether it existed. |
+| `tree.AddOrUpdate(key, valueToAdd, update)` | Adds a missing key or replaces its value with `update(current)`, and returns the value written. A concurrent commit to the key makes it retry, so no update is lost; `update` may run more than once. |
+
+Use them for keys that need no coordination with other keys. For several keys, put the reads and writes in one transaction.
 
 ## Single-key and multi-key coordination
 
@@ -68,110 +97,116 @@ catch (TransactionAbortedException)
 
 Concurrent application threads alone do not require transactions. Use them for a multi-key invariant, and make the reads that decide the writes part of that transaction.
 
-## Transaction lifecycle
+## How a transaction works
 
-1. `BeginTransaction()` allocates a transaction ID.
-2. Reads and writes use that ID.
-3. `PrepareAndCommit` attempts to prepare and commit the work.
-4. A pending transaction must be resolved, or rolled back. An aborted unit of work must be retried from its reads if the application still wants to perform it.
+1. `BeginTransaction()` takes a snapshot: the transaction reads the database as of the latest commit, plus its own writes.
+2. Writes are stored at once, tagged with the transaction, and stay invisible to other transactions.
+3. `Commit()` or `TryCommit()` checks for conflicts with transactions that committed after the snapshot. Without a conflict, a single commit record makes every write visible together.
+4. On a conflict, or after `Rollback()`, the writes are discarded and the transaction ends.
 
-The engine uses optimistic coordination. Conflicts and dependencies can prevent an immediate commit, so checking only the individual write results is insufficient.
+Reads never block, and nothing locks a key. Concurrent transactions only meet at commit time: the transaction that commits first wins, and the other one fails and must be retried from its first read. `Execute` retries the conflicts below; a transaction you manage yourself reports each outcome like this:
 
-| Commit state | What it means | What the caller does |
+| Outcome | How it is reported | What the caller does |
 | --- | --- | --- |
-| `Committed` | The transaction committed. | Continue with work that depends on success. |
-| `ReadyToCommit` | An explicit `Prepare` succeeded. | Call `Commit` to finish, or roll back. |
-| `PendingTransactions` | There are unresolved transaction dependencies. | Apply a bounded wait/retry policy or roll back. Inspect `PendingTransactionList` when diagnosing dependencies. |
-| `Aborted` | The transaction cannot commit. | Retry the whole unit of work if appropriate. |
+| Committed | `Commit()` returns; `TryCommit()` returns true. | Continue with work that depends on success. |
+| Conflict | `TryCommit()` returns false; `Commit()` throws `TransactionConflictException`. | Retry the whole unit of work. |
+| Rolled back | `Rollback()` or `Dispose()` before the commit. | Nothing; the writes never become visible. |
 
-`PrepareAndCommit` and other throwing APIs can raise `TransactionAbortedException`. Their `NoThrow` counterparts report abort status in a result. `NoThrow` describes transaction-abort reporting; it does not suppress every possible exception.
+Reads and writes never throw for a conflict; the commit reports it. A write that finds its key committed after the snapshot is not stored and sets `HasConflict`. The transaction stays active, stores no more writes, and its commit fails.
 
-## Keep retryable work safe to repeat
+After any of these outcomes the transaction cannot be used again. Start a new one for the retry, and read the current values again inside it.
 
-The fluent transaction reruns its registered jobs when retrying an attempt that aborts before entering the pending wait. Read current values again inside those jobs; do not reuse a decision from a failed attempt.
+## Choose an isolation level
 
-If a dependency aborts during the pending wait, `CommitAsync()` can throw `TransactionAbortedException` rather than return a failed result. Handle both outcomes. Using `NoThrow` operations inside the jobs does not make `CommitAsync()` exception-free.
+`BeginTransaction` takes an isolation level. Both levels read a consistent snapshot and never lose a concurrent write to the same key.
 
-Keep network requests, notifications, and other external side effects outside the retryable jobs. Perform success-dependent follow-up only after the commit succeeds, with the delivery guarantees your application requires.
+| Level | A commit fails when a newer commit wrote... | Allows |
+| --- | --- | --- |
+| `Serializable` (default) | a key this transaction wrote, a key it read, or any key inside a range it read, including keys that did not exist before. | Nothing: committed transactions behave as if they ran one at a time, in commit order. |
+| `Snapshot` | a key this transaction wrote or read with `TryGetForUpdate`. | Write skew on keys read with `TryGet`: two transactions each read what the other one changes, and both commit. |
 
-Attempt and pending-wait limits can be configured:
+Use `Serializable` unless profiling shows that its read tracking matters. It keeps the keys a transaction read and the ranges it iterated until the commit, so a transaction that reads millions of keys holds that read set in memory. `Snapshot` keeps only the written keys and conflicts less often.
 
-```csharp
-using var transaction = tree.BeginFluentTransaction()
-    .SetRetryCountForAbortedTransactions(5)
-    .SetRetryCountForPendingTransactions(20);
+In a `Snapshot` transaction, read the keys a decision depends on with `TryGetForUpdate`. It protects those keys like writes, which prevents write skew on them without tracking every read. A transaction that writes nothing commits at its snapshot, so neither level validates its reads.
 
-var result = await transaction
-    .Do(id => tree.UpsertNoThrow(id, "order:43:state", "confirmed"))
-    .CommitAsync();
-```
+## Read ranges
 
-In the current implementation, the values above allow at most five complete transaction attempts and twenty pending-prepare checks. The aborted setting counts total attempts, despite the setter's retry-oriented name.
-
-Fluent transactions are caller-owned. Dispose them so unfinished work can be rolled back. A failed result or an abort exception is still a failed transaction; do not report success because retries were attempted.
-
-## Use explicit control when you need it
-
-Use explicit transaction IDs when your application owns pending-dependency handling and rollback. This example chooses to roll back any attempt that has not committed, including a pending one:
+`Range` reads the records between two keys, inclusive, from the same snapshot as point reads, in ascending or descending key order:
 
 ```csharp
-using ZoneTree.Transactional;
-
-var transactionId = tree.BeginTransaction();
-try
-{
-    var write = tree.UpsertNoThrow(transactionId, "order:44:state", "confirmed");
-    if (!write.IsAborted)
-    {
-        var commit = tree.PrepareAndCommitNoThrow(transactionId);
-        Console.WriteLine(commit.Result);
-    }
-}
-finally
-{
-    if (tree.GetTransactionState(transactionId) == TransactionState.Uncommitted)
-        tree.Rollback(transactionId);
-}
+using var tx = tree.BeginReadOnlyTransaction();
+foreach (var (key, value) in tx.Range("order:0000", "order:9999"))
+    Console.WriteLine($"{key} = {value}");
 ```
 
-For a wait-and-retry policy, keep ownership of the transaction until it commits or is rolled back. Do not abandon a `PendingTransactions` result; its writes and dependency state still need resolution.
+The records are read while the result is enumerated, before the transaction ends. In a serializable transaction the range joins the read set: the whole range when the enumeration runs to the end, or up to the last key read when it stops early. A commit after the snapshot that writes inside that range, even a brand new key, makes this transaction conflict.
 
-## Read committed data
-
-Use the read-committed helpers when you need committed values without beginning a new transaction:
+For scans without an upper bound, use an iterator:
 
 ```csharp
-if (tree.ReadCommittedTryGet("order:42:state", out var state))
-    Console.WriteLine(state);
+using var tx = tree.BeginTransaction();
+using var iterator = tx.CreateIterator();
+iterator.Seek("order:");
+while (iterator.Next() && iterator.CurrentKey.StartsWith("order:"))
+    Console.WriteLine($"{iterator.CurrentKey} = {iterator.CurrentValue}");
 ```
 
-Passing `currentTransactionId` lets that transaction see its own uncommitted writes while reading committed data from others. Separate read-committed calls do not establish a single snapshot across several keys. Use transactional reads when those values drive a multi-key decision.
+In a serializable transaction, an iterator adds the range from its seek key to the last key it read to the read set. Stop iterating when you have what you need: an iterator that runs to the end protects the rest of the key space too.
 
-## Auto-commit and maintenance
+A range or an iterator sees the transaction's own writes made before the enumeration starts, or before each `Seek`, `SeekFirst`, or first `Next` call. Dispose iterators when the scan is done; they cannot be used after the transaction ends.
 
-`UpsertAutoCommit` and `DeleteAutoCommit` start and commit a transaction around one write. They are convenient for applications whose writes must use the transactional API, but they add transaction work compared with an ordinary tree's write methods.
+## Read-only transactions
 
-Transactional maintenance exposes:
+`BeginReadOnlyTransaction()` returns an `IReadTransaction<TKey, TValue>`: it reads a consistent snapshot without a transaction id or a read set, never conflicts, and has no write methods. Disposing it ends it. Use it for reports, exports, and any query that must see several keys or ranges at one point in time.
+
+```csharp
+using var snapshot = tree.BeginReadOnlyTransaction();
+var total = 0L;
+using var iterator = snapshot.CreateIterator();
+while (iterator.Next())
+    total += iterator.CurrentValue;
+```
+
+`ITransaction<TKey, TValue>` extends `IReadTransaction<TKey, TValue>`, so code that only reads can accept either.
+
+A long-running snapshot keeps the versions it can read: merges cannot drop a version that an open transaction may still read. End transactions when their work is done.
+
+## Durability
+
+A committed transaction is visible at once but is durable only after the write ahead log syncs. Choose how commits reach the disk:
+
+| Need | API |
+| --- | --- |
+| This commit must survive a power loss before you acknowledge it. | `await tree.ExecuteDurableAsync(...)`, `await tx.CommitDurableAsync()` or `await tx.TryCommitDurableAsync()` |
+| Several commits must be durable; acknowledge them together. | Commit each, then `await tree.SyncWALAsync()` once. |
+| Bound how much a power loss can lose without waiting on syncs. | `tree.AutoSyncInterval = TimeSpan.FromMilliseconds(500)` |
+
+Concurrent durable commits and `SyncWALAsync` callers share disk syncs, so many committing threads pay for one sync together. A single thread that waits after every commit pays a full sync per commit.
+
+A crash never recovers part of a transaction. After a restart the tree contains a prefix of the committed transactions in commit order; transactions that had not committed are rolled back while the tree opens. See [WAL modes](../durability/wal-modes.mdx) for how each mode trades write speed for the commits a crash can lose.
+
+## Transaction size
+
+A transaction's writes are stored in the tree as it makes them, so they persist, move to disk, and merge like other records. Its size is limited by the disk, not the memory. The memory holds only the keys it wrote and, in serializable mode, the keys and ranges it read.
+
+Rolling back a large transaction writes a deletion for every key it wrote, and merges remove its versions over time.
+
+## Maintenance
+
+A maintainer merges the storage tree in the background, and merges also drop the versions no open transaction can read. Keep one running with the tree.
 
 | Surface | Purpose |
 | --- | --- |
-| `tree.Maintenance.ZoneTree` | The underlying storage tree. Do not bypass transaction coordination for transactional records. |
-| `tree.Maintenance.TransactionLog` | Transaction log state and services. |
-| `tree.Maintenance.UncommittedTransactionIds` | Unfinished transactions to investigate. |
-
-For abandoned work, an application-controlled cleanup policy can use:
-
-```csharp
-tree.Maintenance.RollbackUncommittedTransactionIdsBefore(
-    DateTime.UtcNow.AddMinutes(-10));
-```
-
-Choose a cutoff appropriate for your application; age alone does not prove that a transaction has been abandoned. WAL settings still determine storage durability. See [WAL modes](../durability/wal-modes.mdx) before choosing failure guarantees.
+| `tree.CreateMaintainer()` | Background merges and version cleanup. |
+| `tree.Maintenance.ZoneTree` | The storage tree. Every key is stored with the id of the transaction that wrote it. Do not write to it directly. |
+| `tree.Maintenance.ActiveTransactionCount` | Transactions that have not ended. A count that keeps growing usually means transactions are not disposed. |
+| `tree.Maintenance.AbortedTransactionCount` | Rolled back transactions still registered: until no transaction that began before the rollback is active, or for good when a crash left their versions without deletions. |
+| `tree.Maintenance.ConflictIndexCount` | Recently committed keys kept to detect conflicts with older transactions. |
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Keep transaction and storage lifetimes aligned</strong>
   <p>
-    Finish or roll back application work before closing the tree, and keep a
+    Commit or dispose transactions before closing the tree, and keep a
     maintainer available while the service is running.
   </p>
   <Flex wrap="true" class="gap-3"

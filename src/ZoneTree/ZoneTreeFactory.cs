@@ -1,6 +1,5 @@
 using ZoneTree.Exceptions;
 using ZoneTree.Segments.Disk;
-using ZoneTree.Transactional;
 using ZoneTree.WAL;
 using ZoneTree.Core;
 using ZoneTree.AbstractFileStream;
@@ -12,6 +11,7 @@ using ZoneTree.Segments.RandomAccess;
 using ZoneTree.PresetTypes;
 using ZoneTree.Backup;
 using ZoneTree.Hashers;
+using ZoneTree.Transactional.Mvcc;
 
 namespace ZoneTree;
 
@@ -29,11 +29,6 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   Func<ZoneTreeOptions<TKey, TValue>, IWriteAheadLogProvider> GetWriteAheadLogProvider;
 
   bool IsWriteAheadLogProviderInitialized;
-
-  Func<ZoneTreeOptions<TKey, TValue>, ITransactionLog<TKey, TValue>> GetTransactionLog
-      = (options) => new BasicTransactionLog<TKey, TValue>(options);
-
-  ITransactionLog<TKey, TValue> TransactionLog;
 
   /// <summary>
   /// The options to be configured by this factory.
@@ -199,9 +194,6 @@ public sealed class ZoneTreeFactory<TKey, TValue>
     if (Options.WriteAheadLogProvider != null)
       throw new CannotSetSerializersAfterWriteAheadLogProviderInitializedException();
 
-    if (TransactionLog != null)
-      throw new CannotSetSerializersAfterTransactionLogInitializedException();
-
     Options.KeySerializer = keySerializer;
     return this;
   }
@@ -216,9 +208,6 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   {
     if (Options.WriteAheadLogProvider != null)
       throw new CannotSetSerializersAfterWriteAheadLogProviderInitializedException();
-
-    if (TransactionLog != null)
-      throw new CannotSetSerializersAfterTransactionLogInitializedException();
 
     Options.ValueSerializer = valueSerializer;
     return this;
@@ -251,13 +240,6 @@ public sealed class ZoneTreeFactory<TKey, TValue>
     IsWriteAheadLogProviderInitialized = true;
   }
 
-  void InitTransactionLog()
-  {
-    if (TransactionLog != null)
-      return;
-    FillMissingOptionsForKnownTypes();
-    TransactionLog = GetTransactionLog(Options);
-  }
 
   /// <summary>
   /// Sets write ahead log provider getter.
@@ -307,20 +289,6 @@ public sealed class ZoneTreeFactory<TKey, TValue>
     return this;
   }
   /// <summary>
-  /// Configures the transaction log.
-  /// </summary>
-  /// <param name="configure">The transaction log configurator delegate</param>
-  /// <returns>ZoneTree Factory</returns>
-  public ZoneTreeFactory<TKey, TValue>
-      ConfigureTransactionLog(Action<ITransactionLog<TKey, TValue>> configure)
-  {
-    InitWriteAheadLogProvider();
-    InitTransactionLog();
-    configure(TransactionLog);
-    return this;
-  }
-
-  /// <summary>
   /// Assigns value deletion marker delegate.
   /// </summary>
   /// <param name="markValueDeleted">The value deletion marker delegate</param>
@@ -354,18 +322,6 @@ public sealed class ZoneTreeFactory<TKey, TValue>
       SetIsRangeDeletedDelegate(IsRangeDeletedDelegate<TKey, TValue> isRangeDeleted)
   {
     Options.IsRangeDeleted = isRangeDeleted;
-    return this;
-  }
-
-  /// <summary>
-  /// Sets the transaction log creator delegate.
-  /// </summary>
-  /// <param name="transactionLogGetter">The transaction log creator delegate</param>
-  /// <returns>ZoneTree Factory</returns>
-  public ZoneTreeFactory<TKey, TValue>
-      SetTransactionLog(Func<ZoneTreeOptions<TKey, TValue>, ITransactionLog<TKey, TValue>> transactionLogGetter)
-  {
-    GetTransactionLog = transactionLogGetter;
     return this;
   }
 
@@ -574,36 +530,47 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   /// <summary>
   /// Opens or creates a transactional ZoneTree.
   /// </summary>
-  /// <returns>ZoneTree Factory</returns>
+  /// <remarks>
+  /// The tree is a <see cref="MvccZoneTree{TKey, TValue}"/>: multi-version, with optimistic
+  /// snapshot and serializable transactions.
+  /// A transactional tree stores every key with the id of the transaction that wrote it,
+  /// so its files are not compatible with a tree opened by <see cref="OpenOrCreate"/>.
+  /// The deletion delegates are not used: transactions delete keys themselves.
+  /// A merge filter factory or a range deletion delegate is rejected with
+  /// <see cref="InvalidOptionValueException"/>.
+  /// </remarks>
+  /// <returns>The transactional ZoneTree.</returns>
   public ITransactionalZoneTree<TKey, TValue> OpenOrCreateTransactional()
   {
-    var zoneTree = OpenOrCreate();
-    InitTransactionLog();
-    return new OptimisticZoneTree<TKey, TValue>(Options, TransactionLog, zoneTree);
+    FillMissingOptionsForKnownTypes();
+    InitWriteAheadLogProvider();
+    return MvccZoneTree<TKey, TValue>.Load(Options, canCreate: true, canOpen: true);
   }
 
   /// <summary>
   /// Creates a transactional ZoneTree.
   /// </summary>
-  /// <returns>ZoneTree Factory</returns>
+  /// <inheritdoc cref="OpenOrCreateTransactional" path="/remarks"/>
+  /// <returns>The transactional ZoneTree.</returns>
   /// <exception cref="DatabaseAlreadyExistsException">Thrown when the database exists in the location.</exception>
   public ITransactionalZoneTree<TKey, TValue> CreateTransactional()
   {
-    var zoneTree = Create();
-    InitTransactionLog();
-    return new OptimisticZoneTree<TKey, TValue>(Options, TransactionLog, zoneTree);
+    FillMissingOptionsForKnownTypes();
+    InitWriteAheadLogProvider();
+    return MvccZoneTree<TKey, TValue>.Load(Options, canCreate: true, canOpen: false);
   }
 
   /// <summary>
   /// Opens a transactional ZoneTree.
   /// </summary>
-  /// <returns>ZoneTree Factory</returns>
+  /// <inheritdoc cref="OpenOrCreateTransactional" path="/remarks"/>
+  /// <returns>The transactional ZoneTree.</returns>
   /// <exception cref="DatabaseNotFoundException">Thrown when database is not found in the location.</exception>
   public ITransactionalZoneTree<TKey, TValue> OpenTransactional()
   {
-    var zoneTree = Open();
-    InitTransactionLog();
-    return new OptimisticZoneTree<TKey, TValue>(Options, TransactionLog, zoneTree);
+    FillMissingOptionsForKnownTypes();
+    InitWriteAheadLogProvider();
+    return MvccZoneTree<TKey, TValue>.Load(Options, canCreate: false, canOpen: true);
   }
 
   /// <summary>

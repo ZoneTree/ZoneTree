@@ -53,6 +53,24 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   bool TryGet(in TKey key, out TValue value);
 
   /// <summary>
+  /// Visits the stored records with keys greater than or equal to the given key,
+  /// segment by segment from the newest to the oldest, in ascending key order
+  /// within each segment. Unlike an iterator, it takes no tree lock and does not
+  /// merge the segments: a key can be visited once per segment that holds it,
+  /// deleted records are visited, and the newest segment comes first.
+  /// </summary>
+  /// <remarks>
+  /// A segment that moves forward or merges during the visit can be visited twice.
+  /// Use it for point lookups that stop early, such as finding the newest version
+  /// of a key stored under several composite keys.
+  /// </remarks>
+  /// <typeparam name="TVisitor">The visitor type.</typeparam>
+  /// <param name="key">The first key to visit.</param>
+  /// <param name="visitor">The visitor.</param>
+  void VisitSegments<TVisitor>(in TKey key, ref TVisitor visitor)
+      where TVisitor : struct, ISegmentRecordVisitor<TKey, TValue>;
+
+  /// <summary>
   /// Tries to add the specified key and value to the collection.
   /// </summary>
   /// <param name="key">The key of the element to add.</param>

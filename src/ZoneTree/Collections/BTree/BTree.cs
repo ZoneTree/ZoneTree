@@ -45,6 +45,12 @@ public sealed partial class BTree<TKey, TValue>
       int nodeSize = 128,
       int leafSize = 128)
   {
+    // A split takes its pivot after the middle key of a full node,
+    // so a node needs at least 2 keys.
+    if (nodeSize < 2)
+      throw new ArgumentOutOfRangeException(nameof(nodeSize), nodeSize, "A node holds at least 2 keys.");
+    if (leafSize < 2)
+      throw new ArgumentOutOfRangeException(nameof(leafSize), leafSize, "A leaf holds at least 2 keys.");
     NodeSize = nodeSize;
     LeafSize = leafSize;
     Comparer = comparer;

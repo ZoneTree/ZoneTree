@@ -98,42 +98,56 @@ public sealed partial class BTree<TKey, TValue>
       CurrentIndex = Keys.Length - 1;
     }
 
+    /// <summary>
+    /// Positions at the last key smaller or equal than the key,
+    /// or before the first key when there is none.
+    /// </summary>
     public NodeIterator SeekLastKeySmallerOrEqual(
         IRefComparer<TKey> comparer, in TKey key)
     {
       var iterator = this;
-      while (iterator != null)
+      while (true)
       {
         var pos =
             iterator.GetLastSmallerOrEqualPosition(comparer, in key);
         if (pos == -1)
         {
-          iterator = iterator.GetPreviousNodeIterator();
-          continue;
+          var previous = iterator.GetPreviousNodeIterator();
+          if (previous != null)
+          {
+            iterator = previous;
+            continue;
+          }
         }
         iterator.CurrentIndex = pos;
         return iterator;
       }
-      return null;
     }
 
+    /// <summary>
+    /// Positions at the first key greater or equal than the key,
+    /// or after the last key when there is none.
+    /// </summary>
     public NodeIterator SeekFirstKeyGreaterOrEqual(
         IRefComparer<TKey> comparer, in TKey key)
     {
       var iterator = this;
-      while (iterator != null)
+      while (true)
       {
         var pos =
             iterator.GetFirstGreaterOrEqualPosition(comparer, in key);
         if (pos == iterator.Keys.Length)
         {
-          iterator = iterator.GetNextNodeIterator();
-          continue;
+          var next = iterator.GetNextNodeIterator();
+          if (next != null)
+          {
+            iterator = next;
+            continue;
+          }
         }
         iterator.CurrentIndex = pos;
         return iterator;
       }
-      return null;
     }
 
     /// <summary>

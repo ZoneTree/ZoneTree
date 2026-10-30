@@ -45,7 +45,7 @@ ZoneTree gives you the core pieces expected from a serious storage engine:
 * Forward and reverse iterators
 * Seekable range scans
 * Atomic read-modify-write operations
-* Optimistic transactions
+* Serializable and snapshot transactions with range reads
 * Custom serializers
 * Custom comparers
 * Background maintenance and compaction
@@ -155,22 +155,27 @@ You can mix these write modes in the same ZoneTree. For example, hot counter key
 
 ## Transactions
 
-For coordinated multi-key changes, open a transactional ZoneTree.
+For coordinated multi-key changes, open a transactional ZoneTree. Every transaction reads a consistent snapshot, including range scans, and commits all of its writes or none of them.
 
 ```csharp
 using var zoneTree = new ZoneTreeFactory<int, string>()
     .SetDataDirectory("data/transactional-zone-tree")
     .OpenOrCreateTransactional();
+using var maintainer = zoneTree.CreateMaintainer();
 
-var tx = zoneTree.BeginTransaction();
+// Runs the body and commits it, retrying from the start on a conflict.
+zoneTree.Execute(tx =>
+{
+    tx.Upsert(1, "first");
+    tx.Upsert(2, "second");
+});
 
-zoneTree.Upsert(tx, 1, "first");
-zoneTree.Upsert(tx, 2, "second");
-
-var result = zoneTree.PrepareAndCommit(tx);
-
-Console.WriteLine(result.Result);
+using var snapshot = zoneTree.BeginReadOnlyTransaction();
+foreach (var (key, value) in snapshot.Range(1, 2))
+    Console.WriteLine($"{key} = {value}");
 ```
+
+Transactions are multi-version and optimistic: reads never block, and a commit fails only when another transaction committed a conflicting write after this one began; `Execute` retries it. `Serializable`, the default, also protects the keys and ranges a transaction read; `Snapshot` checks only the keys it wrote or read with `TryGetForUpdate`. A commit is visible at once. Use `ExecuteDurableAsync`, `tx.CommitDurableAsync()` or `zoneTree.SyncWALAsync()` when it must survive a power loss.
 
 Use transactions when your data model requires coordination across multiple keys. For simple high-throughput writes, the non-transactional API is usually the better path.
 
