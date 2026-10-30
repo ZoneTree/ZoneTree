@@ -94,11 +94,25 @@ public sealed class DurableFileWriter
     FileStreamProvider.Replace(tempPath, path, null);
   }
 
+  /// <summary>
+  /// Creates a file that must not exist yet.
+  /// A crash leaves the whole file or no file.
+  /// </summary>
+  public void WriteNewFile(string path, byte[] bytes)
+  {
+    if (FileStreamProvider.FileExists(path))
+      throw new IOException($"File {path} already exists.");
+    var tempPath = path + TempFileExtension;
+    WriteBytesInternal(bytes, tempPath);
+    FileStreamProvider.MoveFile(tempPath, path);
+  }
+
   void WriteBytesInternal(byte[] bytes, string path)
   {
+    // A power loss can leave a longer temporary file of an earlier write.
     using var tempFile = FileStreamProvider.CreateFileStream(
                     path,
-                    FileMode.OpenOrCreate,
+                    FileMode.Create,
                     FileAccess.Write,
                     FileShare.None);
     tempFile.Write(bytes, 0, bytes.Length);

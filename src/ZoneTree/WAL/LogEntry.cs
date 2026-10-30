@@ -107,6 +107,33 @@ public struct LogEntry : IEquatable<LogEntry>
     binaryWriter.Flush();
   }
 
+  /// <summary>
+  /// The length of the shortest record.
+  /// </summary>
+  internal const int MinimumRecordLength = HeaderLength + sizeof(uint);
+
+  /// <summary>
+  /// Reads the record length from the bytes of a record header.
+  /// </summary>
+  /// <returns>The record length, or -1 if the header cannot belong to a record.</returns>
+  internal static long ReadRecordLength(ReadOnlySpan<byte> header)
+  {
+    var keyLength = BinaryPrimitives.ReadInt32LittleEndian(header[sizeof(long)..]);
+    var valueLength = BinaryPrimitives.ReadInt32LittleEndian(header[(sizeof(long) + sizeof(int))..]);
+    if (keyLength < 0 || valueLength < 0)
+      return -1;
+    return MinimumRecordLength + (long)keyLength + valueLength;
+  }
+
+  /// <summary>
+  /// Validates the checksum of the bytes of a whole record.
+  /// </summary>
+  internal static bool HasValidChecksum(ReadOnlySpan<byte> record)
+  {
+    return unchecked((uint)XxHash3.HashToUInt64(record[..^sizeof(uint)])) ==
+        BinaryPrimitives.ReadUInt32LittleEndian(record[^sizeof(uint)..]);
+  }
+
   [MethodImpl(MethodImplOptions.AggressiveInlining)]
   public static void ReadLogEntry(BinaryReader reader, ref LogEntry entry)
   {

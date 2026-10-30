@@ -78,6 +78,53 @@ public sealed class PowerLossFileStreamProvider : IFileStreamProvider
     }
   }
 
+  /// <summary>
+  /// Creates a provider with the files that a power loss during a disk sync can
+  /// leave: each unsynced file keeps its old or new size, and each of its sectors
+  /// independently keeps its old or new content. Bytes beyond the old content
+  /// read as zeros, like a size extension persisted without its data.
+  /// </summary>
+  public PowerLossFileStreamProvider SimulateTornPowerLoss(Random random)
+  {
+    lock (SyncRoot)
+    {
+      return new PowerLossFileStreamProvider(
+          Durable.ToDictionary(
+              x => x.Key,
+              x => Tear(x.Value, ReadLiveOrDurable(x.Key, x.Value), random),
+              StringComparer.Ordinal));
+    }
+  }
+
+  byte[] ReadLiveOrDurable(string path, byte[] durable)
+  {
+    // A replacement on another thread updates the live file first.
+    try
+    {
+      return Live.ReadAllBytes(path);
+    }
+    catch (FileNotFoundException)
+    {
+      return durable;
+    }
+  }
+
+  static byte[] Tear(byte[] durable, byte[] live, Random random)
+  {
+    const int sectorSize = 512;
+    if (durable.AsSpan().SequenceEqual(live))
+      return durable.ToArray();
+    var torn = new byte[random.Next(2) == 0 ? durable.Length : live.Length];
+    for (var start = 0; start < torn.Length; start += sectorSize)
+    {
+      var source = random.Next(2) == 0 ? durable : live;
+      if (start < source.Length)
+        source.AsSpan(start, Math.Min(Math.Min(sectorSize, source.Length - start), torn.Length - start))
+            .CopyTo(torn.AsSpan(start));
+    }
+    return torn;
+  }
+
   static string NormalizePath(string path)
   {
     path = path.Replace('\\', '/');

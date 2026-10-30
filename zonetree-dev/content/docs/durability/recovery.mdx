@@ -20,19 +20,26 @@ Current-format WAL records carry checksums. A mismatch is reported as a read fai
 | Checksum mismatch | An entry in `WriteAheadLogReadLogEntriesResult.Exceptions`, with `Success = false`. |
 | Record read or deserialization failure | Reader diagnostics through `ILogger`, plus errors in the read result. |
 | Normal loading encounters corruption | `WriteAheadLogCorruptionException`, carrying the per-record exception details. |
-| A single incomplete final record | A warning and the [automatic incomplete-tail recovery path](#automatic-recovery-of-incomplete-tails). |
+| A damaged end of the log that a power loss can explain | A warning and the [automatic incomplete-tail recovery path](#automatic-recovery-of-incomplete-tails). |
 
 ## Automatic recovery of incomplete tails
 
-An interrupted append can leave a final record with an unfinished header, payload, or checksum. ZoneTree handles this specific case automatically when loading a mutable or read-only segment:
+A power loss can tear everything written after the last disk sync: a final record can be cut off, read as zeros, or fail its checksum. ZoneTree handles this case automatically when loading a mutable or read-only segment:
 
-1. The WAL reader catches `EndOfStreamException`, stops reading, and reports `IncompleteTailRecordFoundException` through `ILogger.LogWarning()`. The exception records `RecordIndex`, `RecordPosition`, and `FileLength`; `TruncationAmount` is the length after that record's starting position.
+1. The WAL reader stops at the first damaged record that a power loss can explain, and reports `IncompleteTailRecordFoundException` through `ILogger.LogWarning()`. The exception records `RecordIndex`, `RecordPosition`, and `FileLength`; `TruncationAmount` is the length after that record's starting position.
 2. The result's `HasFoundIncompleteTailRecord` is true only when this is the **sole** recorded exception. `Success` remains false, and `IncompleteTailRecord` exposes the details.
-3. The segment loader calls `TruncateIncompleteTailRecord()` at `RecordPosition`, discards the unfinished suffix, and rebuilds the segment from the preceding complete records. Subsequent writes can append from the corrected end.
+3. The segment loader calls `TruncateIncompleteTailRecord()` at `RecordPosition`, discards the damaged suffix, and rebuilds the segment from the preceding valid records. Subsequent writes can append from the corrected end.
 
-For compressed WALs, the record can be incomplete within the tail block or span a committed block and the tail. Truncation handles that logical record boundary across the compressed storage. A `.tail` file can also contain complete records; its presence alone is not an incomplete-record error.
+Which damage a power loss can explain depends on the WAL mode:
 
-`ReadLogEntries()` by itself only reports the result. The standard segment loaders perform the truncation. If checksum or other read errors are also present, `HasFoundIncompleteTailRecord` is false and this automatic path does not apply.
+- `Sync`: appended sectors can persist in any order. The damage is a torn tail when no valid record follows it, or when a zero run reaches the end of a sector before the next valid record. Otherwise it is corruption.
+- `SyncCompressed` and `AsyncCompressed`: the damage is a torn tail when it reaches the tail block, or the last committed block when the tail file does not hold content newer than that block. Damage in earlier committed blocks is corruption.
+
+For compressed WALs, the record can be damaged within the tail block or span a committed block and the tail. Truncation handles that logical record boundary across the compressed storage. A `.tail` file can also contain complete records; its presence alone is not an incomplete-record error.
+
+Real corruption inside these ranges looks the same as a torn tail, so it is also truncated with a warning. A record that passes its checksum but fails to deserialize is never truncated. Logs in the legacy format have no checksums, so only a record cut off at the end of the file is recovered automatically.
+
+`ReadLogEntries()` by itself only reports the result. The standard segment loaders perform the truncation. If other read errors were found before the damaged end, `HasFoundIncompleteTailRecord` is false and this automatic path does not apply.
 
 ## Capture diagnostics in your application
 

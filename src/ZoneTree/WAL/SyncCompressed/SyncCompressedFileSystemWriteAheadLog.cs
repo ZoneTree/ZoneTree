@@ -132,7 +132,8 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
         stopReadOnChecksumFailure,
         LogEntry.ReadLogEntryWithStreamLength,
         DeserializeLogEntry,
-        sortByOpIndexes);
+        sortByOpIndexes,
+        IsLegacyFormat ? null : (_, readPosition) => FileStream.IsUnsyncedTail(readPosition));
     InitialLength = result.Keys.Count;
     return result;
   }
@@ -140,6 +141,9 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
   (bool isValid, TKey key, TValue value, long opIndex) DeserializeLogEntry(in LogEntry logEntry)
   {
     var isValid = IsLegacyFormat || logEntry.ValidateChecksum();
+    // The bytes of a record that fails its checksum cannot be deserialized.
+    if (!isValid)
+      return (false, default, default, logEntry.OpIndex);
     var key = KeySerializer.Deserialize(logEntry.Key);
     var value = ValueSerializer.Deserialize(logEntry.Value);
     return (isValid, key, value, logEntry.OpIndex);

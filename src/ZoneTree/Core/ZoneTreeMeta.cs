@@ -49,6 +49,17 @@ public sealed class ZoneTreeMeta
   /// </remarks>
   public long MaximumOpIndex { get; set; }
 
+  /// <summary>
+  /// The generation of the meta WAL records that this metadata does not include.
+  /// </summary>
+  /// <remarks>
+  /// Saving the metadata and clearing the meta WAL are two steps. After a
+  /// power loss between them, the meta WAL still holds the records that the
+  /// metadata includes. Their older generation tells loading to skip them.
+  /// Zero means an older version saved the metadata and its records.
+  /// </remarks>
+  public long MetaWalGeneration { get; set; }
+
   [JsonIgnore]
   public bool HasDiskSegment => DiskSegment != 0 || BottomSegments?.Count > 0;
 }

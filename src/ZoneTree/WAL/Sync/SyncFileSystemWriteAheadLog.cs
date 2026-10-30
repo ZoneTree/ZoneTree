@@ -14,6 +14,10 @@ namespace ZoneTree.WAL;
 // https://devblogs.microsoft.com/dotnet/file-io-improvements-in-dotnet-6/
 public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TValue>
 {
+  const int SectorSize = 512;
+
+  const int ScannedTailLength = 32 * 1024 * 1024;
+
   readonly Lock SyncRoot = new();
 
   readonly ILogger Logger;
@@ -176,14 +180,55 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
         stopReadOnChecksumFailure,
         LogEntry.ReadLogEntryWithStreamLength,
         DeserializeLogEntry,
-        sortByOpIndexes);
+        sortByOpIndexes,
+        IsLegacyFormat ? null : IsUnsyncedTail);
     InitialLength = result.Keys.Count;
     return result;
+  }
+
+  /// <summary>
+  /// Searches the bytes after a damaged record for what tells a torn tail from
+  /// a corruption. Appended sectors persist in any order after the last disk
+  /// sync, and a sector that did not persist reads as zeros up to its end. So a
+  /// zero run up to a sector end means an unsynced tail, whatever follows it.
+  /// Without one, a valid record after the damaged one means a corruption.
+  /// </summary>
+  /// <remarks>
+  /// Only the first <see cref="ScannedTailLength"/> bytes are searched, because
+  /// the next valid record follows a corrupted record closely.
+  /// </remarks>
+  bool IsUnsyncedTail(long recordPosition, long readPosition)
+  {
+    var stream = FileStream.ToStream();
+    var buffer = new byte[Math.Min(stream.Length - recordPosition, ScannedTailLength)];
+    stream.Position = recordPosition;
+    FileStream.ReadFaster(buffer, 0, buffer.Length);
+    stream.Position = readPosition;
+    var bytes = buffer.AsSpan();
+    var zeroRunStart = 0;
+    for (var i = 0; i <= bytes.Length - LogEntry.MinimumRecordLength; ++i)
+    {
+      if ((recordPosition + i) % SectorSize == 0 &&
+          zeroRunStart < i &&
+          zeroRunStart <= Math.Max(0, i - SectorSize))
+        return true;
+      if (bytes[i] != 0)
+        zeroRunStart = i + 1;
+      var recordLength = LogEntry.ReadRecordLength(bytes[i..]);
+      if (recordLength >= 0 &&
+          recordLength <= bytes.Length - i &&
+          LogEntry.HasValidChecksum(bytes.Slice(i, (int)recordLength)))
+        return false;
+    }
+    return true;
   }
 
   (bool isValid, TKey key, TValue value, long opIndex) DeserializeLogEntry(in LogEntry logEntry)
   {
     var isValid = IsLegacyFormat || logEntry.ValidateChecksum();
+    // The bytes of a record that fails its checksum cannot be deserialized.
+    if (!isValid)
+      return (false, default, default, logEntry.OpIndex);
     var key = KeySerializer.Deserialize(logEntry.Key);
     var value = ValueSerializer.Deserialize(logEntry.Value);
     return (isValid, key, value, logEntry.OpIndex);
@@ -325,6 +370,9 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
     lock (SyncRoot)
     {
       FileStream.SetLength(incompleteTailException.RecordPosition);
+      // Otherwise a later power loss could bring the damaged bytes back
+      // after new records, where they could look like a corruption.
+      FileStream.Flush(true);
     }
   }
 }
