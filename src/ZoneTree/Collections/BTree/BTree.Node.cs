@@ -79,6 +79,9 @@ public sealed partial class BTree<TKey, TValue>
 
     public void InsertKeyAndChild(int position, in TKey key, Node left, Node right)
     {
+      // The increments are full fences: a reader sees the version
+      // change before any of the changes, and the changes before it ends.
+      Interlocked.Increment(ref version);
       var len = Length - position;
       if (len > 0)
       {
@@ -89,6 +92,26 @@ public sealed partial class BTree<TKey, TValue>
       Children[position] = left;
       Children[position + 1] = right;
       ++Length;
+      Interlocked.Increment(ref version);
+    }
+
+    int version;
+
+    /// <summary>
+    /// The version of the keys and children of an inner node, odd while they change.
+    /// A reader that sees the same even version before and after reading
+    /// the node has read a consistent state without locking it.
+    /// </summary>
+    public int Version => Volatile.Read(ref version);
+
+    /// <summary>
+    /// Tells whether the node is unchanged since a reader saw the version.
+    /// The fence keeps the reads of the node before this check.
+    /// </summary>
+    public bool IsUnchangedSince(int seenVersion)
+    {
+      Interlocked.MemoryBarrier();
+      return Volatile.Read(ref version) == seenVersion;
     }
 
     public void ReadLock()

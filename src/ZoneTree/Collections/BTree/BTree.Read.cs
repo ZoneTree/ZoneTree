@@ -16,46 +16,21 @@ public sealed partial class BTree<TKey, TValue>
     try
     {
       topLevelLocker.ReadLock();
-      while (true)
+      var leaf = FindLeaf(in key);
+      leaf.ReadLock();
+      try
       {
-        var root = Root;
-        root.ReadLock();
-        if (root != Root)
-        {
-          root.ReadUnlock();
-          continue;
-        }
-        return ContainsKey(root, in key);
+        return leaf.TryGetPosition(Comparer, in key, out _);
+      }
+      finally
+      {
+        leaf.ReadUnlock();
       }
     }
     finally
     {
       topLevelLocker.ReadUnlock();
     }
-  }
-
-  bool ContainsKey(Node node, in TKey key)
-  {
-    while (node != null)
-    {
-      var found = node.TryGetPosition(Comparer, in key, out var position);
-      if (node is LeafNode)
-      {
-        node.ReadUnlock();
-        return found;
-      }
-      if (found)
-      {
-        // if key position is found with exact match
-        // continue with right child.
-        ++position;
-      }
-      var previousNode = node;
-      node = node.Children[position];
-      node.ReadLock();
-      previousNode.ReadUnlock();
-    }
-    return false;
   }
 
   public bool TryGetValue(in TKey key, out TValue value)
@@ -64,16 +39,21 @@ public sealed partial class BTree<TKey, TValue>
     try
     {
       topLevelLocker.ReadLock();
-      while (true)
+      var leaf = FindLeaf(in key);
+      leaf.ReadLock();
+      try
       {
-        var root = Root;
-        root.ReadLock();
-        if (root != Root)
+        if (leaf.TryGetPosition(Comparer, in key, out var position))
         {
-          root.ReadUnlock();
-          continue;
+          value = leaf.Values[position];
+          return true;
         }
-        return TryGetValue(root, in key, out value);
+        value = default;
+        return false;
+      }
+      finally
+      {
+        leaf.ReadUnlock();
       }
     }
     finally
@@ -82,36 +62,43 @@ public sealed partial class BTree<TKey, TValue>
     }
   }
 
-  bool TryGetValue(Node node, in TKey key, out TValue value)
+  /// <summary>
+  /// Finds the leaf of a key without locking the inner nodes, so
+  /// readers do not contend with each other and with writers at the root.
+  /// </summary>
+  /// <remarks>
+  /// A node reached this way was current at some moment after the search began,
+  /// and a split leaves the replaced node as it was. So the leaf holds every
+  /// write that completed before the search began, even if a split replaces it.
+  /// </remarks>
+  LeafNode FindLeaf(in TKey key)
   {
-    while (node != null)
+    var node = Root;
+    var spinWait = new SpinWait();
+    while (node is not LeafNode)
     {
-      var found = node.TryGetPosition(Comparer, in key, out var position);
-      if (node is LeafNode leaf)
+      var version = node.Version;
+      if ((version & 1) != 0)
       {
-        if (!found)
-        {
-          node.ReadUnlock();
-          value = default;
-          return false;
-        }
-        value = leaf.Values[position];
-        node.ReadUnlock();
-        return true;
+        spinWait.SpinOnce();
+        continue;
       }
-      if (found)
+      Node child;
+      try
       {
-        // if key position is found with exact match
-        // continue with right child.
-        ++position;
+        var found = node.TryGetPosition(Comparer, in key, out var position);
+        // With an exact match, continue with the right child.
+        child = node.Children[found ? position + 1 : position];
       }
-      var child = node.Children[position];
-      child.ReadLock();
-      node.ReadUnlock();
-      node = child;
+      catch (Exception) when (!node.IsUnchangedSince(version))
+      {
+        // The comparer can fail on a key that the concurrent change tore.
+        continue;
+      }
+      if (node.IsUnchangedSince(version))
+        node = child;
     }
-    value = default;
-    return false;
+    return (LeafNode)node;
   }
 
   /// <summary>
@@ -169,44 +156,11 @@ public sealed partial class BTree<TKey, TValue>
     try
     {
       topLevelLocker.ReadLock();
-      while (true)
-      {
-        var root = Root;
-        root.ReadLock();
-        if (root != Root)
-        {
-          root.ReadUnlock();
-          continue;
-        }
-        return GetLeafNode(root, in key);
-      }
+      return FindLeaf(in key);
     }
     finally
     {
       topLevelLocker.ReadUnlock();
-    }
-  }
-
-  LeafNode GetLeafNode(Node node, in TKey key)
-  {
-    while (true)
-    {
-      var found = node.TryGetPosition(Comparer, in key, out var position);
-      if (node is LeafNode leaf)
-      {
-        node.ReadUnlock();
-        return leaf;
-      }
-      if (found)
-      {
-        // if key position is found with exact match
-        // continue with right child.
-        ++position;
-      }
-      var previousNode = node;
-      node = node.Children[position];
-      node.ReadLock();
-      previousNode.ReadUnlock();
     }
   }
 
