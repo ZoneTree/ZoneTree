@@ -99,7 +99,7 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
     Bound = bound;
     Inner = tree.CreateStorageIterator(
         isReverse,
-        options?.ContributeToTheBlockCache ?? false,
+        options?.ContributeToTheBlockCache ?? true,
         options?.DiskSegmentPrefetchSize ?? 0);
   }
 

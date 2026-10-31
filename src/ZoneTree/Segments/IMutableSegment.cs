@@ -28,5 +28,16 @@ public interface IMutableSegment<TKey, TValue> : IReadOnlySegment<TKey, TValue>
   /// </summary>
   Task SyncWALAsync();
 
+  /// <summary>
+  /// Visits the records with keys greater than or equal to the given
+  /// key in ascending order, without copying them like an iterator does.
+  /// </summary>
+  /// <returns>
+  /// The action that ended the visit, or
+  /// <see cref="SegmentVisitAction.NextSegment"/> after the last record.
+  /// </returns>
+  SegmentVisitAction Visit<TVisitor>(in TKey key, ref TVisitor visitor)
+      where TVisitor : struct, ISegmentRecordVisitor<TKey, TValue>;
+
   IIncrementalIdProvider OpIndexProvider { get; }
 }

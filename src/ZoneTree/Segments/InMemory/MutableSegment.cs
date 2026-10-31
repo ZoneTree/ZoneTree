@@ -331,6 +331,12 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
         new BTreeSeekableIterator<TKey, TValue>(BTree);
   }
 
+  public SegmentVisitAction Visit<TVisitor>(in TKey key, ref TVisitor visitor)
+      where TVisitor : struct, ISegmentRecordVisitor<TKey, TValue>
+  {
+    return BTree.Visit(in key, ref visitor);
+  }
+
   public void ReleaseResources()
   {
     WriteAheadLog?.MarkFrozen();

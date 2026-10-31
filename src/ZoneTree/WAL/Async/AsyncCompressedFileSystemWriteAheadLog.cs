@@ -97,8 +97,16 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
 
   volatile Task WriteTask;
 
-  // Wakes the writer from its empty queue poll to stop or to serve a sync request.
+  // Wakes the writer from its empty queue poll to stop,
+  // to serve a sync request or to catch up with a burst of records.
   readonly ManualResetEventSlim WakeWriterSignal = new();
+
+  // A power of two. The writer syncs the tail whenever its queue becomes empty, so waking
+  // it for every record would sync nearly every record of a slow stream of writes.
+  // A burst queues this many records in a few milliseconds, far less than a poll interval.
+  internal const int WakeWriterRecordInterval = 4096;
+
+  volatile bool isWriterSleeping;
 
   readonly Lock SyncRequestLock = new();
 
@@ -250,7 +258,9 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
         }
         else
         {
+          isWriterSleeping = true;
           WakeWriterSignal.Wait(EmptyQueuePollInterval);
+          isWriterSleeping = false;
           // An item queued before the signal is dequeued in the next loop.
           WakeWriterSignal.Reset();
         }
@@ -299,6 +309,9 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
   public void Append(in TKey key, in TValue value, long opIndex)
   {
     Queue.Enqueue(new QueueItem(in key, in value, opIndex));
+    // A missed wake only leaves the records to the next interval or to the poll.
+    if ((opIndex & (WakeWriterRecordInterval - 1)) == 0 && isWriterSleeping)
+      WakeWriterSignal.Set();
   }
 
   public Task SyncAsync()

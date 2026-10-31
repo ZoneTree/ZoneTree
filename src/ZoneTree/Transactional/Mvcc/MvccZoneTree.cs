@@ -87,11 +87,6 @@ public sealed class MvccZoneTree<TKey, TValue> :
   readonly Queue<TransactionEntry> CommittedTransactions = new();
 
   /// <summary>
-  /// Committed keys, in commit order, until no writing transaction can conflict with them.
-  /// </summary>
-  readonly Queue<(long CommitTimestamp, TKey[] Keys)> CommittedWrites = new();
-
-  /// <summary>
   /// Rolled back transactions whose versions were deleted, in rollback order.
   /// They are forgotten once no transaction that began before the deletions is active.
   /// </summary>
@@ -249,7 +244,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
   /// </summary>
   void Recover()
   {
-    using var iterator = Storage.CreateIterator(IteratorType.NoRefresh, false, false);
+    using var iterator = Storage.CreateIterator(IteratorType.NoRefresh, false, true);
     iterator.SeekFirst();
     while (iterator.Next())
     {
@@ -505,7 +500,6 @@ public sealed class MvccZoneTree<TKey, TValue> :
 
     var hasConflict = false;
     long commitTimestamp = 0;
-    TKey[] keys = null;
     lock (CommitLock)
     {
       try
@@ -516,11 +510,13 @@ public sealed class MvccZoneTree<TKey, TValue> :
             transaction.ConflictsWith(ConflictIndex);
         if (!hasConflict)
         {
-          keys = transaction.GetWrittenKeys();
+          var keys = transaction.GetWrittenKeys();
           lock (StateLock)
             commitTimestamp = NextTimestamp();
           // Committers check conflicts under this lock, so none sees the keys before the
           // commit point. Writers that see them early conflict with a commit that follows.
+          // The keys added for a failed commit can only make transactions that began
+          // before it conflict. They are pruned like the keys of a commit.
           ConflictIndex.Add(keys, commitTimestamp);
           // The commit point: a single record, durable with the next WAL sync.
           Storage.ForceDelete(VersionedKey<TKey>.TransactionStatus(transaction.TransactionId));
@@ -528,13 +524,6 @@ public sealed class MvccZoneTree<TKey, TValue> :
       }
       catch
       {
-        if (commitTimestamp != 0)
-        {
-          // The keys added for a failed commit can only make transactions that began
-          // before it conflict. They are pruned like the keys of a commit.
-          lock (StateLock)
-            CommittedWrites.Enqueue((commitTimestamp, keys));
-        }
         Rollback(transaction);
         throw;
       }
@@ -550,7 +539,6 @@ public sealed class MvccZoneTree<TKey, TValue> :
           // New snapshots include the commit only after its entry says committed.
           Volatile.Write(ref lastCommitTimestamp, commitTimestamp);
           CommittedTransactions.Enqueue(entry);
-          CommittedWrites.Enqueue((commitTimestamp, keys));
           NonDurableCommits.Enqueue(entry);
         }
       }
@@ -614,17 +602,8 @@ public sealed class MvccZoneTree<TKey, TValue> :
   void EndTransactionLocked(MvccTransaction<TKey, TValue> transaction)
   {
     Active.RemoveWriter(transaction);
-    // The transaction ended whatever follows. The bookkeeping calls the key
-    // comparer, and a failure leaves its work to the next call.
-    try
-    {
-      PruneCommittedTransactions();
-      ForgetRolledBackTransactions();
-    }
-    catch (Exception e)
-    {
-      Logger.LogError(e);
-    }
+    PruneCommittedTransactions();
+    ForgetRolledBackTransactions();
   }
 
   /// <summary>
@@ -645,19 +624,9 @@ public sealed class MvccZoneTree<TKey, TValue> :
         Entries.TryRemove(entry.Id, out _);
       }
     }
-    if (CommittedWrites.Count > 0)
-    {
-      // Read-only transactions never check conflicts, so a long report
-      // does not keep the committed keys.
-      var writerHorizon = Active.OldestWriterSnapshot(lastCommitTimestamp);
-      while (CommittedWrites.TryPeek(out var item) &&
-          item.CommitTimestamp <= writerHorizon)
-      {
-        // Removed before the item, so a failure leaves the keys to a later call.
-        ConflictIndex.Remove(item.Keys, item.CommitTimestamp);
-        CommittedWrites.Dequeue();
-      }
-    }
+    // Read-only transactions never check conflicts, so a long report
+    // does not keep the committed keys.
+    ConflictIndex.Prune(Active.OldestWriterSnapshot(lastCommitTimestamp));
   }
 
   /// <summary>

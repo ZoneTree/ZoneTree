@@ -28,12 +28,22 @@ public sealed partial class BTree<TKey, TValue>
 
     public void Update(int position, in TKey key, in TValue value)
     {
+      BeginChange();
       Keys[position] = key;
       Values[position] = value;
+      EndChange();
+    }
+
+    public void UpdateValue(int position, in TValue value)
+    {
+      BeginChange();
+      Values[position] = value;
+      EndChange();
     }
 
     public void Insert(int position, in TKey key, in TValue value)
     {
+      BeginChange();
       var len = Length - position;
       if (len > 0)
       {
@@ -43,6 +53,7 @@ public sealed partial class BTree<TKey, TValue>
       Keys[position] = key;
       Values[position] = value;
       ++Length;
+      EndChange();
     }
 
     public NodeIterator GetIterator(BTree<TKey, TValue> tree)

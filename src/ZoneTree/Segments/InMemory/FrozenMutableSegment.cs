@@ -77,6 +77,12 @@ public sealed class FrozenMutableSegment<TKey, TValue> : IMutableSegment<TKey, T
     return mutableSegment.GetSeekableIterator(contributeToTheBlockCache);
   }
 
+  public SegmentVisitAction Visit<TVisitor>(in TKey key, ref TVisitor visitor)
+      where TVisitor : struct, ISegmentRecordVisitor<TKey, TValue>
+  {
+    return mutableSegment.Visit(in key, ref visitor);
+  }
+
   public void ReleaseResources()
   {
     mutableSegment.ReleaseResources();

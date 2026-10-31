@@ -36,8 +36,8 @@ public interface ITransactionalZoneTreeMaintenance<TKey, TValue>
   int AbortedTransactionCount { get; }
 
   /// <summary>
-  /// The number of keys kept to detect conflicts. Keys written by a commit stay until
-  /// every writing transaction that began before the commit has ended.
+  /// The number of keys that can still cause a conflict. Keys written by a commit count
+  /// until every writing transaction that began before the commit has ended.
   /// Read-only transactions do not keep them.
   /// </summary>
   int ConflictIndexCount { get; }

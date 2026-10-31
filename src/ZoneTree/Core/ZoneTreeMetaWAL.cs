@@ -292,12 +292,24 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
       DiskSegmentMaxItemCount = Options.DiskSegmentMaxItemCount,
       BottomSegments = bottomSegments,
       MaximumOpIndex = zoneTreeMeta.MaximumOpIndex,
-      MetaWalGeneration = zoneTreeMeta.MetaWalGeneration + 1,
+      MetaWalGeneration = zoneTreeMeta.MetaWalGeneration,
     };
 
-    var bytes = JsonSerializeToUtf8Bytes(newZoneTreeMeta);
     var deviceManager = Options.RandomAccessDeviceManager;
     var metaFilePath = deviceManager.GetFilePath(0, MetaFileCategory);
+
+    // An unchanged tree must not write to the disk. The generation only fences the
+    // records of the meta WAL, so an empty one needs no new generation. A meta WAL with
+    // content can hold stale records or a torn tail, which the save below clears.
+    if (!createNew &&
+        zoneTreeMeta.MetaWalGeneration != 0 &&
+        Device.Length == 0 &&
+        deviceManager.FileStreamProvider.ReadAllBytes(metaFilePath).AsSpan()
+            .SequenceEqual(JsonSerializeToUtf8Bytes(newZoneTreeMeta)))
+      return;
+
+    ++newZoneTreeMeta.MetaWalGeneration;
+    var bytes = JsonSerializeToUtf8Bytes(newZoneTreeMeta);
 
     if (createNew)
     {
