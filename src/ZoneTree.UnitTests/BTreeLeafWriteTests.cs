@@ -322,6 +322,56 @@ public sealed class BTreeLeafWriteTests
     tree.ValidateLeafs();
   }
 
+  struct FirstKeyVisitor : ISegmentRecordVisitor<int, int>
+  {
+    public int FirstKey;
+
+    public SegmentVisitAction Visit(in int key, in int value)
+    {
+      FirstKey = key;
+      return SegmentVisitAction.Stop;
+    }
+  }
+
+  [TestCase(BTreeLockMode.NodeLevelMonitor, 8)]
+  [TestCase(BTreeLockMode.NodeLevelMonitor, 128)]
+  [TestCase(BTreeLockMode.NodeLevelReaderWriter, 8)]
+  [TestCase(BTreeLockMode.NodeLevelReaderWriter, 128)]
+  public void CompletedAscendingWritesAreVisibleToEveryReadPath(BTreeLockMode lockMode, int size)
+  {
+    const int writerCount = 8;
+    const int count = 200_000;
+    var tree = CreateTree(lockMode, size);
+    var next = 0;
+
+    Parallel.For(0, writerCount, new ParallelOptions { MaxDegreeOfParallelism = writerCount }, writer =>
+    {
+      var iterator = new BTreeSeekableIterator<int, int>(tree);
+      while (true)
+      {
+        var key = Interlocked.Increment(ref next);
+        if (key > count)
+          return;
+        tree.Upsert(key, key + 1, out _);
+
+        Assert.That(tree.ContainsKey(in key), Is.True, $"ContainsKey {key}");
+        var visitor = new FirstKeyVisitor();
+        tree.Visit(in key, ref visitor);
+        Assert.That(visitor.FirstKey, Is.EqualTo(key), "Visit");
+        Assert.That(iterator.SeekToFirstGreaterOrEqualElement(in key), Is.True, $"seek {key}");
+        Assert.That(iterator.CurrentKey, Is.EqualTo(key), "seek");
+        Assert.That(iterator.SeekToLastSmallerOrEqualElement(in key), Is.True, $"reverse seek {key}");
+        Assert.That(iterator.CurrentKey, Is.EqualTo(key), "reverse seek");
+        // The end of the tree is at or after every completed write.
+        Assert.That(iterator.SeekEnd(), Is.True, $"end {key}");
+        Assert.That(iterator.CurrentKey, Is.GreaterThanOrEqualTo(key), "end");
+      }
+    });
+
+    tree.Validate();
+    tree.ValidateLeafs();
+  }
+
   [TestCase(BTreeLockMode.NodeLevelMonitor)]
   [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
   public void UpdatesOfOneKeyAreNotLostDuringSplits(BTreeLockMode lockMode)

@@ -67,11 +67,11 @@ jobs:
         run: dotnet test --no-build --configuration Release --verbosity normal
         working-directory: ./src
       # These tests depend on timing, so a single pass proves little.
-      - name: Repeat the lock-free read tests
+      - name: Repeat the lock-free B-tree tests
         working-directory: ./src
         run: |
           for run in $(seq 1 20); do
             echo "Run $run of 20"
             dotnet test --no-build --configuration Release \
-              --filter "FullyQualifiedName~BTreeLockFreeSearchTests|FullyQualifiedName~BTreeVisitTests"
+              --filter "FullyQualifiedName~BTreeLockFreeSearchTests|FullyQualifiedName~BTreeVisitTests|FullyQualifiedName~BTreeLeafWriteTests"
           done
