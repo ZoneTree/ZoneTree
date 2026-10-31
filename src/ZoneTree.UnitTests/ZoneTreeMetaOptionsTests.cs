@@ -94,7 +94,6 @@ public sealed class ZoneTreeMetaOptionsTests
           options.CompressionBlockSize = expected.WriteAheadLogCompressionBlockSize;
           options.CompressionMethod = expected.WriteAheadLogCompressionMethod;
           options.CompressionLevel = expected.WriteAheadLogCompressionLevel;
-          options.EnableIncrementalBackup = expected.EnableIncrementalBackup;
           options.AsyncCompressedModeOptions.EmptyQueuePollInterval =
               expected.AsyncCompressedModeEmptyQueuePollInterval;
           options.SyncCompressedModeOptions.EnableTailWriterJob =
@@ -138,7 +137,6 @@ public sealed class ZoneTreeMetaOptionsTests
           WriteAheadLogCompressionBlockSize: 128 * 1024,
           WriteAheadLogCompressionMethod: CompressionMethod.LZ4,
           WriteAheadLogCompressionLevel: CompressionLevels.LZ4HighCompression3,
-          EnableIncrementalBackup: true,
           AsyncCompressedModeEmptyQueuePollInterval: 17,
           SyncCompressedModeEnableTailWriterJob: false,
           SyncCompressedModeTailWriterJobInterval: 19,
@@ -165,7 +163,6 @@ public sealed class ZoneTreeMetaOptionsTests
           WriteAheadLogCompressionBlockSize: 192 * 1024,
           WriteAheadLogCompressionMethod: CompressionMethod.Zstd,
           WriteAheadLogCompressionLevel: CompressionLevels.Zstd1,
-          EnableIncrementalBackup: false,
           AsyncCompressedModeEmptyQueuePollInterval: 43,
           SyncCompressedModeEnableTailWriterJob: true,
           SyncCompressedModeTailWriterJobInterval: 47,
@@ -192,7 +189,6 @@ public sealed class ZoneTreeMetaOptionsTests
           WriteAheadLogCompressionBlockSize: 224 * 1024,
           WriteAheadLogCompressionMethod: CompressionMethod.Brotli,
           WriteAheadLogCompressionLevel: CompressionLevels.BrotliFastest,
-          EnableIncrementalBackup: true,
           AsyncCompressedModeEmptyQueuePollInterval: 59,
           SyncCompressedModeEnableTailWriterJob: false,
           SyncCompressedModeTailWriterJobInterval: 61,
@@ -238,7 +234,6 @@ public sealed class ZoneTreeMetaOptionsTests
     Assert.That(walOptions.CompressionBlockSize, Is.EqualTo(expected.WriteAheadLogCompressionBlockSize));
     Assert.That(walOptions.CompressionMethod, Is.EqualTo(expected.WriteAheadLogCompressionMethod));
     Assert.That(walOptions.CompressionLevel, Is.EqualTo(expected.WriteAheadLogCompressionLevel));
-    Assert.That(walOptions.EnableIncrementalBackup, Is.EqualTo(expected.EnableIncrementalBackup));
     Assert.That(walOptions.AsyncCompressedModeOptions.EmptyQueuePollInterval,
         Is.EqualTo(expected.AsyncCompressedModeEmptyQueuePollInterval));
     Assert.That(walOptions.SyncCompressedModeOptions.EnableTailWriterJob,
@@ -305,7 +300,6 @@ public sealed class ZoneTreeMetaOptionsTests
       int WriteAheadLogCompressionBlockSize,
       CompressionMethod WriteAheadLogCompressionMethod,
       int WriteAheadLogCompressionLevel,
-      bool EnableIncrementalBackup,
       int AsyncCompressedModeEmptyQueuePollInterval,
       bool SyncCompressedModeEnableTailWriterJob,
       int SyncCompressedModeTailWriterJobInterval,

@@ -85,6 +85,10 @@ public sealed class CompressedFileStream : Stream, IDisposable
   // that was written before. Later syncs cannot prove durability anymore.
   volatile Exception DurabilityFailure;
 
+  // The content position where the bytes that a power loss could tear start,
+  // as found when this stream opened.
+  readonly long UnsyncedTailStart;
+
   public string FilePath { get; }
 
   /// <summary>
@@ -140,6 +144,8 @@ public sealed class CompressedFileStream : Stream, IDisposable
 
   const int MetaDataSize = sizeof(byte);
 
+  const int SectorSize = 512;
+
   public CompressedFileStream(
       ILogger logger,
       IFileStreamProvider fileStreamProvider,
@@ -182,10 +188,22 @@ public sealed class CompressedFileStream : Stream, IDisposable
     }
 
     LoadTail();
-    var lastBlockIndex = SkipToTheEnd();
+    var mainFileLength = FileStream.Length;
+    var lastBlockIndex = SkipToTheEnd(out var lastBlock);
+
+    // The tail file names a later block once a committed block is synced. So a
+    // block that the tail file does not name yet can be torn by a power loss
+    // during its commit. Only unsynced records are lost by dropping it.
+    if (lastBlockIndex >= TailBlock.BlockIndex && IsTornBlock(lastBlock))
+    {
+      FileStream.SetLength(lastBlock.Position);
+      lastBlockIndex = SkipToTheEnd(out lastBlock);
+    }
+    FileStream.Position = FileStream.Length;
 
     // discard tail record if a greater block index exists in the main file.
-    if (lastBlockIndex >= TailBlock.BlockIndex)
+    var isTailDiscarded = lastBlockIndex >= TailBlock.BlockIndex;
+    if (isTailDiscarded)
     {
       // if WAL had incomplete block in the end,
       // it was truncated in the skip to the end method.
@@ -196,6 +214,26 @@ public sealed class CompressedFileStream : Stream, IDisposable
       TailBlock = new DecompressedBlock(
           lastBlockIndex + 1, blockSize, CompressionMethod, CompressionLevel);
     }
+    else if (TailBlock.Length == 0 && TailBlock.BlockIndex > lastBlockIndex + 1)
+    {
+      // Replacing the content restarts the block indexes and keeps the empty
+      // tail. Skipping a torn block header needs the next block index in the tail.
+      TailBlock = new DecompressedBlock(
+          lastBlockIndex + 1, blockSize, CompressionMethod, CompressionLevel);
+      LastWrittenTailIndex = -1;
+      WriteTail();
+    }
+    // The tail file is the only other copy of a discarded tail, and writing the
+    // new tail must not lose it while the block is not known to be on the disk.
+    // Bytes that a truncation removed must not come back under new blocks.
+    var isMainFileTruncated = FileStream.Length != mainFileLength;
+    if (isMainFileTruncated)
+      Logger.LogWarning($"Truncated the torn end of {FilePath} from {mainFileLength} to {FileStream.Length} bytes.");
+    if (isTailDiscarded || isMainFileTruncated)
+      SyncMainFile();
+    // An empty tail file does not prove that the last block is synced: it can
+    // be written while recovering a torn block that replaced a discarded tail.
+    UnsyncedTailStart = _length - (TailBlock.Length > 0 ? TailBlock.Length : lastBlock.Length);
     CurrentBlockPosition = 0;
     CurrentBlock = TailBlock;
     TailWriterJobInterval = tailWriterJobInterval;
@@ -591,7 +629,66 @@ public sealed class CompressedFileStream : Stream, IDisposable
       throw new EndOfStreamException("Incomplete compressed block.");
   }
 
-  int SkipToTheEnd()
+  /// <summary>
+  /// Tells whether a power loss tore the last block of the main file. The block
+  /// does not decompress, or an appended sector of it did not persist and reads
+  /// as zeros. An uncompressed block with a real zero sector is dropped too,
+  /// which only loses records that the tail file does not hold, so unsynced ones.
+  /// </summary>
+  bool IsTornBlock(in LastBlockInfo block)
+  {
+    FileStream.Position = block.Position + 3 * sizeof(int);
+    var compressedBytes = new byte[block.CompressedLength];
+    ReadMainFileExactly(compressedBytes);
+    Memory<byte> bytes;
+    try
+    {
+      bytes = DataCompression.Decompress(CompressionMethod, compressedBytes, block.Length);
+    }
+    catch (Exception)
+    {
+      // Each compression library reports corrupted input with its own exception.
+      return true;
+    }
+    return bytes.Length != block.Length ||
+        HasZeroSector(compressedBytes, block.Position + 3 * sizeof(int));
+  }
+
+  static bool HasZeroSector(ReadOnlySpan<byte> bytes, long position)
+  {
+    while (bytes.Length > 0)
+    {
+      var length = (int)Math.Min(SectorSize - position % SectorSize, bytes.Length);
+      var isZero = true;
+      foreach (var value in bytes.Slice(0, length))
+        isZero &= value == 0;
+      if (isZero)
+        return true;
+      bytes = bytes.Slice(length);
+      position += length;
+    }
+    return false;
+  }
+
+  /// <summary>
+  /// Tells whether a damaged record that was read up to the
+  /// given position can be in the bytes that a power loss tore.
+  /// </summary>
+  internal bool IsUnsyncedTail(long readPosition)
+  {
+    return readPosition > UnsyncedTailStart || readPosition >= _length;
+  }
+
+  struct LastBlockInfo
+  {
+    public long Position;
+
+    public int CompressedLength;
+
+    public int Length;
+  }
+
+  int SkipToTheEnd(out LastBlockInfo lastBlock)
   {
     Position = 0;
     _length = 0;
@@ -599,6 +696,7 @@ public sealed class CompressedFileStream : Stream, IDisposable
     var len = FileStream.Length;
     long physicalPosition = MetaDataSize;
     var lastBlockIndex = -1;
+    lastBlock = default;
     Span<byte> header = stackalloc byte[3 * sizeof(int)];
     while (true)
     {
@@ -620,7 +718,14 @@ public sealed class CompressedFileStream : Stream, IDisposable
       var blockSize = MemoryMarshal.Read<int>(header.Slice(2 * sizeof(int)));
 
       var blockEndPosition = physicalPosition + sizeof(int) * 3L + compressedBlockSize;
-      if (compressedBlockSize < 0 || blockSize < 0 || blockEndPosition > len)
+      // Block indexes only grow, so a smaller one is a header with a sector that
+      // did not persist, if this can be the block being committed: the tail file
+      // names a later block once a block is synced. An empty block is torn too,
+      // unless the tail names a later block: older versions could commit empty blocks.
+      var isTornEmptyBlock = compressedBlockSize == 0 && blockSize == 0 && blockIndex >= TailBlock.BlockIndex;
+      if (compressedBlockSize < 0 || blockSize < 0 || blockEndPosition > len ||
+          (blockIndex <= lastBlockIndex && lastBlockIndex + 1 >= TailBlock.BlockIndex) ||
+          isTornEmptyBlock)
       {
         // truncates partially written compressed block.
         // because the last block content is also written in tail block.
@@ -631,6 +736,12 @@ public sealed class CompressedFileStream : Stream, IDisposable
       physicalPosition = blockEndPosition;
       FileStream.Position = physicalPosition;
       _length += blockSize;
+      lastBlock = new LastBlockInfo
+      {
+        Position = blockStartPosition,
+        CompressedLength = compressedBlockSize,
+        Length = blockSize
+      };
       lastBlockIndex = blockIndex;
     }
     _length += TailBlock.Length;
@@ -762,7 +873,7 @@ public sealed class CompressedFileStream : Stream, IDisposable
         FileStream.SetLength(MetaDataSize);
         FileStream.Position = MetaDataSize;
         TailBlock = new DecompressedBlock(TailBlock.BlockIndex, BlockSize, CompressionMethod, CompressionLevel);
-        SkipToTheEnd();
+        SkipToTheEnd(out _);
         CurrentBlockPosition = 0;
         LastWrittenTailIndex = -1;
         WriteTail();
@@ -778,11 +889,7 @@ public sealed class CompressedFileStream : Stream, IDisposable
     LastWrittenTailIndex = -1;
     _length -= trimmed;
     if (_length > truncatedLength)
-    {
-      // The tail is empty. Persist it before truncating the main file.
-      WriteTail();
       TruncateMainFile(truncatedLength);
-    }
     // Both paths must leave the stream ready to append at the new end.
     FileStream.Position = FileStream.Length;
     CurrentBlock = TailBlock;
@@ -790,6 +897,17 @@ public sealed class CompressedFileStream : Stream, IDisposable
     Position = _length;
   }
 
+  /// <summary>
+  /// Drops the blocks after the given content length from the main file.
+  /// </summary>
+  /// <remarks>
+  /// A block that the new end falls into becomes the new tail, because rewriting
+  /// it in place could lose it. A power loss at any step leaves all the kept content:
+  /// 1. The tail is synced. It names the first dropped block, so opening
+  ///    the old main file discards it and truncates the content again.
+  /// 2. The main file is truncated and synced, so the
+  ///    dropped bytes cannot come back under new blocks.
+  /// </remarks>
   void TruncateMainFile(long truncatedLength)
   {
     FileStream.Position = MetaDataSize;
@@ -809,10 +927,8 @@ public sealed class CompressedFileStream : Stream, IDisposable
         FileStream.SetLength(physicalPosition);
         break;
       }
-#if DEBUG
       var blockIndex =
           BinarySerializerHelper.FromByteArray<int>(bytes, 0);
-#endif
       var compressedBlockSize =
           BinarySerializerHelper.FromByteArray<int>(bytes, sizeof(int));
       var blockSize =
@@ -820,27 +936,21 @@ public sealed class CompressedFileStream : Stream, IDisposable
       if (off + blockSize > truncatedLength)
       {
         var diff = truncatedLength - off;
-        if (diff == 0)
+        // When the new end is at a block boundary, the tail stays empty.
+        if (diff != 0)
         {
-          // The new end is at a block boundary: drop this and the following blocks.
-          FileStream.SetLength(physicalPosition);
-          _length = truncatedLength;
-          break;
+          bytes = BinaryReader.ReadBytes(compressedBlockSize);
+          var truncatedBytes = DecompressedBlock
+              .FromCompressed(
+                  blockIndex, bytes,
+                  CompressionMethod,
+                  CompressionLevel,
+                  blockSize).GetBytes(0, (int)diff);
+          TailBlock = new DecompressedBlock(blockIndex, truncatedBytes, CompressionMethod, CompressionLevel);
         }
-        bytes = BinaryReader.ReadBytes(compressedBlockSize);
-        var truncatedBytes = DecompressedBlock
-            .FromCompressed(
-                0, bytes,
-                CompressionMethod,
-                CompressionLevel,
-                blockSize).GetBytes(0, (int)diff);
-        var compressedBytes = new DecompressedBlock(0, truncatedBytes, CompressionMethod, CompressionLevel).Compress();
-        FileStream.Position = physicalPosition + sizeof(int);
-        var bw = BinaryWriter;
-        bw.Write(compressedBytes.Length);
-        bw.Write(truncatedBytes.Length);
-        bw.Write(compressedBytes.Span);
-        FileStream.SetLength(FileStream.Position);
+        WriteTail();
+        FileStream.SetLength(physicalPosition);
+        SyncMainFile();
         _length = truncatedLength;
         break;
       }
@@ -974,38 +1084,6 @@ public sealed class CompressedFileStream : Stream, IDisposable
         TailStream.Close();
         IsClosed = true;
       }
-  }
-
-  public byte[] GetFileContent()
-  {
-    var currentPosition = FileStream.Position;
-    FileStream.Position = 0;
-    var bytes = new byte[FileStream.Length];
-    FileStream.ReadFaster(bytes, 0, bytes.Length);
-    FileStream.Position = currentPosition;
-    return bytes;
-  }
-
-  public byte[] GetFileContentIncludingTail()
-  {
-    lock (SyncRoot)
-    {
-      var tailBlock = TailBlock;
-      var compressedBytes = tailBlock.Compress();
-      var currentPosition = FileStream.Position;
-      FileStream.Position = 0;
-      var bytes = new byte[FileStream.Length + compressedBytes.Length + 3 * sizeof(int)];
-      using var ms = new MemoryStream(bytes);
-      using var bw = new BinaryWriter(ms);
-      FileStream.CopyTo(ms);
-      bw.Write(tailBlock.BlockIndex);
-      bw.Write(compressedBytes.Length);
-      bw.Write(tailBlock.Length);
-      bw.Write(compressedBytes.Span);
-      ms.Flush();
-      FileStream.Position = currentPosition;
-      return bytes;
-    }
   }
 
   protected override void Dispose(bool disposing)

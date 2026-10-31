@@ -40,8 +40,6 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
 
   public int TailWriterJobInterval { get; }
 
-  public bool EnableIncrementalBackup { get; set; }
-
   public int InitialLength { get; private set; }
 
   public SyncCompressedFileSystemWriteAheadLog(
@@ -132,7 +130,8 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
         stopReadOnChecksumFailure,
         LogEntry.ReadLogEntryWithStreamLength,
         DeserializeLogEntry,
-        sortByOpIndexes);
+        sortByOpIndexes,
+        IsLegacyFormat ? null : (_, readPosition) => FileStream.IsUnsyncedTail(readPosition));
     InitialLength = result.Keys.Count;
     return result;
   }
@@ -140,6 +139,9 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
   (bool isValid, TKey key, TValue value, long opIndex) DeserializeLogEntry(in LogEntry logEntry)
   {
     var isValid = IsLegacyFormat || logEntry.ValidateChecksum();
+    // The bytes of a record that fails its checksum cannot be deserialized.
+    if (!isValid)
+      return (false, default, default, logEntry.OpIndex);
     var key = KeySerializer.Deserialize(logEntry.Key);
     var value = ValueSerializer.Deserialize(logEntry.Value);
     return (isValid, key, value, logEntry.OpIndex);
@@ -150,19 +152,10 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
     FileStream.Dispose();
   }
 
-  public long ReplaceWriteAheadLog(TKey[] keys, TValue[] values, bool disableBackup)
+  public long ReplaceWriteAheadLog(TKey[] keys, TValue[] values)
   {
     lock (SyncRoot)
     {
-      if (!disableBackup && EnableIncrementalBackup)
-      {
-        IncrementalLogAppender
-            .AppendLogToTheBackupFile(
-                FileStreamProvider,
-                FilePath + ".full",
-                FileStream.GetFileContentIncludingTail);
-      }
-
       var existingLength = FileStream.Length;
       try
       {

@@ -58,10 +58,7 @@ public sealed class WriteAheadLogProvider : IWriteAheadLogProvider
               FileStreamProvider,
               keySerializer,
               valueSerializer,
-              walPath)
-          {
-            EnableIncrementalBackup = options.EnableIncrementalBackup
-          };
+              walPath);
           WALTable.TryAdd(segmentId + category, wal);
           return wal;
         }
@@ -73,10 +70,7 @@ public sealed class WriteAheadLogProvider : IWriteAheadLogProvider
               keySerializer,
               valueSerializer,
               walPath,
-              options)
-          {
-            EnableIncrementalBackup = options.EnableIncrementalBackup
-          };
+              options);
           WALTable.TryAdd(segmentId + category, wal);
           return wal;
         }
@@ -89,10 +83,7 @@ public sealed class WriteAheadLogProvider : IWriteAheadLogProvider
               keySerializer,
               valueSerializer,
               walPath,
-              options)
-          {
-            EnableIncrementalBackup = options.EnableIncrementalBackup
-          };
+              options);
           WALTable.TryAdd(segmentId + category, wal);
           return wal;
         }

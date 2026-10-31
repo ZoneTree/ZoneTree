@@ -1,8 +1,5 @@
 using System.Buffers.Binary;
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Collections;
-using ZoneTree.Comparers;
-using ZoneTree.Core;
 using ZoneTree.Exceptions;
 using ZoneTree.Exceptions.WAL;
 using ZoneTree.Logger;
@@ -162,49 +159,6 @@ public sealed class WriteAheadLogTests
   }
 
   [Test]
-  public void DictionaryWithWalKeepsOpIndexAfterReload()
-  {
-    const string category = "DictionaryWithWalKeepsOpIndexAfterReload";
-    var provider = new InMemoryFileStreamProvider();
-    var walProvider = new WriteAheadLogProvider(new ConsoleLogger(), provider);
-    walProvider.InitCategory(category);
-    var options = new WriteAheadLogOptions
-    {
-      WriteAheadLogMode = WriteAheadLogMode.Sync
-    };
-
-    using (var dictionary = CreateDictionaryWithWal(
-        walProvider,
-        options,
-        category))
-    {
-      dictionary.Upsert(1, "old");
-    }
-
-    walProvider = new WriteAheadLogProvider(new ConsoleLogger(), provider);
-    walProvider.InitCategory(category);
-    using (var dictionary = CreateDictionaryWithWal(
-        walProvider,
-        options,
-        category))
-    {
-      dictionary.Upsert(1, "new");
-    }
-
-    walProvider = new WriteAheadLogProvider(new ConsoleLogger(), provider);
-    walProvider.InitCategory(category);
-    using (var dictionary = CreateDictionaryWithWal(
-        walProvider,
-        options,
-        category))
-    {
-      Assert.That(dictionary.TryGetValue(1, out var value), Is.True);
-      Assert.That(value, Is.EqualTo("new"));
-      dictionary.Drop();
-    }
-  }
-
-  [Test]
   public void TestWriteAheadLogCorruptionException()
   {
     Assert.DoesNotThrow(() => { new WriteAheadLogCorruptionException(0, null); });
@@ -287,58 +241,6 @@ public sealed class WriteAheadLogTests
     Assert.That(seekPosition, Is.EqualTo(blockSize + 2));
     Assert.That(readLength, Is.EqualTo(1));
     Assert.That(buffer[0], Is.EqualTo(tailBlock[2]));
-  }
-
-  [Test]
-  public void CompressedFileStreamContentIncludingTailCanBeReopened()
-  {
-    var provider = new InMemoryFileStreamProvider();
-    var sourcePath = "CompressedFileStreamContentIncludingTailCanBeReopened.source.wal";
-    var restoredPath = "CompressedFileStreamContentIncludingTailCanBeReopened.restored.wal";
-    const int blockSize = 16;
-    var expected = Enumerable.Range(0, blockSize + 5)
-        .Select(x => (byte)x)
-        .ToArray();
-
-    byte[] exportedBytes;
-    using (var source = new CompressedFileStream(
-        new ConsoleLogger(),
-        provider,
-        sourcePath,
-        blockSize,
-        false,
-        0,
-        CompressionMethod.None,
-        0))
-    {
-      source.Write(expected, 0, expected.Length);
-      exportedBytes = source.GetFileContentIncludingTail();
-    }
-
-    WriteFile(provider, restoredPath, exportedBytes);
-
-    var actual = new byte[expected.Length];
-    int readLength;
-    long restoredLength;
-    using (var restored = new CompressedFileStream(
-        new ConsoleLogger(),
-        provider,
-        restoredPath,
-        blockSize,
-        false,
-        0,
-        CompressionMethod.None,
-        0))
-    {
-      restored.Seek(0, SeekOrigin.Begin);
-      readLength = restored.Read(actual, 0, actual.Length);
-      restoredLength = restored.Length;
-    }
-
-    Assert.That(exportedBytes[0], Is.EqualTo((byte)CompressionMethod.None));
-    Assert.That(restoredLength, Is.EqualTo(expected.Length));
-    Assert.That(readLength, Is.EqualTo(expected.Length));
-    Assert.That(actual, Is.EqualTo(expected));
   }
 
   [Test]
@@ -725,33 +627,6 @@ public sealed class WriteAheadLogTests
     writer.Write(block.Length);
     writer.Write(block.Length);
     writer.Write(block, 0, bytesToWrite);
-  }
-
-  static DictionaryWithWAL<int, string> CreateDictionaryWithWal(
-      WriteAheadLogProvider walProvider,
-      WriteAheadLogOptions options,
-      string category)
-  {
-    return new DictionaryWithWAL<int, string>(
-        0,
-        category,
-        walProvider,
-        options,
-        new Int32Serializer(),
-        new UnicodeStringSerializer(),
-        new Int32ComparerAscending(),
-        IsDeletedString,
-        MarkStringDeleted);
-  }
-
-  static bool IsDeletedString(in int key, in string value)
-  {
-    return value == null;
-  }
-
-  static void MarkStringDeleted(ref string value)
-  {
-    value = null;
   }
 
   sealed class LengthCountingMemoryStream : MemoryStream

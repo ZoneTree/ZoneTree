@@ -180,7 +180,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     Logger = options.Logger;
     options.WriteAheadLogProvider.InitCategory(SegmentWalCategory);
     IncrementalIdProvider.SetNextId(maximumSegmentId + 1);
-    MetaWal = new ZoneTreeMetaWAL<TKey, TValue>(options, false);
+    MetaWal = new ZoneTreeMetaWAL<TKey, TValue>(options, false, meta.MetaWalGeneration);
     ZoneTreeMeta = meta;
     Options = options;
     MinHeapEntryComparer = new MinHeapEntryRefComparer<TKey, TValue>(options.Comparer);
@@ -424,7 +424,6 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       CompressionLevel = wal.CompressionLevel,
       CompressionMethod = wal.CompressionMethod,
       CustomOptions = wal.CustomOptions,
-      EnableIncrementalBackup = wal.EnableIncrementalBackup,
       SyncCompressedModeOptions = new()
       {
         EnableTailWriterJob = wal.SyncCompressedModeOptions.EnableTailWriterJob,

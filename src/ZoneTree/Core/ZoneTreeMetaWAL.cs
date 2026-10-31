@@ -1,4 +1,6 @@
 using System;
+using System.Buffers.Binary;
+using System.IO.Hashing;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -29,10 +31,14 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
 
   public bool IsReadOnly { get; }
 
-  public ZoneTreeMetaWAL(ZoneTreeOptions<TKey, TValue> options, bool isReadOnly)
+  // The generation of the records that this WAL appends.
+  long Generation;
+
+  public ZoneTreeMetaWAL(ZoneTreeOptions<TKey, TValue> options, bool isReadOnly, long generation = 0)
   {
     Options = options;
     IsReadOnly = isReadOnly;
+    Generation = generation;
     if (IsReadOnly)
     {
       Device = Options
@@ -195,7 +201,10 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
   {
     lock (SyncRoot)
     {
-      var bytes = BinarySerializerHelper.ToByteArray(record);
+      var stamped = record;
+      stamped.Generation = unchecked((uint)Generation);
+      stamped.Checksum = stamped.CreateChecksum();
+      var bytes = BinarySerializerHelper.ToByteArray(stamped);
       Device.AppendBytesReturnPosition(bytes);
     }
   }
@@ -208,11 +217,48 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
     var bytes = Device.GetBytes(0, (int)len);
     var list = new List<MetaWalRecord>();
     var off = 0;
-    while (off < len)
+    // A power loss can leave a partial record at the end of the file.
+    while (off + sizeof(MetaWalRecord) <= len)
     {
       var record = BinarySerializerHelper.FromByteArray<MetaWalRecord>(bytes, off);
       list.Add(record);
       off += sizeof(MetaWalRecord);
+    }
+    return list;
+  }
+
+  /// <summary>
+  /// Returns the records that the metadata of the given generation does not include.
+  /// </summary>
+  /// <remarks>
+  /// A power loss can leave records of an older generation, which the metadata
+  /// includes, and an invalid last record, whose append was not synced.
+  /// </remarks>
+  /// <exception cref="ZoneTreeMetaCorruptionException">
+  /// A record of this generation follows an invalid record. Each append is
+  /// synced, so a power loss cannot explain it. Or a record is newer than the
+  /// metadata, so the metadata that the record follows is lost.
+  /// </exception>
+  public IReadOnlyList<MetaWalRecord> GetRecordsOfGeneration(long generation)
+  {
+    var records = GetAllRecords();
+    // An older version saved the metadata and its records have no generation.
+    if (generation == 0)
+      return records;
+    var list = new List<MetaWalRecord>(records.Count);
+    var foundInvalidRecord = false;
+    foreach (var record in records)
+    {
+      if (record.Checksum != record.CreateChecksum())
+      {
+        foundInvalidRecord = true;
+        continue;
+      }
+      if (record.Generation < unchecked((uint)generation))
+        continue;
+      if (foundInvalidRecord || record.Generation > unchecked((uint)generation))
+        throw new ZoneTreeMetaCorruptionException();
+      list.Add(record);
     }
     return list;
   }
@@ -246,6 +292,7 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
       DiskSegmentMaxItemCount = Options.DiskSegmentMaxItemCount,
       BottomSegments = bottomSegments,
       MaximumOpIndex = zoneTreeMeta.MaximumOpIndex,
+      MetaWalGeneration = zoneTreeMeta.MetaWalGeneration + 1,
     };
 
     var bytes = JsonSerializeToUtf8Bytes(newZoneTreeMeta);
@@ -254,14 +301,10 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
 
     if (createNew)
     {
-      using var stream = deviceManager.FileStreamProvider
-          .CreateFileStream(
-              metaFilePath,
-              FileMode.CreateNew,
-              FileAccess.Write,
-              FileShare.None);
-      stream.Write(bytes);
-      stream.Flush(true);
+      deviceManager
+          .FileStreamProvider
+          .GetDurableFileWriter()
+          .WriteNewFile(metaFilePath, bytes);
     }
     else
     {
@@ -270,6 +313,11 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
           .GetDurableFileWriter()
           .WriteAllBytes(metaFilePath, bytes);
     }
+    // The saved metadata makes the existing records stale, even if clearing
+    // them fails or does not reach the disk. So it does not need a disk sync.
+    lock (SyncRoot)
+      Generation = newZoneTreeMeta.MetaWalGeneration;
+    zoneTreeMeta.MetaWalGeneration = newZoneTreeMeta.MetaWalGeneration;
     ClearContent();
     zoneTreeMeta.Version = productVersion;
     zoneTreeMeta.MutableSegment = mutableSegment;
@@ -348,9 +396,25 @@ public struct MetaWalRecord : IEquatable<MetaWalRecord>
 {
   public MetaWalOperation Operation;
 
+  // Generation and Checksum use the padding of the record layout of older
+  // versions, so the record size stays the same and they can read these records.
+  public uint Generation;
+
   public long SegmentId;
 
   public int Index;
+
+  public uint Checksum;
+
+  public readonly uint CreateChecksum()
+  {
+    Span<byte> bytes = stackalloc byte[2 * sizeof(int) + sizeof(long) + sizeof(int)];
+    BinaryPrimitives.WriteInt32LittleEndian(bytes, (int)Operation);
+    BinaryPrimitives.WriteUInt32LittleEndian(bytes[sizeof(int)..], Generation);
+    BinaryPrimitives.WriteInt64LittleEndian(bytes[(2 * sizeof(int))..], SegmentId);
+    BinaryPrimitives.WriteInt32LittleEndian(bytes[(2 * sizeof(int) + sizeof(long))..], Index);
+    return unchecked((uint)XxHash3.HashToUInt64(bytes));
+  }
 
   public override bool Equals(object obj)
   {
@@ -360,13 +424,15 @@ public struct MetaWalRecord : IEquatable<MetaWalRecord>
   public bool Equals(MetaWalRecord other)
   {
     return Operation == other.Operation &&
+           Generation == other.Generation &&
            SegmentId == other.SegmentId &&
-           Index == other.Index;
+           Index == other.Index &&
+           Checksum == other.Checksum;
   }
 
   public override int GetHashCode()
   {
-    return HashCode.Combine(Operation, SegmentId, Index);
+    return HashCode.Combine(Operation, Generation, SegmentId, Index, Checksum);
   }
 
   public static bool operator ==(MetaWalRecord left, MetaWalRecord right)

@@ -6,8 +6,6 @@ public sealed class NullWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TValu
 {
   public string FilePath => null;
 
-  public bool EnableIncrementalBackup { get; set; }
-
   public int InitialLength { get; private set; }
 
   public void Append(in TKey key, in TValue value, long opIndex)
@@ -41,7 +39,7 @@ public sealed class NullWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TValu
   {
   }
 
-  public long ReplaceWriteAheadLog(TKey[] keys, TValue[] values, bool disableBackup)
+  public long ReplaceWriteAheadLog(TKey[] keys, TValue[] values)
   {
     return 0;
   }

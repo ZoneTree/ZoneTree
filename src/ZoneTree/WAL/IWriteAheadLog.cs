@@ -6,8 +6,6 @@ public interface IWriteAheadLog<TKey, TValue> : IDisposable
 {
   string FilePath { get; }
 
-  bool EnableIncrementalBackup { get; set; }
-
   /// <summary>
   /// The initial record count of the log.
   /// It is available after the ReadLogEntries call.
@@ -53,7 +51,6 @@ public interface IWriteAheadLog<TKey, TValue> : IDisposable
   /// <summary>
   /// Replaces the entire write ahead log,
   /// with given keys and values.
-  /// If enabled, appends current wal data to the incremental backup log.
   /// </summary>
   /// <remarks>
   /// Replacement writes a compacted state snapshot. Implementations are not
@@ -63,9 +60,8 @@ public interface IWriteAheadLog<TKey, TValue> : IDisposable
   /// </remarks>
   /// <param name="keys">new keys</param>
   /// <param name="values">new values</param>
-  /// <param name="disableBackup">disable backup regardless of wal flag.</param>
   /// <returns>the difference: old file length - new file length.</returns>
-  long ReplaceWriteAheadLog(TKey[] keys, TValue[] values, bool disableBackup);
+  long ReplaceWriteAheadLog(TKey[] keys, TValue[] values);
 
   /// <summary>
   /// Informs the write ahead log that no further writes will be sent.

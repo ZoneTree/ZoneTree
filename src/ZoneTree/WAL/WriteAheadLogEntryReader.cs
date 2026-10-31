@@ -13,6 +13,14 @@ public static class WriteAheadLogEntryReader
 
   public delegate (bool isValid, TKey key, TValue value, long opIndex) LogEntryDeserializerDelegate<TKey, TValue, TLogEntry>(in TLogEntry logEntry);
 
+  /// <summary>
+  /// Tells whether a damaged record can be what a power loss leaves of
+  /// writes after the last disk sync, rather than a corruption of the log.
+  /// </summary>
+  /// <param name="recordPosition">The start position of the damaged record.</param>
+  /// <param name="readPosition">The stream position after reading the damaged record.</param>
+  public delegate bool IsUnsyncedTailDelegate(long recordPosition, long readPosition);
+
   public static WriteAheadLogReadLogEntriesResult<TKey, TValue> ReadLogEntries<TKey, TValue, TLogEntry>(
       ILogger logger,
       Stream stream,
@@ -40,7 +48,8 @@ public static class WriteAheadLogEntryReader
       bool stopReadOnChecksumFailure,
       LogEntryReaderWithLengthDelegate<TLogEntry> logEntryReader,
       LogEntryDeserializerDelegate<TKey, TValue, TLogEntry> logEntryDeserializer,
-      bool sortByOpIndexes
+      bool sortByOpIndexes,
+      IsUnsyncedTailDelegate isUnsyncedTail = null
       )
   {
     var result = new WriteAheadLogReadLogEntriesResult<TKey, TValue>
@@ -70,6 +79,15 @@ public static class WriteAheadLogEntryReader
       }
       catch (EndOfStreamException e)
       {
+        // A corrupted length can also run past the end of the log.
+        if (isUnsyncedTail != null && result.Success && !isUnsyncedTail(logEntryPosition, length))
+        {
+          var corruption = new InvalidDataException($"ReadLogEntry failed. Index={i}", e);
+          logger.LogError(corruption);
+          result.Exceptions.Add(i, corruption);
+          result.Success = false;
+          break;
+        }
         var ex = new IncompleteTailRecordFoundException(e)
         {
           FileLength = length,
@@ -99,6 +117,8 @@ public static class WriteAheadLogEntryReader
       }
       catch (Exception e)
       {
+        if (StopAtUnsyncedTail(logger, stream, result, isUnsyncedTail, e, logEntryPosition, length, i))
+          break;
         var ex = new InvalidOperationException($"ReadLogEntry failed. Index={i}", e);
         logger.LogError(ex);
         result.Exceptions.Add(i, ex);
@@ -113,8 +133,11 @@ public static class WriteAheadLogEntryReader
         (var isValid, key, value, opIndex) = logEntryDeserializer(in entry);
         if (!isValid)
         {
+          var checksumFailure = new InvalidDataException($"Checksum failed. Index={i}");
+          if (StopAtUnsyncedTail(logger, stream, result, isUnsyncedTail, checksumFailure, logEntryPosition, length, i))
+            break;
           if (!result.Exceptions.ContainsKey(i))
-            result.Exceptions.Add(i, new InvalidDataException($"Checksum failed. Index={i}"));
+            result.Exceptions.Add(i, checksumFailure);
           result.Success = false;
           if (stopReadOnChecksumFailure) break;
         }
@@ -160,6 +183,34 @@ public static class WriteAheadLogEntryReader
     result.Keys = keyList;
     result.Values = valuesList;
     return result;
+  }
+
+  /// <summary>
+  /// Reports the first damaged record as an incomplete tail record
+  /// when it can be an unsynced tail, which loading truncates.
+  /// </summary>
+  static bool StopAtUnsyncedTail<TKey, TValue>(
+      ILogger logger,
+      Stream stream,
+      WriteAheadLogReadLogEntriesResult<TKey, TValue> result,
+      IsUnsyncedTailDelegate isUnsyncedTail,
+      Exception damage,
+      long recordPosition,
+      long length,
+      int recordIndex)
+  {
+    if (isUnsyncedTail == null || !result.Success || !isUnsyncedTail(recordPosition, stream.Position))
+      return false;
+    var ex = new IncompleteTailRecordFoundException(damage)
+    {
+      FileLength = length,
+      RecordPosition = recordPosition,
+      RecordIndex = recordIndex
+    };
+    logger.LogWarning(ex);
+    result.Exceptions.Add(recordIndex, ex);
+    result.Success = false;
+    return true;
   }
 
   public sealed class LogEntryReaderComparer : IRefComparer<int>

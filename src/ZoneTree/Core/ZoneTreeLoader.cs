@@ -146,7 +146,7 @@ public sealed class ZoneTreeLoader<TKey, TValue>
   void LoadZoneTreeMetaWAL()
   {
     using var metaWal = new ZoneTreeMetaWAL<TKey, TValue>(Options, false);
-    var records = metaWal.GetAllRecords();
+    var records = metaWal.GetRecordsOfGeneration(ZoneTreeMeta.MetaWalGeneration);
     var readOnlySegments = ZoneTreeMeta.ReadOnlySegments.ToList();
     var bottomSegments = ZoneTreeMeta.BottomSegments?.ToList() ?? new List<long>();
     var maximumOpIndex = ZoneTreeMeta.MaximumOpIndex;
@@ -355,7 +355,7 @@ public sealed class ZoneTreeLoader<TKey, TValue>
           keys[i] = iterator.CurrentKey;
           values[i++] = iterator.CurrentValue;
         }
-        mutableSegmentWal.ReplaceWriteAheadLog(keys, values, true);
+        mutableSegmentWal.ReplaceWriteAheadLog(keys, values);
       }
     }
     LoadDiskSegment();

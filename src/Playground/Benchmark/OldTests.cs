@@ -278,7 +278,6 @@ public sealed class OldTests
         {
           x.CompressionBlockSize = TestConfig.WALCompressionBlockSize;
           x.WriteAheadLogMode = mode;
-          x.EnableIncrementalBackup = TestConfig.EnableIncrementalBackup;
         })
         .OpenOrCreate();
   }

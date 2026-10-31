@@ -153,7 +153,7 @@ A local `Upsert` followed by an unrelated network send leaves a failure window: 
 
 For transactional producers, capture committed transactions and their boundaries. The storage writes underneath include versions of transactions that have not committed yet, or that later roll back.
 
-The engine WAL serves local recovery. Its files can be compacted or removed as the LSM tree progresses, so a replication stream needs its own retention and consumer-checkpoint policy. `EnableIncrementalBackup` is a WAL-compaction backup option, not a ready-made subscriber or change-feed API.
+The engine WAL serves local recovery. Its files can be compacted or removed as the LSM tree progresses, so a replication stream needs its own retention and consumer-checkpoint policy.
 
 ### Define the operation envelope
 

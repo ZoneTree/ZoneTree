@@ -49,7 +49,6 @@ public class ZoneTreeTestBase<TKey, TValue>
           x.CompressionLevel = TestConfig.CompressionLevel;
           x.CompressionBlockSize = TestConfig.WALCompressionBlockSize;
           x.WriteAheadLogMode = WALMode;
-          x.EnableIncrementalBackup = TestConfig.EnableIncrementalBackup;
         });
   }
 

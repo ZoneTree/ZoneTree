@@ -115,8 +115,6 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
 
   readonly bool IsLegacyFormat;
 
-  public bool EnableIncrementalBackup { get; set; }
-
   public int InitialLength { get; private set; }
 
   public AsyncCompressedFileSystemWriteAheadLog(
@@ -440,7 +438,8 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
         stopReadOnChecksumFailure,
         LogEntry.ReadLogEntryWithStreamLength,
         DeserializeLogEntry,
-        sortByOpIndexes);
+        sortByOpIndexes,
+        IsLegacyFormat ? null : (_, readPosition) => FileStream.IsUnsyncedTail(readPosition));
     InitialLength = result.Keys.Count;
     return result;
   }
@@ -448,6 +447,9 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
   (bool isValid, TKey key, TValue value, long opIndex) DeserializeLogEntry(in LogEntry logEntry)
   {
     var isValid = IsLegacyFormat || logEntry.ValidateChecksum();
+    // The bytes of a record that fails its checksum cannot be deserialized.
+    if (!isValid)
+      return (false, default, default, logEntry.OpIndex);
     var key = KeySerializer.Deserialize(logEntry.Key);
     var value = ValueSerializer.Deserialize(logEntry.Value);
     return (isValid, key, value, logEntry.OpIndex);
@@ -458,7 +460,7 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
     Close();
   }
 
-  public long ReplaceWriteAheadLog(TKey[] keys, TValue[] values, bool disableBackup)
+  public long ReplaceWriteAheadLog(TKey[] keys, TValue[] values)
   {
     lock (SyncRoot)
     {
@@ -467,14 +469,6 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
       StopWriter(true);
       try
       {
-        if (!disableBackup && EnableIncrementalBackup)
-        {
-          IncrementalLogAppender
-              .AppendLogToTheBackupFile(
-                  FileStreamProvider,
-                  FilePath + ".full",
-                  FileStream.GetFileContentIncludingTail);
-        }
         var existingLength = FileStream.Length;
         try
         {
