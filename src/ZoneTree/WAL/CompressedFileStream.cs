@@ -214,10 +214,22 @@ public sealed class CompressedFileStream : Stream, IDisposable
       TailBlock = new DecompressedBlock(
           lastBlockIndex + 1, blockSize, CompressionMethod, CompressionLevel);
     }
+    else if (TailBlock.Length == 0 && TailBlock.BlockIndex > lastBlockIndex + 1)
+    {
+      // Replacing the content restarts the block indexes and keeps the empty
+      // tail. Skipping a torn block header needs the next block index in the tail.
+      TailBlock = new DecompressedBlock(
+          lastBlockIndex + 1, blockSize, CompressionMethod, CompressionLevel);
+      LastWrittenTailIndex = -1;
+      WriteTail();
+    }
     // The tail file is the only other copy of a discarded tail, and writing the
     // new tail must not lose it while the block is not known to be on the disk.
     // Bytes that a truncation removed must not come back under new blocks.
-    if (isTailDiscarded || FileStream.Length != mainFileLength)
+    var isMainFileTruncated = FileStream.Length != mainFileLength;
+    if (isMainFileTruncated)
+      Logger.LogWarning($"Truncated the torn end of {FilePath} from {mainFileLength} to {FileStream.Length} bytes.");
+    if (isTailDiscarded || isMainFileTruncated)
       SyncMainFile();
     // An empty tail file does not prove that the last block is synced: it can
     // be written while recovering a torn block that replaced a discarded tail.
@@ -707,11 +719,13 @@ public sealed class CompressedFileStream : Stream, IDisposable
 
       var blockEndPosition = physicalPosition + sizeof(int) * 3L + compressedBlockSize;
       // Block indexes only grow, so a smaller one is a header with a sector that
-      // did not persist. A zero filled first header is one too, unless the tail
-      // names a later block: older versions could commit an empty first block.
+      // did not persist, if this can be the block being committed: the tail file
+      // names a later block once a block is synced. A zero filled first header
+      // is torn too, unless the tail names a later block: older versions could
+      // commit an empty first block.
       var isEmptyHeader = blockIndex == 0 && compressedBlockSize == 0 && blockSize == 0;
       if (compressedBlockSize < 0 || blockSize < 0 || blockEndPosition > len ||
-          blockIndex <= lastBlockIndex ||
+          (blockIndex <= lastBlockIndex && lastBlockIndex + 1 >= TailBlock.BlockIndex) ||
           (isEmptyHeader && TailBlock.BlockIndex == 0))
       {
         // truncates partially written compressed block.

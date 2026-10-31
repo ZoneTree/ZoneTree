@@ -222,6 +222,25 @@ public sealed class PowerLossRecoveryTests
   }
 
   [Test]
+  public void MetaWalRecordsNewerThanTheMetaFileAreReported()
+  {
+    var provider = new InMemoryFileStreamProvider();
+    byte[] olderMetaFile;
+    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
+    {
+      UpsertKeys(tree, 0, 100);
+      olderMetaFile = provider.ReadAllBytes(MetaFilePath);
+      tree.Maintenance.SaveMetaData();
+      UpsertKeys(tree, 100, 200);
+      tree.Maintenance.MoveMutableSegmentForward();
+    }
+    // The rename of the newer meta file is lost, or an older copy is restored.
+    Overwrite(provider, MetaFilePath, olderMetaFile);
+
+    Assert.Throws<ZoneTreeMetaCorruptionException>(() => Factory(provider, WriteAheadLogMode.Sync).Open());
+  }
+
+  [Test]
   public void MetaWalRecordsOfAnOlderVersionAreReplayed()
   {
     var provider = new InMemoryFileStreamProvider();
@@ -417,6 +436,64 @@ public sealed class PowerLossRecoveryTests
 
     Assert.Throws<WriteAheadLogCorruptionException>(() => Factory(provider, WriteAheadLogMode.Sync).Open());
     Assert.That(provider.ReadAllBytes(mainPath), Is.EqualTo(bytes));
+  }
+
+  /// <summary>
+  /// Creates a record larger than the search window of the Sync WAL recovery.
+  /// </summary>
+  static byte[] CreateRecordLargerThanTheSearchWindow(int declaredPayloadLength, int writtenPayloadLength)
+  {
+    using var stream = new MemoryStream();
+    using var writer = new BinaryWriter(stream);
+    writer.Write(1000L);
+    writer.Write(sizeof(int));
+    writer.Write(declaredPayloadLength);
+    writer.Write(Enumerable.Repeat((byte)0x5A, writtenPayloadLength).ToArray());
+    writer.Flush();
+    return stream.ToArray();
+  }
+
+  [Test]
+  public async Task SyncWalReportsDamageWhenTheSearchWindowEndsBeforeTheLog()
+  {
+    const int payloadLength = 33 * 1024 * 1024;
+    var provider = new InMemoryFileStreamProvider();
+    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
+    {
+      UpsertKeys(tree, 0, 10);
+      await tree.SyncWALAsync();
+    }
+    // The whole record is present but fails its checksum, and a valid record follows.
+    var mainPath = MainWalPath(provider);
+    var bytes = provider.ReadAllBytes(mainPath)
+        .Concat(CreateRecordLargerThanTheSearchWindow(payloadLength, payloadLength + sizeof(int) + sizeof(uint)))
+        .Concat(CreateValidRecords(10, 11))
+        .ToArray();
+    Overwrite(provider, mainPath, bytes);
+
+    Assert.Throws<WriteAheadLogCorruptionException>(() => Factory(provider, WriteAheadLogMode.Sync).Open());
+    Assert.That(provider.ReadAllBytes(mainPath), Is.EqualTo(bytes));
+  }
+
+  [Test]
+  public async Task SyncWalTruncatesACutOffRecordLargerThanTheSearchWindow()
+  {
+    const int payloadLength = 33 * 1024 * 1024;
+    var provider = new InMemoryFileStreamProvider();
+    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
+    {
+      UpsertKeys(tree, 0, 10);
+      await tree.SyncWALAsync();
+    }
+    var mainPath = MainWalPath(provider);
+    var synced = provider.ReadAllBytes(mainPath);
+    Overwrite(provider, mainPath, synced
+        .Concat(CreateRecordLargerThanTheSearchWindow(2 * payloadLength, payloadLength))
+        .ToArray());
+
+    using var reopened = Factory(provider, WriteAheadLogMode.Sync).Open();
+    Assert.That(MissingKeys(reopened, 10), Is.Empty);
+    Assert.That(provider.ReadAllBytes(mainPath), Is.EqualTo(synced));
   }
 
   [Test]
@@ -641,6 +718,137 @@ public sealed class PowerLossRecoveryTests
 
     using var reopened = SmallBlockFactory(provider, mode).Open();
     Assert.That(MissingKeys(reopened, 200), Is.Empty);
+  }
+
+  [Test]
+  public async Task CorruptedBlockIndexInTheMiddleOfTheFileDoesNotDropBlocks()
+  {
+    const WriteAheadLogMode mode = WriteAheadLogMode.SyncCompressed;
+    var provider = new InMemoryFileStreamProvider();
+    using (var tree = SmallBlockFactory(provider, mode).OpenOrCreate())
+    {
+      UpsertKeys(tree, 0, 500);
+      await tree.SyncWALAsync();
+    }
+    // The tail file names a later block, so block 1 was synced and is not torn.
+    var mainPath = MainWalPath(provider);
+    var main = provider.ReadAllBytes(mainPath);
+    var block1 = 1 + 3 * sizeof(int) + BitConverter.ToInt32(main, 1 + sizeof(int));
+    Assert.That(BitConverter.ToInt32(main, block1), Is.EqualTo(1));
+    Array.Clear(main, block1, sizeof(int));
+    Overwrite(provider, mainPath, main);
+
+    using var reopened = SmallBlockFactory(provider, mode).Open();
+    Assert.That(MissingKeys(reopened, 500), Is.Empty);
+    Assert.That(provider.ReadAllBytes(mainPath), Is.EqualTo(main));
+  }
+
+  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.LZ4, int.MaxValue)]
+  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.Zstd, 5)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.Zstd, 5)]
+  public async Task TornFirstCommitAfterAWalReplacementKeepsSyncedRecords(
+      WriteAheadLogMode mode, CompressionMethod compressionMethod, int zeroedLength)
+  {
+    const int syncedCount = 110;
+    ZoneTreeFactory<int, int> GarbageCollectingFactory(IFileStreamProvider provider)
+        => SmallBlockFactory(provider, mode, compressionMethod)
+            .Configure(options => options.EnableSingleSegmentGarbageCollection = true);
+
+    var provider = new InMemoryFileStreamProvider();
+    using (var tree = GarbageCollectingFactory(provider).OpenOrCreate())
+    {
+      for (var round = 0; round < 8; ++round)
+        UpsertKeys(tree, 0, 50);
+    }
+
+    // Opening replaces the WAL with fewer blocks than the tail index counted.
+    string mainPath;
+    byte[] syncedTail;
+    int commitStart;
+    using (var tree = GarbageCollectingFactory(provider).Open())
+    {
+      mainPath = MainWalPath(provider);
+      UpsertKeys(tree, 50, syncedCount);
+      await tree.SyncWALAsync();
+      syncedTail = provider.ReadAllBytes(mainPath + ".tail");
+      commitStart = provider.ReadAllBytes(mainPath).Length;
+      UpsertKeys(tree, syncedCount, 180);
+      await tree.SyncWALAsync();
+    }
+
+    var image = Copy(provider);
+    var main = image.ReadAllBytes(mainPath);
+    Assert.That(main.Length, Is.GreaterThan(commitStart));
+    Array.Clear(main, commitStart, Math.Min(zeroedLength, main.Length - commitStart));
+    Overwrite(image, mainPath, main);
+    Overwrite(image, mainPath + ".tail", syncedTail);
+
+    using var reopened = GarbageCollectingFactory(image).Open();
+    Assert.That(MissingKeys(reopened, syncedCount), Is.Empty);
+  }
+
+  sealed class RecordingLogger : ILogger
+  {
+    readonly List<string> Warnings = new();
+
+    public LogLevel LogLevel { get; set; } = LogLevel.Warning;
+
+    public string[] GetWarnings()
+    {
+      lock (Warnings)
+        return Warnings.ToArray();
+    }
+
+    public void LogError(Exception log)
+    {
+    }
+
+    public void LogWarning(object log)
+    {
+      lock (Warnings)
+        Warnings.Add(log.ToString());
+    }
+
+    public void LogInfo(object log)
+    {
+    }
+
+    public void LogTrace(object log)
+    {
+    }
+  }
+
+  [TestCase(1000)]
+  [TestCase(5)]
+  public async Task TruncatingTheMainFileOnOpenLogsAWarning(int tornLength)
+  {
+    const WriteAheadLogMode mode = WriteAheadLogMode.SyncCompressed;
+    var provider = new InMemoryFileStreamProvider();
+    using (var tree = SmallBlockFactory(provider, mode).OpenOrCreate())
+    {
+      UpsertKeys(tree, 0, 60);
+      await tree.SyncWALAsync();
+    }
+    var mainPath = MainWalPath(provider);
+    var main = provider.ReadAllBytes(mainPath);
+
+    // A clean open truncates nothing.
+    var cleanLogger = new RecordingLogger();
+    using (SmallBlockFactory(provider, mode).SetLogger(cleanLogger).Open())
+    {
+    }
+    Assert.That(cleanLogger.GetWarnings(), Is.Empty);
+
+    // 1000: a torn block that does not decompress. 5: a partly written header.
+    var torn = tornLength == 1000
+        ? new[] { 0, 1000, 2048 }.SelectMany(BitConverter.GetBytes).Concat(new byte[1000]).ToArray()
+        : new byte[tornLength];
+    Overwrite(provider, mainPath, main.Concat(torn).ToArray());
+
+    var logger = new RecordingLogger();
+    using var reopened = SmallBlockFactory(provider, mode).SetLogger(logger).Open();
+    Assert.That(MissingKeys(reopened, 60), Is.Empty);
+    Assert.That(logger.GetWarnings(), Has.Some.Contains(Path.GetFileName(mainPath)));
   }
 
   [TestCase(WriteAheadLogMode.SyncCompressed)]

@@ -194,8 +194,9 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
   /// Without one, a valid record after the damaged one means a corruption.
   /// </summary>
   /// <remarks>
-  /// Only the first <see cref="ScannedTailLength"/> bytes are searched, because
-  /// the next valid record follows a corrupted record closely.
+  /// Only the first <see cref="ScannedTailLength"/> bytes are searched. When more
+  /// bytes follow, only a damaged record that reaches the end of the log is a torn
+  /// tail: an append of a long record that was cut off leaves no sign but its length.
   /// </remarks>
   bool IsUnsyncedTail(long recordPosition, long readPosition)
   {
@@ -220,7 +221,7 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
           LogEntry.HasValidChecksum(bytes.Slice(i, (int)recordLength)))
         return false;
     }
-    return true;
+    return stream.Length - recordPosition <= buffer.Length || readPosition == stream.Length;
   }
 
   (bool isValid, TKey key, TValue value, long opIndex) DeserializeLogEntry(in LogEntry logEntry)

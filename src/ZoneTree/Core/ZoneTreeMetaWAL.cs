@@ -235,8 +235,9 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
   /// includes, and an invalid last record, whose append was not synced.
   /// </remarks>
   /// <exception cref="ZoneTreeMetaCorruptionException">
-  /// A record of this generation follows an invalid record.
-  /// Each append is synced, so a power loss cannot explain it.
+  /// A record of this generation follows an invalid record. Each append is
+  /// synced, so a power loss cannot explain it. Or a record is newer than the
+  /// metadata, so the metadata that the record follows is lost.
   /// </exception>
   public IReadOnlyList<MetaWalRecord> GetRecordsOfGeneration(long generation)
   {
@@ -253,9 +254,9 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
         foundInvalidRecord = true;
         continue;
       }
-      if (record.Generation != unchecked((uint)generation))
+      if (record.Generation < unchecked((uint)generation))
         continue;
-      if (foundInvalidRecord)
+      if (foundInvalidRecord || record.Generation > unchecked((uint)generation))
         throw new ZoneTreeMetaCorruptionException();
       list.Add(record);
     }
