@@ -35,3 +35,43 @@ jobs:
       - name: Test
         run: dotnet test --no-build --configuration Release --verbosity normal
         working-directory: ./src
+
+  # ARM has a weaker memory model than x64, which can hide
+  # ordering bugs in the lock-free read paths of the B-tree.
+  test-macos-arm64:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            10.0.x
+            9.0.x
+            8.0.x
+            7.0.x
+            6.0.x
+      - name: Verify the runner is ARM64
+        run: |
+          dotnet --info
+          test "$(uname -m)" = "arm64"
+          dotnet --info | grep -q "RID: *osx-arm64"
+      - name: Restore dependencies
+        working-directory: ./src
+        run: dotnet restore
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+        working-directory: ./src
+      - name: Test
+        run: dotnet test --no-build --configuration Release --verbosity normal
+        working-directory: ./src
+      # These tests depend on timing, so a single pass proves little.
+      - name: Repeat the lock-free read tests
+        working-directory: ./src
+        run: |
+          for run in $(seq 1 20); do
+            echo "Run $run of 20"
+            dotnet test --no-build --configuration Release \
+              --filter "FullyQualifiedName~BTreeLockFreeSearchTests|FullyQualifiedName~BTreeVisitTests"
+          done
