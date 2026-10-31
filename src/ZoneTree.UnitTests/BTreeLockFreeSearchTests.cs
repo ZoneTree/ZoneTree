@@ -185,7 +185,9 @@ public sealed class BTreeLockFreeSearchTests
       tree.Upsert(key, new TwoFieldValue(0), out _);
 
     using var stop = new CancellationTokenSource();
-    var writer = Task.Run(() =>
+    // Dedicated threads, because on a small machine these busy loops
+    // fill the thread pool and the other readers would start too late.
+    var writer = Task.Factory.StartNew(() =>
     {
       for (var i = 1L; !stop.IsCancellationRequested; ++i)
       {
@@ -198,8 +200,8 @@ public sealed class BTreeLockFreeSearchTests
             (ref TwoFieldValue x) => x = value,
             out _);
       }
-    });
-    var readers = Enumerable.Range(0, 4).Select(seed => Task.Run(() =>
+    }, TaskCreationOptions.LongRunning);
+    var readers = Enumerable.Range(0, 4).Select(seed => Task.Factory.StartNew(() =>
     {
       var random = new Random(seed);
       var reads = 0L;
@@ -213,7 +215,7 @@ public sealed class BTreeLockFreeSearchTests
         ++reads;
       }
       return reads;
-    })).ToArray();
+    }, TaskCreationOptions.LongRunning)).ToArray();
 
     await Task.Delay(1000);
     stop.Cancel();
@@ -449,18 +451,22 @@ public sealed class BTreeLockFreeSearchTests
     const int count = 300_000;
     var tree = new BTree<TwoFieldKey, int>(new TwoFieldKeyComparer(), lockMode);
     var published = -1;
+    // Readers that start after the writer finished would check nothing.
+    using var start = new Barrier(5);
     // All writes go to the rightmost leaf, and so do the reads.
-    var writer = Task.Run(() =>
+    var writer = Task.Factory.StartNew(() =>
     {
+      start.SignalAndWait();
       for (var i = 0; i < count; ++i)
       {
         var key = new TwoFieldKey(i);
         tree.Upsert(in key, i + 1, out _);
         Volatile.Write(ref published, i);
       }
-    });
-    var readers = Enumerable.Range(0, 4).Select(seed => Task.Run(() =>
+    }, TaskCreationOptions.LongRunning);
+    var readers = Enumerable.Range(0, 4).Select(seed => Task.Factory.StartNew(() =>
     {
+      start.SignalAndWait();
       var random = new Random(seed);
       while (Volatile.Read(ref published) < count - 1)
       {
@@ -472,7 +478,7 @@ public sealed class BTreeLockFreeSearchTests
         Assert.That(tree.TryGetValue(in key, out var value), Is.True, $"key {i}");
         Assert.That(value, Is.EqualTo(i + 1));
       }
-    })).ToArray();
+    }, TaskCreationOptions.LongRunning)).ToArray();
 
     await writer;
     await Task.WhenAll(readers);
@@ -489,17 +495,21 @@ public sealed class BTreeLockFreeSearchTests
     // Small nodes split the inner nodes often. Moving their keys is what can tear a key.
     var tree = new BTree<TwoFieldKey, int>(new TwoFieldKeyComparer(), lockMode, nodeSize: 4, leafSize: 4);
     var published = -1;
-    var writer = Task.Run(() =>
+    // Readers that start after the writer finished would check nothing.
+    using var start = new Barrier(5);
+    var writer = Task.Factory.StartNew(() =>
     {
+      start.SignalAndWait();
       for (var i = 0; i < count; ++i)
       {
         var key = new TwoFieldKey(SpreadKey(i));
         tree.Upsert(in key, i + 1, out _);
         Volatile.Write(ref published, i);
       }
-    });
-    var readers = Enumerable.Range(0, 4).Select(seed => Task.Run(() =>
+    }, TaskCreationOptions.LongRunning);
+    var readers = Enumerable.Range(0, 4).Select(seed => Task.Factory.StartNew(() =>
     {
+      start.SignalAndWait();
       var random = new Random(seed);
       while (Volatile.Read(ref published) < count - 1)
       {
@@ -512,7 +522,7 @@ public sealed class BTreeLockFreeSearchTests
         Assert.That(value, Is.EqualTo(i + 1));
         Assert.That(tree.ContainsKey(in key), Is.True, $"key {key.First}");
       }
-    })).ToArray();
+    }, TaskCreationOptions.LongRunning)).ToArray();
 
     await writer;
     await Task.WhenAll(readers);

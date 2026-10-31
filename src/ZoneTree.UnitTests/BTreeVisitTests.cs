@@ -165,17 +165,21 @@ public sealed class BTreeVisitTests
     var tree = CreateTree(lockMode);
     // Keys are published in order, and each reader looks them up during the splits.
     var published = -1;
-    var writer = Task.Run(() =>
+    // Readers that start after the writer finished would check nothing.
+    using var start = new Barrier(5);
+    var writer = Task.Factory.StartNew(() =>
     {
+      start.SignalAndWait();
       for (var i = 0; i < count; ++i)
       {
         // Reversed bits spread the keys, so splits happen all over the tree.
         tree.Upsert(SpreadKey(i), i + 1, out _);
         Volatile.Write(ref published, i);
       }
-    });
-    var readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
+    }, TaskCreationOptions.LongRunning);
+    var readers = Enumerable.Range(0, 4).Select(_ => Task.Factory.StartNew(() =>
     {
+      start.SignalAndWait();
       var random = new Random(_);
       while (Volatile.Read(ref published) < count - 1)
       {
@@ -188,7 +192,7 @@ public sealed class BTreeVisitTests
         tree.Visit(in key, ref visitor);
         Assert.That(visitor.Found.Value, Is.EqualTo(i + 1), $"key {key}");
       }
-    })).ToArray();
+    }, TaskCreationOptions.LongRunning)).ToArray();
 
     await writer;
     await Task.WhenAll(readers);
