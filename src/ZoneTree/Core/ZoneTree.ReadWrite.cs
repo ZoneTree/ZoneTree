@@ -69,8 +69,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     // Segments are read in the order TryGet reads them, newest first and without
     // the tree locks. A segment that moves forward or merges during the visit can
     // be read twice, but no record is missed.
-    if (VisitSeekableSegment(MutableSegment.GetSeekableIterator(), in key, ref visitor) ==
-        SegmentVisitAction.Stop)
+    if (MutableSegment.Visit(in key, ref visitor) == SegmentVisitAction.Stop)
       return;
     if (!ReadOnlySegmentQueue.IsEmpty)
     {

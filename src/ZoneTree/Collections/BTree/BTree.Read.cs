@@ -114,6 +114,55 @@ public sealed partial class BTree<TKey, TValue>
     return false;
   }
 
+  /// <summary>
+  /// Visits the records with keys greater than or equal to the given key in
+  /// ascending order. Unlike an iterator, it does not copy the leaves: the
+  /// visitor runs under the read lock of the leaf, and no lock is held across leaves.
+  /// </summary>
+  /// <returns>
+  /// The action that ended the visit, or
+  /// <see cref="SegmentVisitAction.NextSegment"/> after the last record.
+  /// </returns>
+  public SegmentVisitAction Visit<TVisitor>(in TKey key, ref TVisitor visitor)
+      where TVisitor : struct, ISegmentRecordVisitor<TKey, TValue>
+  {
+    var leaf = GetLeafNode(in key);
+    var isFirstLeaf = true;
+    while (leaf != null)
+    {
+      var topLevelLocker = TopLevelLocker;
+      try
+      {
+        topLevelLocker.ReadLock();
+        leaf.ReadLock();
+        try
+        {
+          var position = 0;
+          if (isFirstLeaf)
+            leaf.TryGetPosition(Comparer, in key, out position);
+          var length = leaf.Length;
+          for (; position < length; ++position)
+          {
+            var action = visitor.Visit(in leaf.Keys[position], in leaf.Values[position]);
+            if (action != SegmentVisitAction.NextRecord)
+              return action;
+          }
+        }
+        finally
+        {
+          leaf.ReadUnlock();
+        }
+      }
+      finally
+      {
+        topLevelLocker.ReadUnlock();
+      }
+      isFirstLeaf = false;
+      leaf = leaf.Next;
+    }
+    return SegmentVisitAction.NextSegment;
+  }
+
   LeafNode GetLeafNode(in TKey key)
   {
     var topLevelLocker = TopLevelLocker;

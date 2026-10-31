@@ -32,6 +32,10 @@ public interface ISegmentRecordVisitor<TKey, TValue>
   /// <summary>
   /// Visits a stored record. Deleted records are visited too.
   /// </summary>
+  /// <remarks>
+  /// This method can run under a read lock of the
+  /// segment. It must be short and must not access the tree.
+  /// </remarks>
   /// <param name="key">The key.</param>
   /// <param name="value">The stored value.</param>
   /// <returns>What to visit next.</returns>
