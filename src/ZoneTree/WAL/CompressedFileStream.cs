@@ -676,7 +676,7 @@ public sealed class CompressedFileStream : Stream, IDisposable
   /// </summary>
   internal bool IsUnsyncedTail(long readPosition)
   {
-    return readPosition > UnsyncedTailStart;
+    return readPosition > UnsyncedTailStart || readPosition >= _length;
   }
 
   struct LastBlockInfo
@@ -720,13 +720,12 @@ public sealed class CompressedFileStream : Stream, IDisposable
       var blockEndPosition = physicalPosition + sizeof(int) * 3L + compressedBlockSize;
       // Block indexes only grow, so a smaller one is a header with a sector that
       // did not persist, if this can be the block being committed: the tail file
-      // names a later block once a block is synced. A zero filled first header
-      // is torn too, unless the tail names a later block: older versions could
-      // commit an empty first block.
-      var isEmptyHeader = blockIndex == 0 && compressedBlockSize == 0 && blockSize == 0;
+      // names a later block once a block is synced. An empty block is torn too,
+      // unless the tail names a later block: older versions could commit empty blocks.
+      var isTornEmptyBlock = compressedBlockSize == 0 && blockSize == 0 && blockIndex >= TailBlock.BlockIndex;
       if (compressedBlockSize < 0 || blockSize < 0 || blockEndPosition > len ||
           (blockIndex <= lastBlockIndex && lastBlockIndex + 1 >= TailBlock.BlockIndex) ||
-          (isEmptyHeader && TailBlock.BlockIndex == 0))
+          isTornEmptyBlock)
       {
         // truncates partially written compressed block.
         // because the last block content is also written in tail block.

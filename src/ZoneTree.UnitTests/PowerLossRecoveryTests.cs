@@ -851,6 +851,51 @@ public sealed class PowerLossRecoveryTests
     Assert.That(logger.GetWarnings(), Has.Some.Contains(Path.GetFileName(mainPath)));
   }
 
+  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.Zstd)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.Zstd)]
+  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.None)]
+  public async Task BlockHeaderWithOnlyItsIndexPersistedIsTorn(
+      WriteAheadLogMode mode, CompressionMethod compressionMethod)
+  {
+    const int syncedCount = 100;
+    var provider = new InMemoryFileStreamProvider();
+    using (var tree = SmallBlockFactory(provider, mode, compressionMethod).OpenOrCreate())
+    {
+      UpsertKeys(tree, 0, syncedCount);
+      await tree.SyncWALAsync();
+    }
+    // The commit of the block that the tail names persisted the index,
+    // and the sector with the rest of the header did not persist.
+    var mainPath = MainWalPath(provider);
+    var tail = provider.ReadAllBytes(mainPath + ".tail");
+    var header = new[] { BitConverter.ToInt32(tail, 0), 0, 0 }.SelectMany(BitConverter.GetBytes);
+    Overwrite(provider, mainPath, provider.ReadAllBytes(mainPath).Concat(header).ToArray());
+
+    using var reopened = SmallBlockFactory(provider, mode, compressionMethod).Open();
+    Assert.That(MissingKeys(reopened, syncedCount), Is.Empty);
+  }
+
+  [Test]
+  public async Task RecordCutOffBeforeAnEmptyLastBlockIsATornTail()
+  {
+    const WriteAheadLogMode mode = WriteAheadLogMode.SyncCompressed;
+    var provider = new InMemoryFileStreamProvider();
+    using (var tree = SmallBlockFactory(provider, mode, CompressionMethod.None).OpenOrCreate())
+    {
+      UpsertKeys(tree, 0, 100);
+      await tree.SyncWALAsync();
+    }
+    // Older versions could commit an empty block, which leaves no content in the
+    // last block. The record that spans block 0 and the lost tail is cut off.
+    var mainPath = MainWalPath(provider);
+    var header = new[] { 1, 0, 0 }.SelectMany(BitConverter.GetBytes);
+    Overwrite(provider, mainPath, provider.ReadAllBytes(mainPath).Concat(header).ToArray());
+    Overwrite(provider, mainPath + ".tail", BitConverter.GetBytes(2).Concat(new byte[sizeof(int)]).ToArray());
+
+    using var reopened = SmallBlockFactory(provider, mode, CompressionMethod.None).Open();
+    Assert.That(MissingKeys(reopened, 2048 / 28), Is.Empty);
+  }
+
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
   public async Task DroppingATornBlockIsDurableBeforeNewBlocksFollowIt(WriteAheadLogMode mode)
