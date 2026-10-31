@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Reflection;
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Exceptions;
 using ZoneTree.Logger;
@@ -375,6 +376,38 @@ public sealed class WriteAheadLogSyncTests
     var completed = await Task.WhenAny(sync, Task.Delay(TimeSpan.FromSeconds(30)));
     Assert.That(completed, Is.SameAs(sync));
     await sync;
+  }
+
+  [Test]
+  public void OnlyABurstOfRecordsWakesTheWriterFromTheEmptyQueuePoll()
+  {
+    const int interval = AsyncCompressedFileSystemWriteAheadLog<int, int>.WakeWriterRecordInterval;
+    var options = new WriteAheadLogOptions { CompressionBlockSize = WalBlockSize };
+    options.AsyncCompressedModeOptions.EmptyQueuePollInterval = 600_000;
+    using var wal = new AsyncCompressedFileSystemWriteAheadLog<int, int>(
+        new ConsoleLogger(LogLevel.Error),
+        new PowerLossFileStreamProvider(),
+        new Int32Serializer(),
+        new Int32Serializer(),
+        "wal",
+        options);
+    const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+    var type = wal.GetType();
+    var queue = (ConcurrentQueue<AsyncCompressedFileSystemWriteAheadLog<int, int>.QueueItem>)
+        type.GetField("Queue", flags).GetValue(wal);
+    var isSleeping = type.GetField("isWriterSleeping", flags);
+    Assert.That(SpinWait.SpinUntil(() => (bool)isSleeping.GetValue(wal), TimeSpan.FromSeconds(30)), Is.True);
+
+    // The writer syncs its tail whenever it runs out of records, so a slow stream
+    // of writes must leave it asleep until the poll.
+    for (var i = 1; i < interval; ++i)
+      wal.Append(i, i, i);
+    Thread.Sleep(100);
+    Assert.That(queue.Count, Is.EqualTo(interval - 1));
+    Assert.That((bool)isSleeping.GetValue(wal), Is.True);
+
+    wal.Append(interval, interval, interval);
+    Assert.That(SpinWait.SpinUntil(() => queue.IsEmpty, TimeSpan.FromSeconds(30)), Is.True);
   }
 
   [Test]

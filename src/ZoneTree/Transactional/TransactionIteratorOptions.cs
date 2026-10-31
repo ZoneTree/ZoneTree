@@ -7,9 +7,10 @@ public sealed class TransactionIteratorOptions
 {
   /// <summary>
   /// If true, disk segment reads performed by the iterator contribute to the
-  /// block cache.
+  /// block cache. A maintainer removes the blocks that stay inactive.
+  /// Default is true, as it is for iterators created without options and for ranges.
   /// </summary>
-  public bool ContributeToTheBlockCache { get; set; }
+  public bool ContributeToTheBlockCache { get; set; } = true;
 
   /// <summary>
   /// The number of sequential disk-segment records the iterator may prefetch

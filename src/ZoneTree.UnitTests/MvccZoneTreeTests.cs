@@ -881,6 +881,140 @@ public sealed class MvccZoneTreeTests
   }
 
   [Test]
+  public void TransactionReadsKeepDiskBlocksInTheBlockCache()
+  {
+    var tree = CreateFactory(mutableSegmentMaxItemCount: 1_000_000).OpenOrCreateTransactional();
+    try
+    {
+      Write(tree, ManyRecords(0));
+      MergeAll(tree);
+      var maintenance = tree.Maintenance.ZoneTree.Maintenance;
+      int CachedBlocksAfter(Action read)
+      {
+        maintenance.ReleaseReadBuffers(long.MaxValue);
+        Assert.That(maintenance.DiskSegment.ReadBufferCount, Is.Zero);
+        read();
+        return maintenance.DiskSegment.ReadBufferCount;
+      }
+
+      using var reader = tree.BeginReadOnlyTransaction();
+      // First, because the record caches of the disk segment
+      // would answer this read without a block after the reads below.
+      Assert.That(CachedBlocksAfter(() =>
+      {
+        using var iterator = reader.CreateIterator(
+            new TransactionIteratorOptions { ContributeToTheBlockCache = false });
+        iterator.Next();
+      }), Is.Zero, "an iterator can opt out");
+      Assert.That(CachedBlocksAfter(() => reader.Range(10, 20).ToList()), Is.GreaterThan(0));
+      Assert.That(CachedBlocksAfter(() => reader.Range(10, 20, reverse: true).ToList()), Is.GreaterThan(0));
+      Assert.That(CachedBlocksAfter(() => Scan(reader)), Is.GreaterThan(0));
+      Assert.That(CachedBlocksAfter(() => Scan(reader, reverse: true)), Is.GreaterThan(0));
+      Assert.That(CachedBlocksAfter(() =>
+      {
+        using var iterator = reader.CreateIterator(new TransactionIteratorOptions());
+        iterator.Next();
+      }), Is.GreaterThan(0));
+
+      using (var writer = tree.BeginTransaction())
+        Assert.That(CachedBlocksAfter(() => writer.Range(10, 20).ToList()), Is.GreaterThan(0));
+    }
+    finally
+    {
+      tree.Dispose();
+    }
+
+    // Opening the tree reads the system records from the disk segment.
+    using var reopened = CreateFactory(mutableSegmentMaxItemCount: 1_000_000).OpenOrCreateTransactional();
+    Assert.That(reopened.Maintenance.ZoneTree.Maintenance.DiskSegment.ReadBufferCount, Is.GreaterThan(0));
+  }
+
+  static (int Key, int Value)[] ManyRecords(int firstKey)
+      => Enumerable.Range(firstKey, 5000).Select(key => (key, key)).ToArray();
+
+  [Test]
+  public void ConflictsAreFoundAfterTheConflictIndexMovesOn()
+  {
+    using var tree = CreateFactory(mutableSegmentMaxItemCount: 1_000_000, walMode: WriteAheadLogMode.None)
+        .OpenOrCreateTransactional();
+    Write(tree, (1, 0), (3, 0));
+
+    using var wroteFirst = tree.BeginTransaction(TransactionIsolationLevel.Snapshot);
+    wroteFirst.Upsert(1, 10);
+    using var writesLater = tree.BeginTransaction(TransactionIsolationLevel.Snapshot);
+    using var readsARange = tree.BeginTransaction(TransactionIsolationLevel.Serializable);
+    using var unrelated = tree.BeginTransaction(TransactionIsolationLevel.Serializable);
+    using (var iterator = readsARange.CreateIterator())
+    {
+      iterator.Seek(1);
+      Assert.That(iterator.Next(), Is.True);
+      Assert.That(iterator.Next(), Is.True);
+      Assert.That(iterator.CurrentKey, Is.EqualTo(3));
+    }
+    Assert.That(unrelated.TryGet(1_000_000, out _), Is.False);
+
+    // Both keys stay in an older generation, behind commits that fill new ones.
+    Write(tree, (1, 1), (2, 2));
+    Write(tree, ManyRecords(100_000));
+    Write(tree, ManyRecords(200_000));
+    Write(tree, ManyRecords(300_000));
+
+    writesLater.Upsert(1, 11);
+    Assert.That(writesLater.HasConflict, Is.True);
+    Assert.That(writesLater.TryCommit(), Is.False);
+    Assert.That(wroteFirst.TryCommit(), Is.False);
+    readsARange.Upsert(1_000_001, 1);
+    Assert.That(readsARange.TryCommit(), Is.False, "key 2 is a phantom in the range");
+    unrelated.Upsert(1_000_002, 1);
+    Assert.That(unrelated.TryCommit(), Is.True);
+
+    Assert.That(tree.Maintenance.ConflictIndexCount, Is.Zero);
+    using var next = tree.BeginTransaction();
+    next.Upsert(1, 12);
+    Assert.That(next.HasConflict, Is.False);
+    next.Commit();
+    Assert.That(ReadCommitted(tree, 1), Is.EqualTo(12));
+  }
+
+  [TestCase(TransactionIsolationLevel.Snapshot)]
+  [TestCase(TransactionIsolationLevel.Serializable)]
+  public void ConcurrentIncrementsAreNotLostWhileTheConflictIndexMovesOn(
+      TransactionIsolationLevel isolationLevel)
+  {
+    const int writerCount = 4;
+    const int incrementsPerWriter = 4000;
+    const int counterCount = 8;
+    const int fillerBase = 1_000_000;
+    using var tree = CreateFactory(mutableSegmentMaxItemCount: 1_000_000, walMode: WriteAheadLogMode.None)
+        .OpenOrCreateTransactional();
+    using var start = new Barrier(writerCount);
+    var writers = Enumerable.Range(0, writerCount).Select(writer => Task.Factory.StartNew(() =>
+    {
+      start.SignalAndWait();
+      var random = new Random(writer);
+      for (var done = 0; done < incrementsPerWriter;)
+      {
+        using var tx = tree.BeginTransaction(isolationLevel);
+        var counter = random.Next(counterCount);
+        tx.TryGetForUpdate(counter, out var value);
+        tx.Upsert(counter, value + 1);
+        // A new key per commit makes the conflict index fill up generations.
+        tx.Upsert(fillerBase * (writer + 1) + done, 1);
+        if (tx.TryCommit())
+          ++done;
+      }
+    }, TaskCreationOptions.LongRunning)).ToArray();
+
+    Assert.That(Task.WaitAll(writers, TimeSpan.FromSeconds(120)), Is.True);
+    using var reader = tree.BeginReadOnlyTransaction();
+    var total = 0;
+    for (var counter = 0; counter < counterCount; ++counter)
+      total += Read(reader, counter) ?? 0;
+    Assert.That(total, Is.EqualTo(writerCount * incrementsPerWriter));
+    Assert.That(tree.Maintenance.ConflictIndexCount, Is.Zero);
+  }
+
+  [Test]
   public void IteratorsEndWithTheTransaction()
   {
     using var tree = CreateFactory().OpenOrCreateTransactional();
