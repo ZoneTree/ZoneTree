@@ -115,8 +115,6 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
 
   readonly bool IsLegacyFormat;
 
-  public bool EnableIncrementalBackup { get; set; }
-
   public int InitialLength { get; private set; }
 
   public AsyncCompressedFileSystemWriteAheadLog(
@@ -462,7 +460,7 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
     Close();
   }
 
-  public long ReplaceWriteAheadLog(TKey[] keys, TValue[] values, bool disableBackup)
+  public long ReplaceWriteAheadLog(TKey[] keys, TValue[] values)
   {
     lock (SyncRoot)
     {
@@ -471,14 +469,6 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
       StopWriter(true);
       try
       {
-        if (!disableBackup && EnableIncrementalBackup)
-        {
-          IncrementalLogAppender
-              .AppendLogToTheBackupFile(
-                  FileStreamProvider,
-                  FilePath + ".full",
-                  FileStream.GetFileContentIncludingTail);
-        }
         var existingLength = FileStream.Length;
         try
         {

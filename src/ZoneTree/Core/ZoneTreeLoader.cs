@@ -355,7 +355,7 @@ public sealed class ZoneTreeLoader<TKey, TValue>
           keys[i] = iterator.CurrentKey;
           values[i++] = iterator.CurrentValue;
         }
-        mutableSegmentWal.ReplaceWriteAheadLog(keys, values, true);
+        mutableSegmentWal.ReplaceWriteAheadLog(keys, values);
       }
     }
     LoadDiskSegment();

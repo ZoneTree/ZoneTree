@@ -1087,38 +1087,6 @@ public sealed class CompressedFileStream : Stream, IDisposable
       }
   }
 
-  public byte[] GetFileContent()
-  {
-    var currentPosition = FileStream.Position;
-    FileStream.Position = 0;
-    var bytes = new byte[FileStream.Length];
-    FileStream.ReadFaster(bytes, 0, bytes.Length);
-    FileStream.Position = currentPosition;
-    return bytes;
-  }
-
-  public byte[] GetFileContentIncludingTail()
-  {
-    lock (SyncRoot)
-    {
-      var tailBlock = TailBlock;
-      var compressedBytes = tailBlock.Compress();
-      var currentPosition = FileStream.Position;
-      FileStream.Position = 0;
-      var bytes = new byte[FileStream.Length + compressedBytes.Length + 3 * sizeof(int)];
-      using var ms = new MemoryStream(bytes);
-      using var bw = new BinaryWriter(ms);
-      FileStream.CopyTo(ms);
-      bw.Write(tailBlock.BlockIndex);
-      bw.Write(compressedBytes.Length);
-      bw.Write(tailBlock.Length);
-      bw.Write(compressedBytes.Span);
-      ms.Flush();
-      FileStream.Position = currentPosition;
-      return bytes;
-    }
-  }
-
   protected override void Dispose(bool disposing)
   {
     Dispose();

@@ -3,7 +3,6 @@ using Playground.Benchmark;
 using ZoneTree.Logger;
 using ZoneTree.Options;
 
-TestConfig.EnableIncrementalBackup = false;
 TestConfig.MutableSegmentMaxItemCount = 1_000_000;
 TestConfig.ThresholdForMergeOperationStart = 2_000_000;
 TestConfig.RecreateDatabases = true;

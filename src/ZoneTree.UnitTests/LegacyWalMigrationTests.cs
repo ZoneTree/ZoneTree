@@ -148,7 +148,7 @@ public sealed class LegacyWalMigrationTests
     var provider = new WriteAheadLogProvider(new ConsoleLogger(), new LocalFileStreamProvider(), DataDirectory);
     using (var wal = provider.GetOrCreateWAL(2, "seg", WalOptions(mode), new Int32Serializer(), new Int32Serializer()))
     {
-      wal.ReplaceWriteAheadLog(new[] { 2, 3, 4 }, new[] { 222, 30, 40 }, true);
+      wal.ReplaceWriteAheadLog(new[] { 2, 3, 4 }, new[] { 222, 30, 40 });
     }
     var entries = ReadEntries(WalPath("seg", 2, "wal_crc", mode), mode);
     Assert.That(entries.Count, Is.EqualTo(3));

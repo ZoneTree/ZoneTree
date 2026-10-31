@@ -81,7 +81,6 @@ public sealed class LiveBackupRestore<TKey, TValue>
     var hasInMemoryRecordBatch = batch != null && batch.RecordCount > 0;
     var restoreWalOptions = CloneWriteAheadLogOptions(
         Options.WriteAheadLogOptions);
-    restoreWalOptions.EnableIncrementalBackup = false;
     Options.WriteAheadLogProvider.InitCategory(
         ZoneTree<TKey, TValue>.SegmentWalCategory);
 
@@ -123,7 +122,6 @@ public sealed class LiveBackupRestore<TKey, TValue>
   {
     var restoreWalOptions = CloneWriteAheadLogOptions(
         Options.WriteAheadLogOptions);
-    restoreWalOptions.EnableIncrementalBackup = false;
     Options.WriteAheadLogProvider.InitCategory(
         ZoneTree<TKey, TValue>.SegmentWalCategory);
 
@@ -214,7 +212,6 @@ public sealed class LiveBackupRestore<TKey, TValue>
       CompressionBlockSize = options.CompressionBlockSize,
       CompressionMethod = options.CompressionMethod,
       CompressionLevel = options.CompressionLevel,
-      EnableIncrementalBackup = options.EnableIncrementalBackup,
       SyncCompressedModeOptions = new SyncCompressedModeOptions
       {
         EnableTailWriterJob = options.SyncCompressedModeOptions.EnableTailWriterJob,

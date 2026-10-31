@@ -40,8 +40,6 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
 
   readonly bool IsLegacyFormat;
 
-  public bool EnableIncrementalBackup { get; set; }
-
   public int InitialLength { get; private set; }
 
   long AppendedRecordCount;
@@ -264,27 +262,10 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
     }
   }
 
-  public long ReplaceWriteAheadLog(TKey[] keys, TValue[] values, bool disableBackup)
+  public long ReplaceWriteAheadLog(TKey[] keys, TValue[] values)
   {
     lock (SyncRoot)
     {
-      if (!disableBackup && EnableIncrementalBackup)
-      {
-        IncrementalLogAppender
-            .AppendLogToTheBackupFile(
-                FileStreamProvider,
-                FilePath + ".full",
-                () =>
-                {
-                  FileStream.Flush(true);
-                  FileStream.Seek(0, SeekOrigin.Begin);
-                  var existingLength = FileStream.Length;
-                  var bytes = new byte[existingLength];
-                  FileStream.ReadFaster(bytes, 0, bytes.Length);
-                  return bytes;
-                });
-      }
-
       var existingLength = FileStream.Length;
       long diff = 0;
       try

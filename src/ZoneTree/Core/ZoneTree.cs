@@ -424,7 +424,6 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       CompressionLevel = wal.CompressionLevel,
       CompressionMethod = wal.CompressionMethod,
       CustomOptions = wal.CustomOptions,
-      EnableIncrementalBackup = wal.EnableIncrementalBackup,
       SyncCompressedModeOptions = new()
       {
         EnableTailWriterJob = wal.SyncCompressedModeOptions.EnableTailWriterJob,

@@ -40,8 +40,6 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
 
   public int TailWriterJobInterval { get; }
 
-  public bool EnableIncrementalBackup { get; set; }
-
   public int InitialLength { get; private set; }
 
   public SyncCompressedFileSystemWriteAheadLog(
@@ -154,19 +152,10 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
     FileStream.Dispose();
   }
 
-  public long ReplaceWriteAheadLog(TKey[] keys, TValue[] values, bool disableBackup)
+  public long ReplaceWriteAheadLog(TKey[] keys, TValue[] values)
   {
     lock (SyncRoot)
     {
-      if (!disableBackup && EnableIncrementalBackup)
-      {
-        IncrementalLogAppender
-            .AppendLogToTheBackupFile(
-                FileStreamProvider,
-                FilePath + ".full",
-                FileStream.GetFileContentIncludingTail);
-      }
-
       var existingLength = FileStream.Length;
       try
       {
