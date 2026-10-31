@@ -116,7 +116,7 @@ public sealed partial class BTree<TKey, TValue>
 
   /// <summary>
   /// Finds the leaf of a key without locking the inner nodes, so
-  /// readers do not contend with each other and with writers at the root.
+  /// reads and writes do not contend with each other at the root.
   /// </summary>
   /// <remarks>
   /// A node reached this way was current at some moment after the search began,

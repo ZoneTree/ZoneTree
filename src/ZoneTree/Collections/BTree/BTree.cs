@@ -24,6 +24,10 @@ public sealed partial class BTree<TKey, TValue>
 
   volatile LeafNode LastLeafNode;
 
+  // The last leaf once its parent links it. A write to a leaf that the search cannot
+  // reach yet would be invisible after it completes, so writes use this field.
+  volatile LeafNode LastLinkedLeafNode;
+
   public readonly IRefComparer<TKey> Comparer;
 
   volatile int _length;
@@ -31,6 +35,8 @@ public sealed partial class BTree<TKey, TValue>
   public int Length => _length;
 
   public readonly BTreeLockMode LockMode;
+
+  readonly bool HasNodeLocks;
 
   public IIncrementalIdProvider OpIndexProvider { get; }
 
@@ -63,9 +69,11 @@ public sealed partial class BTree<TKey, TValue>
       _ => throw new NotSupportedException(),
     };
     LockMode = lockMode;
+    HasNodeLocks = lockMode is BTreeLockMode.NodeLevelMonitor or BTreeLockMode.NodeLevelReaderWriter;
     Root = new LeafNode(GetNodeLocker(), leafSize);
     FirstLeafNode = Root as LeafNode;
     LastLeafNode = FirstLeafNode;
+    LastLinkedLeafNode = FirstLeafNode;
   }
 
   ILocker GetNodeLocker() => LockMode switch

@@ -16,6 +16,9 @@ public sealed partial class BTree<TKey, TValue>
   {
     if (IsReadOnly)
       throw new BTreeIsReadOnlyException();
+    var leaf = TryLockLeafWithRoom(in key);
+    if (leaf != null)
+      return UpsertNonFull(leaf, in key, valueGetter, out value, out opIndex);
     try
     {
       WriteLock();
@@ -82,6 +85,12 @@ public sealed partial class BTree<TKey, TValue>
 
           child = node.Children[position];
           child.WriteLock();
+          if (child.IsFull)
+          {
+            UnlockFilledSplitChild(node, child);
+            node = null;
+            return Upsert(in key, valueGetter, out value, out opIndex);
+          }
         }
         node.WriteUnlock();
         node = child;
@@ -90,7 +99,7 @@ public sealed partial class BTree<TKey, TValue>
     catch
     {
       // The comparer and the value getter run while only the current node is locked.
-      node.WriteUnlock();
+      node?.WriteUnlock();
       throw;
     }
   }
