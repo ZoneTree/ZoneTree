@@ -266,6 +266,55 @@ public sealed class PowerLossRecoveryTests
     Assert.That(reopened.Maintenance.ReadOnlySegments, Has.Count.EqualTo(1));
   }
 
+  // Issue 209
+
+  /// <summary>
+  /// A tree whose metadata is saved and whose meta WAL is empty.
+  /// </summary>
+  static InMemoryFileStreamProvider CreateSettledTree()
+  {
+    var provider = new InMemoryFileStreamProvider();
+    using var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate();
+    UpsertKeys(tree, 0, 100);
+    tree.Maintenance.MoveMutableSegmentForward();
+    tree.Maintenance.SaveMetaData();
+    return provider;
+  }
+
+  [Test]
+  public void ReopeningASettledTreeDoesNotRewriteTheMetadata()
+  {
+    var provider = CreateSettledTree();
+    Assert.That(provider.ReadAllBytes(MetaWalPath), Is.Empty);
+    var metaFile = provider.ReadAllBytes(MetaFilePath);
+
+    for (var i = 0; i < 3; ++i)
+    {
+      using (var tree = Factory(provider, WriteAheadLogMode.Sync).Open())
+        Assert.That(MissingKeys(tree, 100), Is.Empty);
+      Assert.That(provider.ReadAllBytes(MetaFilePath), Is.EqualTo(metaFile), $"reopen {i}");
+    }
+  }
+
+  [TestCase(MetaWalRecordSize / 2)]
+  [TestCase(MetaWalRecordSize)]
+  public void ATornMetaWalIsClearedOnReopenBeforeLaterAppends(int tornLength)
+  {
+    var provider = CreateSettledTree();
+    Overwrite(provider, MetaWalPath, new byte[tornLength]);
+
+    using (var tree = Factory(provider, WriteAheadLogMode.Sync).Open())
+    {
+      Assert.That(provider.ReadAllBytes(MetaWalPath), Is.Empty);
+      UpsertKeys(tree, 100, 200);
+      tree.Maintenance.MoveMutableSegmentForward();
+    }
+
+    // Records that follow an invalid record would be reported as corruption.
+    using var reopened = Factory(provider, WriteAheadLogMode.Sync).Open();
+    Assert.That(MissingKeys(reopened, 200), Is.Empty);
+  }
+
   // Issue 202
 
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
