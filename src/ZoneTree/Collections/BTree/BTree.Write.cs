@@ -328,7 +328,11 @@ public sealed partial class BTree<TKey, TValue>
           opIndex = OpIndexProvider.NextId();
           if (found)
           {
-            updater(ref leaf.Values[position]);
+            // The updater runs on a copy: readers do not lock the leaf,
+            // so they must not see the value while the updater changes it.
+            var updatedValue = leaf.Values[position];
+            updater(ref updatedValue);
+            leaf.UpdateValue(position, in updatedValue);
             node.WriteUnlock();
             return AddOrUpdateResult.UPDATED;
           }

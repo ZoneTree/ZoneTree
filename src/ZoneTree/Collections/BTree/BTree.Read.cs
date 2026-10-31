@@ -10,17 +10,76 @@ namespace ZoneTree.Collections.BTree;
 /// <typeparam name="TValue">Value Type</typeparam>
 public sealed partial class BTree<TKey, TValue>
 {
+  // Writes are short and a leaf rarely changes twice during a read, so a read
+  // that fails this many times is competing with a stalled or very busy writer.
+  const int MaximumOptimisticReadCount = 8;
+
   public bool ContainsKey(in TKey key)
   {
+    ReadRecord(FindLeaf(in key), in key, false, out var isExactMatch, out _, out _);
+    return isExactMatch;
+  }
+
+  public bool TryGetValue(in TKey key, out TValue value)
+  {
+    ReadRecord(FindLeaf(in key), in key, false, out var isExactMatch, out _, out value);
+    if (isExactMatch)
+      return true;
+    value = default;
+    return false;
+  }
+
+  /// <summary>
+  /// Copies the first record of a leaf with a key greater than or equal to the
+  /// given key, or greater than it. Readers do not lock the leaf unless writers
+  /// keep changing it, so they do not contend with writers on the same leaf.
+  /// </summary>
+  /// <param name="leaf">The leaf.</param>
+  /// <param name="key">The key.</param>
+  /// <param name="skipKey">Skips the record with the given key.</param>
+  /// <param name="isExactMatch">True if the leaf has the given key.</param>
+  /// <param name="recordKey">The key of the record.</param>
+  /// <param name="recordValue">The value of the record.</param>
+  /// <returns>True if the leaf has such a record.</returns>
+  bool ReadRecord(
+      LeafNode leaf,
+      in TKey key,
+      bool skipKey,
+      out bool isExactMatch,
+      out TKey recordKey,
+      out TValue recordValue)
+  {
+    var spinWait = new SpinWait();
+    for (var i = 0; i < MaximumOptimisticReadCount; ++i)
+    {
+      var version = leaf.Version;
+      if ((version & 1) != 0)
+      {
+        spinWait.SpinOnce();
+        continue;
+      }
+      bool hasRecord;
+      try
+      {
+        hasRecord = CopyRecord(leaf, in key, skipKey, out isExactMatch, out recordKey, out recordValue);
+      }
+      catch (Exception) when (!leaf.IsUnchangedSince(version))
+      {
+        // The comparer can fail on a key that the concurrent change tore.
+        continue;
+      }
+      if (leaf.IsUnchangedSince(version))
+        return hasRecord;
+    }
+
     var topLevelLocker = TopLevelLocker;
     try
     {
       topLevelLocker.ReadLock();
-      var leaf = FindLeaf(in key);
       leaf.ReadLock();
       try
       {
-        return leaf.TryGetPosition(Comparer, in key, out _);
+        return CopyRecord(leaf, in key, skipKey, out isExactMatch, out recordKey, out recordValue);
       }
       finally
       {
@@ -33,33 +92,26 @@ public sealed partial class BTree<TKey, TValue>
     }
   }
 
-  public bool TryGetValue(in TKey key, out TValue value)
+  bool CopyRecord(
+      LeafNode leaf,
+      in TKey key,
+      bool skipKey,
+      out bool isExactMatch,
+      out TKey recordKey,
+      out TValue recordValue)
   {
-    var topLevelLocker = TopLevelLocker;
-    try
+    isExactMatch = leaf.TryGetPosition(Comparer, in key, out var position);
+    if (isExactMatch && skipKey)
+      ++position;
+    if (position >= leaf.Length)
     {
-      topLevelLocker.ReadLock();
-      var leaf = FindLeaf(in key);
-      leaf.ReadLock();
-      try
-      {
-        if (leaf.TryGetPosition(Comparer, in key, out var position))
-        {
-          value = leaf.Values[position];
-          return true;
-        }
-        value = default;
-        return false;
-      }
-      finally
-      {
-        leaf.ReadUnlock();
-      }
+      recordKey = default;
+      recordValue = default;
+      return false;
     }
-    finally
-    {
-      topLevelLocker.ReadUnlock();
-    }
+    recordKey = leaf.Keys[position];
+    recordValue = leaf.Values[position];
+    return true;
   }
 
   /// <summary>
@@ -103,9 +155,13 @@ public sealed partial class BTree<TKey, TValue>
 
   /// <summary>
   /// Visits the records with keys greater than or equal to the given key in
-  /// ascending order. Unlike an iterator, it does not copy the leaves: the
-  /// visitor runs under the read lock of the leaf, and no lock is held across leaves.
+  /// ascending order. Unlike an iterator, it does not copy the leaves: it copies
+  /// one record at a time, and the visitor runs on the copy without any lock.
   /// </summary>
+  /// <remarks>
+  /// Each record is found by its key after the previous one, so writes
+  /// during the visit cannot make it miss a record or visit one twice.
+  /// </remarks>
   /// <returns>
   /// The action that ended the visit, or
   /// <see cref="SegmentVisitAction.NextSegment"/> after the last record.
@@ -113,39 +169,21 @@ public sealed partial class BTree<TKey, TValue>
   public SegmentVisitAction Visit<TVisitor>(in TKey key, ref TVisitor visitor)
       where TVisitor : struct, ISegmentRecordVisitor<TKey, TValue>
   {
-    var leaf = GetLeafNode(in key);
-    var isFirstLeaf = true;
+    var leaf = FindLeaf(in key);
+    var lastKey = key;
+    var skipKey = false;
     while (leaf != null)
     {
-      var topLevelLocker = TopLevelLocker;
-      try
+      if (!ReadRecord(leaf, in lastKey, skipKey, out _, out var recordKey, out var recordValue))
       {
-        topLevelLocker.ReadLock();
-        leaf.ReadLock();
-        try
-        {
-          var position = 0;
-          if (isFirstLeaf)
-            leaf.TryGetPosition(Comparer, in key, out position);
-          var length = leaf.Length;
-          for (; position < length; ++position)
-          {
-            var action = visitor.Visit(in leaf.Keys[position], in leaf.Values[position]);
-            if (action != SegmentVisitAction.NextRecord)
-              return action;
-          }
-        }
-        finally
-        {
-          leaf.ReadUnlock();
-        }
+        leaf = leaf.Next;
+        continue;
       }
-      finally
-      {
-        topLevelLocker.ReadUnlock();
-      }
-      isFirstLeaf = false;
-      leaf = leaf.Next;
+      var action = visitor.Visit(in recordKey, in recordValue);
+      if (action != SegmentVisitAction.NextRecord)
+        return action;
+      lastKey = recordKey;
+      skipKey = true;
     }
     return SegmentVisitAction.NextSegment;
   }

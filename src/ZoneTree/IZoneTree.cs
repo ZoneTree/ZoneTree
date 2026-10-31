@@ -63,8 +63,6 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// A segment that moves forward or merges during the visit can be visited twice.
   /// Use it for point lookups that stop early, such as finding the newest version
   /// of a key stored under several composite keys.
-  /// The visitor can run under a read lock of the mutable segment, which blocks
-  /// writes to the same B-tree leaf. It must be short and must not access this tree.
   /// </remarks>
   /// <typeparam name="TVisitor">The visitor type.</typeparam>
   /// <param name="key">The first key to visit.</param>

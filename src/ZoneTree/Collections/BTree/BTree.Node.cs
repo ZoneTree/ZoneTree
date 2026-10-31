@@ -79,9 +79,7 @@ public sealed partial class BTree<TKey, TValue>
 
     public void InsertKeyAndChild(int position, in TKey key, Node left, Node right)
     {
-      // The increments are full fences: a reader sees the version
-      // change before any of the changes, and the changes before it ends.
-      Interlocked.Increment(ref version);
+      BeginChange();
       var len = Length - position;
       if (len > 0)
       {
@@ -92,17 +90,36 @@ public sealed partial class BTree<TKey, TValue>
       Children[position] = left;
       Children[position + 1] = right;
       ++Length;
-      Interlocked.Increment(ref version);
+      EndChange();
     }
 
     int version;
 
     /// <summary>
-    /// The version of the keys and children of an inner node, odd while they change.
-    /// A reader that sees the same even version before and after reading
-    /// the node has read a consistent state without locking it.
+    /// The version of the content of a node, odd while it changes. A reader that
+    /// sees the same even version before and after reading the node has read a
+    /// consistent state without locking it. A split leaves the replaced node
+    /// as it was, so a reader that reaches it reads a state that was current.
     /// </summary>
     public int Version => Volatile.Read(ref version);
+
+    /// <summary>
+    /// Starts a change of the content. The caller holds the node exclusively.
+    /// The fence makes readers see the odd version before any of the changes.
+    /// </summary>
+    protected void BeginChange()
+    {
+      Interlocked.Increment(ref version);
+    }
+
+    /// <summary>
+    /// Ends a change of the content. A write is enough here
+    /// because the caller holds the node exclusively.
+    /// </summary>
+    protected void EndChange()
+    {
+      Volatile.Write(ref version, version + 1);
+    }
 
     /// <summary>
     /// Tells whether the node is unchanged since a reader saw the version.
