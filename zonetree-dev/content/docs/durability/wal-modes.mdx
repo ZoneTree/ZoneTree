@@ -16,11 +16,11 @@ description: Understand ZoneTree's default AsyncCompressed WAL, compare logging 
 | Mode | Logging path | When to choose it |
 | --- | --- | --- |
 | **`AsyncCompressed` default** | Enqueues records for background serialization, compression, and writing. | Persistent applications that benefit from keeping logging work off the caller's path. |
-| `SyncCompressed` | Serializes and appends on the caller into a compressed-block stream; the current tail is written separately. | A specific need for caller-side compressed logging, after measuring the workload. |
+| `SyncCompressed` | Serializes and appends on the caller into a compressed-block stream; the current block is in a companion tail file. | A specific need for caller-side compressed logging, after measuring the workload. |
 | `Sync` | Serializes and appends on the caller through a plain WAL stream, flushing that stream per record. | A specific need for the plain synchronous logging path, accepting its throughput cost. |
 | `None` | Does not log segment records. Metadata and merged disk segments still exist. | Disposable data or a dataset you intentionally rebuild from another source. |
 
-AsyncCompressed lets the caller continue before background logging finishes. An abrupt process exit can omit recent queued or unwritten records; normal disposal drains that work.
+AsyncCompressed lets the caller continue before background logging finishes. An abrupt process exit loses the records still in the queue; normal disposal drains them.
 
 ## Acknowledge durable writes
 
@@ -52,11 +52,11 @@ Syncing every write made a single writer about 900 times slower. Concurrent wait
 
 The compressed modes sync the WAL on their own, so their loss window stays small without `SyncWALAsync`:
 
-| Mode | Writes lost on a process crash or power loss |
-| --- | --- |
-| `AsyncCompressed` | Writes since the background writer's last sync. It syncs each full compression block, and the tail whenever its queue becomes empty. Under light load that is about the last `EmptyQueuePollInterval` (100 ms by default). Under sustained load it is at most one compression block (256 KB of WAL data by default) plus the writes still queued. |
-| `SyncCompressed` | Writes since the last tail sync. The tail writer job syncs every `TailWriterJobInterval` (500 ms by default), and full blocks sync when they are committed. |
-| `Sync` | Nothing on a process crash, because each record reaches the operating system. On a power loss, everything that the operating system has not written back yet, because this mode syncs only when the segment closes. |
+| Mode | Writes lost on a process crash | Writes lost on a power loss |
+| --- | --- | --- |
+| `AsyncCompressed` | The writes still queued. Every write that the background writer has appended survives. | Writes since the background writer's last sync. It syncs each full compression block, and the tail whenever its queue becomes empty. Under light load that is about the last `EmptyQueuePollInterval` (100 ms by default). Under sustained load it is at most one compression block (256 KB of WAL data by default) plus the writes still queued. |
+| `SyncCompressed` | Nothing, because each write reaches the operating system before it returns. | Writes since the last tail sync, at most one compression block. The tail writer job syncs every `TailWriterJobInterval` (500 ms by default), and full blocks sync when they are committed. |
+| `Sync` | Nothing, because each record reaches the operating system. | Everything that the operating system has not written back yet, because this mode syncs only when the segment closes. |
 
 These windows are far shorter than the operating system's own background writes, and they are small enough for most workloads.
 
@@ -143,10 +143,14 @@ Existing WAL files keep their detected logging mode and recorded compression for
 
 Compressed WALs have a main file of committed blocks and a companion `.tail` file for the unfinished block. Keep both when making an offline copy.
 
-| Mode | How the current tail is written |
+A write to the stream is in the tail file when it returns, so it survives a process crash. With the local file stream provider, the tail file is mapped into memory and takes the size of one compression block plus an 8-byte header once the stream is written to. A write is a memory copy into the operating system's file cache, without a system call. Other file stream providers cannot be mapped, so each write is appended through the provider's stream, which is much slower.
+
+Disk syncs protect the tail from a power loss:
+
+| Mode | When the current tail is synced to the disk |
 | --- | --- |
-| `AsyncCompressed` | The background writer writes it when the queue becomes empty or `SyncWALAsync` requests a sync; draining and disposal also write it. |
-| `SyncCompressed` | A tail-writer job is enabled by default, with a 500 ms interval. Closing the stream writes the remaining tail. |
+| `AsyncCompressed` | The background writer syncs it when the queue becomes empty or `SyncWALAsync` requests a sync; draining and disposal also sync it. |
+| `SyncCompressed` | A tail-writer job syncs it, enabled by default with a 500 ms interval. `SyncWALAsync` and closing the stream also sync it. |
 
 The async writer's default `EmptyQueuePollInterval` is 100 ms. These intervals control scheduling, not a maximum persistence delay.
 
@@ -166,7 +170,7 @@ The async writer's default `EmptyQueuePollInterval` is 100 ms. These intervals c
     record. With the local provider this reaches ordinary
     <code>FileStream.Flush()</code>, while disposal requests
     <code>Flush(true)</code>. Compressed streams request disk synchronization
-    when committing full blocks or writing the tail, rather than on every
+    when committing full blocks or syncing the tail, rather than on every
     partial-block append.
   </p>
   <p>

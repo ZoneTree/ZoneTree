@@ -578,7 +578,7 @@ public sealed class PowerLossRecoveryTests
     var image = Copy(provider);
     var tailPath = image.GetFiles("data/seg").Single(x => x.EndsWith(".tail", StringComparison.Ordinal));
     var tail = image.ReadAllBytes(tailPath);
-    BitConverter.GetBytes(BitConverter.ToInt32(tail, 4) + SectorSize).CopyTo(tail, 4);
+    BitConverter.GetBytes(tail.Length - 8 + SectorSize).CopyTo(tail, 4);
     Overwrite(image, tailPath, tail.Concat(new byte[SectorSize]).ToArray());
 
     using (var reopened = Factory(image, mode).Open())

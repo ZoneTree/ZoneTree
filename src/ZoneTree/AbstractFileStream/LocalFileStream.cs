@@ -19,6 +19,8 @@ public sealed class LocalFileStream : Stream, IFileStream
 
   public string FilePath { get; }
 
+  internal FileStream BaseFileStream => FileStream;
+
   public override bool CanRead => FileStream.CanRead;
 
   public override bool CanSeek => FileStream.CanSeek;

@@ -45,6 +45,11 @@ public sealed class PowerLossFileStreamProvider : IFileStreamProvider
   public Action<string> BeforeDiskSync { get; set; }
 
   /// <summary>
+  /// Called after a file length change, before any later change of the file.
+  /// </summary>
+  public Action<string> AfterSetLength { get; set; }
+
+  /// <summary>
   /// Called after every change of the durable content.
   /// </summary>
   public Action OnDurableChange { get; set; }
@@ -287,7 +292,11 @@ public sealed class PowerLossFileStreamProvider : IFileStreamProvider
 
     public override long Seek(long offset, SeekOrigin origin) => InnerStream.Seek(offset, origin);
 
-    public override void SetLength(long value) => InnerStream.SetLength(value);
+    public override void SetLength(long value)
+    {
+      InnerStream.SetLength(value);
+      Provider.AfterSetLength?.Invoke(FilePath);
+    }
 
     public override void Write(byte[] buffer, int offset, int count) => InnerStream.Write(buffer, offset, count);
 
