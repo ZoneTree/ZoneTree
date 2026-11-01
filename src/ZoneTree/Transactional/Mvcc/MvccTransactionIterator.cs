@@ -107,9 +107,9 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
   {
     EnsureUsable();
     ResetPosition();
-    // The newest version sorts first, so a forward seek starts at the newest
-    // version of the key and a reverse seek at its oldest.
-    Inner.Seek(VersionedKey<TKey>.Data(in key, IsReverse ? long.MinValue : long.MaxValue));
+    // A forward seek skips transaction ids above every possibly visible version.
+    // Reverse iteration starts at the oldest version of the key.
+    Inner.Seek(VersionedKey<TKey>.Data(in key, IsReverse ? long.MinValue : Math.Max(Transaction.TransactionId, Transaction.SnapshotTimestamp)));
     if (IsReverse)
       StartRange(new KeyRange<TKey> { High = key, HasHigh = true, Low = key, HasLow = true });
     else

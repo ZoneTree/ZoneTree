@@ -10,9 +10,10 @@ namespace ZoneTree.Transactional.Conflicts;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Commits add keys one at a time under the commit lock of the tree, and any thread
-/// can look up a key without a lock. A lookup that races with a commit may miss its
-/// keys, so a commit validates again under the commit lock.
+/// Commits publish a sorted batch under the commit lock of the tree. Older batches
+/// join the generation's tree only while an overlapping writer still needs them.
+/// A lookup that races with a commit may miss its keys, so a commit validates again
+/// under the commit lock.
 /// </para>
 /// <para>
 /// The keys live in generations, oldest first, and a key in a newer generation has a
@@ -40,9 +41,20 @@ internal sealed class ConflictIndex<TKey>
   /// </summary>
   const int MaximumGenerationCount = 16;
 
+  sealed class Batch(TKey[] keys, long timestamp)
+  {
+    public readonly TKey[] Keys = keys;
+
+    public readonly long Timestamp = timestamp;
+  }
+
   sealed class Generation(IRefComparer<TKey> comparer, long newestCommit)
   {
     public readonly BTree<TKey, long> Keys = new(comparer, BTreeLockMode.NodeLevelMonitor);
+
+    public volatile Batch RecentBatch;
+
+    public int Length => Keys.Length + (RecentBatch?.Keys.Length ?? 0);
 
     public long NewestCommit = newestCommit;
   }
@@ -76,10 +88,15 @@ internal sealed class ConflictIndex<TKey>
       {
         if (Volatile.Read(ref generation.NewestCommit) <= horizon)
           continue;
+        var batch = generation.RecentBatch;
+        var countBatch = batch != null && batch.Timestamp > horizon;
+        if (countBatch)
+          count += batch.Keys.Length;
         var iterator = new BTreeSeekableIterator<TKey, long>(generation.Keys);
         for (var found = iterator.SeekBegin(); found; found = iterator.Next())
         {
-          if (iterator.CurrentValue > horizon)
+          var key = iterator.CurrentKey;
+          if (iterator.CurrentValue > horizon && (!countBatch || Find(batch.Keys, in key) < 0))
             ++count;
         }
       }
@@ -95,6 +112,9 @@ internal sealed class ConflictIndex<TKey>
       var generation = generations[i];
       if (Volatile.Read(ref generation.NewestCommit) <= timestamp)
         return false;
+      var batch = generation.RecentBatch;
+      if (batch != null && Find(batch.Keys, in key) >= 0)
+        return batch.Timestamp > timestamp;
       if (generation.Keys.TryGetValue(in key, out var commitTimestamp))
         return commitTimestamp > timestamp;
     }
@@ -131,6 +151,9 @@ internal sealed class ConflictIndex<TKey>
 
   bool HasCommitAfter(Generation generation, in KeyRange<TKey> range, long timestamp)
   {
+    var batch = generation.RecentBatch;
+    if (batch != null && batch.Timestamp > timestamp && HasKeyInRange(batch.Keys, in range))
+      return true;
     var iterator = new BTreeSeekableIterator<TKey, long>(generation.Keys);
     var found = range.HasLow ?
         iterator.SeekToFirstGreaterOrEqualElement(in range.Low) :
@@ -146,15 +169,51 @@ internal sealed class ConflictIndex<TKey>
     return false;
   }
 
+  bool HasKeyInRange(TKey[] keys, in KeyRange<TKey> range)
+  {
+    var position = range.HasLow ? LowerBound(keys, in range.Low) : 0;
+    return position < keys.Length &&
+        (!range.HasHigh || Comparer.Compare(in keys[position], in range.High) <= 0);
+  }
+
+  int LowerBound(TKey[] keys, in TKey key)
+  {
+    var low = 0;
+    var high = keys.Length;
+    while (low < high)
+    {
+      var middle = low + (high - low) / 2;
+      if (Comparer.Compare(in keys[middle], in key) < 0)
+        low = middle + 1;
+      else
+        high = middle;
+    }
+    return low;
+  }
+
+  int Find(TKey[] keys, in TKey key)
+  {
+    var position = LowerBound(keys, in key);
+    return position < keys.Length && Comparer.Compare(in keys[position], in key) == 0 ?
+        position : -1;
+  }
+
   /// <summary>
-  /// Adds the keys of a commit. Called under the commit lock of the tree,
-  /// with increasing timestamps.
+  /// Takes ownership of the sorted, distinct keys of a commit. Called under the
+  /// commit lock of the tree, with increasing timestamps.
   /// </summary>
   public void Add(TKey[] keys, long commitTimestamp)
   {
     var generation = GetGenerationToAdd(commitTimestamp);
-    foreach (var key in keys)
-      generation.Keys.Upsert(in key, in commitTimestamp, out _);
+    var previous = generation.RecentBatch;
+    if (previous != null && previous.Timestamp > Volatile.Read(ref prunedHorizon))
+    {
+      // Keep the old batch published until every key is in the tree. A failed
+      // comparison leaves it available, and a concurrent lookup cannot lose it.
+      foreach (var key in previous.Keys)
+        generation.Keys.Upsert(in key, in previous.Timestamp, out _);
+    }
+    generation.RecentBatch = new Batch(keys, commitTimestamp);
   }
 
   /// <summary>
@@ -166,7 +225,7 @@ internal sealed class ConflictIndex<TKey>
     lock (SyncRoot)
     {
       var generations = Generations;
-      if (generations.Length > 0 && generations[^1].Keys.Length < GenerationSize)
+      if (generations.Length > 0 && generations[^1].Length < GenerationSize)
       {
         var last = generations[^1];
         Volatile.Write(ref last.NewestCommit, commitTimestamp);
@@ -226,11 +285,11 @@ internal sealed class ConflictIndex<TKey>
     // Commits are still adding keys to the last generation.
     var end = generations.Length - 1;
     var start = end - 1;
-    long size = generations[start].Keys.Length;
-    while (start > 0 && generations[start - 1].Keys.Length <= size * 2)
+    long size = generations[start].Length;
+    while (start > 0 && generations[start - 1].Length <= size * 2)
     {
       --start;
-      size += generations[start].Keys.Length;
+      size += generations[start].Length;
     }
     if (end - start < 2)
       --start;
@@ -255,6 +314,12 @@ internal sealed class ConflictIndex<TKey>
           continue;
         var key = iterator.CurrentKey;
         merged.Keys.Upsert(in key, in commitTimestamp, out _);
+      }
+      var batch = generation.RecentBatch;
+      if (batch != null && batch.Timestamp > horizon)
+      {
+        foreach (var key in batch.Keys)
+          merged.Keys.Upsert(in key, in batch.Timestamp, out _);
       }
     }
     return merged;
@@ -302,6 +367,6 @@ internal sealed class ConflictIndex<TKey>
   {
     var generation = generations[index];
     return Volatile.Read(ref generation.NewestCommit) <= horizon &&
-        (index < generations.Length - 1 || generation.Keys.Length >= GenerationSize);
+        (index < generations.Length - 1 || generation.Length >= GenerationSize);
   }
 }
