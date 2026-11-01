@@ -219,7 +219,6 @@ public sealed class MvccZoneTree<TKey, TValue> :
       WriteAheadLogProvider = options.WriteAheadLogProvider,
       RandomAccessDeviceManager = options.RandomAccessDeviceManager,
       EnableSingleSegmentGarbageCollection = options.EnableSingleSegmentGarbageCollection,
-      PreserveWriteOrderAcrossSegments = true,
       MergeFilterFactory = context => owner.Value?.CreateMergeFilter(context),
     };
   }

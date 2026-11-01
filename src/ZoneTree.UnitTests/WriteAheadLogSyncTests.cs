@@ -24,6 +24,7 @@ public sealed class WriteAheadLogSyncTests
       int emptyQueuePollInterval = 100)
   {
     return new ZoneTreeFactory<int, int>(provider)
+        .SetLogger(SilentTestLogger.Instance)
         .Configure(options =>
         {
           options.AllowUnsafeOptionValues = true;
@@ -482,8 +483,9 @@ public sealed class WriteAheadLogSyncTests
       stream.SealTail();
     }
     var tail = provider.ReadAllBytes("data/sealed.tail");
-    // The file length tells the tail length on this provider.
-    Assert.That(tail.Length, Is.EqualTo(2 * sizeof(int)));
+    // Capacity and checkpoint slots stay allocated; the header tells the
+    // logical tail length.
+    Assert.That(BitConverter.ToInt32(tail, sizeof(int)), Is.Zero);
 
     // The main file holds the content without the tail file.
     var afterPowerLoss = provider.SimulatePowerLoss();
@@ -506,9 +508,9 @@ public sealed class WriteAheadLogSyncTests
     stream.Write(newBytes.AsSpan(0, WalBlockSize / 2));
     var diskSyncCount = provider.DiskSyncCount;
     stream.ReplaceContent(provider, binaryWriter => binaryWriter.Write(newBytes));
-    // Sealing the old tail syncs the main and the tail file.
-    // Sealing the temporary file syncs its main and its tail file.
-    Assert.That(provider.DiskSyncCount - diskSyncCount, Is.EqualTo(4));
+    // Both files are sealed once; invalidating the old fixed checkpoints and
+    // closing the old tail adds a constant cost, independent of block count.
+    Assert.That(provider.DiskSyncCount - diskSyncCount, Is.EqualTo(6));
   }
 
   [Test]
@@ -606,7 +608,7 @@ public sealed class WriteAheadLogSyncTests
   {
     provider.CreateDirectory("data");
     return new CompressedFileStream(
-        new ConsoleLogger(),
+        SilentTestLogger.Instance,
         provider,
         "data/sealed",
         WalBlockSize,

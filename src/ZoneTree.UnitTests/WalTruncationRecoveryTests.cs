@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Logger;
 using ZoneTree.Options;
 using ZoneTree.WAL;
 
@@ -117,6 +116,7 @@ public sealed class WalTruncationRecoveryTests
   static IZoneTree<int, int> OpenOrCreate(string dataPath)
   {
     return new ZoneTreeFactory<int, int>()
+        .SetLogger(SilentTestLogger.Instance)
         .Configure(options => options.AllowUnsafeOptionValues = true)
         .SetDataDirectory(dataPath)
         .ConfigureWriteAheadLogOptions(options => options.CompressionBlockSize = WalBlockSize)
@@ -140,7 +140,7 @@ public sealed class WalTruncationRecoveryTests
 
     // The compression method of an existing file is read from the file.
     using var stream = new CompressedFileStream(
-        new ConsoleLogger(),
+        SilentTestLogger.Instance,
         new LocalFileStreamProvider(),
         walPath,
         WalBlockSize,

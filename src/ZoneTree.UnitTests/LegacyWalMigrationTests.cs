@@ -1,5 +1,4 @@
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Logger;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 using ZoneTree.WAL;
@@ -131,7 +130,7 @@ public sealed class LegacyWalMigrationTests
 
     var newWal = WalPath("seg", 3, "wal_xxh3", mode);
     CorruptChecksum(newWal, mode);
-    var provider = new WriteAheadLogProvider(new ConsoleLogger(), new LocalFileStreamProvider(), DataDirectory);
+    var provider = new WriteAheadLogProvider(SilentTestLogger.Instance, new LocalFileStreamProvider(), DataDirectory);
     using var wal = provider.GetOrCreateWAL(3, "seg", WalOptions(mode), new Int32Serializer(), new Int32Serializer());
     var result = wal.ReadLogEntries(true, true, false);
     Assert.That(result.Success, Is.False);
@@ -145,7 +144,7 @@ public sealed class LegacyWalMigrationTests
   {
     CopyFixture(mode);
     using (CreateFactory(mode).Open()) { }
-    var provider = new WriteAheadLogProvider(new ConsoleLogger(), new LocalFileStreamProvider(), DataDirectory);
+    var provider = new WriteAheadLogProvider(SilentTestLogger.Instance, new LocalFileStreamProvider(), DataDirectory);
     using (var wal = provider.GetOrCreateWAL(2, "seg", WalOptions(mode), new Int32Serializer(), new Int32Serializer()))
     {
       wal.ReplaceWriteAheadLog(new[] { 2, 3, 4 }, new[] { 222, 30, 40 });
@@ -161,6 +160,7 @@ public sealed class LegacyWalMigrationTests
   ZoneTreeFactory<int, int> CreateFactory(WriteAheadLogMode mode)
   {
     return new ZoneTreeFactory<int, int>()
+        .SetLogger(SilentTestLogger.Instance)
         .SetDataDirectory(DataDirectory)
         .Configure(options => options.AllowUnsafeOptionValues = true)
         .ConfigureWriteAheadLogOptions(options =>
@@ -212,7 +212,7 @@ public sealed class LegacyWalMigrationTests
   static Stream OpenRecordStream(string path, WriteAheadLogMode mode)
       => mode == WriteAheadLogMode.Sync
           ? new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)
-          : new CompressedFileStream(new ConsoleLogger(), new LocalFileStreamProvider(), path,
+          : new CompressedFileStream(SilentTestLogger.Instance, new LocalFileStreamProvider(), path,
               128, false, 0, CompressionMethod.None, 0);
 
   static List<LogEntry> ReadEntries(string path, WriteAheadLogMode mode)
@@ -244,7 +244,7 @@ public sealed class LegacyWalMigrationTests
 
   sealed class CountingWalProvider(string directory) : IWriteAheadLogProvider
   {
-    readonly WriteAheadLogProvider Inner = new(new ConsoleLogger(), new LocalFileStreamProvider(), directory);
+    readonly WriteAheadLogProvider Inner = new(SilentTestLogger.Instance, new LocalFileStreamProvider(), directory);
     public List<Version> MigrationVersions { get; } = new();
     public void MigrateWals(Version databaseVersion)
     {

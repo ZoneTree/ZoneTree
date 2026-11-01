@@ -37,25 +37,6 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       MutableSegment = new FrozenMutableSegment<TKey, TValue>(mutableSegment);
       mutableSegment.Freeze();
       while (!mutableSegment.IsFullyFrozen) Thread.Yield();
-      if (Options.PreserveWriteOrderAcrossSegments)
-      {
-        // Writers retry until the new mutable segment is published.
-        // Syncing here makes every write of this segment durable
-        // before any write of the next segment reaches its WAL.
-        try
-        {
-          mutableSegment.SyncWALAsync().GetAwaiter().GetResult();
-        }
-        catch (Exception e)
-        {
-          // A newer segment's writes could reach the disk before these unsynced
-          // ones, so no write may follow. The segment stays readable as the
-          // mutable segment, and every write throws instead of waiting.
-          Logger.LogError(e);
-          MutableSegment = new FrozenMutableSegment<TKey, TValue>(mutableSegment, e);
-          return;
-        }
-      }
       ReadOnlySegmentQueue.Enqueue(mutableSegment);
       MetaWal.EnqueueMaximumOpIndex(mutableSegment.MaximumOpIndex);
       MetaWal.EnqueueReadOnlySegment(mutableSegment.SegmentId);

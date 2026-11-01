@@ -5,6 +5,7 @@ using ZoneTree.Logger;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 using ZoneTree.WAL;
+using ZoneTree.Compression;
 
 namespace ZoneTree.UnitTests;
 
@@ -31,7 +32,7 @@ public sealed class PowerLossRecoveryTests
   {
     return new ZoneTreeFactory<int, int>(provider)
         .SetDataDirectory("data")
-        .SetLogger(new ConsoleLogger(LogLevel.Error))
+        .SetLogger(SilentTestLogger.Instance)
         .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = mode);
   }
 
@@ -642,7 +643,7 @@ public sealed class PowerLossRecoveryTests
       Directory.Delete(dataPath, true);
     ZoneTreeFactory<int, int> LocalFactory() => new ZoneTreeFactory<int, int>()
         .SetDataDirectory(dataPath)
-        .SetLogger(new ConsoleLogger(LogLevel.Error))
+        .SetLogger(SilentTestLogger.Instance)
         .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = mode);
 
     using (var tree = LocalFactory().OpenOrCreate())
@@ -724,18 +725,42 @@ public sealed class PowerLossRecoveryTests
   {
     const int syncedCount = 60;
     var provider = new InMemoryFileStreamProvider();
-    using var tree = SmallBlockFactory(provider, mode, compressionMethod).OpenOrCreate();
-    UpsertKeys(tree, 0, syncedCount);
-    await tree.SyncWALAsync();
+    using (var tree = SmallBlockFactory(provider, mode, compressionMethod).OpenOrCreate())
+    {
+      UpsertKeys(tree, 0, 200);
+      await tree.SyncWALAsync();
+    }
     var mainPath = MainWalPath(provider);
-    var syncedTail = provider.ReadAllBytes(mainPath + ".tail");
+    // Build an older-format fixture explicitly. Older explicit syncs left
+    // acknowledged records in the tail, unlike the current main-file checkpoint.
+    using var records = new MemoryStream();
+    using (var writer = new BinaryWriter(records, System.Text.Encoding.UTF8, true))
+    {
+      for (var key = 0; key < 200; ++key)
+        LogEntry.AppendLogEntry(writer, BitConverter.GetBytes(key), BitConverter.GetBytes(key + 1), key + 1);
+    }
+    var content = records.ToArray();
+    using var legacyMain = new MemoryStream();
+    using (var writer = new BinaryWriter(legacyMain, System.Text.Encoding.UTF8, true))
+    {
+      writer.Write((byte)compressionMethod);
+      for (var offset = 0; offset + 2048 <= content.Length; offset += 2048)
+      {
+        var block = DataCompression.Compress(compressionMethod, 0, content.AsMemory(offset, 2048));
+        writer.Write(offset / 2048);
+        writer.Write(block.Length);
+        writer.Write(2048);
+        writer.Write(block.Span);
+      }
+    }
+    var syncedTail = BitConverter.GetBytes(0)
+        .Concat(BitConverter.GetBytes(syncedCount * 28))
+        .Concat(content.Take(syncedCount * 28)).ToArray();
 
-    // The next block commit extends the main file. Its first sector is all that
-    // persists, the tail file still holds the synced part of the block.
-    UpsertKeys(tree, syncedCount, 200);
-    await tree.SyncWALAsync();
+    // Only the first sector of the main append persisted; the legacy tail
+    // still contains the acknowledged records.
     var image = Copy(provider);
-    var main = image.ReadAllBytes(mainPath);
+    var main = legacyMain.ToArray();
     Assert.That(main.Length, Is.GreaterThan(persistedLength + 1));
     var persistedEnd = Math.Max(1, persistedLength);
     Array.Clear(main, persistedEnd, main.Length - persistedEnd);
@@ -1147,6 +1172,8 @@ public sealed class PowerLossRecoveryTests
       }
       catch (Exception e)
       {
+        if (failures.Count == 0)
+          TestContext.Out.WriteLine($"First failed recovery ({description}): {e}");
         failures.Add($"{description}: {e.GetType().Name}: {e.Message}");
       }
       finally
