@@ -267,7 +267,7 @@ ZoneTree uses async compressed WAL by default. It is the recommended starting po
 | --- | --- |
 | Recommended high-throughput persistent WAL mode | Async compressed WAL |
 | Plain synchronous WAL write path | Sync WAL |
-| Compressed WAL with a synchronous caller write path and tail durability tradeoff | Sync compressed WAL |
+| Compressed WAL with a synchronous caller write path, where each returned write survives a process crash | Sync compressed WAL |
 | Intentional no-WAL boundary for cache/temp/rebuildable data | No WAL |
 
 Writes do not wait for disk syncs in any WAL mode. When a write must survive a power loss before you acknowledge it, await `zoneTree.SyncWALAsync()`. Concurrent calls share disk syncs.

@@ -482,7 +482,8 @@ public sealed class WriteAheadLogSyncTests
       stream.SealTail();
     }
     var tail = provider.ReadAllBytes("data/sealed.tail");
-    Assert.That(BitConverter.ToInt32(tail, sizeof(int)), Is.Zero);
+    // The file length tells the tail length on this provider.
+    Assert.That(tail.Length, Is.EqualTo(2 * sizeof(int)));
 
     // The main file holds the content without the tail file.
     var afterPowerLoss = provider.SimulatePowerLoss();

@@ -145,6 +145,7 @@ Use `IFileStreamProvider` when neither built-in provider fits. Return `IFileStre
 | Metadata | Small-file text/byte reads, path combination, directory enumeration, and durable-file-writer integration. |
 | Legacy WAL migration | File enumeration through `GetFiles()` and non-overwriting renames through `MoveFile()`. Their interface defaults throw if not implemented. |
 | Durability | Explicit semantics for `Flush()`, `Flush(bool)`, replacement, and interrupted operations. A method named “flush” does not establish a storage guarantee by itself. |
+| Compressed WAL tail | Each write to a compressed WAL makes at least one `Write` call on the tail stream, and that call must hand the bytes to storage that survives a process crash. `Flush(true)` on the tail stream can run during a `Write` from another thread, and it must be safe. |
 | Concurrency and failures | Coordinate access and surface failures consistently. Test interrupted appends, replacements, reopening, and merges. |
 
 A remote object store usually needs a buffering and consistency design to satisfy seekable, mutable stream behavior. Implementing an upload method alone is not sufficient.

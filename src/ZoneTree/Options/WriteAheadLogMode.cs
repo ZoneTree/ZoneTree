@@ -16,17 +16,19 @@ public enum WriteAheadLogMode : byte
 
   /// <summary>
   /// Sync mode with compressed-block WAL storage.
-  /// It is faster than Sync and can reduce WAL size, but it keeps the current
-  /// compressed tail block separately and has weaker crash durability than
-  /// Sync.
+  /// It is faster than Sync and can reduce WAL size. It keeps the current
+  /// compressed tail block in a separate file, and every write to that block
+  /// survives a process crash. A power loss can lose the writes that were not
+  /// synced to the disk.
   /// </summary>
   SyncCompressed = 1,
 
   /// <summary>
   /// AsyncCompressed mode writes compressed WAL records through a background
   /// path. It is the recommended high-throughput persistent default for most
-  /// applications, but recent writes can be lost if the process terminates
-  /// before the background WAL work is durable.
+  /// applications. A process crash loses the writes that are still queued for
+  /// the background path, and a power loss can also lose the appended writes
+  /// that were not synced to the disk.
   /// </summary>
   AsyncCompressed = 2,
 
