@@ -28,7 +28,6 @@ public sealed class ZoneTreeEngine : ITransactionEngine
     Tree = new ZoneTreeFactory<long, byte[]>()
         .SetDataDirectory(options.Directory)
         .SetMutableSegmentMaxItemCount(tuning.ZoneTreeMutableSegmentMaxItemCount)
-        .SetLogLevel(LogLevel.Error)
         .SetComparer(new Int64ComparerAscending())
         .SetKeySerializer(new Int64Serializer())
         .SetValueSerializer(new ValueSerializer())
@@ -38,7 +37,11 @@ public sealed class ZoneTreeEngine : ITransactionEngine
           disk.KeyCacheSize = tuning.ZoneTreeKeyCacheSize;
           disk.ValueCacheSize = tuning.ZoneTreeValueCacheSize;
         })
-        .ConfigureWriteAheadLogOptions(wal => wal.WriteAheadLogMode = walMode)
+        .ConfigureWriteAheadLogOptions(wal =>
+        {
+          wal.CompressionMethod = CompressionMethod.None; // TODO: RocskDB uses no compression on WAL, do the same for ZoneTree and update the logs.
+          wal.WriteAheadLogMode = walMode;
+        })
         .OpenOrCreateTransactional();
 
     Maintainer = Tree.CreateMaintainer();
