@@ -61,18 +61,11 @@ public static class ReportWriter
       report.Runs.Where(x => x.ScenarioId == scenarioId && x.Keys == keys);
 
   /// <summary>
-  /// The worker count a comparison reports: the one the most engines ran with, so a partial
-  /// rerun at a new count does not hide the others. Among equals, the highest.
+  /// The worker counts of some runs, lowest first. A comparison reports each of them, so a
+  /// run at a new count adds to the report instead of replacing what the others show.
   /// </summary>
-  static int ComparisonWorkers(IEnumerable<RunResult> runs) =>
-      runs.GroupBy(x => x.Workers)
-          .OrderByDescending(x => x.Select(run => run.EngineId).Distinct().Count())
-          .ThenByDescending(x => x.Key)
-          .Select(x => x.Key)
-          .FirstOrDefault();
-
-  static int ComparisonWorkers(BenchmarkReport report, string scenarioId, long keys) =>
-      ComparisonWorkers(RunsOf(report, scenarioId, keys));
+  static IReadOnlyList<int> WorkerCounts(IEnumerable<RunResult> runs) =>
+      runs.Select(x => x.Workers).Distinct().Order().ToArray();
 
   /// <summary>
   /// The number a comparison uses for a run: rows per second where rows are the unit of work.
@@ -125,6 +118,7 @@ public static class ReportWriter
         CultureInfo.InvariantCulture,
         $"Each run does a fixed job, the same on every engine, and measures the time it takes: fresh database in its own process, job scale {report.Scale:0.###}, {report.ValueSize} byte values, zipf theta {report.ZipfTheta:0.##}{(report.RetryBackoff ? ", exponential backoff after conflicts" : ", immediate retry after conflicts")}."));
     md.AppendLine();
+    WriteMixedSettings(md, report);
     WriteProblems(md, report);
 
     foreach (var keys in report.Keys.Where(keys => report.Runs.Any(x => x.Keys == keys)))
@@ -182,6 +176,27 @@ public static class ReportWriter
     }
   }
 
+  /// <summary>
+  /// Warns when --force merged executions of different settings.
+  /// </summary>
+  static void WriteMixedSettings(StringBuilder md, BenchmarkReport report)
+  {
+    var sources = report.Sources.Where(x => x.Settings.Count > 0).ToArray();
+    if (sources.Select(x => string.Join("\n", x.Settings)).Distinct().Count() < 2)
+      return;
+    var shared = sources
+        .Select(x => (IEnumerable<string>)x.Settings)
+        .Aggregate((a, b) => a.Intersect(b))
+        .ToArray();
+    md.AppendLine("## Mixed settings");
+    md.AppendLine();
+    md.AppendLine("`--force` merged runs measured under different settings, so they do not compare directly. The line above describes the latest execution. Each scenario page lists which execution measured which run.");
+    md.AppendLine();
+    foreach (var source in sources)
+      md.AppendLine($"- `{source.Stamp}`: {string.Join("; ", source.Settings.Except(shared))}");
+    md.AppendLine();
+  }
+
   static void WriteProblems(StringBuilder md, BenchmarkReport report)
   {
     var problems = report.Runs.Where(x => ProblemOf(x).Length > 0).ToArray();
@@ -221,13 +236,16 @@ public static class ReportWriter
     var groups = new List<(string, IReadOnlyList<(string, double, string)>)>();
     foreach (var scenario in scenarios)
     {
-      var workers = ComparisonWorkers(report, scenario.Id, keys);
-      var bars = RunsOf(report, scenario.Id, keys)
-          .Where(x => x.Workers == workers && Rate(scenario, x) > 0)
-          .OrderBy(x => EngineCatalog.ColorSlot(x.EngineId))
-          .Select(x => (x.EngineId, Rate(scenario, x), $"{Format.Compact(Rate(scenario, x))} {RateUnit(scenario)}"))
-          .ToArray();
-      groups.Add((scenario.Id, bars));
+      var runs = RunsOf(report, scenario.Id, keys).ToArray();
+      foreach (var workers in WorkerCounts(runs))
+      {
+        var bars = runs
+            .Where(x => x.Workers == workers && Rate(scenario, x) > 0)
+            .OrderBy(x => EngineCatalog.ColorSlot(x.EngineId))
+            .Select(x => (x.EngineId, Rate(scenario, x), $"{Format.Compact(Rate(scenario, x))} {RateUnit(scenario)}"))
+            .ToArray();
+        groups.Add((string.Create(CultureInfo.InvariantCulture, $"{scenario.Id} · {workers}"), bars));
+      }
     }
     if (groups.All(x => x.Item2.Count == 0))
       return;
@@ -237,7 +255,7 @@ public static class ReportWriter
         Path.Combine(charts, file),
         SvgCharts.RelativeBars(
             categoryTitle,
-            "Speed finishing each job at the worker count in the table below. The fastest engine is 100%.",
+            "Speed finishing each job, by scenario · workers. The fastest engine of each group is 100%.",
             groups));
     md.AppendLine($"![{categoryTitle}]({ChartsFolder}/{file})");
     md.AppendLine();
@@ -246,32 +264,35 @@ public static class ReportWriter
   static void WriteCategoryTable(StringBuilder md, BenchmarkReport report, IReadOnlyList<Scenario> scenarios, long keys)
   {
     var engines = EnginesOf(report, scenarios, keys);
-    md.AppendLine("Time to finish the job, then its rate. The fastest engine is in bold.");
+    md.AppendLine("Time to finish the job, then its rate. The fastest engine at each worker count is in bold.");
     md.AppendLine();
     md.AppendLine($"| Scenario | Job | Workers | {string.Join(" | ", engines.Select(EngineName))} |");
     md.AppendLine($"| --- | ---: | ---: |{string.Concat(engines.Select(_ => " ---: |"))}");
     foreach (var scenario in scenarios)
     {
-      var workers = ComparisonWorkers(report, scenario.Id, keys);
-      var runs = RunsOf(report, scenario.Id, keys).Where(x => x.Workers == workers).ToArray();
-      var best = runs.Length == 0 ? 0 : runs.Max(x => Rate(scenario, x));
-      var cells = engines.Select(engine =>
+      var scenarioRuns = RunsOf(report, scenario.Id, keys).ToArray();
+      foreach (var workers in WorkerCounts(scenarioRuns))
       {
-        var run = runs.FirstOrDefault(x => x.EngineId == engine);
-        if (run == null)
-          return "";
-        var problem = ProblemOf(run);
-        if (run.Status != RunStatus.Ok)
-          return problem;
-        var rate = Rate(scenario, run);
-        var time = Format.Seconds(JobTime(scenario, run));
-        var text = rate == best ? $"**{time}**" : time;
-        text += $" ({Format.Compact(rate)} {RateUnit(scenario)})";
-        return problem.Length > 0 ? $"{text} ({problem})" : text;
-      });
-      md.AppendLine(string.Create(
-          CultureInfo.InvariantCulture,
-          $"| [{scenario.Id}]({ScenariosFolder}/{scenario.Id}.md) | {JobSize(scenario, runs)} | {workers} | {string.Join(" | ", cells)} |"));
+        var runs = scenarioRuns.Where(x => x.Workers == workers).ToArray();
+        var best = runs.Max(x => Rate(scenario, x));
+        var cells = engines.Select(engine =>
+        {
+          var run = runs.FirstOrDefault(x => x.EngineId == engine);
+          if (run == null)
+            return "";
+          var problem = ProblemOf(run);
+          if (run.Status != RunStatus.Ok)
+            return problem;
+          var rate = Rate(scenario, run);
+          var time = Format.Seconds(JobTime(scenario, run));
+          var text = rate == best ? $"**{time}**" : time;
+          text += $" ({Format.Compact(rate)} {RateUnit(scenario)})";
+          return problem.Length > 0 ? $"{text} ({problem})" : text;
+        });
+        md.AppendLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"| [{scenario.Id}]({ScenariosFolder}/{scenario.Id}.md) | {JobSize(scenario, runs)} | {workers} | {string.Join(" | ", cells)} |"));
+      }
     }
     md.AppendLine();
   }
@@ -304,18 +325,21 @@ public static class ReportWriter
     md.AppendLine($"| --- | ---: |{string.Concat(engines.Select(_ => " ---: |"))}");
     foreach (var scenario in scenarios)
     {
-      var workers = ComparisonWorkers(report, scenario.Id, keys);
-      var runs = RunsOf(report, scenario.Id, keys).Where(x => x.Workers == workers).ToArray();
-      var cells = engines.Select(engine =>
+      var scenarioRuns = RunsOf(report, scenario.Id, keys).ToArray();
+      foreach (var workers in WorkerCounts(scenarioRuns))
       {
-        var run = runs.FirstOrDefault(x => x.EngineId == engine);
-        if (run == null)
-          return "";
-        return run.Status == RunStatus.Ok ? Format.Count(run.Roles.Sum(x => x.Anomalies)) : ProblemOf(run);
-      });
-      md.AppendLine(string.Create(
-          CultureInfo.InvariantCulture,
-          $"| [{scenario.Id}]({ScenariosFolder}/{scenario.Id}.md) | {workers} | {string.Join(" | ", cells)} |"));
+        var runs = scenarioRuns.Where(x => x.Workers == workers).ToArray();
+        var cells = engines.Select(engine =>
+        {
+          var run = runs.FirstOrDefault(x => x.EngineId == engine);
+          if (run == null)
+            return "";
+          return run.Status == RunStatus.Ok ? Format.Count(run.Roles.Sum(x => x.Anomalies)) : ProblemOf(run);
+        });
+        md.AppendLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"| [{scenario.Id}]({ScenariosFolder}/{scenario.Id}.md) | {workers} | {string.Join(" | ", cells)} |"));
+      }
     }
     md.AppendLine();
   }
@@ -355,7 +379,9 @@ public static class ReportWriter
     md.AppendLine("| RocksDB | `sync=false` | Nothing. | What the OS has not written back since the last memtable flush. The WAL is not synced per commit or on a timer, and a flush makes its data durable, so at most the commits in the memtables: up to `max_write_buffer_number` buffers of `write_buffer_size`. |");
     md.AppendLine("| SQLite | `synchronous=NORMAL` | Nothing. | What the OS has not written back since the last checkpoint. A checkpoint syncs, and runs about every `wal_autocheckpoint` WAL pages, so at most about that much WAL, or more while readers hold a checkpoint back. |");
     md.AppendLine();
-    md.AppendLine("`SyncCompressed`, RocksDB and SQLite all lose nothing on a process crash, and on a power loss all three lose what the OS has not written back, so a real loss is usually smaller than these limits. `AsyncCompressed` commits without waiting for the writer, which is what makes it the faster mode, so its window covers a process crash too. On every engine and mode, what survives is consistent, and an application that needs a commit to survive anything waits for it, as the `durability` category measures.");
+    md.AppendLine("`SyncCompressed`, RocksDB and SQLite lose nothing on a process crash. On a power loss they lose only what the OS has not written back, which is usually less than these limits. `AsyncCompressed` is faster because a commit only queues its record for a background writer, so it can lose recent commits on a process crash as well as on a power loss.");
+    md.AppendLine();
+    md.AppendLine("On every engine and mode, the data that survives is consistent. An application that needs a commit to survive a crash or power loss must wait for the disk, which is what the `durability` category measures.");
     md.AppendLine();
   }
 
@@ -440,16 +466,18 @@ public static class ReportWriter
           Format.Compact,
           allowLogAxis: true));
 
-      var comparison = ComparisonWorkers(ok);
-      var latency = ok.Where(x => x.Workers == comparison && x.Primary!.Operations > 0)
-          .Select(x => (x.EngineId, x.Primary!.Latency.P50Us, x.Primary.Latency.P95Us, x.Primary.Latency.P99Us, x.Primary.Latency.P999Us))
-          .ToArray();
-      if (latency.Length > 0)
+      foreach (var workers in WorkerCounts(ok))
       {
-        WriteChart(md, charts, $"{prefix}-latency.svg", "Latency", SvgCharts.LatencyRanges(
-            $"{scenario.Title}: latency",
-            string.Create(CultureInfo.InvariantCulture, $"{comparison} workers, including retries. Markers: p50, p95, p99, p99.9. Lower is better."),
-            latency));
+        var latency = ok.Where(x => x.Workers == workers && x.Primary!.Operations > 0)
+            .Select(x => (x.EngineId, x.Primary!.Latency.P50Us, x.Primary.Latency.P95Us, x.Primary.Latency.P99Us, x.Primary.Latency.P999Us))
+            .ToArray();
+        if (latency.Length > 0)
+        {
+          WriteChart(md, charts, string.Create(CultureInfo.InvariantCulture, $"{prefix}-w{workers}-latency.svg"), "Latency", SvgCharts.LatencyRanges(
+              $"{scenario.Title}: latency",
+              string.Create(CultureInfo.InvariantCulture, $"{workers} workers, including retries. Markers: p50, p95, p99, p99.9. Lower is better."),
+              latency));
+        }
       }
 
       if (ok.Any(x => x.Primary!.Conflicts > 0))

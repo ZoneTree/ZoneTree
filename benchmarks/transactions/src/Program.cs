@@ -110,18 +110,19 @@ static async Task<int> RunAllAsync(BenchmarkOptions options, string root)
   if (options.UpdateLatest)
   {
     foreach (var keys in options.Keys)
-      ReferenceReport.EnsureComparable(ReferenceReport.Locate(root, options.Preset, keys), settings);
+      ReferenceReport.EnsureComparable(ReferenceReport.Locate(root, options.Preset, keys), settings, options.Force);
   }
 
-  var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
+  IReadOnlyList<BenchmarkReport> resumed = options.Resume ? ResumedExecution.FindLatest(options.OutputDirectory) : [];
+  var stamp = resumed.Count > 0 ? resumed[0].Stamp : DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
   var output = Path.Combine(options.OutputDirectory, stamp);
   var runDirectory = Path.Combine(output, ".runs");
   Directory.CreateDirectory(runDirectory);
   Directory.CreateDirectory(options.DataDirectory);
 
-  Console.WriteLine($"Running {plan.Length} runs: {scenarios.Count} scenarios, {engines.Count} engines. Results: {output}");
   var environment = EnvironmentInfo.Describe();
-  var runs = new List<RunResult>();
+  // A run that did not finish well runs again, since an interruption can be why it failed.
+  var runs = resumed.SelectMany(x => x.Runs).Where(x => x.Status == RunStatus.Ok).ToList();
   BenchmarkReport CreateReport(long keys) => new()
   {
     Stamp = stamp,
@@ -142,10 +143,22 @@ static async Task<int> RunAllAsync(BenchmarkOptions options, string root)
     PlannedRuns = plan.Count(x => x.Keys == keys),
   };
 
+  foreach (var report in resumed)
+    ResumedExecution.EnsureSameCommand(report, CreateReport(report.Keys[0]), options.Keys);
+  var finished = runs.Select(ReferenceReport.Identify).ToHashSet();
+
+  if (options.Resume && resumed.Count == 0)
+    Console.WriteLine($"There is no execution to resume in {options.OutputDirectory}, so this one starts from the beginning.");
+  Console.WriteLine(resumed.Count > 0
+      ? $"Resuming {stamp}: {finished.Count} of {plan.Length} runs are done. Results: {output}"
+      : $"Running {plan.Length} runs: {scenarios.Count} scenarios, {engines.Count} engines. Results: {output}");
+
   // Reports update between runs, so a stopped execution keeps what it measured.
   for (var i = 0; i < plan.Length; i++)
   {
     var (scenario, engine, workers, keys) = plan[i];
+    if (finished.Contains((scenario.Id, engine.Id, workers, keys)))
+      continue;
     var result = await RunInChildProcessAsync(options, runDirectory, scenario, engine, workers, keys);
     runs.Add(result);
     Console.WriteLine($"[{i + 1}/{plan.Length}] {scenario.Id} / {engine.Id} / {workers} workers / {Format.Compact(keys)} keys: {Describe(result)}");

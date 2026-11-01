@@ -73,7 +73,13 @@ public sealed record RunResult
 /// <summary>
 /// An execution that measured some runs of a merged report.
 /// </summary>
-public sealed record RunSource(string Stamp, IReadOnlyList<string> Environment);
+public sealed record RunSource(string Stamp, IReadOnlyList<string> Environment)
+{
+  /// <summary>
+  /// The settings of this execution. They differ between executions only after --force.
+  /// </summary>
+  public IReadOnlyList<string> Settings { get; init; } = [];
+}
 
 /// <summary>
 /// A whole benchmark execution or a merge of several, the file reports are rendered from.
@@ -96,7 +102,8 @@ public sealed record BenchmarkReport
   public required IReadOnlyList<RunResult> Runs { get; init; }
 
   /// <summary>
-  /// The settings runs must share to be merged into one report.
+  /// The settings runs must share to be merged into one report without --force.
+  /// In a merged report, those of the latest execution.
   /// </summary>
   public IReadOnlyList<string> Settings { get; init; } = [];
 

@@ -32,7 +32,7 @@ public sealed record BenchmarkOptions
 
   public bool RetryBackoff { get; init; }
 
-  public int TimeoutSeconds { get; init; } = 600;
+  public int TimeoutSeconds { get; init; } = 86_400;
 
   public string DataDirectory { get; init; } = "";
 
@@ -47,6 +47,10 @@ public sealed record BenchmarkOptions
   public bool KeepData { get; init; }
 
   public bool UpdateLatest { get; init; }
+
+  public bool Force { get; init; }
+
+  public bool Resume { get; init; }
 
   public bool ListScenarios { get; init; }
 
@@ -106,15 +110,19 @@ public sealed record BenchmarkOptions
         --seed <value>               Seed of the workers. Default: 42.
 
       Execution and output:
-        --timeout-seconds <value>    Kill a run after this time. 0 disables it. Default: 600.
+        --timeout-seconds <value>    Kill a run after this time. 0 disables it. Default: 86400 (24 hours).
         --data <directory>           Data directory. Default: benchmarks/transactions/out/data.
         --output <directory>         Results directory. Default: benchmarks/transactions/out/results.
         --clean, --clean-data, --clean-results
                                      Delete data and/or results first.
         --keep-data                  Keep each run's database files, to inspect them.
+        --resume                     Continue the latest execution: the same command runs only
+                                     what is left, and its failed runs again, in the same report.
         --update-latest              Merge each finished run into reference/<os>/<preset>/<keys>,
                                      replacing its previous result, and rewrite that report.
-        --render-latest              Rewrite the reports of every key count in
+        --force                      Let --update-latest mix runs of different settings.
+                                     The report warns that they do not compare directly.
+        --render-latest             Rewrite the reports of every key count in
                                      reference/<os>/<preset> from their summary.json files,
                                      without running anything.
         --render-report <directory>  The same for a report directory, or the key counts under it.
@@ -172,6 +180,8 @@ public sealed record BenchmarkOptions
         "--clean-results" => options with { CleanResults = true },
         "--keep-data" => options with { KeepData = true },
         "--update-latest" => options with { UpdateLatest = true },
+        "--force" => options with { Force = true },
+        "--resume" => options with { Resume = true },
         "--render-report" => options with { RenderReport = Next() },
         "--render-latest" => options with { RenderLatest = true },
         "--zonetree-mutable-segment-max-item-count" => options with { ZoneTreeMutableSegmentMaxItemCount = (int)ParseCount(Next()) },
@@ -209,7 +219,7 @@ public sealed record BenchmarkOptions
   {
     "smoke" => options with { Preset = preset, Keys = [1_000], Workers = [4] },
     "standard" => options with { Preset = preset },
-    "full" => options with { Preset = preset, Keys = [100_000, 1_000_000], Workers = [1, 2, 4, 8, 16, 32], TimeoutSeconds = 1_800 },
+    "full" => options with { Preset = preset, Keys = [100_000, 1_000_000], Workers = [1, 2, 4, 8, 16, 32] },
     _ => throw new ArgumentException($"Unknown preset '{preset}'. Use smoke, standard or full.")
   };
 
@@ -227,6 +237,10 @@ public sealed record BenchmarkOptions
       throw new ArgumentException("--scale must be positive.");
     if (LargeTransactionKeys < 0)
       throw new ArgumentException("--large-txn-keys must not be negative.");
+    if (Force && !UpdateLatest)
+      throw new ArgumentException("--force only applies to --update-latest.");
+    if (Resume && (Clean || CleanResults))
+      throw new ArgumentException("--resume needs the results that --clean and --clean-results delete.");
   }
 
   /// <summary>

@@ -29,21 +29,27 @@ public static class ReferenceReport
   }
 
   /// <summary>
-  /// Refuses a run before it starts when its results would not compare with the reference.
-  /// A report without settings predates them, and its workload is taken on trust.
+  /// Refuses a run before it starts when its results would not compare with the reference,
+  /// unless forced. A report without settings predates them, and its workload is taken on trust.
   /// </summary>
-  public static void EnsureComparable(string directory, IReadOnlyList<string> settings)
+  public static void EnsureComparable(string directory, IReadOnlyList<string> settings, bool force)
   {
     var reference = Read(directory);
     if (reference == null || reference.Settings.Count == 0 || reference.Settings.SequenceEqual(settings))
       return;
-    throw new ArgumentException(
+    var difference =
         $"""
         --update-latest would mix different settings in {directory}.
           Reference only: {string.Join("; ", reference.Settings.Except(settings))}
           This run only:  {string.Join("; ", settings.Except(reference.Settings))}
-        Use the reference's settings, or delete that folder to start a new reference.
-        """);
+        """;
+    if (force)
+    {
+      Console.WriteLine($"{difference}{Environment.NewLine}Mixing them because of --force. The report will warn about it.");
+      return;
+    }
+    throw new ArgumentException(
+        $"{difference}{Environment.NewLine}Use the reference's settings, delete that folder to start a new reference, or pass --force to mix them.");
   }
 
   /// <summary>
@@ -72,9 +78,11 @@ public static class ReferenceReport
         reference == null ? [] :
         reference.Sources.Count > 0 ? reference.Sources :
         [new RunSource(reference.Stamp, reference.Environment)];
+    // Executions recorded without settings all ran under the reference's, which were enforced.
     var sources = known
         .Where(x => x.Stamp != report.Stamp)
-        .Append(new RunSource(report.Stamp, report.Environment))
+        .Select(x => x.Settings.Count > 0 ? x : x with { Settings = reference!.Settings })
+        .Append(new RunSource(report.Stamp, report.Environment) { Settings = report.Settings })
         .Where(x => runs.Any(run => run.Stamp == x.Stamp))
         .OrderBy(x => x.Stamp, StringComparer.Ordinal)
         .ToArray();
@@ -91,6 +99,6 @@ public static class ReferenceReport
     };
   }
 
-  static (string, string, int, long) Identify(RunResult run) =>
+  public static (string, string, int, long) Identify(RunResult run) =>
       (run.ScenarioId, run.EngineId, run.Workers, run.Keys);
 }

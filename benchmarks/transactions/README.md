@@ -2,25 +2,139 @@
 
 Compares ZoneTree, RocksDB and SQLite transactions across many use cases instead of one big workload. Each scenario answers one application question, so you can read the ones that match your workload and ignore the rest.
 
-```bash
+## Commands to copy
+
+### 1. Set up the terminal
+
+Do this once per terminal. It turns off the JIT's tiering, which reference runs require.
+
+PowerShell:
+
+```powershell
 cd benchmarks/transactions/src
-
-# Prove everything runs: every scenario on every engine, with small jobs.
-dotnet run -c Release -- --preset smoke
-
-# The default: 100K keys, full jobs, 1, 4 and 16 workers.
-DOTNET_TieredCompilation=0 dotnet run -c Release
-
-# Fewer keys mean smaller jobs and a shorter run.
-dotnet run -c Release -- --keys 1K
-
-# One question at a time.
-dotnet run -c Release -- --list-scenarios
-dotnet run -c Release -- --scenario category:contention --workers 1,2,4,8,16,32
-dotnet run -c Release -- --scenario transfer,order-entry --engine zonetree,rocksdb-optimistic
+$env:DOTNET_TieredCompilation = 0
 ```
 
-Results go to `out/results/<stamp>/<keys>/`, for example `out/results/<stamp>/1M/`, and database files to `out/data/`. Each key count has its own report. Open its `summary.md` first: it has one comparison table and chart per category, and links to a page per scenario. Reports update after every run, so a stopped benchmark keeps what it measured.
+Windows Command Prompt:
+
+```bat
+cd benchmarks\transactions\src
+set DOTNET_TieredCompilation=0
+```
+
+bash:
+
+```bash
+cd benchmarks/transactions/src
+export DOTNET_TieredCompilation=0
+```
+
+The `dotnet` commands below work the same in all three. Copy the `dotnet` line, because Command Prompt does not understand the `#` comments.
+
+### 2. Check that everything runs
+
+Every scenario on every engine, with small jobs. The numbers mean nothing; it only proves the benchmark works.
+
+```bash
+dotnet run -c Release -- --preset smoke
+```
+
+### 3. Run one category
+
+Each line runs one category at 1M keys on every engine, at 1, 4 and 16 workers. Pick the question you care about.
+
+```bash
+# How fast are the smallest transactions when contention is low?
+dotnet run -c Release -- --keys 1M --scenario category:single-key
+
+# What happens as more workers fight for fewer keys?
+dotnet run -c Release -- --keys 1M --scenario category:contention
+
+# What do realistic multi-key units of work and batches cost?
+dotnet run -c Release -- --keys 1M --scenario category:multi-key
+
+# What do read-heavy workloads cost, and what does validating reads cost?
+dotnet run -c Release -- --keys 1M --scenario category:mixed
+
+# How fast are consistent reads, and how much do writers disturb them?
+dotnet run -c Release -- --keys 1M --scenario category:snapshot-reads
+
+# Which anomalies does each engine allow, and what does preventing them cost?
+dotnet run -c Release -- --keys 1M --scenario category:isolation
+
+# What do abandoned transactions cost?
+dotnet run -c Release -- --keys 1M --scenario category:failure
+
+# What does one huge transaction cost in time and memory?
+dotnet run -c Release -- --keys 1M --scenario category:large
+
+# What does waiting for the disk cost, and do concurrent commits share syncs?
+dotnet run -c Release -- --keys 1M --scenario category:durability
+```
+
+### 4. Narrow it down or change it
+
+Add any of these to a command above:
+
+```bash
+--scenario rmw-uniform,hot-1                  # these scenarios, not a whole category
+--scenario category:single-key,category:mixed # several categories
+--engine zonetree                             # all 4 ZoneTree variants
+--engine rocksdb                              # both RocksDB variants
+--engine sqlite                               # SQLite
+--engine zonetree-mvcc-ser-async,sqlite       # these variants
+--workers 1,2,4,8,16                          # these worker counts
+--keys 100K                                   # fewer keys mean smaller jobs and a shorter run
+--scale 0.1                                   # a tenth of each job
+```
+
+`--list-scenarios` prints every category and scenario.
+
+### 5. Keep the results in the reference report
+
+Without `--update-latest`, results go to `out/results/<stamp>/<keys>/summary.md`. With it, they also merge into `reference/<os>/standard/<keys>/summary.md`, and each run replaces only the earlier result of the same scenario, engine, worker count and key count.
+
+```bash
+# Refresh ZoneTree in one category after a code change.
+dotnet run -c Release -- --keys 1M --scenario category:single-key --engine zonetree --workers 1,2,4,8,16 --update-latest
+
+# Fill a gap: an engine that has not run at a worker count.
+dotnet run -c Release -- --keys 1M --scenario rmw-uniform --engine sqlite --workers 8 --update-latest
+
+# Rewrite the reports after changing the report code, without running anything.
+dotnet run -c Release -- --render-latest
+```
+
+### How many runs a command starts
+
+Runs = scenarios × worker counts × engines, except that `large-txn` always uses 1 worker. The benchmark prints the total when it starts and counts up as `[1/564]`. The same scenario appears many times in that log, once for each engine and worker count.
+
+| Category | Scenarios | Runs: `--engine zonetree --workers 1,2,4,8,16` | Runs: all engines, `--workers 1,2,4,8,16` |
+| --- | ---: | ---: | ---: |
+| `single-key` | 3 | 60 | 105 |
+| `contention` | 3 | 60 | 105 |
+| `multi-key` | 5 | 100 | 175 |
+| `mixed` | 2 | 40 | 70 |
+| `snapshot-reads` | 5 | 100 | 175 |
+| `isolation` | 4 | 80 | 140 |
+| `failure` | 2 | 40 | 70 |
+| `large` | 1 | 4 | 7 |
+| `durability` | 4 | 80 | 140 |
+| **All** | **29** | **564** | **987** |
+
+### Good to know
+
+- **Stopping and resuming:** Ctrl+C is safe. You lose only the run in progress, because reports update after every run. To continue, run the same command with `--resume` at the end. It skips the finished runs, runs what is left and any failed or timed out runs, and keeps writing to the same report. It continues the newest execution in `out/results/` that finished a run, and refuses if that execution used a different command or environment. It cannot detect code you changed without changing the ZoneTree version, so do not resume across a code change you want to measure.
+- **One at a time:** do not start a second benchmark or rebuild while one is running. Runs start from the build output, and a second benchmark would disturb the measurements.
+- **Disk space:** a stopped run can leave its database in `out/data/`. Add `--clean-data` to the next command to empty that folder first.
+- **`--update-latest would mix different settings`:** the reference was measured under other settings, and the message lists them. You have three choices:
+  - Use the same settings, including `DOTNET_TieredCompilation`.
+  - Add `--force` to mix them. The report then warns that its runs do not compare directly, until the older runs are replaced.
+  - Delete that key count's folder to start its reference over: `rm -r ../reference/win/standard/1M` in bash, `Remove-Item -Recurse ../reference/win/standard/1M` in PowerShell, or `rmdir /s /q ..\reference\win\standard\1M` in Command Prompt.
+
+## Results
+
+Each key count has its own report, and database files go to `out/data/`. Open the report's `summary.md` first: it has one comparison table and chart per category, and links to a page per scenario.
 
 ## Engines
 
@@ -59,7 +173,9 @@ The other categories use each engine's usual setting, where a commit does not wa
 | RocksDB | `sync=false` | Nothing. | What the OS has not written back since the last memtable flush. The WAL is not synced per commit or on a timer, and a flush makes its data durable, so at most the commits in the memtables: up to `max_write_buffer_number` buffers of `write_buffer_size`. |
 | SQLite | `synchronous=NORMAL` | Nothing. | What the OS has not written back since the last checkpoint. A checkpoint syncs, and runs about every `wal_autocheckpoint` WAL pages, so at most about that much WAL, or more while readers hold a checkpoint back. |
 
-`SyncCompressed`, RocksDB and SQLite all lose nothing on a process crash, and on a power loss all three lose what the OS has not written back, so a real loss is usually smaller than these limits. `AsyncCompressed` commits without waiting for the writer, which is what makes it the faster mode, so its window covers a process crash too. On every engine and mode, what survives is consistent, and an application that needs a commit to survive anything waits for it, as the `durability` category measures.
+`SyncCompressed`, RocksDB and SQLite lose nothing on a process crash. On a power loss they lose only what the OS has not written back, which is usually less than these limits. `AsyncCompressed` is faster because a commit only queues its record for a background writer, so it can lose recent commits on a process crash as well as on a power loss.
+
+On every engine and mode, the data that survives is consistent. An application that needs a commit to survive a crash or power loss must wait for the disk, which is what the `durability` category measures.
 
 Durable runs wait for the disk on every commit, so their throughput shows the disk more than the engine. The usual pattern is to commit a batch and wait once, which `durable-batch-100` measures.
 
@@ -151,22 +267,21 @@ Charts follow the viewer's light or dark color scheme, and every chart has a tab
 
 ## Policy for reference results
 
-Reference runs set `DOTNET_TieredCompilation=0`: the whole job is measured, so without it the JIT's tiering would count against every run, more in short jobs. The report records the setting.
+Reference runs set `DOTNET_TieredCompilation=0`, as in [Set up the terminal](#1-set-up-the-terminal): the whole job is measured, so without it the JIT's tiering would count against every run, more in short jobs. The report records the setting.
 
 The reference builds up over time, so you can refresh a few scenarios without running everything again:
 
 ```bash
-cd benchmarks/transactions/src
-DOTNET_TieredCompilation=0 dotnet run -c Release -- --keys 1M --scenario transfer,order-entry --engine zonetree --update-latest
+dotnet run -c Release -- --keys 1M --scenario transfer,order-entry --engine zonetree --update-latest
 ```
 
 With `--update-latest`, each finished run goes into `reference/<os>/<preset>/<keys>/summary.json` and the report beside it is rewritten. A run replaces the earlier result of the same scenario, engine and worker count at that key count; every other result stays. So a stopped benchmark loses only the run in progress, and a run that fails or times out replaces the earlier result and shows as a problem in the report.
 
 The report says when its runs come from different executions: the summary gives the range, each scenario page lists which execution measured which engine and worker count, and the environment section lists anything that differed, such as the ZoneTree version.
 
-Runs compare only under the same workload, so `--update-latest` refuses to start if the job scale, value size, zipf theta, large transaction size, retry backoff, seed, engine tuning or `DOTNET_TieredCompilation` differ from the reference of a key count it would update. Use the reference's settings, or delete that key count's folder to start over. Results of a scenario or engine that left the catalog are dropped at the next update.
+Runs compare only under the same workload, so `--update-latest` refuses to start if the job scale, value size, zipf theta, large transaction size, retry backoff, seed, engine tuning or `DOTNET_TieredCompilation` differ from the reference of a key count it would update. Use the reference's settings, delete that key count's folder to start over, or add `--force` to mix them. After `--force`, the summary has a "Mixed settings" section that lists what each execution used, and later runs must match the forced settings. Results of a scenario or engine that left the catalog are dropped at the next update.
 
-The summary compares engines at the worker count most of them ran with, the highest among equals, so rerunning one engine at a new count does not hide the comparison.
+The summary has a row for each scenario and worker count, so running at a new count adds rows and hides nothing. An engine with no result at a count has an empty cell in that row.
 
 To rewrite a report after changing the report code, without running anything:
 
@@ -189,10 +304,12 @@ Run `--help` for the full list.
 | `--scale` | Multiplies every scenario's job, for example 0.1. |
 | `--value-size`, `--zipf-theta`, `--large-txn-keys`, `--seed` | The workload. |
 | `--retry-backoff` | Exponential randomized wait after a conflict. |
-| `--timeout-seconds` | Kill a run after this time. Default: 600. |
+| `--timeout-seconds` | Kill a run after this time. 0 disables it. Default: 86400 (24 hours). |
 | `--data`, `--output` | Directories. `--clean`, `--clean-data` and `--clean-results` empty them first. |
 | `--keep-data` | Keep each run's database files, to inspect them. |
+| `--resume` | Continue the latest execution with the same command: skip its finished runs, and run what is left and what failed. |
 | `--update-latest` | Merge each finished run into `reference/<os>/<preset>/<keys>/` and rewrite that report. |
+| `--force` | Let `--update-latest` mix runs of different settings. The report warns about it. |
 | `--render-latest` | Rewrite the reports of every key count in `reference/<os>/<preset>/` from their `summary.json` files. |
 | `--render-report <directory>` | The same for a report directory, or the key counts under it. |
 
