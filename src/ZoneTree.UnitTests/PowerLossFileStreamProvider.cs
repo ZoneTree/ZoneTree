@@ -49,6 +49,8 @@ public sealed class PowerLossFileStreamProvider : IFileStreamProvider
   /// </summary>
   public Action<string> AfterSetLength { get; set; }
 
+  public Action<string> AfterWrite { get; set; }
+
   /// <summary>
   /// Called after every change of the durable content.
   /// </summary>
@@ -298,9 +300,17 @@ public sealed class PowerLossFileStreamProvider : IFileStreamProvider
       Provider.AfterSetLength?.Invoke(FilePath);
     }
 
-    public override void Write(byte[] buffer, int offset, int count) => InnerStream.Write(buffer, offset, count);
+    public override void Write(byte[] buffer, int offset, int count)
+    {
+      InnerStream.Write(buffer, offset, count);
+      Provider.AfterWrite?.Invoke(FilePath);
+    }
 
-    public override void Write(ReadOnlySpan<byte> buffer) => InnerStream.Write(buffer);
+    public override void Write(ReadOnlySpan<byte> buffer)
+    {
+      InnerStream.Write(buffer);
+      Provider.AfterWrite?.Invoke(FilePath);
+    }
 
     public Stream ToStream() => this;
 

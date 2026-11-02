@@ -452,7 +452,7 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
         LogEntry.ReadLogEntryWithStreamLength,
         DeserializeLogEntry,
         sortByOpIndexes,
-        IsLegacyFormat ? null : (_, readPosition) => FileStream.IsUnsyncedTail(readPosition));
+        IsLegacyFormat ? null : (recordPosition, readPosition) => FileStream.IsUnsyncedTail(recordPosition, readPosition));
     InitialLength = result.Keys.Count;
     return result;
   }

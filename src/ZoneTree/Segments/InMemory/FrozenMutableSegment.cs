@@ -23,10 +23,8 @@ public sealed class FrozenMutableSegment<TKey, TValue> : IMutableSegment<TKey, T
     WriteFailure = writeFailure;
   }
 
-  AddOrUpdateResult RetryOrThrow(out long opIndex)
+  static AddOrUpdateResult Retry(out long opIndex)
   {
-    if (WriteFailure != null)
-      throw new WriteOrderBarrierFailedException(WriteFailure);
     opIndex = 0;
     return AddOrUpdateResult.RETRY_SEGMENT_IS_FROZEN;
   }
@@ -50,7 +48,7 @@ public sealed class FrozenMutableSegment<TKey, TValue> : IMutableSegment<TKey, T
 
   public AddOrUpdateResult Delete(in TKey key, out long opIndex)
   {
-    return RetryOrThrow(out opIndex);
+    return Retry(out opIndex);
   }
 
   public void Drop()
@@ -95,11 +93,11 @@ public sealed class FrozenMutableSegment<TKey, TValue> : IMutableSegment<TKey, T
 
   public AddOrUpdateResult Upsert(in TKey key, in TValue value, out long opIndex)
   {
-    return RetryOrThrow(out opIndex);
+    return Retry(out opIndex);
   }
 
   public AddOrUpdateResult Upsert(in TKey key, GetValueDelegate<TKey, TValue> valueGetter, out long opIndex)
   {
-    return RetryOrThrow(out opIndex);
+    return Retry(out opIndex);
   }
 }

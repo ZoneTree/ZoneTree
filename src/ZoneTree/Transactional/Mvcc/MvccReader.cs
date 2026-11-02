@@ -55,7 +55,11 @@ internal abstract class MvccReader<TKey, TValue> : IReadTransaction<TKey, TValue
   protected bool ReadVisible(in TKey key, out TValue value)
   {
     var reader = new PointReader(this, in key);
-    Tree.Storage.VisitSegments(VersionedKey<TKey>.Data(in key, long.MaxValue), ref reader);
+    // Every visible version began no later than its commit timestamp, except
+    // this transaction's own writes. Seek past later transaction ids instead
+    // of walking all of their versions while reading an old snapshot.
+    var maximumVisibleVersion = Math.Max(TransactionId, SnapshotTimestamp);
+    Tree.Storage.VisitSegments(VersionedKey<TKey>.Data(in key, maximumVisibleVersion), ref reader);
     if (!reader.IsFound || reader.Value.Kind == VersionedValueKind.Tombstone)
     {
       value = default;

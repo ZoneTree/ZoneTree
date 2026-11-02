@@ -6,9 +6,8 @@ using ZoneTree.Options;
 namespace ZoneTree.UnitTests;
 
 /// <summary>
-/// A power loss may drop unsynced writes, but with
-/// <see cref="ZoneTreeOptions{TKey, TValue}.PreserveWriteOrderAcrossSegments"/>
-/// the writes that survive are a prefix of the write order.
+/// Explicit sync protects earlier writes across segment moves. Later unsynced
+/// writes may be lost, but recovery must preserve transaction atomicity.
 /// </summary>
 public sealed class WriteOrderPowerLossTests
 {
@@ -16,11 +15,10 @@ public sealed class WriteOrderPowerLossTests
       IFileStreamProvider provider, WriteAheadLogMode mode, int mutableSegmentMaxItemCount)
   {
     return new ZoneTreeFactory<int, int>(provider)
-        .SetLogger(new ConsoleLogger(LogLevel.Error))
+        .SetLogger(SilentTestLogger.Instance)
         .Configure(options =>
         {
           options.AllowUnsafeOptionValues = true;
-          options.PreserveWriteOrderAcrossSegments = true;
         })
         .SetMutableSegmentMaxItemCount(mutableSegmentMaxItemCount)
         .ConfigureWriteAheadLogOptions(options =>
@@ -33,7 +31,7 @@ public sealed class WriteOrderPowerLossTests
   [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  public void RecoveredWritesAreAPrefixOfTheWriteOrder(WriteAheadLogMode mode)
+  public void ExplicitlySyncedWritesSurviveLaterSegmentMoves(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
     PowerLossFileStreamProvider afterPowerLoss;
@@ -43,6 +41,8 @@ public sealed class WriteOrderPowerLossTests
       {
         // The value 0 is the deletion marker of the default int value.
         tree.Upsert(key, key + 1);
+        if (key == 199)
+          tree.SyncWALAsync().GetAwaiter().GetResult();
         if (key % 100 == 99)
           tree.Maintenance.MoveMutableSegmentForward();
       }
@@ -50,9 +50,7 @@ public sealed class WriteOrderPowerLossTests
     }
     using var recovered = CreateFactory(afterPowerLoss, mode, 1000).Open();
     var present = Enumerable.Range(0, 350).Where(key => recovered.TryGet(key, out _)).ToArray();
-    Assert.That(present, Is.EqualTo(Enumerable.Range(0, present.Length)));
-    // Every moved segment was synced before the next one accepted writes.
-    Assert.That(present.Length, Is.GreaterThanOrEqualTo(300));
+    Assert.That(Enumerable.Range(0, 200).Except(present), Is.Empty);
   }
 
   static int? ReadCommitted(ITransactionalZoneTree<int, int> tree, int key)
@@ -101,7 +99,7 @@ public sealed class WriteOrderPowerLossTests
   }
 
   [Test]
-  public void FailedRolloverSyncStopsWrites()
+  public void FailedExplicitSyncDoesNotAcknowledgeNewWrites()
   {
     var provider = new PowerLossFileStreamProvider();
     PowerLossFileStreamProvider afterPowerLoss;
@@ -117,12 +115,11 @@ public sealed class WriteOrderPowerLossTests
       using (var tx = tree.BeginTransaction())
       {
         tx.Upsert(1, 10);
+        tx.Upsert(2, 20);
+        tx.Commit();
         var segmentId = storage.MutableSegment.SegmentId;
         provider.FailDiskSync = path => path.Contains($"/seg/{segmentId}.", StringComparison.Ordinal);
-        storage.MoveMutableSegmentForward();
-        // The next write could reach the disk before the unsynced first one.
-        Assert.Throws<WriteOrderBarrierFailedException>(() => tx.Upsert(2, 20));
-        Assert.That(tx.State, Is.EqualTo(Transactional.TransactionState.Aborted));
+        Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWALAsync());
       }
       Assert.That(ReadCommitted(tree, 0), Is.EqualTo(100), "reads keep working");
       afterPowerLoss = provider.SimulatePowerLoss();
@@ -130,16 +127,17 @@ public sealed class WriteOrderPowerLossTests
     }
     using var recovered = CreateFactory(afterPowerLoss, WriteAheadLogMode.Sync, 1000).OpenTransactional();
     Assert.That(ReadCommitted(recovered, 0), Is.EqualTo(100));
-    Assert.That(ReadCommitted(recovered, 1), Is.Null);
-    Assert.That(ReadCommitted(recovered, 2), Is.Null);
+    Assert.That(ReadCommitted(recovered, 1).HasValue, Is.EqualTo(ReadCommitted(recovered, 2).HasValue),
+        "a failed sync may retain or lose the transaction, but must not retain only part of it");
   }
 
   [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  public void RecoveredCommitsAreAPrefixOfTheCommitOrder(WriteAheadLogMode mode)
+  public void RecoveryKeepsSyncedCommitsAndDoesNotSplitUnsyncedCommits(WriteAheadLogMode mode)
   {
     const int count = 300;
+    const int syncedCount = count / 2;
     var provider = new PowerLossFileStreamProvider();
     PowerLossFileStreamProvider afterPowerLoss;
     using (var tree = CreateFactory(provider, mode, 64).CreateTransactional())
@@ -150,29 +148,28 @@ public sealed class WriteOrderPowerLossTests
         tx.Upsert(2 * i, i);
         tx.Upsert(2 * i + 1, i);
         tx.Commit();
+        if (i == syncedCount - 1)
+          tree.SyncWALAsync().GetAwaiter().GetResult();
       }
       var open = tree.BeginTransaction();
       open.Upsert(-1, -1);
       afterPowerLoss = provider.SimulatePowerLoss();
     }
 
-    int committed;
     using (var recovered = CreateFactory(afterPowerLoss, mode, 64).OpenTransactional())
     {
       using (var reader = recovered.BeginReadOnlyTransaction())
       {
-        committed = 0;
-        while (committed < count && reader.ContainsKey(2 * committed))
-          ++committed;
         for (var i = 0; i < count; ++i)
         {
           // A transaction is recovered whole or not at all.
-          Assert.That(reader.ContainsKey(2 * i), Is.EqualTo(i < committed));
-          Assert.That(reader.ContainsKey(2 * i + 1), Is.EqualTo(i < committed));
+          var first = reader.ContainsKey(2 * i);
+          if (i < syncedCount)
+            Assert.That(first, Is.True, "an explicitly synced transaction must survive");
+          Assert.That(reader.ContainsKey(2 * i + 1), Is.EqualTo(first));
         }
         Assert.That(reader.ContainsKey(-1), Is.False);
       }
-      Assert.That(committed, Is.GreaterThan(count / 2));
 
       using var tx = recovered.BeginTransaction();
       tx.Upsert(-2, -2);
@@ -181,6 +178,6 @@ public sealed class WriteOrderPowerLossTests
     using var reopened = CreateFactory(afterPowerLoss, mode, 64).OpenTransactional();
     using var check = reopened.BeginReadOnlyTransaction();
     Assert.That(check.ContainsKey(-2), Is.True);
-    Assert.That(check.ContainsKey(2 * (committed - 1)), Is.True);
+    Assert.That(check.ContainsKey(2 * (syncedCount - 1)), Is.True);
   }
 }

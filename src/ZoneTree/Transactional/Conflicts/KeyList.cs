@@ -2,8 +2,8 @@ namespace ZoneTree.Transactional.Conflicts;
 
 /// <summary>
 /// The keys a transaction read or wrote. Adding is a list append; duplicates are
-/// removed only when the list doubles and when the keys are taken, so a short
-/// transaction allocates little and a long one stays bounded by its distinct keys.
+/// removed only when the list doubles and when the keys are taken. Ordered, distinct
+/// keys need no compaction or sorting, so collecting them takes linear work.
 /// </summary>
 /// <remarks>
 /// The keys are sorted in a copy. A sort can lose an element when the comparer throws,
@@ -17,6 +17,10 @@ internal sealed class KeyList<TKey>
 
   int CompactionThreshold = 64;
 
+  // A negative value means a duplicate or an out-of-order key was found.
+  // Otherwise only the suffix added since the last check needs comparing.
+  int OrderedPrefixLength;
+
   public KeyList(IComparer<TKey> comparer)
   {
     Comparer = comparer;
@@ -29,7 +33,11 @@ internal sealed class KeyList<TKey>
     Keys.Add(key);
     if (Keys.Count >= CompactionThreshold)
     {
-      Keys = new List<TKey>(SortDistinct());
+      if (!AreKeysOrdered())
+      {
+        Keys = new List<TKey>(SortDistinct());
+        OrderedPrefixLength = Keys.Count;
+      }
       CompactionThreshold = Math.Max(64, Keys.Count * 2);
     }
   }
@@ -37,7 +45,23 @@ internal sealed class KeyList<TKey>
   /// <summary>
   /// Returns the distinct keys in ascending order.
   /// </summary>
-  public TKey[] ToDistinctArray() => SortDistinct();
+  public TKey[] ToDistinctArray() => AreKeysOrdered() ? Keys.ToArray() : SortDistinct();
+
+  bool AreKeysOrdered()
+  {
+    if (OrderedPrefixLength < 0)
+      return false;
+    for (var i = Math.Max(1, OrderedPrefixLength); i < Keys.Count; ++i)
+    {
+      if (Comparer.Compare(Keys[i - 1], Keys[i]) >= 0)
+      {
+        OrderedPrefixLength = -1;
+        return false;
+      }
+    }
+    OrderedPrefixLength = Keys.Count;
+    return true;
+  }
 
   /// <summary>
   /// Returns a sorted copy of the keys without duplicates.

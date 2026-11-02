@@ -35,7 +35,7 @@ internal sealed unsafe class MappedTailFile : MemoryManager<byte>
     MappedFile = MemoryMappedFile.CreateFromFile(
         fileStream,
         null,
-        HeaderSize + capacity,
+        0,
         MemoryMappedFileAccess.ReadWrite,
         HandleInheritability.None,
         true);

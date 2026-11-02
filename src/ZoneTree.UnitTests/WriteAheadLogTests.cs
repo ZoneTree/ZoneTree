@@ -2,7 +2,6 @@ using System.Buffers.Binary;
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Exceptions;
 using ZoneTree.Exceptions.WAL;
-using ZoneTree.Logger;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 using ZoneTree.WAL;
@@ -21,7 +20,7 @@ public sealed class WriteAheadLogTests
     stream.LengthReadCount = 0;
 
     var result = WriteAheadLogEntryReader.ReadLogEntries<Memory<byte>, Memory<byte>, LogEntry>(
-        new ConsoleLogger(),
+        SilentTestLogger.Instance,
         stream,
         true,
         true,
@@ -47,7 +46,7 @@ public sealed class WriteAheadLogTests
     writer.Flush();
 
     var result = WriteAheadLogEntryReader.ReadLogEntries<Memory<byte>, Memory<byte>, LogEntry>(
-        new ConsoleLogger(),
+        SilentTestLogger.Instance,
         stream,
         true,
         true,
@@ -84,7 +83,7 @@ public sealed class WriteAheadLogTests
     var serializer = new UnicodeStringSerializer();
     var keys = new[] { "", "small", "large", "tail" };
     var values = new[] { "", "value", new string('x', 4096), "last" };
-    var walProvider = new WriteAheadLogProvider(new ConsoleLogger(), provider);
+    var walProvider = new WriteAheadLogProvider(SilentTestLogger.Instance, provider);
     walProvider.InitCategory(category);
     using (var wal = walProvider.GetOrCreateWAL(0, category, options, serializer, serializer))
     {
@@ -92,7 +91,7 @@ public sealed class WriteAheadLogTests
         wal.Append(keys[i], values[i], i + 1);
     }
 
-    walProvider = new WriteAheadLogProvider(new ConsoleLogger(), provider);
+    walProvider = new WriteAheadLogProvider(SilentTestLogger.Instance, provider);
     using var reopened = walProvider.GetOrCreateWAL(0, category, options, serializer, serializer);
     var result = reopened.ReadLogEntries(true, true, false);
 
@@ -111,7 +110,7 @@ public sealed class WriteAheadLogTests
       File.Delete(filePath);
     var serializer = new UnicodeStringSerializer();
     var wal = new SyncFileSystemWriteAheadLog<string, string>(
-        new ConsoleLogger(),
+        SilentTestLogger.Instance,
         new LocalFileStreamProvider(),
         serializer, serializer, filePath);
     var len = 1;
@@ -141,7 +140,7 @@ public sealed class WriteAheadLogTests
       File.Delete(filePath);
     var serializer = new UnicodeStringSerializer();
     var wal = new SyncFileSystemWriteAheadLog<string, string>(
-        new ConsoleLogger(),
+        SilentTestLogger.Instance,
         new LocalFileStreamProvider(),
         serializer, serializer, filePath);
 
@@ -186,7 +185,7 @@ public sealed class WriteAheadLogTests
     long streamLength;
     int readLength;
     using (var stream = new CompressedFileStream(
-        new ConsoleLogger(),
+        SilentTestLogger.Instance,
         provider,
         filePath,
         blockSize,
@@ -224,7 +223,7 @@ public sealed class WriteAheadLogTests
     int readLength;
     long seekPosition;
     using (var stream = new CompressedFileStream(
-        new ConsoleLogger(),
+        SilentTestLogger.Instance,
         provider,
         filePath,
         blockSize,
@@ -253,7 +252,7 @@ public sealed class WriteAheadLogTests
     for (var i = 0; i < 20; ++i)
     {
       var stream = new CompressedFileStream(
-          new ConsoleLogger(),
+          SilentTestLogger.Instance,
           provider,
           $"CompressedFileStreamTailWriterStopsWhenClosedBeforeItStarts{i}.wal",
           16,
@@ -283,7 +282,7 @@ public sealed class WriteAheadLogTests
     var expected = Enumerable.Range(0, 10).Select(x => (byte)x).ToArray();
 
     CompressedFileStream Open() => new(
-        new ConsoleLogger(),
+        SilentTestLogger.Instance,
         provider,
         filePath,
         blockSize,
@@ -341,7 +340,7 @@ public sealed class WriteAheadLogTests
     var data = Enumerable.Range(0, 40).Select(x => (byte)x).ToArray();
 
     CompressedFileStream Open() => new(
-        new ConsoleLogger(),
+        SilentTestLogger.Instance,
         provider,
         filePath,
         16,
@@ -382,7 +381,7 @@ public sealed class WriteAheadLogTests
     var appended = new byte[] { 100, 101, 102, 103 };
 
     CompressedFileStream Open() => new(
-        new ConsoleLogger(),
+        SilentTestLogger.Instance,
         provider,
         filePath,
         16,
@@ -483,7 +482,7 @@ public sealed class WriteAheadLogTests
       CompressionMethod compressionMethod)
   {
     return new CompressedFileStream(
-        new ConsoleLogger(),
+        SilentTestLogger.Instance,
         provider,
         filePath,
         16,
@@ -535,7 +534,7 @@ public sealed class WriteAheadLogTests
     var data = Enumerable.Range(0, initialLength).Select(x => (byte)x).ToArray();
 
     CompressedFileStream Open() => new(
-        new ConsoleLogger(),
+        SilentTestLogger.Instance,
         provider,
         filePath,
         blockSize,
