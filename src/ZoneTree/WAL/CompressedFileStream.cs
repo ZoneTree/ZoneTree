@@ -23,15 +23,22 @@ namespace ZoneTree.WAL;
 /// is copied through the provider's stream and updates the tail length header.
 /// The fixed tail allocation reserves two checkpoint sectors beyond its data.
 /// A version descriptor occupies the last 16 bytes of the reserved space.
-/// The streams of those providers must support a disk sync during a write.
+/// Blocks in the main file validate their header and stored payload separately.
+/// A sync seals the tail and syncs the main file once. Tail checkpoints are
+/// recovery hints published afterwards, without a second disk sync.
+/// Released legacy tails are sealed and synced before their allocation is reused.
 /// </remarks>
 public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
 {
   readonly Lock SyncRoot = new();
 
-  // Guards the disk sync of the tail file. It is taken before SyncRoot,
-  // so writes to a mapped tail do not wait while the tail is synced to the disk.
+  // Serializes durable-prefix publication, truncation, replacement and close.
+  // It is taken before SyncRoot; ordinary tail appends do not acquire it.
   readonly Lock TailLock = new();
+
+  // Tail appends can continue during a main-file sync. A rollover waits here
+  // before touching the main stream, without making the sync wait for SyncRoot.
+  readonly object MainFileSyncRoot = new();
 
   readonly ILogger Logger;
 
@@ -43,11 +50,14 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
 
   long SyncedContentLength;
 
+  // False only while loading the variable-size tail of a released legacy WAL.
   bool UsesSyncCheckpoints;
 
   readonly int BlockSize;
 
   readonly CompressionMethod CompressionMethod;
+
+  readonly bool HasLegacyBlocks;
 
   readonly int CompressionLevel;
 
@@ -90,6 +100,10 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
   // change the tail file nor allocate a block. The first write prepares the tail.
   bool IsTailPrepared;
 
+  // A recovered tail can be the only durable copy of records saved on close
+  // or by a released version. Preserve that copy before its first reuse.
+  bool TailHasDurableData;
+
   // Null unless a prepared tail block is in the mapped tail file.
   MappedTailFile MappedTail;
 
@@ -112,8 +126,7 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
   // that was written before. Later syncs cannot prove durability anymore.
   volatile Exception DurabilityFailure;
 
-  // The content position where the bytes that a power loss could tear start,
-  // as found when this stream opened.
+  // The possible torn suffix of a released legacy WAL, before tail migration.
   readonly long UnsyncedTailStart;
 
   public string FilePath { get; }
@@ -181,21 +194,21 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
 
     BinaryTailReader = new BinaryReader(TailStream.ToStream(), Encoding.UTF8, true);
 
-    if (FileStream.Length > 0)
-    {
-      CompressionMethod = ReadMetaData();
-      MainFileMayBeUnsynced = true;
-    }
-    else
-    {
-      CompressionMethod = compressionMethod;
-      WriteMetaData();
-    }
-
     try
     {
+      if (FileStream.Length > 0)
+      {
+        CompressionMethod = ReadMetaData(out HasLegacyBlocks);
+        MainFileMayBeUnsynced = true;
+      }
+      else
+      {
+        CompressionMethod = compressionMethod;
+        WriteMetaData();
+      }
       var hasCheckpoint = LoadSyncCheckpoint();
       UnsyncedTailStart = RecoverMainFileAndTail();
+      TailHasDurableData = TailBlock.Length > 0;
       InitializeRecoveredState(hasCheckpoint);
     }
     catch
@@ -210,17 +223,23 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
       TailWriterTask = StartTailWriter();
   }
 
-  CompressionMethod ReadMetaData()
+  CompressionMethod ReadMetaData(out bool hasLegacyBlocks)
   {
     FileStream.Position = 0;
-    return (CompressionMethod)BinaryReader.ReadByte();
+    var metadata = BinaryReader.ReadByte();
+    hasLegacyBlocks = (metadata & WalBlockFrame.MetadataFlag) == 0;
+    var method = (CompressionMethod)(metadata & ~WalBlockFrame.MetadataFlag);
+    if (method > CompressionMethod.None)
+      throw new NotSupportedException($"Unsupported WAL compression metadata {metadata}.");
+    return method;
   }
 
   void WriteMetaData()
   {
     FileStream.Position = 0;
-    BinaryWriter.Write((byte)CompressionMethod);
+    BinaryWriter.Write((byte)((byte)CompressionMethod | WalBlockFrame.MetadataFlag));
     BinaryWriter.Flush();
+    MainFileMayBeUnsynced = true;
     return;
   }
 

@@ -84,24 +84,6 @@ public sealed unsafe partial class CompressedFileStream
   /// </summary>
   void PrepareTail()
   {
-    if (!UsesSyncCheckpoints)
-    {
-      // One-time upgrade of an older WAL: its acknowledged bytes may still
-      // live in the tail. Preserve them before allowing that tail to be reused.
-      var legacyTail = TailBlock;
-      if (legacyTail.Length > 0)
-        CommitTailBlock(false);
-      SyncMainFile();
-      UsesSyncCheckpoints = true;
-      if (legacyTail.Length > 0)
-        AdvanceTail(legacyTail);
-      CurrentBlock = TailBlock;
-      CurrentBlockPosition = TailBlock.Length;
-      WriteCheckpoint(FileStream.Length, _length);
-      FlushTailFile();
-      SyncedMainLength = FileStream.Length;
-      SyncedContentLength = _length;
-    }
     // A loaded block can be larger than the block size of this stream.
     if (TailBlock.Length >= BlockSize)
     {
@@ -228,6 +210,14 @@ public sealed unsafe partial class CompressedFileStream
   /// </summary>
   void AdvanceTail(DecompressedBlock tailBlock)
   {
+    if (TailHasDurableData)
+    {
+      // Only the first recovered tail needs this barrier. Ordinary appends
+      // never put acknowledged data back into the reusable tail.
+      if (MainFileMayBeUnsynced)
+        SyncMainFile();
+      TailHasDurableData = false;
+    }
     var nextBlockIndex = tailBlock.BlockIndex + 1;
     if (!IsTailPrepared)
     {

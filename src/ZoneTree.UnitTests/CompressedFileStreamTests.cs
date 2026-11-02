@@ -122,7 +122,7 @@ public sealed class CompressedFileStreamTests
         SilentTestLogger.Instance, provider, "empty", BlockSize, false, 0, CompressionMethod.Zstd, 0);
     stream.SyncToDisk();
     var afterPowerLoss = provider.SimulatePowerLoss();
-    Assert.That(afterPowerLoss.ReadAllBytes("empty"), Is.EqualTo(new[] { (byte)CompressionMethod.Zstd }));
+    Assert.That(afterPowerLoss.ReadAllBytes("empty"), Is.EqualTo(new[] { (byte)((byte)CompressionMethod.Zstd | WalBlockFrame.MetadataFlag) }));
     Assert.That(afterPowerLoss.ReadAllBytes("empty.tail"), Is.Empty);
     var syncCount = provider.DiskSyncCount;
     stream.SyncToDisk();
@@ -550,9 +550,142 @@ public sealed class CompressedFileStreamTests
     stream.Write(Content(10));
     var syncCount = provider.DiskSyncCount;
     stream.SyncToDisk();
-    Assert.That(provider.DiskSyncCount - syncCount, Is.EqualTo(2));
+    Assert.That(provider.DiskSyncCount - syncCount, Is.EqualTo(1));
     stream.SyncToDisk();
-    Assert.That(provider.DiskSyncCount - syncCount, Is.EqualTo(2));
+    Assert.That(provider.DiskSyncCount - syncCount, Is.EqualTo(1));
+  }
+
+  [Test]
+  public void DurableFramesNeedExactlyOneMainFileSync([Values] CompressionMethod compression)
+  {
+    var provider = new PowerLossFileStreamProvider();
+    using var stream = Open(provider);
+    var expected = new List<byte>();
+    var syncedPaths = new List<string>();
+    provider.BeforeDiskSync = syncedPaths.Add;
+    try
+    {
+      for (var commit = 0; commit < 8; ++commit)
+      {
+        var bytes = Content(100 + commit * 137, commit + 1);
+        expected.AddRange(bytes);
+        stream.Write(bytes);
+        var before = provider.DiskSyncCount;
+        stream.SyncToDisk();
+        Assert.That(provider.DiskSyncCount - before, Is.EqualTo(1));
+        stream.SyncToDisk();
+        Assert.That(provider.DiskSyncCount - before, Is.EqualTo(1));
+        Assert.That(syncedPaths, Is.All.EqualTo("single-sync"));
+        // The strict provider has never persisted any of the tail allocation,
+        // checkpoint or descriptor. Main-file frames must suffice on their own.
+        var image = provider.SimulatePowerLoss();
+        Assert.That(image.ReadAllBytes("single-sync.tail"), Is.Empty);
+        using var recovered = Open(image);
+        Assert.That(ReadAll(recovered), Is.EqualTo(expected));
+      }
+      // Later unsynced reuse must not damage the acknowledged immutable prefix.
+      stream.Write(Content(3 * BlockSize + 100, 9));
+      var random = new Random(71);
+      for (var loss = 0; loss < 100; ++loss)
+      {
+        using var recovered = Open(provider.SimulateTornPowerLoss(random));
+        Assert.That(ReadAll(recovered).Take(expected.Count), Is.EqualTo(expected));
+      }
+    }
+    finally
+    {
+      provider.BeforeDiskSync = null;
+    }
+
+    CompressedFileStream Open(IFileStreamProvider files) => new(
+        SilentTestLogger.Instance, files, "single-sync", BlockSize, false, 0, compression, 0);
+  }
+
+  [Test]
+  public void RecoveredDurableTailSurvivesItsFirstReuse(
+      [Values] CompressionMethod compression, [Values] bool explicitSync)
+  {
+    var provider = new PowerLossFileStreamProvider();
+    var original = Content(500);
+    using (var stream = Open(provider))
+      stream.Write(original); // Closing makes this unfinished tail durable.
+    var images = new List<PowerLossFileStreamProvider>();
+    var random = new Random(83);
+    void Observe()
+    {
+      images.Add(provider.SimulatePowerLoss());
+      images.Add(provider.SimulateTornPowerLoss(random));
+    }
+    using (var stream = Open(provider))
+    {
+      provider.BeforeDiskSync = _ => Observe();
+      provider.AfterWrite = _ => Observe();
+      try
+      {
+        var syncs = provider.DiskSyncCount;
+        if (explicitSync)
+          stream.SyncToDisk();
+        else
+          stream.Write(Content(3 * BlockSize, 2));
+        Assert.That(provider.DiskSyncCount - syncs, Is.EqualTo(1));
+      }
+      finally
+      {
+        provider.BeforeDiskSync = null;
+        provider.AfterWrite = null;
+      }
+    }
+    Assert.That(images, Is.Not.Empty);
+    foreach (var image in images)
+    {
+      using var recovered = Open(image);
+      Assert.That(ReadAll(recovered).Take(original.Length), Is.EqualTo(original));
+    }
+
+    CompressedFileStream Open(IFileStreamProvider files) => new(
+        SilentTestLogger.Instance, files, "recovered-tail", BlockSize, false, 0, compression, 0);
+  }
+
+  [Test]
+  public async Task RolloverDuringMainSyncDoesNotDeadlockOrChangeItsAcknowledgedPrefix()
+  {
+    var provider = new PowerLossFileStreamProvider();
+    using var stream = Open(provider);
+    var original = Content(100);
+    var appended = Content(2 * BlockSize + 100, 2);
+    stream.Write(original);
+    using var started = new ManualResetEventSlim();
+    using var release = new ManualResetEventSlim();
+    provider.BeforeDiskSync = _ =>
+    {
+      started.Set();
+      release.Wait();
+    };
+    var sync = Task.Run(stream.SyncToDisk);
+    Task rollover = null;
+    try
+    {
+      Assert.That(started.Wait(TimeSpan.FromSeconds(10)), Is.True);
+      rollover = Task.Run(() => stream.Write(appended));
+      Assert.That(SpinWait.SpinUntil(() => stream.Length >= original.Length + BlockSize,
+          TimeSpan.FromSeconds(10)), Is.True, "writes can fill the new tail during the disk sync");
+      Assert.That(rollover.IsCompleted, Is.False, "the rollover must wait before touching the main file");
+    }
+    finally
+    {
+      provider.BeforeDiskSync = null;
+      release.Set();
+    }
+    await sync.WaitAsync(TimeSpan.FromSeconds(10));
+    await rollover.WaitAsync(TimeSpan.FromSeconds(10));
+    using (var recovered = Open(provider.SimulatePowerLoss()))
+      Assert.That(ReadAll(recovered).Take(original.Length), Is.EqualTo(original));
+    stream.SyncToDisk();
+    using var final = Open(provider.SimulatePowerLoss());
+    Assert.That(ReadAll(final), Is.EqualTo(original.Concat(appended).ToArray()));
+
+    CompressedFileStream Open(IFileStreamProvider files) => new(
+        SilentTestLogger.Instance, files, "concurrent-rollover", BlockSize, false, 0, CompressionMethod.None, 0);
   }
 
   [TestCase(CompressionMethod.None, 0)]
@@ -760,7 +893,7 @@ public sealed class CompressedFileStreamTests
   }
 
   [TestCase(0, true)]
-  [TestCase(2, true)]
+  [TestCase(WalTailFormat.CurrentVersion + 1, true)]
   [TestCase(1, false)]
   public void InvalidTailFormatIsRejectedBeforeRecovery(int version, bool validChecksum)
   {
@@ -779,7 +912,7 @@ public sealed class CompressedFileStreamTests
     using (var file = context.Provider.CreateFileStream(path, FileMode.Open, FileAccess.Write, FileShare.None))
       file.Write(bytes);
 
-    if (version == 2 && validChecksum)
+    if (version > WalTailFormat.CurrentVersion && validChecksum)
       Assert.Throws<NotSupportedException>(() => context.Open());
     else
       Assert.Throws<InvalidDataException>(() => context.Open());

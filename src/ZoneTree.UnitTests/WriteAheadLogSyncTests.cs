@@ -66,6 +66,36 @@ public sealed class WriteAheadLogSyncTests
 
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  public async Task EachDurableCommitUsesOneMainFileSync(WriteAheadLogMode mode)
+  {
+    var provider = new PowerLossFileStreamProvider();
+    using var tree = CreateFactory(provider, mode)
+        .ConfigureWriteAheadLogOptions(wal => wal.SyncCompressedModeOptions.EnableTailWriterJob = false)
+        .Create();
+    var mainSyncs = 0;
+    var tailSyncs = 0;
+    provider.BeforeDiskSync = path =>
+    {
+      if (!path.Contains("/seg/", StringComparison.Ordinal))
+        return;
+      if (path.EndsWith(".tail", StringComparison.Ordinal))
+        Interlocked.Increment(ref tailSyncs);
+      else
+        Interlocked.Increment(ref mainSyncs);
+    };
+    for (var key = 0; key < 24; ++key)
+    {
+      tree.Upsert(key, key + 1);
+      await tree.SyncWALAsync();
+      Assert.That(Volatile.Read(ref mainSyncs), Is.EqualTo(key + 1));
+      Assert.That(Volatile.Read(ref tailSyncs), Is.Zero);
+    }
+    provider.BeforeDiskSync = null;
+    Assert.That(MissingKeys(provider.SimulatePowerLoss(), mode, Enumerable.Range(0, 24)), Is.Empty);
+  }
+
+  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed)]
   public void AutomaticSyncProtectsAllCompletedWalBlocks(WriteAheadLogMode mode)
   {
     const int count = 1000;
@@ -79,21 +109,26 @@ public sealed class WriteAheadLogSyncTests
       tree.Upsert(key, key + 1);
 
     PowerLossFileStreamProvider crash = null;
-    // Observe the durable checkpoint without explicitly syncing or closing the tree.
+    // Observe the durable main-file blocks without explicitly syncing or closing.
     Assert.That(SpinWait.SpinUntil(() =>
     {
       var image = provider.SimulatePowerLoss();
-      var tailPath = mainPath + ".tail";
-      var length = image.ReadAllBytes(tailPath).Length;
-      if (length < WalSyncCheckpoint.RegionSize)
-        return false;
-      using var tail = image.CreateFileStream(tailPath, FileMode.Open, FileAccess.Read, FileShare.None);
-      var checkpoint = WalSyncCheckpoint.Read(tail, length - WalSyncCheckpoint.RegionSize, out _);
-      if (checkpoint?.ContentLength != count * (LogEntry.MinimumRecordLength + 2 * sizeof(int)))
+      var main = image.ReadAllBytes(mainPath);
+      var position = 1;
+      long contentLength = 0;
+      while (position + WalBlockFrame.HeaderSize <= main.Length)
+      {
+        if (!WalBlockFrame.TryRead(main.AsSpan(position, WalBlockFrame.HeaderSize),
+            out _, out var storedLength, out var blockLength, out _))
+          return false;
+        position += WalBlockFrame.HeaderSize + storedLength;
+        contentLength += blockLength;
+      }
+      if (position != main.Length || contentLength != count * (LogEntry.MinimumRecordLength + 2 * sizeof(int)))
         return false;
       crash = image;
       return true;
-    }, TimeSpan.FromSeconds(30)), Is.True, "automatic flush must checkpoint the complete dirty WAL");
+    }, TimeSpan.FromSeconds(30)), Is.True, "automatic sync must persist the complete dirty WAL");
 
     using var recovered = CreateFactory(crash, mode).SetDataDirectory("data").Open();
     for (var key = 0; key < count; ++key)
@@ -553,7 +588,7 @@ public sealed class WriteAheadLogSyncTests
   }
 
   [Test]
-  public async Task SyncCompressedAppendsDoNotWaitForTheTailDiskSync()
+  public async Task SyncCompressedAppendsDoNotWaitForTheMainDiskSync()
   {
     var provider = new PowerLossFileStreamProvider();
     using var tree = CreateFactory(provider, WriteAheadLogMode.SyncCompressed).Create();
@@ -561,7 +596,7 @@ public sealed class WriteAheadLogSyncTests
     using var releaseDiskSync = new ManualResetEventSlim();
     provider.BeforeDiskSync = path =>
     {
-      if (!path.EndsWith(".tail", StringComparison.Ordinal))
+      if (!path.Contains("/seg/", StringComparison.Ordinal) || path.EndsWith(".tail", StringComparison.Ordinal))
         return;
       diskSyncStarted.Set();
       releaseDiskSync.Wait();
@@ -636,10 +671,10 @@ public sealed class WriteAheadLogSyncTests
       stream.Seek(0, SeekOrigin.End);
       stream.Write(bytes.AsSpan(0, 10));
       stream.SyncToDisk();
-      // The tail and the main file.
-      Assert.That(provider.DiskSyncCount - diskSyncCount, Is.EqualTo(2));
+      // The checksummed main file is sufficient; the tail needs no disk sync.
+      Assert.That(provider.DiskSyncCount - diskSyncCount, Is.EqualTo(1));
       stream.SyncToDisk();
-      Assert.That(provider.DiskSyncCount - diskSyncCount, Is.EqualTo(2));
+      Assert.That(provider.DiskSyncCount - diskSyncCount, Is.EqualTo(1));
     }
   }
 

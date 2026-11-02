@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using ZoneTree.Compression;
 using ZoneTree.Options;
 using ZoneTree.Segments.Block;
@@ -70,7 +69,7 @@ public sealed unsafe partial class CompressedFileStream
     // In the legacy layout, the tail names a later block once a block is synced. A
     // block that the tail file does not name yet can be torn by a power loss
     // during its commit. Only unsynced records are lost by dropping it.
-    if (!UsesSyncCheckpoints && lastBlockIndex >= TailBlock.BlockIndex && IsTornBlock(lastBlock))
+    if (!lastBlock.IsFramed && !UsesSyncCheckpoints && lastBlockIndex >= TailBlock.BlockIndex && IsTornBlock(lastBlock))
     {
       FileStream.SetLength(lastBlock.Position);
       lastBlockIndex = SkipToTheEnd(out lastBlock);
@@ -228,6 +227,8 @@ public sealed unsafe partial class CompressedFileStream
     public int CompressedLength;
 
     public int Length;
+
+    public bool IsFramed;
   }
 
   int SkipToTheEnd(out LastBlockInfo lastBlock)
@@ -235,88 +236,70 @@ public sealed unsafe partial class CompressedFileStream
     Position = 0;
     _length = 0;
     FileStream.Position = MetaDataSize;
-    var len = FileStream.Length;
-    long physicalPosition = MetaDataSize;
-    var lastBlockIndex = -1;
+    var length = FileStream.Length;
+    long position = MetaDataSize;
+    var lastIndex = -1;
     lastBlock = default;
-    Span<byte> header = stackalloc byte[3 * sizeof(int)];
-    while (true)
+    while (position < length)
     {
-      if (physicalPosition == len)
-        break;
-
-      var blockStartPosition = physicalPosition;
-
-      if (ReadMainFileAtMost(header) != header.Length)
+      try
       {
-        if (physicalPosition < SyncedMainLength)
-          throw new InvalidDataException("Incomplete block inside the synced WAL prefix.");
-        // truncates partially written compressed block.
-        // because the last block content is also written in tail block.
-        FileStream.Position = blockStartPosition;
-        FileStream.SetLength(blockStartPosition);
-        break;
-      }
-      var blockIndex = MemoryMarshal.Read<int>(header);
-      var compressedBlockSize = MemoryMarshal.Read<int>(header.Slice(sizeof(int)));
-      var blockSize = MemoryMarshal.Read<int>(header.Slice(2 * sizeof(int)));
-
-      var blockEndPosition = physicalPosition + sizeof(int) * 3L + compressedBlockSize;
-      // Block indexes only grow, so a smaller one is a header with a sector that
-      // did not persist, if this can be the block being committed: the tail file
-      // names a later block once a block is synced. An empty block is torn too,
-      // unless the tail names a later block: a main file can hold committed empty blocks.
-      var isTornEmptyBlock = compressedBlockSize == 0 && blockSize == 0 && blockIndex >= TailBlock.BlockIndex;
-      if (compressedBlockSize < 0 || blockSize < 0 || blockEndPosition > len ||
-          (UsesSyncCheckpoints && physicalPosition >= SyncedMainLength && compressedBlockSize == 0 && blockSize == 0) ||
-          (CompressionMethod == CompressionMethod.None && compressedBlockSize != blockSize) ||
-          (!UsesSyncCheckpoints && blockIndex <= lastBlockIndex && lastBlockIndex + 1 >= TailBlock.BlockIndex) ||
-          (!UsesSyncCheckpoints && isTornEmptyBlock))
-      {
-        if (physicalPosition < SyncedMainLength)
-          throw new InvalidDataException("Invalid block inside the synced WAL prefix.");
-        // truncates partially written compressed block.
-        // because the last block content is also written in tail block.
-        FileStream.Position = blockStartPosition;
-        FileStream.SetLength(blockStartPosition);
-        break;
-      }
-      if (UsesSyncCheckpoints && physicalPosition >= SyncedMainLength && CompressionMethod != CompressionMethod.None)
-      {
-        // More than one block may have been written since the last explicit
-        // sync. Validate that entire suffix rather than trusting the tail index.
-        try
+        var header = ReadMainBlockHeader();
+        var end = position + header.Size + (long)header.CompressedLength;
+        var tornEmptyBlock = header.CompressedLength == 0 && header.Length == 0 &&
+            (UsesSyncCheckpoints || header.Index >= TailBlock.BlockIndex);
+        if (header.CompressedLength < 0 || header.Length < 0 || end > length || tornEmptyBlock ||
+            (CompressionMethod == CompressionMethod.None && header.CompressedLength != header.Length) ||
+            (header.IsFramed && header.Index != lastIndex + 1) ||
+            (!header.IsFramed && header.Index <= lastIndex && lastIndex + 1 >= TailBlock.BlockIndex))
+          throw new InvalidDataException("Incomplete or invalid WAL block.");
+        if (header.IsFramed || (UsesSyncCheckpoints && position >= SyncedMainLength && CompressionMethod != CompressionMethod.None))
         {
-          var compressed = GetReadBuffer(ref CompressedReadBuffer, compressedBlockSize);
-          ReadMainFileExactly(compressed.Span);
-          var decompressed = GetReadBuffer(ref DecompressedReadBuffer, blockSize);
-          DataCompression.DecompressInto(CompressionMethod, compressed, decompressed);
+          var payload = GetReadBuffer(ref CompressedReadBuffer, header.CompressedLength);
+          ReadMainFileExactly(payload.Span);
+          ValidateBlockPayload(payload.Span, header);
+          if (!header.IsFramed)
+          {
+            // Only the released legacy prefix needs codec validation here.
+            // All 2.1.0 payloads have a checksum over their stored bytes.
+            var decompressed = GetReadBuffer(ref DecompressedReadBuffer, header.Length);
+            try
+            {
+              DataCompression.DecompressInto(CompressionMethod, payload, decompressed);
+            }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+              throw new InvalidDataException("Invalid legacy WAL block.", e);
+            }
+          }
         }
-        catch (Exception e) when (e is not OutOfMemoryException)
+        lastBlock = new LastBlockInfo
         {
-          FileStream.SetLength(blockStartPosition);
-          FileStream.Position = blockStartPosition;
-          break;
-        }
+          Position = position,
+          CompressedLength = header.CompressedLength,
+          Length = header.Length,
+          IsFramed = header.IsFramed
+        };
+        lastIndex = header.Index;
+        _length += header.Length;
+        position = end;
+        FileStream.Position = position;
       }
-      physicalPosition = blockEndPosition;
-      FileStream.Position = physicalPosition;
-      _length += blockSize;
-      lastBlock = new LastBlockInfo
+      catch (InvalidDataException) when (position >= SyncedMainLength)
       {
-        Position = blockStartPosition,
-        CompressedLength = compressedBlockSize,
-        Length = blockSize
-      };
-      lastBlockIndex = blockIndex;
+        // A checkpoint is a lower bound. Validate every frame, including when
+        // later sectors persisted ahead of an earlier block during a power loss.
+        FileStream.SetLength(position);
+        FileStream.Position = position;
+        break;
+      }
     }
     _length += TailBlock.Length;
     CurrentBlock = TailBlock;
     CurrentBlockPosition = TailBlock.Length;
     Position = _length;
-    return lastBlockIndex;
+    return lastIndex;
   }
-
 }
 
 #pragma warning restore CA1063
