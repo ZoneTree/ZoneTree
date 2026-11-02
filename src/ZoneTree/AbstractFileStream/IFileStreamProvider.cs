@@ -24,8 +24,8 @@ public interface IFileStreamProvider
   /// Makes completed namespace changes in this directory durable on platforms
   /// that require a directory sync in addition to syncing file contents.
   /// Providers whose metadata operations are already durable may do nothing.
-  /// Shared WALs require this operation before acknowledging new chunk files
-  /// or deleting files superseded by a newly published manifest.
+  /// Checkpoint publication and shared WALs require this operation before
+  /// deleting files superseded by newly published files or metadata.
   /// </summary>
   void SyncDirectory(string path);
 

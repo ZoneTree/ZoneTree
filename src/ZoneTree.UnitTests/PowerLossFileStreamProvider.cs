@@ -64,6 +64,8 @@ public sealed class PowerLossFileStreamProvider : IFileStreamProvider
   /// </summary>
   public Action<string> BeforeDiskSync { get; set; }
 
+  public Action<string> BeforeDirectorySync { get; set; }
+
   /// <summary>
   /// Called after a file length change, before any later change of the file.
   /// </summary>
@@ -203,7 +205,7 @@ public sealed class PowerLossFileStreamProvider : IFileStreamProvider
 
   // This simulator already persists creation, replacement and deletion at
   // once. It does not simulate delayed filesystem namespace persistence.
-  public void SyncDirectory(string path) { }
+  public void SyncDirectory(string path) => BeforeDirectorySync?.Invoke(NormalizePath(path));
 
   public void DeleteFile(string path)
   {

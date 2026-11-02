@@ -362,6 +362,18 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         is ZoneTree.WAL.ISharedWriteAheadLogCoordinator sharedWal)
       sharedWal.SyncBeforeMerge();
     var newDiskSegment = diskSegmentCreator.CreateReadOnlyDiskSegment();
+    try
+    {
+      // File syncs protect the output bytes; persist their names before metadata
+      // can reference them and before old segments or WAL chunks are removed.
+      Options.RandomAccessDeviceManager.SyncDirectory();
+    }
+    catch
+    {
+      // Copied multipart parts still belong to the old checkpoint.
+      newDiskSegment.Drop(diskSegmentCreator.AppendedPartSegmentIds);
+      throw;
+    }
     newDiskSegment.DropFailureReporter = ReportDropFailure;
     OnDiskSegmentCreated?.Invoke(this, newDiskSegment, false);
     lock (ShortMergerLock)

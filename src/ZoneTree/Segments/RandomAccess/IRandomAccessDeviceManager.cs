@@ -38,6 +38,13 @@ public interface IRandomAccessDeviceManager
 
   void CloseAllDevices();
 
+  /// <summary>
+  /// Makes newly created device names and metadata replacements durable before
+  /// publishing a checkpoint or deleting its recovery fallback. Custom managers
+  /// with devices in multiple directories must sync every affected directory.
+  /// </summary>
+  void SyncDirectory();
+
   void RemoveReadOnlyDevice(long segmentId, string category);
 
   void RemoveWritableDevice(long segmentId, string category);

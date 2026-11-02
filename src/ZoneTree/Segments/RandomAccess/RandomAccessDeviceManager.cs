@@ -50,6 +50,8 @@ public sealed class RandomAccessDeviceManager : IRandomAccessDeviceManager
     }
   }
 
+  public void SyncDirectory() => FileStreamProvider.SyncDirectory(DataDirectory);
+
   public IRandomAccessDevice CreateWritableDevice(
       long segmentId, string category,
       bool isCompressed, int compressionBlockSize,

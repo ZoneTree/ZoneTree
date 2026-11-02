@@ -34,6 +34,8 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
   // The generation of the records that this WAL appends.
   long Generation;
 
+  Action PendingMetaDataSave;
+
   public ZoneTreeMetaWAL(ZoneTreeOptions<TKey, TValue> options, bool isReadOnly, long generation = 0)
   {
     Options = options;
@@ -201,6 +203,7 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
   {
     lock (SyncRoot)
     {
+      CompletePendingMetaDataSave();
       var stamped = record;
       stamped.Generation = unchecked((uint)Generation);
       stamped.Checksum = stamped.CreateChecksum();
@@ -271,6 +274,8 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
       long[] bottomSegments,
       bool createNew = false)
   {
+    lock (SyncRoot)
+      CompletePendingMetaDataSave();
     string productVersion = ZoneTreeInfo.ProductVersion.ToString();
     var newZoneTreeMeta = new ZoneTreeMeta
     {
@@ -325,24 +330,43 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
           .GetDurableFileWriter()
           .WriteAllBytes(metaFilePath, bytes);
     }
-    // The saved metadata makes the existing records stale, even if clearing
-    // them fails or does not reach the disk. So it does not need a disk sync.
     lock (SyncRoot)
-      Generation = newZoneTreeMeta.MetaWalGeneration;
-    zoneTreeMeta.MetaWalGeneration = newZoneTreeMeta.MetaWalGeneration;
-    ClearContent();
-    zoneTreeMeta.Version = productVersion;
-    zoneTreeMeta.MutableSegment = mutableSegment;
-    zoneTreeMeta.DiskSegment = diskSegment;
-    zoneTreeMeta.ReadOnlySegments = readOnlySegments;
-    zoneTreeMeta.BottomSegments = bottomSegments;
-    zoneTreeMeta.WriteAheadLogOptions = Options.WriteAheadLogOptions;
-    zoneTreeMeta.DiskSegmentOptions = Options.DiskSegmentOptions;
-    zoneTreeMeta.MutableSegmentMaxItemCount = Options.MutableSegmentMaxItemCount;
-    zoneTreeMeta.KeyHasherType = Options.KeyHasher?.GetType().SimplifiedFullName();
-    zoneTreeMeta.MutableSegmentBloomFilterBitsPerItem =
-        Options.MutableSegmentBloomFilterBitsPerItem;
-    zoneTreeMeta.DiskSegmentMaxItemCount = Options.DiskSegmentMaxItemCount;
+    {
+      // Keep the old WAL until the rename is durable. If that sync fails, the
+      // next metadata append must finish this save before using a new generation.
+      PendingMetaDataSave = () =>
+      {
+        Generation = newZoneTreeMeta.MetaWalGeneration;
+        zoneTreeMeta.MetaWalGeneration = newZoneTreeMeta.MetaWalGeneration;
+        // The durable snapshot includes these records; clearing needs no fsync.
+        ClearContent();
+        zoneTreeMeta.Version = productVersion;
+        zoneTreeMeta.MutableSegment = mutableSegment;
+        zoneTreeMeta.DiskSegment = diskSegment;
+        zoneTreeMeta.ReadOnlySegments = readOnlySegments;
+        zoneTreeMeta.BottomSegments = bottomSegments;
+        zoneTreeMeta.WriteAheadLogOptions = Options.WriteAheadLogOptions;
+        zoneTreeMeta.DiskSegmentOptions = Options.DiskSegmentOptions;
+        zoneTreeMeta.MutableSegmentMaxItemCount = Options.MutableSegmentMaxItemCount;
+        zoneTreeMeta.KeyHasherType = Options.KeyHasher?.GetType().SimplifiedFullName();
+        zoneTreeMeta.MutableSegmentBloomFilterBitsPerItem =
+            Options.MutableSegmentBloomFilterBitsPerItem;
+        zoneTreeMeta.DiskSegmentMaxItemCount = Options.DiskSegmentMaxItemCount;
+      };
+      CompletePendingMetaDataSave();
+    }
+  }
+
+  // Called under SyncRoot. A failed directory sync has an uncertain rename
+  // outcome, so do not stamp more records until that outcome is made durable.
+  void CompletePendingMetaDataSave()
+  {
+    var complete = PendingMetaDataSave;
+    if (complete == null)
+      return;
+    Options.RandomAccessDeviceManager.SyncDirectory();
+    PendingMetaDataSave = null;
+    complete();
   }
 
   public static ZoneTreeMeta LoadZoneTreeMetaWithoutWALRecords(
