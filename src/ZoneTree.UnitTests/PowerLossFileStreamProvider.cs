@@ -22,6 +22,26 @@ public sealed class PowerLossFileStreamProvider : IFileStreamProvider
 
   int diskSyncCount;
 
+  int openStreamCount;
+
+  int peakOpenStreamCount;
+
+  public int OpenStreamCount => Volatile.Read(ref openStreamCount);
+
+  public int PeakOpenStreamCount => Volatile.Read(ref peakOpenStreamCount);
+
+  void OnStreamOpened()
+  {
+    var current = Interlocked.Increment(ref openStreamCount);
+    var peak = Volatile.Read(ref peakOpenStreamCount);
+    while (current > peak)
+    {
+      var previous = Interlocked.CompareExchange(ref peakOpenStreamCount, current, peak);
+      if (previous == peak) break;
+      peak = previous;
+    }
+  }
+
   readonly ConcurrentQueue<string> replacedFiles = new();
 
   /// <summary>
@@ -181,6 +201,10 @@ public sealed class PowerLossFileStreamProvider : IFileStreamProvider
 
   public void CreateDirectory(string path) => Live.CreateDirectory(path);
 
+  // This simulator already persists creation, replacement and deletion at
+  // once. It does not simulate delayed filesystem namespace persistence.
+  public void SyncDirectory(string path) { }
+
   public void DeleteFile(string path)
   {
     path = NormalizePath(path);
@@ -255,6 +279,8 @@ public sealed class PowerLossFileStreamProvider : IFileStreamProvider
 
     readonly Stream InnerStream;
 
+    int IsDisposed;
+
     public string FilePath { get; }
 
     public PowerLossFileStream(PowerLossFileStreamProvider provider, string path, IFileStream inner)
@@ -263,6 +289,7 @@ public sealed class PowerLossFileStreamProvider : IFileStreamProvider
       FilePath = path;
       Inner = inner;
       InnerStream = inner.ToStream();
+      Provider.OnStreamOpened();
     }
 
     public override bool CanRead => InnerStream.CanRead;
@@ -318,8 +345,11 @@ public sealed class PowerLossFileStreamProvider : IFileStreamProvider
 
     protected override void Dispose(bool disposing)
     {
-      if (disposing)
-        Inner.Dispose();
+      if (disposing && Interlocked.Exchange(ref IsDisposed, 1) == 0)
+      {
+        try { Inner.Dispose(); }
+        finally { Interlocked.Decrement(ref Provider.openStreamCount); }
+      }
       base.Dispose(disposing);
     }
   }

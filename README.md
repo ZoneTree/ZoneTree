@@ -177,6 +177,8 @@ foreach (var (key, value) in snapshot.Range(1, 2))
 
 Transactions are multi-version and optimistic: reads never block, and a commit fails only when another transaction committed a conflicting write after this one began; `Execute` retries it. `Serializable`, the default, also protects the keys and ranges a transaction read; `Snapshot` checks only the keys it wrote or read with `TryGetForUpdate`. A commit is visible at once. Use `ExecuteDurableAsync`, `tx.CommitDurableAsync()` or `zoneTree.SyncWALAsync()` when it must survive a power loss.
 
+With the built-in WAL provider, transactional factories promote `Sync` and `SyncCompressed` to `Shared`, and `AsyncCompressed` to `AsyncShared`, so recovery preserves commit order across segments. Compression settings, explicit shared modes and `None` are retained. Custom providers and provider factories keep their configured modes and supply their own transaction recovery guarantees.
+
 Use transactions when your data model requires coordination across multiple keys. For simple high-throughput writes, the non-transactional API is usually the better path.
 
 ---
@@ -268,9 +270,32 @@ ZoneTree uses async compressed WAL by default. It is the recommended starting po
 | Recommended high-throughput persistent WAL mode | Async compressed WAL |
 | Plain synchronous WAL write path | Sync WAL |
 | Compressed WAL with a synchronous caller write path, where each returned write survives a process crash | Sync compressed WAL |
+| One ordered recovery prefix across memory segments, with caller-side writes | Shared WAL (`WriteAheadLogMode.Shared`) |
+| One ordered recovery prefix across memory segments, with queued writes | Async shared WAL (`WriteAheadLogMode.AsyncShared`) |
 | Intentional no-WAL boundary for cache/temp/rebuildable data | No WAL |
 
 Writes do not wait for disk syncs in any WAL mode. When a write must survive a power loss before you acknowledge it, await `zoneTree.SyncWALAsync()`. Concurrent calls share disk syncs.
+
+Shared modes keep one ordered journal per tree, split into physical chunks. Recovery stops at the first incomplete record or block across all chunks. Transactions recover a prefix of commits, including every commit covered by a successful sync; incomplete transactions remain invisible. The existing per-segment modes can recover unsynced writes independently across segments.
+
+```csharp
+var zoneTree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data")
+    .ConfigureWriteAheadLogOptions(wal =>
+    {
+        wal.WriteAheadLogMode = WriteAheadLogMode.AsyncShared;
+        wal.SharedModeOptions.MaximumChunkSize = 64L * 1024 * 1024;
+    })
+    .OpenOrCreate();
+```
+
+Both shared modes reuse compressed-block storage and its version 1 tail format. Compression can be disabled with `CompressionMethod.None`. Memory-segment rotation does not sync the shared journal; a merge syncs it before publishing a disk checkpoint. Whole obsolete chunks are deleted after checkpoint publication. Chunk size is an uncompressed target, and a record can exceed it. An old live segment can keep earlier chunks from being reclaimed.
+
+Physical chunk rotation releases completed chunks' file handles and mappings even while the async queue stays busy. It copies the remaining tail to the main file without a disk sync; later syncs flush closed main files one at a time.
+
+On POSIX systems, shared WALs sync directory metadata when publishing a manifest or acknowledging new chunk files. Custom file-stream providers must implement `SyncDirectory`; providers with immediately durable metadata can implement it as a no-op. Providers that cannot supply this contract reject shared WALs before reclamation can remove fallback files.
+
+Selecting a shared mode when opening an existing database migrates its live WALs, including WALs and tails from 2.0.8 and earlier. Each migrated segment snapshot is synced before its old files are deleted. Subsequent opens detect the shared journal and retain its stored mode even when the factory uses default WAL options.
 
 Disk segments can also use compression and different segment layouts. These options help tune disk space, read patterns, merge behavior, and file-size boundaries.
 

@@ -178,6 +178,9 @@ public sealed unsafe partial class CompressedFileStream
     var failure = DurabilityFailure;
     if (failure != null)
       throw new WriteAheadLogSyncFailedException(FilePath, failure);
+    if (ClosedWithoutSync)
+      throw new WriteAheadLogSyncFailedException(FilePath,
+          new InvalidOperationException("This immutable WAL chunk must be reopened before syncing."));
   }
 
   void SyncMainFileIfNeeded()

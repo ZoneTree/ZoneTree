@@ -30,6 +30,8 @@ public sealed class ZoneTreeFactory<TKey, TValue>
 
   bool IsWriteAheadLogProviderInitialized;
 
+  bool HasCustomWriteAheadLogProviderFactory;
+
   /// <summary>
   /// The options to be configured by this factory.
   /// </summary>
@@ -225,11 +227,17 @@ public sealed class ZoneTreeFactory<TKey, TValue>
     return this;
   }
 
-  void InitWriteAheadLogProvider()
+  void InitWriteAheadLogProvider(bool isTransactional = false)
   {
     if (IsWriteAheadLogProviderInitialized)
       return;
     FillMissingOptionsForKnownTypes();
+    // Normalize before constructing the default provider. A custom factory must
+    // receive the caller's settings and owns its provider's recovery contract.
+    if (isTransactional &&
+        (Options.WriteAheadLogProvider is WriteAheadLogProvider ||
+         (Options.WriteAheadLogProvider == null && !HasCustomWriteAheadLogProviderFactory)))
+      ConfigureTransactionalWriteAheadLog();
     Options.WriteAheadLogProvider ??= GetWriteAheadLogProvider(Options);
     if (ZoneTreeMetaWAL<TKey, TValue>.Exists(Options))
     {
@@ -238,6 +246,25 @@ public sealed class ZoneTreeFactory<TKey, TValue>
       Options.WriteAheadLogProvider.MigrateWals(Version.Parse(meta.Version));
     }
     IsWriteAheadLogProviderInitialized = true;
+  }
+
+  void ConfigureTransactionalWriteAheadLog()
+  {
+    var wal = Options.WriteAheadLogOptions;
+    var configuredMode = wal.WriteAheadLogMode;
+    // One journal keeps unsynced transaction writes and commit records in the
+    // same recovery prefix. Preserve caller-side versus queued appends, explicit
+    // shared modes, and an intentional choice to disable WAL protection.
+    var sharedMode = configuredMode switch
+    {
+      WriteAheadLogMode.Sync or WriteAheadLogMode.SyncCompressed => WriteAheadLogMode.Shared,
+      WriteAheadLogMode.AsyncCompressed => WriteAheadLogMode.AsyncShared,
+      _ => configuredMode
+    };
+    if (sharedMode == configuredMode)
+      return;
+
+    wal.WriteAheadLogMode = sharedMode;
   }
 
 
@@ -250,6 +277,7 @@ public sealed class ZoneTreeFactory<TKey, TValue>
       SetWriteAheadLogProvider(Func<ZoneTreeOptions<TKey, TValue>, IWriteAheadLogProvider> walProviderGetter)
   {
     GetWriteAheadLogProvider = walProviderGetter;
+    HasCustomWriteAheadLogProviderFactory = true;
     return this;
   }
 
@@ -538,12 +566,17 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   /// The deletion delegates are not used: transactions delete keys themselves.
   /// A merge filter factory or a range deletion delegate is rejected with
   /// <see cref="InvalidOptionValueException"/>.
+  /// With the built-in WAL provider, Sync and SyncCompressed are promoted to
+  /// Shared, and AsyncCompressed to AsyncShared, to preserve commit recovery
+  /// order across segments. Compression settings are retained. Explicit shared
+  /// modes and None are retained. Custom provider factories keep their configured mode
+  /// and are responsible for their own transaction recovery guarantees.
   /// </remarks>
   /// <returns>The transactional ZoneTree.</returns>
   public ITransactionalZoneTree<TKey, TValue> OpenOrCreateTransactional()
   {
     FillMissingOptionsForKnownTypes();
-    InitWriteAheadLogProvider();
+    InitWriteAheadLogProvider(true);
     return MvccZoneTree<TKey, TValue>.Load(Options, canCreate: true, canOpen: true);
   }
 
@@ -556,7 +589,7 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   public ITransactionalZoneTree<TKey, TValue> CreateTransactional()
   {
     FillMissingOptionsForKnownTypes();
-    InitWriteAheadLogProvider();
+    InitWriteAheadLogProvider(true);
     return MvccZoneTree<TKey, TValue>.Load(Options, canCreate: true, canOpen: false);
   }
 
@@ -569,7 +602,7 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   public ITransactionalZoneTree<TKey, TValue> OpenTransactional()
   {
     FillMissingOptionsForKnownTypes();
-    InitWriteAheadLogProvider();
+    InitWriteAheadLogProvider(true);
     return MvccZoneTree<TKey, TValue>.Load(Options, canCreate: false, canOpen: true);
   }
 

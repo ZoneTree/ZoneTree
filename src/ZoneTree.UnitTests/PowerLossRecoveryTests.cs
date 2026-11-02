@@ -1116,6 +1116,10 @@ public sealed class PowerLossRecoveryTests
   [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.Zstd, 1)]
   [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.Zstd, 2)]
   [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.LZ4, 1)]
+  [TestCase(WriteAheadLogMode.Shared, CompressionMethod.Zstd, 1)]
+  [TestCase(WriteAheadLogMode.Shared, CompressionMethod.None, 2)]
+  [TestCase(WriteAheadLogMode.AsyncShared, CompressionMethod.Zstd, 1)]
+  [TestCase(WriteAheadLogMode.AsyncShared, CompressionMethod.LZ4, 2)]
   public async Task SyncedRecordsSurviveTornPowerLosses(
       WriteAheadLogMode mode, CompressionMethod compressionMethod, int seed)
   {

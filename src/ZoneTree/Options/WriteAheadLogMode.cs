@@ -41,4 +41,18 @@ public enum WriteAheadLogMode : byte
   /// methods in IZoneTreeMaintenance.
   /// </summary>
   None = 3,
+
+  /// <summary>
+  /// Appends on the caller to a shared, ordered, compressed-block WAL.
+  /// All memory segments use the same journal and recovery prefix. Segment
+  /// rotation does not sync the journal. SyncWALAsync provides disk durability.
+  /// </summary>
+  Shared = 4,
+
+  /// <summary>
+  /// Queues writes to a single shared WAL writer. Appended records have the
+  /// same ordered recovery prefix as Shared; a process crash can lose queued
+  /// records. SyncWALAsync drains the preceding writes and syncs the journal.
+  /// </summary>
+  AsyncShared = 5,
 }

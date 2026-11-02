@@ -103,7 +103,10 @@ public sealed class WriteOrderPowerLossTests
   {
     var provider = new PowerLossFileStreamProvider();
     PowerLossFileStreamProvider afterPowerLoss;
-    using (var tree = CreateFactory(provider, WriteAheadLogMode.Sync, 1000).CreateTransactional())
+    var tree = CreateFactory(provider, WriteAheadLogMode.Shared, 1000)
+        .ConfigureWriteAheadLogOptions(options => options.SyncCompressedModeOptions.EnableTailWriterJob = false)
+        .CreateTransactional();
+    try
     {
       using (var tx = tree.BeginTransaction())
       {
@@ -117,13 +120,19 @@ public sealed class WriteOrderPowerLossTests
         tx.Upsert(1, 10);
         tx.Upsert(2, 20);
         tx.Commit();
-        var segmentId = storage.MutableSegment.SegmentId;
-        provider.FailDiskSync = path => path.Contains($"/seg/{segmentId}.", StringComparison.Ordinal);
+        provider.FailDiskSync = path => path.Contains("/seg/shared/", StringComparison.Ordinal) &&
+            path.EndsWith(".wal", StringComparison.Ordinal);
         Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWALAsync());
       }
       Assert.That(ReadCommitted(tree, 0), Is.EqualTo(100), "reads keep working");
       afterPowerLoss = provider.SimulatePowerLoss();
+    }
+    finally
+    {
       provider.FailDiskSync = null;
+      Assert.Throws<WriteAheadLogSyncFailedException>(tree.Dispose,
+          "a failed shared journal must keep reporting its durability failure");
+      Assert.That(provider.OpenStreamCount, Is.Zero, "failed disposal must release every file");
     }
     using var recovered = CreateFactory(afterPowerLoss, WriteAheadLogMode.Sync, 1000).OpenTransactional();
     Assert.That(ReadCommitted(recovered, 0), Is.EqualTo(100));

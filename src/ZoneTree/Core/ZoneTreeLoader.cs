@@ -361,6 +361,10 @@ public sealed class ZoneTreeLoader<TKey, TValue>
     LoadDiskSegment();
     LoadBottomSegments();
 
+    if (mutableSegmentWal is ZoneTree.WAL.ISharedWriteAheadLogCoordinator sharedWal)
+      sharedWal.CompleteRecovery(ReadOnlySegments.Select(segment => segment.SegmentId)
+          .Append(MutableSegment.SegmentId).ToArray());
+
     var zoneTree = new ZoneTree<TKey, TValue>(Options, ZoneTreeMeta,
         ReadOnlySegments, MutableSegment, DiskSegment, BottomSegments, maximumSegmentId);
     return zoneTree;

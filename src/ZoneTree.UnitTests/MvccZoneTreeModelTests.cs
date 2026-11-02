@@ -17,8 +17,8 @@ namespace ZoneTree.UnitTests;
 /// <item>A serializable commit read nothing that changed before it committed: every key and
 /// every scanned range it observed still holds the observed values at its commit.</item>
 /// <item>The committed state survives merges, garbage collection and reopens.</item>
-/// <item>After a power loss, the tree recovers the state after a prefix of the commits
-/// in commit order, and the prefix includes every synced commit.</item>
+/// <item>After a power loss, synced state survives. Shared WALs additionally recover
+/// a prefix of commits across segments, including every synced commit.</item>
 /// </list>
 /// </remarks>
 public sealed class MvccZoneTreeModelTests
@@ -51,6 +51,7 @@ public sealed class MvccZoneTreeModelTests
         {
           options.WriteAheadLogMode = walMode;
           options.CompressionBlockSize = 256;
+          options.SharedModeOptions.MaximumChunkSize = 4096;
         });
   }
 
@@ -447,6 +448,10 @@ public sealed class MvccZoneTreeModelTests
       (WriteAheadLogMode.Sync, DiskSegmentMode.MultiPartDiskSegment),
       (WriteAheadLogMode.SyncCompressed, DiskSegmentMode.SingleDiskSegment),
       (WriteAheadLogMode.AsyncCompressed, DiskSegmentMode.MultiPartDiskSegment),
+      (WriteAheadLogMode.Shared, DiskSegmentMode.SingleDiskSegment),
+      (WriteAheadLogMode.Shared, DiskSegmentMode.MultiPartDiskSegment),
+      (WriteAheadLogMode.AsyncShared, DiskSegmentMode.SingleDiskSegment),
+      (WriteAheadLogMode.AsyncShared, DiskSegmentMode.MultiPartDiskSegment),
     };
     // One seed per mode caught a merge that dropped the only durable value only once in
     // four runs, so every mode runs with several seeds.
@@ -459,7 +464,7 @@ public sealed class MvccZoneTreeModelTests
   }
 
   [TestCaseSource(nameof(PowerLossCases))]
-  public async Task PowerLossRecoversACommittedPrefix(
+  public async Task PowerLossRecoveryHonorsWalGuarantees(
       WriteAheadLogMode walMode, DiskSegmentMode diskSegmentMode, int seed)
   {
     var provider = new PowerLossFileStreamProvider();
@@ -483,11 +488,25 @@ public sealed class MvccZoneTreeModelTests
         }
         if (choice < 4)
         {
-          // The image keeps only what reached the disk. The tree recovers the state after
-          // a prefix of the commits that includes every synced commit.
-          var image = provider.SimulatePowerLoss();
+          // Shared WALs recover one commit prefix. Private WALs can recover
+          // unsynced writes independently across segments.
+          var image = walMode is WriteAheadLogMode.Shared or WriteAheadLogMode.AsyncShared
+              ? provider.SimulateTornPowerLoss(random)
+              : provider.SimulatePowerLoss();
           using var recovered = CreateFactory(image, diskSegmentMode, walMode).OpenTransactional();
           var state = ReadAll(recovered);
+          if (walMode is not (WriteAheadLogMode.Shared or WriteAheadLogMode.AsyncShared))
+          {
+            var possibleStates = runner.CommittedStates.Skip(syncedStateCount - 1).ToArray();
+            foreach (var key in possibleStates.SelectMany(snapshot => snapshot.Keys).Concat(state.Keys).Distinct())
+            {
+              var present = state.TryGetValue(key, out var value);
+              Assert.That(possibleStates.Any(snapshot => snapshot.TryGetValue(key, out var expected)
+                  ? present && value == expected : !present), Is.True,
+                  $"key {key} lost its synced value without a later committed change");
+            }
+            continue;
+          }
           var prefixLength = runner.CommittedStates.FindLastIndex(x =>
               x.Count == state.Count && !x.Except(state).Any()) + 1;
           Assert.That(prefixLength, Is.GreaterThan(0),

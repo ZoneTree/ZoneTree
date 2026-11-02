@@ -37,6 +37,8 @@ public sealed class LocalFileStreamProvider : IFileStreamProvider
     Directory.CreateDirectory(path);
   }
 
+  public void SyncDirectory(string path) => DirectorySync.Flush(path);
+
   public bool DirectoryExists(string path)
   {
     return Directory.Exists(path);

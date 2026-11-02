@@ -26,11 +26,13 @@ namespace ZoneTree.Transactional.Mvcc;
 /// The commit deletes that record: it is the single write that makes the transaction
 /// committed. Recovery treats remaining status records as aborted transactions.
 /// Completed writes in synchronous WAL modes survive a process crash;
-/// AsyncCompressed can lose records still queued in process memory.
+/// AsyncCompressed and AsyncShared can lose records still queued in process memory.
 /// To wait for power-loss or operating-system-crash durability, await SyncWALAsync
-/// after the commit. On power loss, unsynced writes can persist independently
+/// after the commit. With per-segment WALs, unsynced writes can persist independently
 /// across segments: a transaction may recover partially, and a later commit may
 /// survive while an earlier unsynced commit is lost.
+/// Shared and AsyncShared WALs recover one prefix of commits across segments;
+/// incomplete transactions remain invisible.
 /// </para>
 /// <para>
 /// A rollback deletes its versions and then its status record in the storage tree.

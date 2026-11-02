@@ -52,4 +52,10 @@ public sealed class WriteAheadLogOptions
   /// Options for async-compressed mode.
   /// </summary>
   public AsyncCompressedModeOptions AsyncCompressedModeOptions { get; set; } = new();
+
+  /// <summary>
+  /// Options for the shared journal modes. Compression settings above also
+  /// apply. Caller-side and queued writes use Shared and AsyncShared respectively.
+  /// </summary>
+  public SharedModeOptions SharedModeOptions { get; set; } = new();
 }

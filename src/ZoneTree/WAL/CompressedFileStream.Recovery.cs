@@ -101,6 +101,7 @@ public sealed unsafe partial class CompressedFileStream
     // new tail must not lose it while the block is not known to be on the disk.
     // Bytes that a truncation removed must not come back under new blocks.
     var isMainFileTruncated = FileStream.Length != mainFileLength;
+    RecoveryTruncated = isMainFileTruncated;
     if (isMainFileTruncated)
       Logger.LogWarning($"Truncated the torn end of {FilePath} from {mainFileLength} to {FileStream.Length} bytes.");
     if (isTailDiscarded || isMainFileTruncated)
@@ -122,6 +123,8 @@ public sealed unsafe partial class CompressedFileStream
     // after opening must cover them even before the first new append.
     SyncGroup.SyncedCount = hasCheckpoint && TailBlock.Length == 0 &&
         _length == SyncedContentLength && FileStream.Length == SyncedMainLength ? 0 : -1;
+    if (SyncGroup.SyncedCount == 0)
+      MainFileMayBeUnsynced = false;
     CurrentBlockPosition = 0;
     CurrentBlock = TailBlock;
   }
