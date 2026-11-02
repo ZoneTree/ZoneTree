@@ -28,7 +28,7 @@ internal sealed class MvccTransaction<TKey, TValue> :
   /// </summary>
   internal bool IsRegistered;
 
-  TransactionState state;
+  volatile TransactionState state;
 
   public long CommitTimestamp { get; private set; }
 
@@ -73,6 +73,10 @@ internal sealed class MvccTransaction<TKey, TValue> :
         throw new TransactionAlreadyCommittedException(TransactionId);
       case TransactionState.Aborted:
         throw new TransactionAbortedException(TransactionId);
+      case TransactionState.Committing:
+        throw new InvalidOperationException("The transaction is waiting for its commit to be published.");
+      case TransactionState.InDoubt:
+        throw new InvalidOperationException("The transaction's commit outcome is uncertain after a sync failure.");
     }
   }
 
@@ -215,17 +219,39 @@ internal sealed class MvccTransaction<TKey, TValue> :
 
   public async Task CommitDurableAsync(CancellationToken cancellationToken = default)
   {
-    Commit();
-    await Tree.SyncWALAsync(cancellationToken).ConfigureAwait(false);
+    if (!await TryCommitDurableAsync(cancellationToken).ConfigureAwait(false))
+      throw new TransactionConflictException(TransactionId);
   }
 
   public async Task<bool> TryCommitDurableAsync(CancellationToken cancellationToken = default)
   {
-    if (!TryCommit())
+    cancellationToken.ThrowIfCancellationRequested();
+    EnsureActive();
+    if (HasConflict)
+    {
+      Rollback();
       return false;
-    await Tree.SyncWALAsync(cancellationToken).ConfigureAwait(false);
-    return true;
+    }
+    ReleaseReaders();
+    try
+    {
+      // Cancellation stops this wait, not the sync or its eventual publication.
+      var committed = await Tree.CommitDurableAsync(this).WaitAsync(cancellationToken).ConfigureAwait(false);
+      if (!committed)
+        state = TransactionState.Aborted;
+      return committed;
+    }
+    catch
+    {
+      if (state == TransactionState.Active)
+        state = TransactionState.Aborted;
+      throw;
+    }
   }
+
+  internal void OnCommitting() => state = TransactionState.Committing;
+
+  internal void OnCommitInDoubt() => state = TransactionState.InDoubt;
 
   public void Rollback()
   {

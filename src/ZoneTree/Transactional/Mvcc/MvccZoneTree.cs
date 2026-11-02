@@ -25,6 +25,9 @@ namespace ZoneTree.Transactional.Mvcc;
 /// A transaction that writes stores a pending status record before its first version.
 /// The commit deletes that record: it is the single write that makes the transaction
 /// committed. Recovery treats remaining status records as aborted transactions.
+/// CommitDurableAsync keeps the transaction invisible until that deletion is synced.
+/// A failed commit sync leaves its outcome in doubt and prevents further commits
+/// until the tree is reopened; recovery decides whether its commit record survived.
 /// Completed writes in synchronous WAL modes survive a process crash;
 /// AsyncCompressed and AsyncShared can lose records still queued in process memory.
 /// To wait for power-loss or operating-system-crash durability, await SyncWALAsync
@@ -74,6 +77,26 @@ public sealed class MvccZoneTree<TKey, TValue> :
   readonly Lock StateLock = new();
 
   readonly Lock CommitLock = new();
+
+  readonly Queue<PendingCommit> PendingCommits = new();
+
+  PendingCommit LastPendingCommit;
+
+  bool CommitSyncRunning;
+
+  Task CommitSyncTask;
+
+  long LastPreparedCommitTimestamp;
+
+  Exception CommitFailure;
+
+  sealed class PendingCommit(MvccTransaction<TKey, TValue> transaction, bool ready)
+  {
+    internal readonly MvccTransaction<TKey, TValue> Transaction = transaction;
+    internal readonly TaskCompletionSource<bool> Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal bool Ready = ready;
+    internal bool Synced;
+  }
 
   readonly Lock AutoSyncLock = new();
 
@@ -272,6 +295,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
     }
     Clock = ReservedClock;
     lastCommitTimestamp = Clock;
+    LastPreparedCommitTimestamp = Clock;
     DurableCommitTimestamp = Clock;
   }
 
@@ -487,11 +511,17 @@ public sealed class MvccZoneTree<TKey, TValue> :
   /// Commits the transaction, or rolls it back if it conflicts.
   /// </summary>
   /// <remarks>
-  /// Every step that calls the key comparer or can fail runs before the commit point,
-  /// and a failure there rolls the transaction back. After the commit point only plain
-  /// state changes publish the commit, so a commit is never reported as rolled back.
+  /// Validation and WAL append run under CommitLock. Durable commits publish
+  /// only after syncing, without holding that lock during disk I/O. Later commits
+  /// wait for the preceding publication so snapshots never acquire missing commits.
   /// </remarks>
   internal bool Commit(MvccTransaction<TKey, TValue> transaction)
+      => PrepareCommit(transaction, false).GetAwaiter().GetResult();
+
+  internal Task<bool> CommitDurableAsync(MvccTransaction<TKey, TValue> transaction)
+      => PrepareCommit(transaction, true);
+
+  Task<bool> PrepareCommit(MvccTransaction<TKey, TValue> transaction, bool durable)
   {
     var entry = transaction.Entry;
     if (!transaction.HasWrites)
@@ -500,18 +530,21 @@ public sealed class MvccZoneTree<TKey, TValue> :
       transaction.OnCommitted(transaction.SnapshotTimestamp);
       Entries.TryRemove(entry.Id, out _);
       EndTransaction(transaction);
-      return true;
+      return durable ? SyncReadOnlyCommitAsync() : Task.FromResult(true);
     }
 
     var hasConflict = false;
     long commitTimestamp = 0;
+    PendingCommit pending = null;
     lock (CommitLock)
     {
       try
       {
-        // Commits only happen under this lock, so no commit since the snapshot means no conflict.
+        if (CommitFailure != null)
+          throw new InvalidOperationException("A previous commit sync failed. Reopen the tree before committing again.", CommitFailure);
+        // Prepared commits reserve their keys too, even while invisible during sync.
         hasConflict =
-            Volatile.Read(ref lastCommitTimestamp) > transaction.SnapshotTimestamp &&
+            LastPreparedCommitTimestamp > transaction.SnapshotTimestamp &&
             transaction.ConflictsWith(ConflictIndex);
         if (!hasConflict)
         {
@@ -523,6 +556,9 @@ public sealed class MvccZoneTree<TKey, TValue> :
           // The keys added for a failed commit can only make transactions that began
           // before it conflict. They are pruned like the keys of a commit.
           ConflictIndex.Add(keys, commitTimestamp);
+          LastPreparedCommitTimestamp = commitTimestamp;
+          if (durable || PendingCommits.Count != 0)
+            pending = new PendingCommit(transaction, !durable);
           // The commit point: a single record, durable with the next WAL sync.
           Storage.ForceDelete(VersionedKey<TKey>.TransactionStatus(transaction.TransactionId));
         }
@@ -534,27 +570,117 @@ public sealed class MvccZoneTree<TKey, TValue> :
       }
       if (!hasConflict)
       {
-        transaction.OnCommitted(commitTimestamp);
         entry.CommitTimestamp = commitTimestamp;
         // Read after the commit record was written, so it is at or after its segment.
         entry.CommitSegmentId = StorageMaintenance.MutableSegment.SegmentId;
-        entry.State = TransactionState.Committed;
-        lock (StateLock)
+        if (pending == null)
+          PublishCommit(transaction, false);
+        else
         {
-          // New snapshots include the commit only after its entry says committed.
-          Volatile.Write(ref lastCommitTimestamp, commitTimestamp);
-          CommittedTransactions.Enqueue(entry);
-          NonDurableCommits.Enqueue(entry);
+          transaction.OnCommitting();
+          entry.State = TransactionState.Committing;
+          PendingCommits.Enqueue(pending);
+          LastPendingCommit = pending;
+          if (!CommitSyncRunning)
+          {
+            CommitSyncRunning = true;
+            CommitSyncTask = Task.Run(SyncAndPublishAsync);
+          }
         }
       }
     }
     if (hasConflict)
     {
       Rollback(transaction);
-      return false;
+      return Task.FromResult(false);
     }
-    EndTransaction(transaction);
+    if (pending == null)
+      return Task.FromResult(true);
+    return pending.Completion.Task;
+  }
+
+  async Task<bool> SyncReadOnlyCommitAsync()
+  {
+    await SyncWALAsync().ConfigureAwait(false);
     return true;
+  }
+
+  // Called under CommitLock. No disk I/O occurs during publication.
+  void PublishCommit(MvccTransaction<TKey, TValue> transaction, bool synced)
+  {
+    var entry = transaction.Entry;
+    entry.State = TransactionState.Committed;
+    lock (StateLock)
+    {
+      Volatile.Write(ref lastCommitTimestamp, entry.CommitTimestamp);
+      CommittedTransactions.Enqueue(entry);
+      NonDurableCommits.Enqueue(entry);
+      transaction.OnCommitted(entry.CommitTimestamp);
+      if (synced && HasDurableWriteAheadLog)
+        MarkCommitsDurable(entry.CommitTimestamp, 0);
+      EndTransactionLocked(transaction);
+    }
+  }
+
+  async Task SyncAndPublishAsync()
+  {
+    try
+    {
+      while (true)
+      {
+        PendingCommit covered;
+        lock (CommitLock)
+        {
+          if (PendingCommits.Count == 0)
+          {
+            LastPendingCommit = null;
+            CommitSyncRunning = false;
+            return;
+          }
+          covered = LastPendingCommit;
+        }
+        // One worker batches all prepared records preceding this sync. The
+        // commit lock is free during I/O, and cancelling a caller cannot stop it.
+        await Storage.SyncWALAsync().ConfigureAwait(false);
+        lock (CommitLock)
+        {
+          foreach (var item in PendingCommits)
+          {
+            item.Ready = item.Synced = true;
+            if (item == covered)
+              break;
+          }
+          while (PendingCommits.TryPeek(out var next) && next.Ready)
+          {
+            PublishCommit(next.Transaction, next.Synced);
+            PendingCommits.Dequeue();
+            next.Completion.TrySetResult(true);
+          }
+        }
+      }
+    }
+    catch (Exception error)
+    {
+      lock (CommitLock)
+      {
+        CommitFailure ??= error;
+        while (PendingCommits.TryDequeue(out var next))
+        {
+          // The commit record may have reached storage. Do not roll it back or
+          // publish it after a failed sync; recovery determines its final outcome.
+          if (next.Transaction.State != TransactionState.Committed)
+          {
+            next.Transaction.OnCommitInDoubt();
+            next.Transaction.Entry.State = TransactionState.InDoubt;
+          }
+          if (next.Transaction.IsRegistered)
+            EndTransaction(next.Transaction);
+          next.Completion.TrySetException(error);
+        }
+        LastPendingCommit = null;
+        CommitSyncRunning = false;
+      }
+    }
   }
 
   internal void Rollback(MvccTransaction<TKey, TValue> transaction)
@@ -872,6 +998,10 @@ public sealed class MvccZoneTree<TKey, TValue> :
       isDisposed = true;
       StopAutoSync();
     }
+    Task commitSync;
+    lock (CommitLock)
+      commitSync = CommitSyncTask;
+    commitSync?.GetAwaiter().GetResult();
     StorageMaintenance.OnMergeOperationEnded -= OnMergeOperationEnded;
   }
 

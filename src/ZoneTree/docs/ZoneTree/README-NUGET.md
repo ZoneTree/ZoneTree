@@ -175,7 +175,7 @@ foreach (var (key, value) in snapshot.Range(1, 2))
     Console.WriteLine($"{key} = {value}");
 ```
 
-Transactions are multi-version and optimistic: reads never block, and a commit fails only when another transaction committed a conflicting write after this one began; `Execute` retries it. `Serializable`, the default, also protects the keys and ranges a transaction read; `Snapshot` checks only the keys it wrote or read with `TryGetForUpdate`. A commit is visible at once. Use `ExecuteDurableAsync`, `tx.CommitDurableAsync()` or `zoneTree.SyncWALAsync()` when it must survive a power loss.
+Transactions are multi-version and optimistic: reads never block, and a commit fails only when another transaction committed or prepared a conflicting write after this one began; `Execute` retries it. `Serializable`, the default, also protects the keys and ranges a transaction read; `Snapshot` checks only the keys it wrote or read with `TryGetForUpdate`. `Commit()` makes a transaction visible at once. `ExecuteDurableAsync` and `tx.CommitDurableAsync()` sync the WAL before making their commits visible, so readers cannot observe those commits before they are durable. Alternatively, `zoneTree.SyncWALAsync()` makes earlier ordinary commits durable after they have become visible. These durability guarantees require WAL to be enabled.
 
 Use transactions when your data model requires coordination across multiple keys. For simple high-throughput writes, the non-transactional API is usually the better path.
 

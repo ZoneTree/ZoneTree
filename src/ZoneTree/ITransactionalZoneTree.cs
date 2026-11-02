@@ -15,7 +15,8 @@ namespace ZoneTree;
 /// for serializable transactions, the keys and ranges it read.
 /// </para>
 /// <para>
-/// A committed transaction is visible at once. With Sync, SyncCompressed and Shared WALs,
+/// Commit() makes a transaction visible at once. CommitDurableAsync() syncs its
+/// commit record before making it visible. With Sync, SyncCompressed and Shared WALs,
 /// completed writes survive a process crash without a disk sync. AsyncCompressed and AsyncShared
 /// can lose records still queued in process memory. To wait for durability across
 /// a power loss or operating-system crash, await

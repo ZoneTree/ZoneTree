@@ -68,10 +68,11 @@ public static class TransactionalZoneTreeExtensions
 
   /// <summary>
   /// Runs a transaction like <see cref="Execute{TKey, TValue, TResult}"/>
-  /// and waits until its commit is durable.
+  /// and makes its commit visible only after syncing the write ahead log.
   /// </summary>
   /// <inheritdoc cref="Execute{TKey, TValue, TResult}"/>
-  /// <param name="cancellationToken">Stops waiting for the sync; the commit itself is not undone.</param>
+  /// <param name="cancellationToken">Cancels before an attempt, or stops waiting for
+  /// a started commit. A started commit continues and publishes after sync.</param>
   public static async Task<TResult> ExecuteDurableAsync<TKey, TValue, TResult>(
       this ITransactionalZoneTree<TKey, TValue> tree,
       Func<ITransaction<TKey, TValue>, TResult> body,
@@ -79,21 +80,39 @@ public static class TransactionalZoneTreeExtensions
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
   {
-    var result = tree.Execute(body, isolationLevel, maxAttempts);
-    await tree.SyncWALAsync(cancellationToken).ConfigureAwait(false);
-    return result;
+    ArgumentNullException.ThrowIfNull(body);
+    if (maxAttempts < 1)
+      throw new ArgumentOutOfRangeException(
+          nameof(maxAttempts), maxAttempts, "A transaction needs at least one attempt.");
+    for (var attempt = 1; ; ++attempt)
+    {
+      cancellationToken.ThrowIfCancellationRequested();
+      using var transaction = tree.BeginTransaction(isolationLevel);
+      var result = body(transaction);
+      if (transaction.State != TransactionState.Active)
+        throw new InvalidOperationException(
+            "The transaction body ended the transaction. ExecuteDurableAsync commits it.");
+      if (await transaction.TryCommitDurableAsync(cancellationToken).ConfigureAwait(false))
+        return result;
+      if (attempt == maxAttempts)
+        throw new TransactionConflictException(transaction.TransactionId);
+    }
   }
 
   /// <inheritdoc cref="ExecuteDurableAsync{TKey, TValue, TResult}"/>
-  public static async Task ExecuteDurableAsync<TKey, TValue>(
+  public static Task ExecuteDurableAsync<TKey, TValue>(
       this ITransactionalZoneTree<TKey, TValue> tree,
       Action<ITransaction<TKey, TValue>> body,
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
   {
-    tree.Execute(body, isolationLevel, maxAttempts);
-    await tree.SyncWALAsync(cancellationToken).ConfigureAwait(false);
+    ArgumentNullException.ThrowIfNull(body);
+    return tree.ExecuteDurableAsync(transaction =>
+    {
+      body(transaction);
+      return true;
+    }, isolationLevel, maxAttempts, cancellationToken);
   }
 
   /// <summary>

@@ -83,20 +83,24 @@ public interface ITransaction<TKey, TValue> : IReadTransaction<TKey, TValue>
   bool TryCommit();
 
   /// <summary>
-  /// Commits the transaction and waits until the commit is durable.
-  /// Concurrent callers share disk syncs.
+  /// Syncs the commit record before making the transaction visible to readers.
+  /// Concurrent callers share disk syncs. A writing transaction whose sync fails
+  /// stays InDoubt and invisible in this instance; recovery may find its commit record.
   /// </summary>
-  /// <param name="cancellationToken">Stops waiting for the sync; the commit itself is not undone.</param>
+  /// <param name="cancellationToken">Cancels before starting, or stops waiting after the
+  /// commit record is appended. A started commit continues and publishes after sync.</param>
   /// <exception cref="Exceptions.TransactionConflictException">
   /// The transaction conflicts with a transaction that committed after it began.
   /// The transaction is rolled back.</exception>
   Task CommitDurableAsync(CancellationToken cancellationToken = default);
 
   /// <summary>
-  /// Commits the transaction unless it conflicts, and waits until the commit is durable.
-  /// Concurrent callers share disk syncs.
+  /// Commits the transaction unless it conflicts, syncing the commit record before
+  /// making it visible to readers. Concurrent callers share disk syncs. A writing
+  /// transaction whose sync fails stays InDoubt; recovery may find its commit record.
   /// </summary>
-  /// <param name="cancellationToken">Stops waiting for the sync; the commit itself is not undone.</param>
+  /// <param name="cancellationToken">Cancels before starting, or stops waiting after the
+  /// commit record is appended. A started commit continues and publishes after sync.</param>
   /// <returns>true if committed; false if the transaction conflicted and was rolled back.</returns>
   Task<bool> TryCommitDurableAsync(CancellationToken cancellationToken = default);
 
