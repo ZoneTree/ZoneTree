@@ -1,0 +1,22 @@
+[Unit]
+Description=ZoneTree WAL and MVCC soak test
+After=local-fs.target
+
+[Service]
+Type=simple
+# Replace this user and both repository paths before installing the unit.
+User=zonetree
+WorkingDirectory=/srv/ZoneTree
+ExecStart=/usr/bin/dotnet /srv/ZoneTree/.tmp/wal-soak-publish/WalSoak.dll run --root /srv/ZoneTree/.tmp/wal-soak-14d --duration 14d
+Restart=no
+SuccessExitStatus=130
+KillMode=mixed
+TimeoutStopSec=180
+MemoryMax=10G
+LimitNOFILE=65536
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
