@@ -15,7 +15,15 @@ public sealed unsafe partial class CompressedFileStream
       WriteTailHeader(TailBlock.BlockIndex, TailBlock.Length);
       PrepareCheckpointRegion();
     }
-    WalSyncCheckpoint.Write(TailStream, CheckpointOffset, ++CheckpointSequence, mainLength, contentLength);
+    try
+    {
+      WalSyncCheckpoint.Write(TailStream, CheckpointOffset, ++CheckpointSequence, mainLength, contentLength);
+    }
+    catch (Exception e)
+    {
+      DurabilityFailure ??= e;
+      throw;
+    }
     IsTailFileUnsynced = true;
   }
 
@@ -91,50 +99,67 @@ public sealed unsafe partial class CompressedFileStream
         long writtenByteCount;
         long mainLength;
         long contentLength;
+        bool writeCheckpoint;
+        bool syncMain;
         lock (SyncRoot)
         {
           ThrowIfDurabilityFailed();
           if (IsClosed)
             return;
-          // An unused WAL has only main-file metadata to sync. Keep its tail
-          // empty until the first append; truncated/recovered tails still use
-          // the checkpoint path below.
-          if (!IsModified && !IsTailPrepared && _length == 0 &&
-              FileStream.Length == MetaDataSize && TailStream.Length == 0)
+          Monitor.Enter(MainFileSyncRoot);
+          try
           {
-            SyncMainFile();
-            SyncGroup.SyncedCount = WrittenByteCount;
-            return;
+            writeCheckpoint = IsModified || IsTailPrepared || _length != 0 ||
+                FileStream.Length != MetaDataSize || TailStream.Length != 0;
+            var readPosition = Position;
+            // Move the acknowledged bytes into the immutable main prefix.
+            // The tail may be reused as soon as that copy reaches the OS.
+            var sealedTail = TailBlock;
+            FileStream.Position = FileStream.Length;
+            if (sealedTail.Length > 0)
+            {
+              CommitTailBlock(false);
+              AdvanceTail(sealedTail);
+              CurrentBlock = TailBlock;
+              CurrentBlockPosition = 0;
+            }
+            writtenByteCount = WrittenByteCount;
+            mainLength = FileStream.Length;
+            contentLength = _length;
+            // Migrating a recovered durable tail can already have synced the
+            // main prefix before reusing that tail. Do not sync it twice.
+            syncMain = MainFileMayBeUnsynced;
+            if (readPosition != _length)
+              Seek(readPosition, SeekOrigin.Begin);
           }
-          var readPosition = Position;
-          // A sync must not leave acknowledged bytes in a tail that
-          // ordinary appends will reuse. Seal it without a per-block disk sync.
-          var sealedTail = TailBlock;
-          var hasTail = sealedTail.Length > 0;
-          FileStream.Position = FileStream.Length;
-          if (hasTail)
-            CommitTailBlock(false);
-          SyncMainFile();
-          if (hasTail)
+          catch
           {
-            AdvanceTail(sealedTail);
-            CurrentBlock = TailBlock;
-            CurrentBlockPosition = 0;
+            Monitor.Exit(MainFileSyncRoot);
+            throw;
           }
-          writtenByteCount = WrittenByteCount;
-          mainLength = FileStream.Length;
-          contentLength = _length;
-          WriteCheckpoint(mainLength, contentLength);
-          IsTailFileUnsynced = false;
-          if (readPosition != _length)
-            Seek(readPosition, SeekOrigin.Begin);
         }
-        // The main prefix is immutable now. Appends can continue while its
-        // checkpoint is synced in a reserved sector of the existing tail file.
-        FlushTailFile();
-        SyncedMainLength = mainLength;
-        SyncedContentLength = contentLength;
-        SyncGroup.SyncedCount = writtenByteCount;
+        try
+        {
+          if (syncMain)
+            SyncMainFile();
+        }
+        finally
+        {
+          // Release before taking SyncRoot: a writer can hold SyncRoot while
+          // its rollover waits for the main-file sync to finish.
+          Monitor.Exit(MainFileSyncRoot);
+        }
+        lock (SyncRoot)
+        {
+          ThrowIfDurabilityFailed();
+          // Written after the main sync, this is only a recovery hint. If it
+          // never persists, the block checksums still validate the main prefix.
+          if (writeCheckpoint)
+            WriteCheckpoint(mainLength, contentLength);
+          SyncedMainLength = mainLength;
+          SyncedContentLength = contentLength;
+          SyncGroup.SyncedCount = writtenByteCount;
+        }
       }
     }
     catch (Exception e) when (e is not WriteAheadLogSyncFailedException)
@@ -164,16 +189,19 @@ public sealed unsafe partial class CompressedFileStream
 
   void SyncMainFile()
   {
-    try
+    lock (MainFileSyncRoot)
     {
-      FileStream.Flush(true);
+      try
+      {
+        FileStream.Flush(true);
+      }
+      catch (Exception e)
+      {
+        DurabilityFailure ??= e;
+        throw;
+      }
+      MainFileMayBeUnsynced = false;
     }
-    catch (Exception e)
-    {
-      DurabilityFailure ??= e;
-      throw;
-    }
-    MainFileMayBeUnsynced = false;
   }
 
 }

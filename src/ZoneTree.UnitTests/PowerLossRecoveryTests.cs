@@ -627,7 +627,7 @@ public sealed class PowerLossRecoveryTests
     var mainPath = MainWalPath(provider);
     var bytes = provider.ReadAllBytes(mainPath);
     // Inside the first of many committed blocks.
-    bytes[1 + 12 + 40] ^= 0x7F;
+    bytes[1 + WalBlockFrame.HeaderSize + 40] ^= 0x7F;
     Overwrite(provider, mainPath, bytes);
 
     Assert.Throws<WriteAheadLogCorruptionException>(() => SmallBlockFactory(provider, mode, compressionMethod).Open());
@@ -795,7 +795,7 @@ public sealed class PowerLossRecoveryTests
   }
 
   [Test]
-  public async Task CorruptedBlockIndexInTheMiddleOfTheFileDoesNotDropBlocks()
+  public async Task CorruptedBlockIndexInTheMiddleOfTheFileIsReported()
   {
     const WriteAheadLogMode mode = WriteAheadLogMode.SyncCompressed;
     var provider = new InMemoryFileStreamProvider();
@@ -804,16 +804,15 @@ public sealed class PowerLossRecoveryTests
       UpsertKeys(tree, 0, 500);
       await tree.SyncWALAsync();
     }
-    // The tail file names a later block, so block 1 was synced and is not torn.
+    // Header checksums protect block indexes as well as payload lengths.
     var mainPath = MainWalPath(provider);
     var main = provider.ReadAllBytes(mainPath);
-    var block1 = 1 + 3 * sizeof(int) + BitConverter.ToInt32(main, 1 + sizeof(int));
-    Assert.That(BitConverter.ToInt32(main, block1), Is.EqualTo(1));
-    Array.Clear(main, block1, sizeof(int));
+    var block1 = 1 + WalBlockFrame.HeaderSize + BitConverter.ToInt32(main, 1 + 12);
+    Assert.That(BitConverter.ToInt32(main, block1 + 8), Is.EqualTo(1));
+    Array.Clear(main, block1 + 8, sizeof(int));
     Overwrite(provider, mainPath, main);
 
-    using var reopened = SmallBlockFactory(provider, mode).Open();
-    Assert.That(MissingKeys(reopened, 500), Is.Empty);
+    Assert.Throws<WriteAheadLogCorruptionException>(() => SmallBlockFactory(provider, mode).Open());
     Assert.That(provider.ReadAllBytes(mainPath), Is.EqualTo(main));
   }
 
@@ -1060,7 +1059,7 @@ public sealed class PowerLossRecoveryTests
     // while the last block still holds a torn sector.
     var mainPath = MainWalPath(provider);
     var main = provider.ReadAllBytes(mainPath);
-    const int blockLength = 3 * sizeof(int) + 2048;
+    const int blockLength = WalBlockFrame.HeaderSize + 2048;
     var blockCount = (main.Length - 1) / blockLength;
     Assert.That(blockCount, Is.GreaterThan(1));
     var tornStart = main.Length - main.Length % SectorSize - SectorSize;

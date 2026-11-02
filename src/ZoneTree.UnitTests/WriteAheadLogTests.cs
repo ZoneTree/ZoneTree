@@ -502,8 +502,7 @@ public sealed class WriteAheadLogTests
 
   /// <summary>
   /// Reads the decompressed length of every committed block in the main file:
-  /// one metadata byte, then block index, compressed length, decompressed
-  /// length and the compressed payload for each block.
+  /// one metadata byte, then checksummed block headers and stored payloads.
   /// </summary>
   static int[] GetCommittedBlockLengths(InMemoryFileStreamProvider provider, string filePath)
   {
@@ -512,9 +511,10 @@ public sealed class WriteAheadLogTests
     var offset = 1;
     while (offset < bytes.Length)
     {
-      var compressedLength = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset + sizeof(int)));
-      lengths.Add(BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset + 2 * sizeof(int))));
-      offset += 3 * sizeof(int) + compressedLength;
+      Assert.That(WalBlockFrame.TryRead(bytes.AsSpan(offset, WalBlockFrame.HeaderSize),
+          out _, out var compressedLength, out var length, out _), Is.True);
+      lengths.Add(length);
+      offset += WalBlockFrame.HeaderSize + compressedLength;
     }
     return lengths.ToArray();
   }

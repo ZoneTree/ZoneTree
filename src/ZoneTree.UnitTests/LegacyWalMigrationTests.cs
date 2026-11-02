@@ -2,6 +2,7 @@ using ZoneTree.AbstractFileStream;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 using ZoneTree.WAL;
+using System.Collections.Concurrent;
 
 namespace ZoneTree.UnitTests;
 
@@ -99,6 +100,100 @@ public sealed class LegacyWalMigrationTests
     AssertValue(tree, 2, 999);
   }
 
+  [TestCase(WriteAheadLogMode.Sync, CompressionMethod.None)]
+  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.None)]
+  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.LZ4)]
+  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.Zstd)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.None)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.LZ4)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.Zstd)]
+  public async Task Released208WalAndTailMigrateAndKeepTheirRecords(WriteAheadLogMode mode, CompressionMethod method)
+  {
+    // Generated with the unmodified release-v2.0.8 tag (4bc1e09). Each tree
+    // has 150 records in two WALs, including full blocks and a partial tail.
+    CopyFixtureDirectory(Path.Combine("Legacy208Wals", $"{mode}-{method}"));
+    var factory = CreateFactory(mode);
+    using (var tree = factory.Open())
+    {
+      for (var key = 0; key < 150; ++key)
+        AssertValue(tree, key, key + 1);
+      tree.Upsert(150, 151);
+      await tree.SyncWALAsync();
+    }
+    if (mode != WriteAheadLogMode.Sync)
+    {
+      var tailPath = Directory.GetFiles(Path.Combine(DataDirectory, "seg"), "*.tail").Order().Last();
+      using var tail = new LocalFileStreamProvider().CreateFileStream(tailPath, FileMode.Open, FileAccess.Read, FileShare.None);
+      Assert.That(WalTailFormat.ReadVersion(tail), Is.EqualTo(WalTailFormat.CurrentVersion));
+    }
+    using var reopened = factory.Open();
+    for (var key = 0; key <= 150; ++key)
+      AssertValue(reopened, key, key + 1);
+  }
+
+  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.None)]
+  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.LZ4)]
+  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.Zstd)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.None)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.LZ4)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.Zstd)]
+  public async Task Released208TailMigrationKeepsRecordsAtEveryPowerLossPoint(WriteAheadLogMode mode, CompressionMethod method)
+  {
+    CopyFixtureDirectory(Path.Combine("Legacy208Wals", $"{mode}-{method}"));
+    var provider = new PowerLossFileStreamProvider();
+    foreach (var file in Directory.GetFiles(DataDirectory, "*", SearchOption.AllDirectories))
+    {
+      var target = Path.Combine("data", Path.GetRelativePath(DataDirectory, file));
+      provider.CreateDirectory(Path.GetDirectoryName(target));
+      using var stream = provider.CreateFileStream(target, FileMode.Create, FileAccess.Write, FileShare.None);
+      stream.Write(File.ReadAllBytes(file));
+      stream.Flush(true);
+    }
+    var images = new ConcurrentQueue<PowerLossFileStreamProvider>();
+    var random = new Random(97);
+    void Observe()
+    {
+      images.Enqueue(provider.SimulatePowerLoss());
+      lock (random)
+        images.Enqueue(provider.SimulateTornPowerLoss(random));
+    }
+    using (var tree = Factory(provider).Open())
+    {
+      provider.BeforeDiskSync = _ => Observe();
+      provider.AfterWrite = _ => Observe();
+      try
+      {
+        tree.Upsert(150, 151);
+        await tree.SyncWALAsync();
+      }
+      finally
+      {
+        provider.BeforeDiskSync = null;
+        provider.AfterWrite = null;
+      }
+    }
+    Assert.That(images, Is.Not.Empty);
+    foreach (var image in images)
+    {
+      using var tree = Factory(image).Open();
+      for (var key = 0; key < 150; ++key)
+        AssertValue(tree, key, key + 1);
+    }
+    using var finalTree = Factory(provider.SimulatePowerLoss()).Open();
+    AssertValue(finalTree, 150, 151);
+
+    ZoneTreeFactory<int, int> Factory(IFileStreamProvider files) => new ZoneTreeFactory<int, int>(files)
+        .SetDataDirectory("data")
+        .SetLogger(SilentTestLogger.Instance)
+        .ConfigureWriteAheadLogOptions(wal =>
+        {
+          wal.WriteAheadLogMode = mode;
+          wal.CompressionMethod = method;
+          wal.CompressionBlockSize = 2048;
+          wal.SyncCompressedModeOptions.EnableTailWriterJob = false;
+        });
+  }
+
   [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
@@ -185,8 +280,11 @@ public sealed class LegacyWalMigrationTests
   }
 
   void CopyFixture(WriteAheadLogMode mode)
+      => CopyFixtureDirectory(Path.Combine("LegacyCrcWals", mode.ToString()));
+
+  void CopyFixtureDirectory(string name)
   {
-    var source = Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", "LegacyCrcWals", mode.ToString());
+    var source = Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", name);
     Assert.That(Directory.Exists(source), Is.True, "Legacy fixtures must be copied to the test output.");
     foreach (var file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
     {

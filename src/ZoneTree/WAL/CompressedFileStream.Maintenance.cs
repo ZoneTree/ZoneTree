@@ -1,7 +1,6 @@
 using System.Text;
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Segments.Block;
-using ZoneTree.Serializers;
 
 namespace ZoneTree.WAL;
 
@@ -136,6 +135,7 @@ public sealed unsafe partial class CompressedFileStream
         FileStream.SetLength(MetaDataSize);
         FileStream.Position = MetaDataSize;
         TailBlock = CreateEmptyTail(0);
+        TailHasDurableData = false;
         WriteTailHeader(TailBlock.BlockIndex, 0);
         SkipToTheEnd(out _);
         CurrentBlockPosition = 0;
@@ -204,26 +204,18 @@ public sealed unsafe partial class CompressedFileStream
       if (physicalPosition >= len)
         break;
 
-      var bytes = BinaryReader.ReadBytes(3 * sizeof(int));
-      if (bytes.Length != 3 * sizeof(int))
-      {
-        FileStream.Position = physicalPosition;
-        FileStream.SetLength(physicalPosition);
-        break;
-      }
-      var blockIndex =
-          BinarySerializerHelper.FromByteArray<int>(bytes, 0);
-      var compressedBlockSize =
-          BinarySerializerHelper.FromByteArray<int>(bytes, sizeof(int));
-      var blockSize =
-          BinarySerializerHelper.FromByteArray<int>(bytes, 2 * sizeof(int));
+      var header = ReadMainBlockHeader();
+      var blockIndex = header.Index;
+      var compressedBlockSize = header.CompressedLength;
+      var blockSize = header.Length;
       if (off + blockSize > truncatedLength)
       {
         var diff = truncatedLength - off;
         // When the new end is at a block boundary, the tail stays empty.
         if (diff != 0)
         {
-          bytes = BinaryReader.ReadBytes(compressedBlockSize);
+          var bytes = BinaryReader.ReadBytes(compressedBlockSize);
+          ValidateBlockPayload(bytes, header);
           var truncatedBytes = DecompressedBlock
               .FromCompressed(
                   blockIndex, bytes,
@@ -248,7 +240,7 @@ public sealed unsafe partial class CompressedFileStream
         _length = truncatedLength;
         break;
       }
-      physicalPosition += sizeof(int) * 3;
+      physicalPosition += header.Size;
       physicalPosition += compressedBlockSize;
       FileStream.Position = physicalPosition;
       off += blockSize;

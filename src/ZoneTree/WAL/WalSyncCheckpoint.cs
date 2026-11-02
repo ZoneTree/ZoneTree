@@ -5,7 +5,9 @@ using ZoneTree.AbstractFileStream;
 namespace ZoneTree.WAL;
 
 /// <summary>
-/// The append-only main-file prefix protected by a completed disk sync.
+/// A recovery hint naming an append-only main-file prefix whose disk sync
+/// completed before this hint was written. It need not persist to acknowledge
+/// the main-file data; framed blocks also recover without a checkpoint.
 /// Two fixed slots in the tail file, on separate sectors. Updating one leaves
 /// the preceding checkpoint intact if a power loss tears the update.
 /// </summary>

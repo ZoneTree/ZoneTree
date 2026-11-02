@@ -58,7 +58,7 @@ Compressed modes automatically sync each dirty WAL at their background flush poi
 | `SyncCompressed` | Nothing, because each write reaches the operating system before it returns. | Writes since the last completed WAL sync. The background job syncs the complete dirty WAL, with a `TailWriterJobInterval` delay between runs (500 ms by default). |
 | `Sync` | Nothing, because each record reaches the operating system. | Everything that the operating system has not written back yet, because this mode syncs only when the segment closes. |
 
-Automatic syncs include the main file and seal the tail into a checkpointed prefix that remains protected across later rollovers. Unchanged WALs skip repeated disk syncs. Full-block rollovers themselves do not fsync, and background intervals are scheduling settings rather than a guaranteed persistence deadline. Await `SyncWALAsync` to wait for the complete write prefix across all segments before acknowledging it.
+Automatic syncs seal the tail into checksummed blocks in the main file and sync that file once. That immutable prefix remains protected across later tail rollovers, even if the tail checkpoint is lost. Unchanged WALs skip repeated disk syncs. Full-block rollovers themselves do not fsync, and background intervals are scheduling settings rather than a guaranteed persistence deadline. Await `SyncWALAsync` to wait for the complete write prefix across all segments before acknowledging it.
 
 <AlertBox
   class="zt-guide-callout"
@@ -107,7 +107,7 @@ The task completes when the WAL records of every write that completed before the
 | Mode | Who syncs |
 | --- | --- |
 | `AsyncCompressed` | The background writer. The calling thread does not block, and writes keep queuing during the sync. |
-| `SyncCompressed` | The calling thread. Appends wait while the main prefix is sealed and synced, then can continue during the tail checkpoint sync. |
+| `SyncCompressed` | The calling thread. Appends into the active tail can continue during the main-file sync; a rollover waits before writing another block to the main file. |
 | `Sync` | The calling thread. WAL appends wait until the sync finishes. |
 | `None` | Nothing. The task completes at once, and unmerged writes stay in memory only. |
 
@@ -147,7 +147,11 @@ Compressed WALs have a main file of committed blocks and a companion `.tail` fil
 
 A write to the stream reaches the operating system before it returns, so it survives a process crash. With the local file stream provider, the active tail is mapped into memory, and appending within it is a memory copy into the operating system's file cache. The prepared tail allocation holds an 8-byte header and one compression block, rounded up to a 512-byte boundary, followed by two 512-byte checkpoint sectors. A 16-byte format descriptor occupies the end of the reserved space. With the default 256 KiB block size, this totals 263,680 bytes. Other file stream providers write the payload and updated length header through their streams.
 
-A sync seals the current tail into the main file, syncs that file, then writes and syncs a checkpoint in the tail's reserved sectors. Explicit and automatic syncs use the same path. The checkpoint identifies the durable prefix; later appends use a new logical tail without overwriting it. Existing tails without a format descriptor remain readable and are upgraded when needed for checkpointed writes.
+A sync seals the current tail into the main file and syncs that file once. Each new block has a 32-byte header containing its index, stored and logical lengths, a checksum of the stored payload, and a checksum of the header. Recovery validates the blocks themselves, so the tail checkpoint does not need a second disk sync. It is written after the main-file sync as a recovery hint: any copy that persists identifies a durable prefix, but recovery also works when that hint is absent or older than the latest sync. Explicit and automatic syncs use the same path, and later appends reuse the tail without overwriting the durable main prefix.
+
+WALs from 2.0.8 and earlier remain readable, including their variable-size tails. Before a legacy tail is reused, its content is sealed into a new checksummed main-file block and synced. The original main-file blocks remain readable, while subsequent appends use the new block format. The tail allocation keeps format version 1.
+
+A recovered unfinished tail can also hold the only durable copy of records saved by a clean close. Its first rollover syncs the main-file copy before reusing that tail. This protection applies once to the recovered tail; subsequent ordinary rollovers do not issue disk syncs.
 
 Automatic sync scheduling:
 
@@ -175,8 +179,8 @@ The async writer's default `EmptyQueuePollInterval` is 100 ms. These intervals c
     <code>FileStream.Flush()</code>, while disposal requests
     <code>Flush(true)</code>. Compressed full-block commits flush to the OS
     without a disk sync. Both explicit and background WAL syncs seal and
-    sync the main prefix before syncing its checkpoint. An unchanged WAL
-    does not issue another disk sync.
+    sync the checksummed main prefix once. They then write a tail checkpoint
+    without another disk sync. An unchanged WAL does not issue another disk sync.
   </p>
   <p>
     These are the built-in implementations' synchronization points, not a

@@ -1,4 +1,5 @@
-using System.Runtime.InteropServices;
+using System.IO.Hashing;
+using System.Buffers.Binary;
 using ZoneTree.Compression;
 using ZoneTree.Options;
 using ZoneTree.Segments.Block;
@@ -22,21 +23,50 @@ public sealed unsafe partial class CompressedFileStream
       return true;
     }
     CurrentBlockPosition = 0;
-    Span<byte> header = stackalloc byte[3 * sizeof(int)];
-    ReadMainFileExactly(header);
-    var blockIndex = MemoryMarshal.Read<int>(header);
-    var compressedBlockSize = MemoryMarshal.Read<int>(header.Slice(sizeof(int)));
-    var blockSize = MemoryMarshal.Read<int>(header.Slice(2 * sizeof(int)));
+    var header = ReadMainBlockHeader();
 
     // Reuse the read buffers across blocks. Only CurrentBlock refers to a
     // block loaded for reading, and reads copy its bytes out before the next load.
-    var compressedBytes = GetReadBuffer(ref CompressedReadBuffer, compressedBlockSize);
+    var compressedBytes = GetReadBuffer(ref CompressedReadBuffer, header.CompressedLength);
     ReadMainFileExactly(compressedBytes.Span);
-    var decompressedBytes = GetReadBuffer(ref DecompressedReadBuffer, blockSize);
+    ValidateBlockPayload(compressedBytes.Span, header);
+    var decompressedBytes = GetReadBuffer(ref DecompressedReadBuffer, header.Length);
     DataCompression.DecompressInto(CompressionMethod, compressedBytes, decompressedBytes);
     CurrentBlock = new DecompressedBlock(
-        blockIndex, decompressedBytes, CompressionMethod, CompressionLevel);
+        header.Index, decompressedBytes, CompressionMethod, CompressionLevel);
     return true;
+  }
+
+  readonly record struct MainBlockHeader(int Index, int CompressedLength, int Length, ulong Checksum, bool IsFramed)
+  {
+    public int Size => IsFramed ? WalBlockFrame.HeaderSize : 3 * sizeof(int);
+  }
+
+  MainBlockHeader ReadMainBlockHeader()
+  {
+    Span<byte> bytes = stackalloc byte[WalBlockFrame.HeaderSize];
+    if (ReadMainFileAtMost(bytes[..12]) != 12)
+      throw new InvalidDataException("Incomplete WAL block header.");
+    if (WalBlockFrame.HasMagic(bytes))
+    {
+      if (ReadMainFileAtMost(bytes[12..]) != bytes.Length - 12 ||
+          !WalBlockFrame.TryRead(bytes, out var index, out var compressedLength, out var length, out var checksum))
+        throw new InvalidDataException("The WAL block header is invalid.");
+      return new(index, compressedLength, length, checksum, true);
+    }
+    // Released 2.0.8 and earlier files retain their original prefix. Migration
+    // appends only framed blocks, so there is no legacy writer or sync path.
+    if (!HasLegacyBlocks)
+      throw new InvalidDataException("The WAL block header is invalid.");
+    return new(BinaryPrimitives.ReadInt32LittleEndian(bytes),
+        BinaryPrimitives.ReadInt32LittleEndian(bytes[4..]),
+        BinaryPrimitives.ReadInt32LittleEndian(bytes[8..]), 0, false);
+  }
+
+  static void ValidateBlockPayload(ReadOnlySpan<byte> payload, in MainBlockHeader header)
+  {
+    if (header.IsFramed && XxHash3.HashToUInt64(payload) != header.Checksum)
+      throw new InvalidDataException("The WAL block checksum is invalid.");
   }
 
   static Memory<byte> GetReadBuffer(ref byte[] buffer, int length)
@@ -246,21 +276,24 @@ public sealed unsafe partial class CompressedFileStream
         CompressionLevel,
         tailBlock.GetBytes(0, tailBlock.Length),
         ref CompressBuffer);
-    try
+    lock (MainFileSyncRoot)
     {
-      var bw = BinaryWriter;
-      bw.Write(tailBlock.BlockIndex);
-      bw.Write(compressedBytes.Length);
-      bw.Write(tailBlock.Length);
-      bw.Write(compressedBytes.Span);
-      FileStream.Flush(false); // Don't fsync here, it would be slow! Use SyncWALAsync for power-loss durability guarantees.
+      try
+      {
+        var bw = BinaryWriter;
+        Span<byte> header = stackalloc byte[WalBlockFrame.HeaderSize];
+        WalBlockFrame.Write(header, tailBlock.BlockIndex, tailBlock.Length, compressedBytes.Span);
+        bw.Write(header);
+        bw.Write(compressedBytes.Span);
+        FileStream.Flush(false); // Use SyncWALAsync for power-loss durability.
+      }
+      catch (Exception e)
+      {
+        DurabilityFailure ??= e;
+        throw;
+      }
+      MainFileMayBeUnsynced = true;
     }
-    catch (Exception e)
-    {
-      DurabilityFailure ??= e;
-      throw;
-    }
-    MainFileMayBeUnsynced = true;
     if (advance)
       AdvanceTail(tailBlock);
   }

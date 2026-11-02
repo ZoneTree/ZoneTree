@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Logger;
+using ZoneTree.Exceptions;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 
@@ -47,46 +48,53 @@ public sealed class WriteAheadLogProvider : IWriteAheadLogProvider
     (var walPath, var walMode) =
         DetectWalPathAndWriteAheadLogMode(segmentId, category, options);
 
-    switch (walMode)
+    try
     {
-      case WriteAheadLogMode.None:
-        return new NullWriteAheadLog<TKey, TValue>();
-      case WriteAheadLogMode.Sync:
-        {
-          var wal = new SyncFileSystemWriteAheadLog<TKey, TValue>(
-              Logger,
-              FileStreamProvider,
-              keySerializer,
-              valueSerializer,
-              walPath);
-          WALTable.TryAdd(segmentId + category, wal);
-          return wal;
-        }
-      case WriteAheadLogMode.SyncCompressed:
-        {
-          var wal = new SyncCompressedFileSystemWriteAheadLog<TKey, TValue>(
-              Logger,
-              FileStreamProvider,
-              keySerializer,
-              valueSerializer,
-              walPath,
-              options);
-          WALTable.TryAdd(segmentId + category, wal);
-          return wal;
-        }
+      switch (walMode)
+      {
+        case WriteAheadLogMode.None:
+          return new NullWriteAheadLog<TKey, TValue>();
+        case WriteAheadLogMode.Sync:
+          {
+            var wal = new SyncFileSystemWriteAheadLog<TKey, TValue>(
+                Logger,
+                FileStreamProvider,
+                keySerializer,
+                valueSerializer,
+                walPath);
+            WALTable.TryAdd(segmentId + category, wal);
+            return wal;
+          }
+        case WriteAheadLogMode.SyncCompressed:
+          {
+            var wal = new SyncCompressedFileSystemWriteAheadLog<TKey, TValue>(
+                Logger,
+                FileStreamProvider,
+                keySerializer,
+                valueSerializer,
+                walPath,
+                options);
+            WALTable.TryAdd(segmentId + category, wal);
+            return wal;
+          }
 
-      case WriteAheadLogMode.AsyncCompressed:
-        {
-          var wal = new AsyncCompressedFileSystemWriteAheadLog<TKey, TValue>(
-              Logger,
-              FileStreamProvider,
-              keySerializer,
-              valueSerializer,
-              walPath,
-              options);
-          WALTable.TryAdd(segmentId + category, wal);
-          return wal;
-        }
+        case WriteAheadLogMode.AsyncCompressed:
+          {
+            var wal = new AsyncCompressedFileSystemWriteAheadLog<TKey, TValue>(
+                Logger,
+                FileStreamProvider,
+                keySerializer,
+                valueSerializer,
+                walPath,
+                options);
+            WALTable.TryAdd(segmentId + category, wal);
+            return wal;
+          }
+      }
+    }
+    catch (InvalidDataException e)
+    {
+      throw new WriteAheadLogCorruptionException(segmentId, new() { [0] = e });
     }
     return null;
   }
