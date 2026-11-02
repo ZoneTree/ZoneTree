@@ -15,13 +15,15 @@ namespace ZoneTree;
 /// for serializable transactions, the keys and ranges it read.
 /// </para>
 /// <para>
-/// A committed transaction is visible at once but not yet durable. Full crash
-/// guarantees require an explicit sync. Unsynced transactions may recover partially
-/// when their writes span segments, and a later commit may survive while an earlier
-/// unsynced commit is lost. Await
+/// A committed transaction is visible at once. With Sync and SyncCompressed WALs,
+/// completed writes survive a process crash without a disk sync. AsyncCompressed
+/// can lose records still queued in process memory. To wait for durability across
+/// a power loss or operating-system crash, await
 /// <see cref="ITransaction{TKey, TValue}.CommitDurableAsync"/> or
-/// <see cref="SyncWALAsync"/> when it must survive a power loss. Concurrent waiters
+/// <see cref="SyncWALAsync"/> before acknowledging the commit. Concurrent waiters
 /// share disk syncs, so syncing once per batch of commits is cheaper than once per commit.
+/// A power loss can leave transactions with unsynced writes partially recovered
+/// across segments; a later commit may survive while an earlier unsynced commit is lost.
 /// </para>
 /// <para>
 /// <see cref="TransactionalZoneTreeExtensions"/> runs transactions with conflict retries

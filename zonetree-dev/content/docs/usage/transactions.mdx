@@ -183,7 +183,9 @@ A committed transaction is visible at once but is durable only after the write a
 
 Concurrent durable commits and `SyncWALAsync` callers share disk syncs, so many committing threads pay for one sync together. A single thread that waits after every commit pays a full sync per commit.
 
-Full crash guarantees require a successful `SyncWALAsync` after committing, or a durable commit method that waits for it. Unsynced writes can persist independently across segments: a transaction may recover partially, and a later commit may survive while an earlier unsynced commit is lost. This describes missing writes, not incorrect replay order. Segment rotation does not wait for a disk sync. See [WAL modes](../durability/wal-modes.mdx) for the persistence boundaries of each mode.
+With `Sync` and `SyncCompressed`, completed writes have reached the operating system and survive a process crash without a disk sync. `AsyncCompressed` can lose records still queued in process memory. To wait for durability across a power loss or operating-system crash before acknowledging a commit, await `SyncWALAsync` after committing, or use a durable commit method that waits for it.
+
+On power loss, unsynced writes can persist independently across segments: a transaction may recover partially, and a later commit may survive while an earlier unsynced commit is lost. This describes missing writes, not incorrect replay order. Segment rotation does not wait for a disk sync. See [WAL modes](../durability/wal-modes.mdx) for the persistence boundaries of each mode.
 
 ## Transaction size
 

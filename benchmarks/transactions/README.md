@@ -191,7 +191,7 @@ The other categories use each engine's usual setting, where a commit does not wa
 
 `SyncCompressed`, RocksDB and SQLite lose nothing on a process crash. `AsyncCompressed` queues records for a background writer, so it can lose queued writes on a process crash as well as on a power loss. ZoneTree's automatic syncs protect the complete dirty WAL, but their scheduling does not provide a hard persistence deadline. Use an explicit sync to acknowledge durability across all segments.
 
-ZoneTree's full crash guarantee requires a successful `SyncWALAsync` after committing, as measured by the `durability` category. Without that wait, writes across segments can persist independently: an unsynced transaction may recover partially, and a later commit may survive while an earlier unsynced commit is lost. Operation indexes order surviving operations but cannot restore missing records.
+The `durability` category waits for a successful `SyncWALAsync` after committing to acknowledge survival of power loss or an operating-system crash. A process crash preserves writes already handed to the OS; `AsyncCompressed` can still lose queued records. On power loss, unsynced writes across segments can persist independently: a transaction may recover partially, and a later commit may survive while an earlier unsynced commit is lost. Operation indexes order surviving operations but cannot restore missing records.
 
 Durable runs wait for the disk on every commit, so their throughput shows the disk more than the engine. The usual pattern is to commit a batch and wait once, which `durable-batch-100` measures.
 
