@@ -25,7 +25,9 @@ public sealed class ZoneTreeEngine : ITransactionEngine
     var tuning = options.Tuning;
     Isolation = isolation;
     Durable = options.Durability == DurabilityMode.PerCommit;
-    Tree = CreateFactory(options, walMode).OpenOrCreateTransactional();
+    var factory = CreateFactory(options, walMode);
+    Tree = factory.OpenOrCreateTransactional();
+    var effectiveWalMode = factory.Options.WriteAheadLogOptions.WriteAheadLogMode;
 
     Maintainer = Tree.CreateMaintainer();
     Maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(1);
@@ -37,10 +39,10 @@ public sealed class ZoneTreeEngine : ITransactionEngine
     [
       $"Isolation: {isolation}",
       Durable
-          ? $"WAL: {walMode}; compression disabled; every commit waits for a shared WAL sync (TryCommitDurableAsync)"
-          : walMode == WriteAheadLogMode.SyncCompressed
-              ? "WAL: SyncCompressed; compression disabled; appends use a memory-mapped tail; periodic flushes sync the complete dirty WAL"
-              : $"WAL: {walMode}; compression disabled; the background writer syncs the complete dirty WAL when its queue empties; commits do not wait for durability",
+          ? $"WAL: {effectiveWalMode}; compression disabled; TryCommitDurableAsync syncs the shared WAL before publishing each commit"
+          : effectiveWalMode == WriteAheadLogMode.Shared
+              ? "WAL: Shared; compression disabled; appends use a memory-mapped tail; periodic flushes sync the complete dirty journal; recovery retains a commit prefix"
+              : $"WAL: {effectiveWalMode}; compression disabled; the background writer syncs the complete dirty journal when its queue empties; ordinary commits can be visible before durability; recovery retains a commit prefix",
       string.Create(CultureInfo.InvariantCulture, $"Mutable segment: {tuning.ZoneTreeMutableSegmentMaxItemCount} records"),
       string.Create(CultureInfo.InvariantCulture, $"Sparse array step: {tuning.ZoneTreeSparseArrayStepSize}; key cache: {tuning.ZoneTreeKeyCacheSize}; value cache: {tuning.ZoneTreeValueCacheSize}"),
       "Background maintainer with bottom merges started on segment activation",
@@ -136,6 +138,8 @@ public sealed class ZoneTreeEngine : ITransactionEngine
 
     public void Delete(long key) => transaction.Delete(key);
 
+    // Durable commits sync their record before publication; ordinary commits
+    // can become visible before syncing. Concurrent durable commits share fsyncs.
     public bool TryCommit() =>
         durable
             ? transaction.TryCommitDurableAsync().GetAwaiter().GetResult()

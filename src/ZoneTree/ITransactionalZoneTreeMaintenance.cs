@@ -21,7 +21,8 @@ public interface ITransactionalZoneTreeMaintenance<TKey, TValue>
   int ActiveTransactionCount { get; }
 
   /// <summary>
-  /// The commit timestamp of the latest committed transaction.
+  /// The timestamp of the latest published commit. Pending durable commits do not
+  /// advance it until their sync succeeds. Ordinary commits can advance it before sync.
   /// New transactions read the snapshot of this timestamp.
   /// </summary>
   long LastCommitTimestamp { get; }
@@ -36,7 +37,7 @@ public interface ITransactionalZoneTreeMaintenance<TKey, TValue>
   int AbortedTransactionCount { get; }
 
   /// <summary>
-  /// The number of keys that can still cause a conflict. Keys written by a commit count
+  /// The number of keys that can still cause a conflict. Prepared and published commits count
   /// until every writing transaction that began before the commit has ended.
   /// Read-only transactions do not keep them.
   /// </summary>

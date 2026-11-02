@@ -143,14 +143,17 @@ Use `IFileStreamProvider` when neither built-in provider fits. Return `IFileStre
 | Stream access | Correct modes, access checks, positioning, seeking, partial reads, writes, truncation, length, and stream conversion. |
 | File lifecycle | Existence, directory creation, deletion, replacement, and any backup destination. Preserve the visibility and failure behavior expected by the engine. |
 | Metadata | Small-file text/byte reads, path combination, directory enumeration, and durable-file-writer integration. |
-| Legacy WAL migration | File enumeration through `GetFiles()` and non-overwriting renames through `MoveFile()`. Their interface defaults throw if not implemented. |
+| Legacy WAL migration | Implement file enumeration through `GetFiles()` and non-overwriting renames through `MoveFile()`. These are required interface members. |
 | Durability | Explicit semantics for `Flush()`, `Flush(bool)`, replacement, and interrupted operations. A method named “flush” does not establish a storage guarantee by itself. |
+| Directory durability | Implement `SyncDirectory(path)` so completed file creation and rename operations survive power loss before journal or checkpoint fallbacks are reclaimed. Providers with already durable namespace operations can implement it as a no-op. |
 | Compressed WAL tail | Each write to a compressed WAL makes at least one `Write` call on the tail stream, and that call must hand the bytes to storage that survives a process crash. `Flush(true)` on the tail stream can run during a `Write` from another thread, and it must be safe. |
 | Concurrency and failures | Coordinate access and surface failures consistently. Test interrupted appends, replacements, reopening, and merges. |
 
 A remote object store usually needs a buffering and consistency design to satisfy seekable, mutable stream behavior. Implementing an upload method alone is not sufficient.
 
 Advanced integrations can replace the higher-level components with `SetWriteAheadLogProvider()` or `SetRandomAccessDeviceManager()`. Those components then own their storage behavior; constructor injection describes the factory's default pipeline.
+
+Custom `IRandomAccessDeviceManager` implementations must also implement `SyncDirectory()`. Merge publication calls it after sealing output files and before publishing metadata or removing old segments. Metadata snapshots call it after rename and before clearing the old metadata WAL. A manager using several directories must persist every affected directory. The built-in local provider uses directory fsync on POSIX platforms; its Windows implementation retains the platform's existing file-flush and namespace semantics.
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Separate backing storage from recovery policy</strong>

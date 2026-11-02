@@ -17,8 +17,8 @@ namespace ZoneTree.UnitTests;
 /// <item>A serializable commit read nothing that changed before it committed: every key and
 /// every scanned range it observed still holds the observed values at its commit.</item>
 /// <item>The committed state survives merges, garbage collection and reopens.</item>
-/// <item>After a power loss, synced state survives. Shared WALs additionally recover
-/// a prefix of commits across segments, including every synced commit.</item>
+/// <item>Built-in transactional factories use shared WALs. After a power loss,
+/// recovery retains a prefix of commits, including every explicitly synced or durable commit.</item>
 /// </list>
 /// </remarks>
 public sealed class MvccZoneTreeModelTests
@@ -124,6 +124,8 @@ public sealed class MvccZoneTreeModelTests
     /// </summary>
     public readonly List<Dictionary<int, int>> CommittedStates = new() { new() };
 
+    public int LastDurableStateCount = 1;
+
     int NextValue = 1;
 
     public void Step()
@@ -153,7 +155,7 @@ public sealed class MvccZoneTreeModelTests
       else if (choice < 75)
         ReadRange(model);
       else if (choice < 88)
-        Commit(model);
+        Commit(model, choice >= 84);
       else if (choice < 92)
       {
         Active.Remove(model);
@@ -324,7 +326,7 @@ public sealed class MvccZoneTreeModelTests
       model.Scans.Add(record);
     }
 
-    void Commit(ModelTransaction model)
+    void Commit(ModelTransaction model, bool durable)
     {
       Active.Remove(model);
       if (model.Writer == null)
@@ -333,7 +335,8 @@ public sealed class MvccZoneTreeModelTests
         return;
       }
       var hasConflict = model.Writer.HasConflict;
-      if (!model.Writer.TryCommit())
+      var committed = durable ? model.Writer.TryCommitDurableAsync().GetAwaiter().GetResult() : model.Writer.TryCommit();
+      if (!committed)
       {
         Assert.That(model.Writer.State, Is.EqualTo(TransactionState.Aborted));
         return;
@@ -341,7 +344,10 @@ public sealed class MvccZoneTreeModelTests
       Assert.That(hasConflict, Is.False, "a transaction with a conflicting write committed");
       // A transaction that wrote nothing commits at its snapshot.
       if (model.Writes.Count == 0)
+      {
+        if (durable) LastDurableStateCount = CommittedStates.Count;
         return;
+      }
       foreach (var key in model.ReadsForUpdate)
       {
         Assert.That(LastCommitOfKey.GetValueOrDefault(key), Is.LessThanOrEqualTo(model.SnapshotTimestamp),
@@ -361,6 +367,7 @@ public sealed class MvccZoneTreeModelTests
         LastCommitOfKey[key] = commitTimestamp;
       }
       CommittedStates.Add(CommittedState());
+      if (durable) LastDurableStateCount = CommittedStates.Count;
     }
 
     void CheckSerializableReads(ModelTransaction model)
@@ -464,7 +471,7 @@ public sealed class MvccZoneTreeModelTests
   }
 
   [TestCaseSource(nameof(PowerLossCases))]
-  public async Task PowerLossRecoveryHonorsWalGuarantees(
+  public async Task PowerLossRecoversACommittedPrefix(
       WriteAheadLogMode walMode, DiskSegmentMode diskSegmentMode, int seed)
   {
     var provider = new PowerLossFileStreamProvider();
@@ -488,34 +495,21 @@ public sealed class MvccZoneTreeModelTests
         }
         if (choice < 4)
         {
-          // Shared WALs recover one commit prefix. Private WALs can recover
-          // unsynced writes independently across segments.
-          var image = walMode is WriteAheadLogMode.Shared or WriteAheadLogMode.AsyncShared
-              ? provider.SimulateTornPowerLoss(random)
-              : provider.SimulatePowerLoss();
+          // Sync/SyncCompressed/AsyncCompressed settings are promoted to shared
+          // modes by the transactional factory, so every case has this guarantee.
+          var image = provider.SimulateTornPowerLoss(random);
           using var recovered = CreateFactory(image, diskSegmentMode, walMode).OpenTransactional();
           var state = ReadAll(recovered);
-          if (walMode is not (WriteAheadLogMode.Shared or WriteAheadLogMode.AsyncShared))
-          {
-            var possibleStates = runner.CommittedStates.Skip(syncedStateCount - 1).ToArray();
-            foreach (var key in possibleStates.SelectMany(snapshot => snapshot.Keys).Concat(state.Keys).Distinct())
-            {
-              var present = state.TryGetValue(key, out var value);
-              Assert.That(possibleStates.Any(snapshot => snapshot.TryGetValue(key, out var expected)
-                  ? present && value == expected : !present), Is.True,
-                  $"key {key} lost its synced value without a later committed change");
-            }
-            continue;
-          }
           var prefixLength = runner.CommittedStates.FindLastIndex(x =>
               x.Count == state.Count && !x.Except(state).Any()) + 1;
           Assert.That(prefixLength, Is.GreaterThan(0),
               "the recovered state is not the state after any prefix of the commits");
           Assert.That(prefixLength, Is.GreaterThanOrEqualTo(syncedStateCount),
-              "a synced commit was lost");
+              "an explicitly synced or durable commit was lost");
           continue;
         }
         runner.Step();
+        syncedStateCount = Math.Max(syncedStateCount, runner.LastDurableStateCount);
       }
     }
     finally

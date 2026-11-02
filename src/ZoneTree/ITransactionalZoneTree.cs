@@ -23,10 +23,11 @@ namespace ZoneTree;
 /// <see cref="ITransaction{TKey, TValue}.CommitDurableAsync"/> or
 /// <see cref="SyncWALAsync"/> before acknowledging the commit. Concurrent waiters
 /// share disk syncs, so syncing once per batch of commits is cheaper than once per commit.
-/// With per-segment WALs, a power loss can leave transactions with unsynced writes
-/// partially recovered across segments; a later commit may survive while an earlier
-/// unsynced commit is lost. Shared and AsyncShared WALs recover a prefix of commits
-/// across segments and keep incomplete transactions invisible.
+/// Built-in transactional factories select Shared or AsyncShared WALs, preserving
+/// a prefix of commits across segments and keeping incomplete transactions invisible.
+/// All commits covered by a successful sync survive power loss. Ordinary Commit()
+/// can be visible before that sync; durable commit methods publish only after transaction becomes durable.
+/// Custom providers supply their own recovery guarantees. None disables WAL durability.
 /// </para>
 /// <para>
 /// <see cref="TransactionalZoneTreeExtensions"/> runs transactions with conflict retries
@@ -62,8 +63,9 @@ public interface ITransactionalZoneTree<TKey, TValue> : IDisposable
   Task SyncWALAsync(CancellationToken cancellationToken = default);
 
   /// <summary>
-  /// The interval of a background sync of the write ahead log. It bounds the
-  /// commits a power loss can lose without syncing after every commit.
+  /// The interval of a background WAL sync that also updates MVCC's durable
+  /// bookkeeping. It schedules syncs during sustained async writes but is not
+  /// a hard persistence deadline. Ordinary commits remain visible before syncing.
   /// <see cref="TimeSpan.Zero"/> disables the background sync. Default is zero.
   /// </summary>
   TimeSpan AutoSyncInterval { get; set; }

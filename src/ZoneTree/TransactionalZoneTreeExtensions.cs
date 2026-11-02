@@ -17,8 +17,8 @@ public static class TransactionalZoneTreeExtensions
   /// transaction, and it must not end the transaction. To abandon the work,
   /// throw: the transaction is rolled back and the exception propagates.
   /// A long body can check <see cref="ITransaction{TKey, TValue}.HasConflict"/>
-  /// to stop early. Every conflict means another transaction committed, so the
-  /// tree as a whole always makes progress.
+  /// to stop early. A conflicting commit can still be waiting for durable
+  /// publication, so retries can wait for that pending commit to finish.
   /// </remarks>
   /// <param name="tree">The tree.</param>
   /// <param name="body">Reads and writes through the transaction.</param>

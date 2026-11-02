@@ -106,7 +106,7 @@ Deletion markers must survive while older records outside a merge could still be
 
 Immutable disk segments hold data that has already been compacted. WALs hold recent updates for the in-memory segments, and the metadata WAL records changes to the active segment structure. On reopening a tree, recovery loads the persistent segments and reconstructs in-memory state from the available logs.
 
-The default WAL mode is `AsyncCompressed`. Its background logging path supports high write throughput. A returned write, a completed compaction, and a hardware-level flush are different events; the configured WAL mode, flush behavior, and storage stack determine the recovery boundary. With `No WAL`, recent in-memory writes cannot be recovered after process termination.
+Ordinary trees default to `AsyncCompressed`; transactional factories promote that setting to `AsyncShared`. Both use a background logging path. Shared journals recover a single ordered prefix across memory segments. Durable transaction methods sync the commit record before exposing the transaction to readers; ordinary writes and ordinary commits can return before disk sync. With `None`, recent in-memory writes cannot be recovered after process termination.
 
 Use [WAL modes](../durability/wal-modes.mdx) to choose that boundary, [recovery](../durability/recovery.mdx) for WAL diagnostics and inspection tools, and [live backups](../durability/backups.mdx) to create a restorable copy of an open tree.
 

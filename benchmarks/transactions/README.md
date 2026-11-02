@@ -156,8 +156,8 @@ Raw engine IDs are distinct in result files, data directories, charts and refere
 
 | Id | Engine | Isolation |
 | --- | --- | --- |
-| `zonetree-mvcc-ser-async`, `zonetree-mvcc-ser-sync` | ZoneTree MVCC transactional tree, serializable, async and sync WAL | A commit fails if a newer commit wrote a key it wrote or read, or a key inside a range it read. |
-| `zonetree-mvcc-snap-async`, `zonetree-mvcc-snap-sync` | ZoneTree MVCC transactional tree, snapshot, async and sync WAL | A commit fails if a newer commit wrote a key it wrote or read for update. Plain reads are not protected. |
+| `zonetree-mvcc-ser-async`, `zonetree-mvcc-ser-sync` | ZoneTree MVCC transactional tree, serializable, `AsyncShared` and `Shared` WAL | A commit fails if a newer committed or prepared transaction wrote a key it wrote or read, or a key inside a range it read. |
+| `zonetree-mvcc-snap-async`, `zonetree-mvcc-snap-sync` | ZoneTree MVCC transactional tree, snapshot, `AsyncShared` and `Shared` WAL | A commit fails if a newer committed or prepared transaction wrote a key it wrote or read for update. Plain reads are not protected. |
 | `rocksdb-optimistic` | `OptimisticTransactionDB`, one snapshot per transaction | A commit fails if a newer commit wrote a key it wrote or read for update. Plain reads and ranges are not protected. |
 | `rocksdb-pessimistic` | `TransactionDB`, key locks, deadlock detection, no snapshot in write transactions | Writes and reads for update lock the key and read the latest value. Plain reads see the latest commit, so they are not repeatable. |
 | `sqlite` | WAL mode, `BEGIN IMMEDIATE` | One write transaction at a time, so writes are serializable and never conflict. Readers keep their snapshot and do not block. |
@@ -166,7 +166,7 @@ Read-only work uses each engine's snapshot: `BeginReadOnlyTransaction` on ZoneTr
 
 `--engine` accepts `all`, a family (`zonetree`, `rocksdb`, `sqlite`) or variant ids.
 
-The ZoneTree `-async` ids use the `AsyncCompressed` WAL, where a background writer does the WAL work. The `-sync` ids use `SyncCompressed`, where the writing thread appends to a memory-mapped tail file. Both variants disable WAL compression in this benchmark.
+The transactional ZoneTree `-async` ids configure `AsyncCompressed`, which the factory promotes to `AsyncShared`; a background writer does the WAL work. The transactional `-sync` ids configure `SyncCompressed`, promoted to `Shared`, where the calling thread appends to a memory-mapped tail. Raw ZoneTree variants retain the private `AsyncCompressed` and `SyncCompressed` WALs. All ZoneTree variants explicitly disable WAL compression in this benchmark. The `-sync` suffix selects the append path; durable scenarios separately require a disk sync before acknowledging their work.
 
 RocksDB runs with a 1 GB block cache and bloom filters of 10 bits per key, so reads are not limited by its 8 MB default cache. SQLite's page cache has the same size. `--rocksdb-block-cache-mb` changes it.
 
@@ -176,7 +176,8 @@ All three engines can make every commit durable before it returns. The `durabili
 
 | Engine | Durable scenarios |
 | --- | --- |
-| ZoneTree | `TryCommitDurableAsync`: the commit, then `SyncWALAsync`. Concurrent commits share disk syncs. |
+| ZoneTree transactional | `TryCommitDurableAsync`: append the commit record, sync the shared WAL, then publish to readers. Concurrent commits share disk syncs. |
+| ZoneTree raw | `SyncWALAsync` at each scenario boundary; raw writes do not provide multi-key transaction atomicity. |
 | RocksDB | `sync=true`, with RocksDB's group commit. |
 | SQLite | `synchronous=FULL`. |
 
@@ -184,14 +185,14 @@ The other categories use each engine's usual setting, where a commit does not wa
 
 | Engine | Default setting | Process crash can lose | Power loss can lose |
 | --- | --- | --- | --- |
-| ZoneTree sync | `SyncCompressed` WAL, compression disabled | Nothing. | Writes since the last completed WAL sync. The periodic job syncs the complete dirty WAL, with a `TailWriterJobInterval` delay between runs. Its durable prefix stays protected across later rollovers. |
-| ZoneTree async | `AsyncCompressed` WAL, compression disabled | Records still queued for the background writer. Queue size and scheduling determine the exposure. | Queued records and writes since the last completed WAL sync. The writer syncs the complete dirty WAL when its queue empties; sustained load can delay that sync across many main-file blocks. |
+| ZoneTree sync | `Shared` WAL for transactions (`SyncCompressed` for raw), compression disabled | Nothing from completed commits or raw writes. | Unsynced records since the last completed WAL sync. The periodic job syncs the complete dirty WAL. Transactional recovery retains one commit prefix across segments. |
+| ZoneTree async | `AsyncShared` WAL for transactions (`AsyncCompressed` for raw), compression disabled | Records still queued for the background writer and ordinary commits depending on them. | Unsynced records since the last completed WAL sync. The writer syncs when its queue empties; sustained load can postpone that sync. Transactional recovery retains one commit prefix. |
 | RocksDB | `sync=false` | Nothing. | What the OS has not written back since the last memtable flush. The WAL is not synced per commit or on a timer, and a flush makes its data durable, so at most the commits in the memtables: up to `max_write_buffer_number` buffers of `write_buffer_size`. |
 | SQLite | `synchronous=NORMAL` | Nothing. | What the OS has not written back since the last checkpoint. A checkpoint syncs, and runs about every `wal_autocheckpoint` WAL pages, so at most about that much WAL, or more while readers hold a checkpoint back. |
 
-`SyncCompressed`, RocksDB and SQLite lose nothing on a process crash. `AsyncCompressed` queues records for a background writer, so it can lose queued writes on a process crash as well as on a power loss. ZoneTree's automatic syncs protect the complete dirty WAL, but their scheduling does not provide a hard persistence deadline. Use an explicit sync to acknowledge durability across all segments.
+`Shared` and `SyncCompressed` hand completed appends to the OS. `AsyncShared` and `AsyncCompressed` can lose queued writes on a process crash as well as on a power loss. ZoneTree's automatic syncs protect the complete dirty WAL, but their scheduling does not provide a hard persistence deadline. Durable commit APIs sync before visibility; an explicit `SyncWALAsync` makes preceding ordinary commits or raw writes durable after they have become visible.
 
-The `durability` category waits for a successful `SyncWALAsync` after committing to acknowledge survival of power loss or an operating-system crash. A process crash preserves writes already handed to the OS; `AsyncCompressed` can still lose queued records. On power loss, unsynced writes across segments can persist independently: a transaction may recover partially, and a later commit may survive while an earlier unsynced commit is lost. Operation indexes order surviving operations but cannot restore missing records.
+Built-in transactional factories promote `SyncCompressed` to `Shared` and `AsyncCompressed` to `AsyncShared`, preserving the benchmark's explicit choice to disable compression. Shared recovery retains a prefix of commits across all memory segments, including every commit covered by a successful sync, and hides incomplete transactions. The transactional `durability` scenarios use that sync before publication, so readers cannot observe a commit that is still waiting for durability. Ordinary commits can become visible earlier and be lost as a suffix. Raw per-segment WALs retain their independent recovery boundaries and do not provide this transaction-prefix guarantee.
 
 Durable runs wait for the disk on every commit, so their throughput shows the disk more than the engine. The usual pattern is to commit a batch and wait once, which `durable-batch-100` measures.
 

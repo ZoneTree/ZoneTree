@@ -5,8 +5,9 @@ using ZoneTree.Comparers;
 namespace ZoneTree.Transactional.Conflicts;
 
 /// <summary>
-/// Maps each key written by a recent commit to the timestamp of its latest commit.
-/// A transaction conflicts with the keys committed after its snapshot timestamp.
+/// Maps each key reserved by a prepared or published commit to its latest commit timestamp.
+/// A transaction conflicts with these keys after its snapshot timestamp, including
+/// reservations whose durable publication is still waiting for sync.
 /// </summary>
 /// <remarks>
 /// <para>

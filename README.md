@@ -263,7 +263,7 @@ For read-heavy workloads, memory is mostly shaped by cache behavior and the acti
 
 ZoneTree persists data through disk segments and write-ahead logs. Recent writes enter the mutable segment and are protected according to the configured WAL mode. Maintenance later moves and merges data into disk segments.
 
-ZoneTree uses async compressed WAL by default. It is the recommended starting point for most persistent databases because it keeps WAL protection enabled while preserving very high write throughput.
+Ordinary trees default to `AsyncCompressed`; transactional trees default to `AsyncShared`. Both keep WAL protection enabled while moving serialization and logging to a background writer.
 
 | Need | Consider |
 | --- | --- |
@@ -274,7 +274,7 @@ ZoneTree uses async compressed WAL by default. It is the recommended starting po
 | One ordered recovery prefix across memory segments, with queued writes | Async shared WAL (`WriteAheadLogMode.AsyncShared`) |
 | Intentional no-WAL boundary for cache/temp/rebuildable data | No WAL |
 
-Writes do not wait for disk syncs in any WAL mode. When a write must survive a power loss before you acknowledge it, await `zoneTree.SyncWALAsync()`. Concurrent calls share disk syncs.
+Ordinary record appends do not request a disk sync per write. When an ordinary write must survive a power loss before you acknowledge it, await `zoneTree.SyncWALAsync()`. Durable transaction methods sync before publishing their commits to readers. Concurrent callers share disk syncs.
 
 Shared modes keep one ordered journal per tree, split into physical chunks. Recovery stops at the first incomplete record or block across all chunks. Transactions recover a prefix of commits, including every commit covered by a successful sync; incomplete transactions remain invisible. The existing per-segment modes can recover unsynced writes independently across segments.
 

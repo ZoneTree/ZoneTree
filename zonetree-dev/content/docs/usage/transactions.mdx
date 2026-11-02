@@ -58,13 +58,13 @@ bool Transfer(string from, string to, long amount)
 - Do not commit or roll back inside the body; `Execute` rejects a body that ends its transaction.
 - Throw to abandon the work: the transaction is rolled back and the exception propagates.
 - A long body can check `tx.HasConflict` to stop early; the attempt fails at its commit anyway.
-- `maxAttempts` bounds the attempts; after the last one, the conflict is thrown. By default it retries until it commits. Every conflict means another transaction committed, so the tree as a whole always makes progress.
+- `maxAttempts` bounds the attempts; after the last one, the conflict is thrown. By default it retries until it commits. A conflict can also come from an earlier transaction whose commit record is appended but whose durable publication is still waiting for sync.
 
-`ExecuteDurableAsync` does the same and then waits until the commit is durable.
+`ExecuteDurableAsync` retries conflicts in the same way, but syncs the commit record before making the successful transaction visible to readers.
 
 ## Manage a transaction yourself
 
-`BeginTransaction()` returns an `ITransaction<TKey, TValue>` when you need to control the commit. Reads and writes go through the transaction, and disposing a transaction that has not committed rolls it back:
+`BeginTransaction()` returns an `ITransaction<TKey, TValue>` when you need to control the commit. Reads and writes go through the transaction. Disposing an active transaction rolls it back; a durable commit already in progress continues even if its caller stops waiting:
 
 ```csharp
 using var tx = tree.BeginTransaction();
@@ -101,26 +101,28 @@ Concurrent application threads alone do not require transactions. Use them for a
 
 1. `BeginTransaction()` takes a snapshot: the transaction reads the database as of the latest commit, plus its own writes.
 2. Writes are stored at once, tagged with the transaction, and stay invisible to other transactions.
-3. `Commit()` or `TryCommit()` checks for conflicts with transactions that committed after the snapshot. Without a conflict, a single commit record makes every write visible together.
+3. Commit checks for conflicts with transactions that committed or prepared a commit after the snapshot. Without a conflict, it appends a single commit record. `Commit()` and `TryCommit()` publish the writes without waiting for durability; the durable methods sync that record before publication.
 4. On a conflict, or after `Rollback()`, the writes are discarded and the transaction ends.
 
-Reads never block, and nothing locks a key. Concurrent transactions only meet at commit time: the transaction that commits first wins, and the other one fails and must be retried from its first read. `Execute` retries the conflicts below; a transaction you manage yourself reports each outcome like this:
+Reads never block, and nothing locks a key. The first transaction to prepare a conflicting commit wins; the other one must retry from its first read. Commits publish in order, so a later commit can wait behind an earlier durable commit's sync. Appends and memory-segment rotation continue during that sync. `Execute` retries conflicts; a transaction you manage yourself reports each outcome like this:
 
 | Outcome | How it is reported | What the caller does |
 | --- | --- | --- |
 | Committed | `Commit()` returns; `TryCommit()` returns true. | Continue with work that depends on success. |
 | Conflict | `TryCommit()` returns false; `Commit()` throws `TransactionConflictException`. | Retry the whole unit of work. |
-| Rolled back | `Rollback()` or `Dispose()` before the commit. | Nothing; the writes never become visible. |
+| Rolled back | `Rollback()` or `Dispose()` while the transaction is `Active`. | Nothing; the writes never become visible. |
+| Waiting for durable publication | `State` is `Committing`. | Await the durable commit task. Reads through other transactions still see the preceding snapshot. |
+| Commit sync failed | The durable commit task throws; a prepared transaction's `State` is `InDoubt`. | Keep its outcome uncertain. It stays invisible in this instance; reopen to recover, because further writing commits are rejected. |
 
-Reads and writes never throw for a conflict; the commit reports it. A write that finds its key committed after the snapshot is not stored and sets `HasConflict`. The transaction stays active, stores no more writes, and its commit fails.
+Reads and writes never throw for a conflict; the commit reports it. A write that finds its key committed or reserved by a prepared commit after the snapshot is not stored and sets `HasConflict`. The transaction stays active, stores no more writes, and its commit fails.
 
-After any of these outcomes the transaction cannot be used again. Start a new one for the retry, and read the current values again inside it.
+Transactions in `Committing`, `Committed`, `Aborted`, or `InDoubt` cannot be used for further reads or writes. Retry conflicts with a new transaction and a new snapshot. An `InDoubt` transaction cannot be rolled back: its commit record may already be durable, and recovery may retain it.
 
 ## Choose an isolation level
 
 `BeginTransaction` takes an isolation level. Both levels read a consistent snapshot and never lose a concurrent write to the same key.
 
-| Level | A commit fails when a newer commit wrote... | Allows |
+| Level | A commit fails when a newer committed or prepared transaction wrote... | Allows |
 | --- | --- | --- |
 | `Serializable` (default) | a key this transaction wrote, a key it read, or any key inside a range it read, including keys that did not exist before. | Nothing: committed transactions behave as if they ran one at a time, in commit order. |
 | `Snapshot` | a key this transaction wrote or read with `TryGetForUpdate`. | Write skew on keys read with `TryGet`: two transactions each read what the other one changes, and both commit. |
@@ -173,19 +175,25 @@ A long-running snapshot keeps the versions it can read: merges cannot drop a ver
 
 ## Durability
 
-A committed transaction is visible at once but is durable only after the write ahead log syncs. Choose how commits reach the disk:
+With WAL enabled, the durable APIs append the commit record, sync the WAL, and then publish the transaction. Readers cannot observe those commits before they are durable. Ordinary `Commit()` and `TryCommit()` publish without requiring a disk sync. Choose the boundary your application needs:
 
 | Need | API |
 | --- | --- |
-| This commit must survive a power loss before you acknowledge it. | `await tree.ExecuteDurableAsync(...)`, `await tx.CommitDurableAsync()` or `await tx.TryCommitDurableAsync()` |
-| Several commits must be durable; acknowledge them together. | Commit each, then `await tree.SyncWALAsync()` once. |
-| Bound how much a power loss can lose without waiting on syncs. | `tree.AutoSyncInterval = TimeSpan.FromMilliseconds(500)` |
+| This commit must be durable before readers see it and before you acknowledge it. | `await tree.ExecuteDurableAsync(...)`, `await tx.CommitDurableAsync()` or `await tx.TryCommitDurableAsync()` |
+| Publish several ordinary commits first, then acknowledge their durability together. | Commit each, then `await tree.SyncWALAsync()` once. |
+| Schedule syncs while ordinary commits continue to become visible immediately. | `tree.AutoSyncInterval = TimeSpan.FromMilliseconds(500)` |
 
 Concurrent durable commits and `SyncWALAsync` callers share disk syncs, so many committing threads pay for one sync together. A single thread that waits after every commit pays a full sync per commit.
 
-With `Sync` and `SyncCompressed`, completed writes have reached the operating system and survive a process crash without a disk sync. `AsyncCompressed` can lose records still queued in process memory. To wait for durability across a power loss or operating-system crash before acknowledging a commit, await `SyncWALAsync` after committing, or use a durable commit method that waits for it.
+The built-in transactional factories promote `Sync` and `SyncCompressed` to `Shared`, and `AsyncCompressed` to `AsyncShared`. Compression settings are retained; `Sync` does not turn compression off. Explicit shared modes and `None` are retained. Custom providers and provider factories supply their own recovery guarantees.
 
-On power loss, unsynced writes can persist independently across segments: a transaction may recover partially, and a later commit may survive while an earlier unsynced commit is lost. This describes missing writes, not incorrect replay order. Segment rotation does not wait for a disk sync. See [WAL modes](../durability/wal-modes.mdx) for the persistence boundaries of each mode.
+`Shared` hands appended records to the operating system, so completed ordinary commits survive a process crash. `AsyncShared` can lose queued records on a process crash. A power loss or operating-system crash can lose unsynced ordinary commits in either mode, but recovery keeps one prefix of commits across all segments, including every commit covered by a successful sync. Incomplete transactions stay invisible; a later commit cannot survive while an earlier commit in that prefix is lost.
+
+If every writing transaction uses a durable commit API, readers see only commits that have already synced. Mixing in ordinary `Commit()` or `TryCommit()` allows readers to see those unsynced commits. There is no separate durable-only read option.
+
+A cancellation token cancelled before the durable commit starts leaves the transaction active. Once its commit record is appended, cancellation stops only the caller's wait: the commit continues and becomes visible after a successful sync. Disposing a `Committing` transaction does not roll it back. A failed sync leaves the outcome `InDoubt`, and recovery may find the commit record even though the caller received an error.
+
+`AutoSyncInterval` defaults to zero. It schedules `SyncWALAsync`, updates MVCC's durable bookkeeping, and requests syncs even when an async writer stays busy. WAL background jobs also sync automatically, but an async job that syncs only on an empty queue has no fixed persistence deadline. None of these syncs can make unlogged writes durable with mode `None`. See [WAL modes](../durability/wal-modes.mdx) for scheduling and storage details.
 
 ## Transaction size
 
@@ -203,7 +211,7 @@ A maintainer merges the storage tree in the background, and merges also drop the
 | `tree.Maintenance.ZoneTree` | The storage tree. Every key is stored with the id of the transaction that wrote it. Do not write to it directly. |
 | `tree.Maintenance.ActiveTransactionCount` | Transactions that have not ended. A count that keeps growing usually means transactions are not disposed. |
 | `tree.Maintenance.AbortedTransactionCount` | Rolled back transactions still registered: until no transaction that began before the rollback is active, or for good when a crash left their versions without deletions. |
-| `tree.Maintenance.ConflictIndexCount` | Recently committed keys kept to detect conflicts with older transactions. |
+| `tree.Maintenance.ConflictIndexCount` | Keys reserved by prepared or published commits, kept to detect conflicts with older transactions. |
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Keep transaction and storage lifetimes aligned</strong>

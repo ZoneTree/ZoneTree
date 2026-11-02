@@ -31,11 +31,11 @@ namespace ZoneTree.Transactional.Mvcc;
 /// Completed writes in synchronous WAL modes survive a process crash;
 /// AsyncCompressed and AsyncShared can lose records still queued in process memory.
 /// To wait for power-loss or operating-system-crash durability, await SyncWALAsync
-/// after the commit. With per-segment WALs, unsynced writes can persist independently
-/// across segments: a transaction may recover partially, and a later commit may
-/// survive while an earlier unsynced commit is lost.
-/// Shared and AsyncShared WALs recover one prefix of commits across segments;
-/// incomplete transactions remain invisible.
+/// after an ordinary commit, or use CommitDurableAsync to sync before publication.
+/// Built-in transactional factories select Shared or AsyncShared WALs, which
+/// recover one prefix of commits across segments, including every synced commit;
+/// incomplete transactions remain invisible. Custom providers supply their own
+/// recovery guarantees. None disables WAL durability.
 /// </para>
 /// <para>
 /// A rollback deletes its versions and then its status record in the storage tree.

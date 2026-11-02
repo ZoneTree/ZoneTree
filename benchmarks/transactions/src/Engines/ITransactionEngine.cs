@@ -5,10 +5,13 @@ namespace Transactions.Benchmark.Engines;
 
 public enum DurabilityMode
 {
-  /// <summary>A commit is visible at once and reaches the disk later.</summary>
+  /// <summary>Does not require disk synchronization at each scenario commit boundary.</summary>
   Relaxed,
 
-  /// <summary>A commit returns after its data is synced to the disk.</summary>
+  /// <summary>
+  /// Requires disk durability before a scenario commit boundary returns.
+  /// Transactional ZoneTree syncs before publication; raw writes retain immediate visibility.
+  /// </summary>
   PerCommit
 }
 
@@ -59,7 +62,8 @@ public interface IEngineReadTransaction : IDisposable
 
 /// <summary>
 /// A read-write transaction. Reads and writes report conflicts through
-/// <see cref="HasConflict"/>, so a scenario retries from its commit on every engine.
+/// <see cref="HasConflict"/>, so a failed <see cref="TryCommit"/> makes the scenario
+/// retry the entire operation with a new transaction. Raw scopes provide no atomicity or rollback.
 /// </summary>
 public interface IEngineTransaction : IEngineReadTransaction
 {
@@ -88,10 +92,10 @@ public sealed record EngineVariant(
 public static class EngineCatalog
 {
   const string SerializableIsolation =
-      "Serializable: a commit fails if a newer commit wrote a key it wrote or read, or a key inside a range it read.";
+      "Serializable: a commit fails if a newer committed or prepared transaction wrote a key it wrote or read, or a key inside a range it read.";
 
   const string SnapshotIsolation =
-      "Snapshot: a commit fails if a newer commit wrote a key it wrote or read for update. Plain reads are not protected.";
+      "Snapshot: a commit fails if a newer committed or prepared transaction wrote a key it wrote or read for update. Plain reads are not protected.";
 
   /// <summary>
   /// The order is the report's column order and fixes each engine's chart color,

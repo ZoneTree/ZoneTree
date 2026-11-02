@@ -34,7 +34,8 @@ public interface ITransaction<TKey, TValue> : IReadTransaction<TKey, TValue>
   TransactionState State { get; }
 
   /// <summary>
-  /// True once a write found its key committed by a transaction after this one began.
+  /// True once a write found its key committed or reserved by a prepared commit
+  /// after this transaction's snapshot.
   /// The transaction stays active, but stores no more writes and its commit fails.
   /// </summary>
   /// <remarks>
@@ -45,8 +46,8 @@ public interface ITransaction<TKey, TValue> : IReadTransaction<TKey, TValue>
 
   /// <summary>
   /// Gets the value of the key and protects it like a write: at every isolation level,
-  /// the commit of a transaction that writes fails if a transaction committed the key
-  /// after this one began.
+  /// the commit of a transaction that writes fails if another transaction committed
+  /// or prepared a write to the key after this transaction's snapshot.
   /// </summary>
   /// <remarks>
   /// Use it in a snapshot transaction for the keys a decision depends on, to prevent
@@ -56,14 +57,14 @@ public interface ITransaction<TKey, TValue> : IReadTransaction<TKey, TValue>
   bool TryGetForUpdate(in TKey key, out TValue value);
 
   /// <summary>
-  /// Writes the value of the key. If a transaction committed the key after this one
-  /// began, the write is not stored and <see cref="HasConflict"/> becomes true.
+  /// Writes the value of the key. If a transaction committed or prepared a write to
+  /// the key after this one's snapshot, the write is not stored and <see cref="HasConflict"/> becomes true.
   /// </summary>
   void Upsert(in TKey key, in TValue value);
 
   /// <summary>
-  /// Deletes the key. If a transaction committed the key after this one
-  /// began, the delete is not stored and <see cref="HasConflict"/> becomes true.
+  /// Deletes the key. If a transaction committed or prepared a write to the key after
+  /// this one's snapshot, the delete is not stored and <see cref="HasConflict"/> becomes true.
   /// </summary>
   void Delete(in TKey key);
 
@@ -72,7 +73,7 @@ public interface ITransaction<TKey, TValue> : IReadTransaction<TKey, TValue>
   /// the next write ahead log sync.
   /// </summary>
   /// <exception cref="Exceptions.TransactionConflictException">
-  /// The transaction conflicts with a transaction that committed after it began.
+  /// The transaction conflicts with a transaction that committed or prepared a commit after its snapshot.
   /// The transaction is rolled back.</exception>
   void Commit();
 
@@ -90,7 +91,7 @@ public interface ITransaction<TKey, TValue> : IReadTransaction<TKey, TValue>
   /// <param name="cancellationToken">Cancels before starting, or stops waiting after the
   /// commit record is appended. A started commit continues and publishes after sync.</param>
   /// <exception cref="Exceptions.TransactionConflictException">
-  /// The transaction conflicts with a transaction that committed after it began.
+  /// The transaction conflicts with a transaction that committed or prepared a commit after its snapshot.
   /// The transaction is rolled back.</exception>
   Task CommitDurableAsync(CancellationToken cancellationToken = default);
 
