@@ -52,8 +52,8 @@ public sealed class LargeTransactionScenario()
     {
       phases.Add(Time("read back", count, () =>
       {
-        var (_, found) = ScenarioContext.Scan(transaction, InsertedKeys.Base, long.MaxValue);
-        if (found != count)
+        var (_, found) = ScenarioContext.Scan(transaction, InsertedKeys.Base, long.MaxValue, context.AnalyzeInvariants);
+        if (context.AnalyzeInvariants && found != count)
           throw new InvalidOperationException($"Read {found} of {count} committed keys.");
       }));
     }

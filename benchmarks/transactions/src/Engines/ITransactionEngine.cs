@@ -82,7 +82,8 @@ public sealed record EngineVariant(
     string Family,
     string DisplayName,
     string Isolation,
-    Func<EngineOpenOptions, ITransactionEngine> Open);
+    Func<EngineOpenOptions, ITransactionEngine> Open,
+    bool Raw = false);
 
 public static class EngineCatalog
 {
@@ -140,6 +141,22 @@ public static class EngineCatalog
         "SQLite",
         "WAL mode with BEGIN IMMEDIATE: one write transaction at a time, so writes are serializable and never conflict. Readers keep their snapshot and do not block.",
         options => new SqliteEngine(options)),
+    new(
+        "zonetree-raw-async", "zonetree", "ZoneTree raw async",
+        "Direct reads and writes; no transaction snapshots, conflict validation, atomic batches or rollback.",
+        options => new ZoneTreeRawEngine(options, WriteAheadLogMode.AsyncCompressed), Raw: true),
+    new(
+        "zonetree-raw-sync", "zonetree", "ZoneTree raw sync",
+        "Direct reads and writes; no transaction snapshots, conflict validation, atomic batches or rollback.",
+        options => new ZoneTreeRawEngine(options, WriteAheadLogMode.SyncCompressed), Raw: true),
+    new(
+        "rocksdb-raw", "rocksdb", "RocksDB raw",
+        "Plain DB Get/Put/Delete; no explicit transactions, snapshots, conflict validation or rollback. Iterators retain RocksDB's native view.",
+        options => new RocksDbEngine(options, optimistic: false, raw: true), Raw: true),
+    new(
+        "sqlite-raw", "sqlite", "SQLite raw",
+        "Autocommit statements; no explicit BEGIN/COMMIT/ROLLBACK or transaction spanning scenario operations. Each statement retains SQLite's native atomicity.",
+        options => new SqliteEngine(options, raw: true), Raw: true),
   ];
 
   public static int ColorSlot(string engineId)
@@ -152,12 +169,13 @@ public static class EngineCatalog
     throw new ArgumentException($"Unknown engine '{engineId}'.", nameof(engineId));
   }
 
-  public static IReadOnlyList<EngineVariant> Resolve(IEnumerable<string> selectors)
+  public static IReadOnlyList<EngineVariant> Resolve(IEnumerable<string> selectors, bool raw = false)
   {
     var selected = new HashSet<string>(StringComparer.Ordinal);
     foreach (var selector in selectors)
     {
       var matches = All
+          .Where(x => !x.Raw || x.Id == selector)
           .Where(x => selector == "all" || x.Id == selector || x.Family == selector)
           .ToArray();
       if (matches.Length == 0)
@@ -166,7 +184,16 @@ public static class EngineCatalog
             $"Unknown engine '{selector}'. Use all, {string.Join(", ", All.Select(x => x.Family).Distinct())} or {string.Join(", ", All.Select(x => x.Id))}.");
       }
       foreach (var match in matches)
-        selected.Add(match.Id);
+      {
+        var id = raw && !match.Raw ? match.Family switch
+        {
+          "zonetree" => match.Id.EndsWith("-async", StringComparison.Ordinal) ? "zonetree-raw-async" : "zonetree-raw-sync",
+          "rocksdb" => "rocksdb-raw",
+          "sqlite" => "sqlite-raw",
+          _ => match.Id
+        } : match.Id;
+        selected.Add(id);
+      }
     }
     return All.Where(x => selected.Contains(x.Id)).ToArray();
   }

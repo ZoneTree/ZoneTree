@@ -94,6 +94,18 @@ static unsafe class RocksDbNativeApi
   public static extern void rocksdb_flush(nint db, nint options, ref nint error);
 
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  public static extern nint rocksdb_open(nint options, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, ref nint error);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  public static extern void rocksdb_close(nint db);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  public static extern void rocksdb_put(nint db, nint options, byte* key, nuint keyLength, byte* value, nuint valueLength, ref nint error);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  public static extern void rocksdb_delete(nint db, nint options, byte* key, nuint keyLength, ref nint error);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
   public static extern nint rocksdb_create_snapshot(nint db);
 
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]

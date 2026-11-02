@@ -138,6 +138,22 @@ Each key count has its own report, and database files go to `out/data/`. Open th
 
 ## Engines
 
+Add `--raw` to run the same scenarios without explicit transactions on **all selected engines**:
+
+```powershell
+dotnet run -c Release -- --preset standard --clean --keys 100K --engine all --workers 1,2,4,8,16 --scenario batch-1000 --raw
+```
+
+ZoneTree uses ordinary `OpenOrCreate` with direct reads, `Upsert`, deletes and iterators. RocksDB opens a plain DB and calls `Get`, `Put` and `Delete` directly. SQLite runs statements in autocommit mode without explicit `BEGIN`, `COMMIT` or `ROLLBACK`.
+
+Raw mode selects `zonetree-raw-async`, `zonetree-raw-sync`, `rocksdb-raw` and `sqlite-raw`. Serializable/snapshot ZoneTree variants collapse to one raw variant per WAL mode; optimistic/pessimistic RocksDB variants collapse to one plain-DB variant. Engine filters still apply, and the raw IDs can also be selected directly. Defaults without `--raw` remain transactional.
+
+Each scenario keeps its operation counts, keys, values and batching loop. Writes take effect immediately; scenario commit/rollback boundaries do not provide transactions. In raw reports, the existing commit and latency counters describe completed scenario operation groups. Raw runs skip invariant verification and anomaly counting, and reports mark checks as skipped rather than passed or broken. Scenario reads and writes still execute; actual engine errors are still reported as failures.
+
+Durable scenarios retain their durability setting: ZoneTree syncs at the scenario commit boundary, RocksDB uses `sync=true` per direct write, and SQLite uses `synchronous=FULL` with autocommit statements. These native durability costs are included in the measurement.
+
+Raw engine IDs are distinct in result files, data directories, charts and reference reports. `--update-latest` can add them alongside transactional results with the same workload settings.
+
 | Id | Engine | Isolation |
 | --- | --- | --- |
 | `zonetree-mvcc-ser-async`, `zonetree-mvcc-ser-sync` | ZoneTree MVCC transactional tree, serializable, async and sync WAL | A commit fails if a newer commit wrote a key it wrote or read, or a key inside a range it read. |

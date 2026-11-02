@@ -71,7 +71,7 @@ static void PrintScenarios()
 static int RunChild(BenchmarkOptions options)
 {
   var scenario = ScenarioCatalog.Find(options.Scenarios[0]);
-  var engine = EngineCatalog.Resolve(options.Engines)[0];
+  var engine = EngineCatalog.Resolve(options.Engines, options.Raw)[0];
   var workers = options.Workers[0];
   var keys = options.Keys[0];
   RunResult result;
@@ -98,7 +98,7 @@ static int RunChild(BenchmarkOptions options)
 static async Task<int> RunAllAsync(BenchmarkOptions options, string root)
 {
   var scenarios = ScenarioCatalog.Resolve(options.Scenarios);
-  var engines = EngineCatalog.Resolve(options.Engines);
+  var engines = EngineCatalog.Resolve(options.Engines, options.Raw);
   var plan = (
       from keys in options.Keys
       from scenario in scenarios
@@ -177,7 +177,7 @@ static async Task<int> RunAllAsync(BenchmarkOptions options, string root)
       Console.WriteLine($"Reference: {Path.Combine(ReferenceReport.Locate(root, options.Preset, keys), "summary.md")}");
   }
 
-  var unhealthy = runs.Count(x => x.Status != RunStatus.Ok || !x.InvariantHolds);
+  var unhealthy = runs.Count(x => x.Status != RunStatus.Ok || (x.InvariantsChecked && !x.InvariantHolds));
   if (unhealthy == 0)
     return 0;
   Console.WriteLine($"{unhealthy} of {runs.Count} runs failed, timed out or broke an invariant. See the report.");
@@ -190,8 +190,12 @@ static string Describe(RunResult result)
     return result.Status;
   var primary = result.Primary;
   var rate = primary != null
-      ? $"{Format.Seconds(result.JobSeconds)} for {Format.Compact(primary.Operations)} ops ({Format.Compact(primary.OperationsPerSecond)}/s), {Format.Percent(primary.ConflictPercent)} conflicts, {Format.Count(result.Roles.Sum(x => x.Anomalies))} anomalies"
+      ? $"{Format.Seconds(result.JobSeconds)} for {Format.Compact(primary.Operations)} ops ({Format.Compact(primary.OperationsPerSecond)}/s)"
       : Format.Seconds(result.JobSeconds);
+  if (!result.InvariantsChecked)
+    return $"{rate}, raw (invariants skipped)";
+  if (primary != null)
+    rate += $", {Format.Percent(primary.ConflictPercent)} conflicts, {Format.Count(result.Roles.Sum(x => x.Anomalies))} anomalies";
   return result.InvariantHolds ? rate : $"{rate}, INVARIANT BROKEN: {string.Join("; ", result.FailedChecks)}";
 }
 

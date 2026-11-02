@@ -47,6 +47,7 @@ public sealed record RunResult
   public string? Stamp { get; init; }
 
   public string? Error { get; init; }
+  public bool InvariantsChecked { get; init; } = true;
   public bool InvariantHolds { get; init; }
   public IReadOnlyList<string> FailedChecks { get; init; } = [];
   public IReadOnlyList<string> EngineSettings { get; init; } = [];

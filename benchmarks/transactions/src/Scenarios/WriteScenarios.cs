@@ -202,9 +202,9 @@ public sealed class TransferScenario(bool durable = false)
   static void Audit(Worker worker, long accounts)
   {
     using var transaction = worker.Session.BeginRead();
-    var (sum, count) = ScenarioContext.Scan(transaction, 0, accounts - 1);
+    var (sum, count) = ScenarioContext.Scan(transaction, 0, accounts - 1, worker.AnalyzeInvariants);
     worker.AddRows(count);
-    if (sum != accounts * InitialBalance || count != accounts)
+    if (worker.AnalyzeInvariants && (sum != accounts * InitialBalance || count != accounts))
       worker.AddAnomalies();
   }
 

@@ -32,6 +32,8 @@ public sealed record BenchmarkOptions
 
   public bool RetryBackoff { get; init; }
 
+  public bool Raw { get; init; }
+
   public int TimeoutSeconds { get; init; } = 86_400;
 
   public string DataDirectory { get; init; } = "";
@@ -92,6 +94,7 @@ public sealed record BenchmarkOptions
         --list-scenarios             Print the scenario catalog and exit.
         --scenario <list>            all, ids, or category:<name>. Comma separated. Default: all.
         --engine <list>              all, zonetree, rocksdb, sqlite, or variant ids. Default: all.
+        --raw                       Run every selected engine without explicit transactions.
         --preset <name>              smoke, standard or full. Default: standard.
                                        smoke:    1K keys, 4 workers
                                        standard: 100K keys, 1,4,16 workers
@@ -164,6 +167,7 @@ public sealed record BenchmarkOptions
         "--preset" => Skip(options, Next()),
         "--scenario" => options with { Scenarios = ParseList(Next()) },
         "--engine" => options with { Engines = ParseList(Next()) },
+        "--raw" => options with { Raw = true },
         "--workers" => options with { Workers = ParseList(Next()).Select(x => (int)ParseCount(x)).ToArray() },
         "--keys" => options with { Keys = ParseList(Next()).Select(ParseCount).ToArray() },
         "--value-size" => options with { ValueSize = (int)ParseCount(Next()) },
@@ -265,6 +269,8 @@ public sealed record BenchmarkOptions
     yield return OutputDirectory;
     if (KeepData)
       yield return "--keep-data";
+    if (Raw)
+      yield return "--raw";
     foreach (var (name, value) in MeasuredSettings())
     {
       yield return name;
@@ -291,6 +297,7 @@ public sealed record BenchmarkOptions
   /// </summary>
   IEnumerable<(string Name, string? Value)> MeasuredSettings()
   {
+    // Raw mode selects distinct engine IDs; it does not change the workload.
     yield return ("--value-size", Text(ValueSize));
     yield return ("--scale", Text(Scale));
     yield return ("--zipf-theta", Text(ZipfTheta));

@@ -95,15 +95,22 @@ public static class ReportWriter
       return "timed out";
     if (run.Status != RunStatus.Ok)
       return "failed";
-    return run.InvariantHolds ? "" : "invariant broken";
+    return !run.InvariantsChecked || run.InvariantHolds ? "" : "invariant broken";
   }
+
+  static string InvariantOf(RunResult run) =>
+      !run.InvariantsChecked ? "not checked (raw)" : run.InvariantHolds ? "holds" : "BROKEN";
 
   static string RenderSummary(BenchmarkReport report, string charts)
   {
     var md = new StringBuilder();
     md.AppendLine("# Transaction benchmark");
     md.AppendLine();
-    var ok = report.Runs.Count(x => x.Status == RunStatus.Ok && x.InvariantHolds);
+    var ok = report.Runs.Count(x => x.Status == RunStatus.Ok && (!x.InvariantsChecked || x.InvariantHolds));
+    var uncheckedRuns = report.Runs.Count(x => !x.InvariantsChecked);
+    var completion = uncheckedRuns == 0 ? "with their invariants holding." : "successfully.";
+    var rawNote = uncheckedRuns == 0 ? "" : string.Create(CultureInfo.InvariantCulture,
+        $" Invariant checks were skipped for {uncheckedRuns} raw runs.");
     var origin = report.Sources.Count > 1
         ? $"merged from {report.Sources.Count} executions, `{report.Sources[0].Stamp}` to `{report.Sources[^1].Stamp}`"
         : $"run `{report.Stamp}`";
@@ -112,7 +119,7 @@ public static class ReportWriter
         : "";
     md.AppendLine(string.Create(
         CultureInfo.InvariantCulture,
-        $"Preset `{report.Preset}`, {origin}: {ok} of {report.Runs.Count} runs completed with their invariants holding.{unfinished}"));
+        $"Preset `{report.Preset}`, {origin}: {ok} of {report.Runs.Count} runs completed {completion}{rawNote}{unfinished}"));
     md.AppendLine();
     md.AppendLine(string.Create(
         CultureInfo.InvariantCulture,
@@ -318,14 +325,19 @@ public static class ReportWriter
 
   static void WriteAnomalyTable(StringBuilder md, BenchmarkReport report, IReadOnlyList<Scenario> scenarios, long keys)
   {
-    var engines = EnginesOf(report, scenarios, keys);
+    var checkedRuns = scenarios.SelectMany(scenario => RunsOf(report, scenario.Id, keys))
+        .Where(run => run.InvariantsChecked).ToArray();
+    var engines = EnginesOf(report, scenarios, keys)
+        .Where(engine => checkedRuns.Any(run => run.EngineId == engine)).ToArray();
+    if (engines.Length == 0)
+      return;
     md.AppendLine("Transactions that committed after observing a broken rule. Zero means the engine kept the rule in this run; a run cannot prove it always will.");
     md.AppendLine();
     md.AppendLine($"| Scenario | Workers | {string.Join(" | ", engines.Select(EngineName))} |");
     md.AppendLine($"| --- | ---: |{string.Concat(engines.Select(_ => " ---: |"))}");
     foreach (var scenario in scenarios)
     {
-      var scenarioRuns = RunsOf(report, scenario.Id, keys).ToArray();
+      var scenarioRuns = checkedRuns.Where(run => run.ScenarioId == scenario.Id).ToArray();
       foreach (var workers in WorkerCounts(scenarioRuns))
       {
         var runs = scenarioRuns.Where(x => x.Workers == workers).ToArray();
@@ -394,7 +406,9 @@ public static class ReportWriter
     md.AppendLine();
     md.AppendLine($"**Use case.** {scenario.UseCase}");
     md.AppendLine();
-    md.AppendLine($"**Checked.** {scenario.Invariant}");
+    md.AppendLine(report.Runs.Any(run => run.ScenarioId == scenario.Id && run.InvariantsChecked)
+        ? $"**Checked for transactional runs.** {scenario.Invariant} Raw runs skip invariant and anomaly analysis."
+        : "**Invariant checks skipped (raw).**");
     md.AppendLine();
 
     foreach (var keys in report.Keys)
@@ -512,7 +526,7 @@ public static class ReportWriter
       }
       md.AppendLine(string.Create(
           CultureInfo.InvariantCulture,
-          $"| {EngineName(run.EngineId)} | {run.Workers} | {Format.Compact(primary.Operations)} | {Format.Seconds(run.JobSeconds)} | {Format.Compact(primary.OperationsPerSecond)} | {(primary.Rows > 0 ? Format.Compact(primary.RowsPerSecond) : "")} | {Format.Percent(primary.ConflictPercent)} | {Format.Microseconds(primary.Latency.P50Us)} | {Format.Microseconds(primary.Latency.P95Us)} | {Format.Microseconds(primary.Latency.P99Us)} | {Format.Microseconds(primary.Latency.P999Us)} | {Format.Microseconds(primary.Latency.MaxUs)} | {Format.Count(run.Roles.Sum(x => x.Anomalies))} | {(run.InvariantHolds ? "holds" : "BROKEN")} |"));
+          $"| {EngineName(run.EngineId)} | {run.Workers} | {Format.Compact(primary.Operations)} | {Format.Seconds(run.JobSeconds)} | {Format.Compact(primary.OperationsPerSecond)} | {(primary.Rows > 0 ? Format.Compact(primary.RowsPerSecond) : "")} | {Format.Percent(primary.ConflictPercent)} | {Format.Microseconds(primary.Latency.P50Us)} | {Format.Microseconds(primary.Latency.P95Us)} | {Format.Microseconds(primary.Latency.P99Us)} | {Format.Microseconds(primary.Latency.P999Us)} | {Format.Microseconds(primary.Latency.MaxUs)} | {(run.InvariantsChecked ? Format.Count(run.Roles.Sum(x => x.Anomalies)) : "n/a")} | {InvariantOf(run)} |"));
     }
     md.AppendLine();
 
@@ -564,7 +578,7 @@ public static class ReportWriter
         var phase = run.Phases.FirstOrDefault(x => x.Name == name);
         return phase == null ? "" : Format.Seconds(phase.Seconds);
       });
-      md.AppendLine($"| {EngineName(run.EngineId)} | {string.Join(" | ", cells)} | {(run.Status == RunStatus.Ok && run.InvariantHolds ? "holds" : ProblemOf(run))} |");
+      md.AppendLine($"| {EngineName(run.EngineId)} | {string.Join(" | ", cells)} | {(run.Status == RunStatus.Ok ? InvariantOf(run) : ProblemOf(run))} |");
     }
     md.AppendLine();
   }

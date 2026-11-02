@@ -15,11 +15,13 @@ public sealed class SqliteEngine : ITransactionEngine
 
   readonly string ConnectionString;
   readonly string Pragmas;
+  readonly bool Raw;
 
   public IReadOnlyList<string> Settings { get; }
 
-  public SqliteEngine(EngineOpenOptions options)
+  public SqliteEngine(EngineOpenOptions options, bool raw = false)
   {
+    Raw = raw;
     Directory.CreateDirectory(options.Directory);
     var tuning = options.Tuning;
     var synchronous = options.Durability == DurabilityMode.PerCommit ? "FULL" : "NORMAL";
@@ -38,7 +40,8 @@ public sealed class SqliteEngine : ITransactionEngine
 
     Settings =
     [
-      "One write transaction at a time (BEGIN IMMEDIATE); deferred read transactions",
+      raw ? "Raw: autocommit per statement; no explicit BEGIN/COMMIT/ROLLBACK" :
+          "One write transaction at a time (BEGIN IMMEDIATE); deferred read transactions",
       $"Journal: WAL; synchronous={synchronous}",
       string.Create(CultureInfo.InvariantCulture, $"Page cache: {tuning.SqliteCacheMb} MB per connection; mmap: {tuning.SqliteMmapMb} MB"),
       "One connection per worker",
@@ -63,7 +66,7 @@ public sealed class SqliteEngine : ITransactionEngine
   static bool IsBusy(SqliteException exception) =>
       exception.SqliteErrorCode is SqliteBusy or SqliteLocked;
 
-  public IEngineSession OpenSession() => new Session(Connect());
+  public IEngineSession OpenSession() => new Session(Connect(), Raw);
 
   public void Settle()
   {
@@ -86,10 +89,14 @@ public sealed class SqliteEngine : ITransactionEngine
     readonly SqliteCommand PutCommand;
     readonly SqliteCommand DeleteCommand;
     readonly SqliteCommand RangeCommand;
+    readonly bool Raw;
+    readonly RawOperations Operations;
 
-    public Session(SqliteConnection connection)
+    public Session(SqliteConnection connection, bool raw)
     {
       Connection = connection;
+      Raw = raw;
+      Operations = new RawOperations(this);
       BeginReadCommand = Prepare("BEGIN");
       BeginWriteCommand = Prepare("BEGIN IMMEDIATE");
       CommitCommand = Prepare("COMMIT");
@@ -118,12 +125,16 @@ public sealed class SqliteEngine : ITransactionEngine
 
     public IEngineReadTransaction BeginRead()
     {
+      if (Raw)
+        return Operations;
       BeginReadCommand.ExecuteNonQuery();
       return new Transaction(this, isWrite: false);
     }
 
     public IEngineTransaction BeginWrite()
     {
+      if (Raw)
+        return Operations;
       try
       {
         BeginWriteCommand.ExecuteNonQuery();
@@ -181,6 +192,27 @@ public sealed class SqliteEngine : ITransactionEngine
       RangeCommand.Dispose();
       Connection.Dispose();
     }
+  }
+
+  sealed class RawOperations(Session session) : IEngineTransaction
+  {
+    public bool HasConflict => false;
+
+    public bool TryGet(long key, out byte[] value) => session.TryGet(key, out value);
+
+    public bool TryGetForUpdate(long key, out byte[] value) => TryGet(key, out value);
+
+    public IEnumerable<KeyValuePair<long, byte[]>> Range(long from, long to) => session.Range(from, to);
+
+    public void Put(long key, byte[] value) => session.Put(key, value);
+
+    public void Delete(long key) => session.Delete(key);
+
+    public bool TryCommit() => true;
+
+    public void Rollback() { }
+
+    public void Dispose() { }
   }
 
   sealed class Transaction(Session session, bool isWrite, bool conflicted = false) : IEngineTransaction

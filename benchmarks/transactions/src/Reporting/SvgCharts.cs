@@ -34,12 +34,14 @@ public static class SvgCharts
         svg {
           --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781; --grid: #e1e0d9; --axis: #c3c2b7;
           --s1: #5a40c9; --s2: #0c77a4; --s3: #678afd; --s4: #15c1d5; --s5: #c44206; --s6: #ee8d04; --s7: #ad238a;
+          --s8: #253d95; --s9: #2693d5; --s10: #9e5416; --s11: #d35b9f;
           font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
         }
         @media (prefers-color-scheme: dark) {
           svg {
             --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781; --grid: #2c2c2a; --axis: #383835;
             --s1: #6838c1; --s2: #006e9c; --s3: #4283fe; --s4: #0da4a1; --s5: #a53603; --s6: #db7605; --s7: #ad1c81;
+            --s8: #8a9fff; --s9: #48b7ef; --s10: #dfae76; --s11: #f79acb;
           }
         }
         .surface { fill: var(--surface); }
@@ -54,6 +56,8 @@ public static class SvgCharts
         .ring { stroke: var(--surface); stroke-width: 2; }
         .f1 { fill: var(--s1); } .f2 { fill: var(--s2); } .f3 { fill: var(--s3); } .f4 { fill: var(--s4); } .f5 { fill: var(--s5); } .f6 { fill: var(--s6); } .f7 { fill: var(--s7); }
         .c1 { stroke: var(--s1); } .c2 { stroke: var(--s2); } .c3 { stroke: var(--s3); } .c4 { stroke: var(--s4); } .c5 { stroke: var(--s5); } .c6 { stroke: var(--s6); } .c7 { stroke: var(--s7); }
+        .f8 { fill: var(--s8); } .f9 { fill: var(--s9); } .f10 { fill: var(--s10); } .f11 { fill: var(--s11); }
+        .c8 { stroke: var(--s8); } .c9 { stroke: var(--s9); } .c10 { stroke: var(--s10); } .c11 { stroke: var(--s11); }
       </style>
       """;
 

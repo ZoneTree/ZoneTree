@@ -36,6 +36,8 @@ public sealed class ScenarioContext(BenchmarkOptions options, int workers, long 
 
   public long Keys { get; } = keys;
 
+  public bool AnalyzeInvariants { get; init; } = true;
+
   /// <summary>
   /// The opened engine. The runner replaces it when it reopens the database.
   /// </summary>
@@ -74,7 +76,7 @@ public sealed class ScenarioContext(BenchmarkOptions options, int workers, long 
 
   public void Check(bool condition, string failure)
   {
-    if (!condition)
+    if (AnalyzeInvariants && !condition)
       FailedChecks.Add(failure);
   }
 
@@ -88,13 +90,14 @@ public sealed class ScenarioContext(BenchmarkOptions options, int workers, long 
     return Scan(transaction, from, to);
   }
 
-  public static (long Sum, long Count) Scan(IEngineReadTransaction transaction, long from, long to)
+  public static (long Sum, long Count) Scan(IEngineReadTransaction transaction, long from, long to, bool sumValues = true)
   {
     var sum = 0L;
     var count = 0L;
     foreach (var record in transaction.Range(from, to))
     {
-      sum += ValueFactory.Counter(record.Value);
+      if (sumValues)
+        sum += ValueFactory.Counter(record.Value);
       ++count;
     }
     return (sum, count);

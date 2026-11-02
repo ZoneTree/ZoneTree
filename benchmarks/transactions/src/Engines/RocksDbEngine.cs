@@ -13,6 +13,7 @@ public sealed unsafe class RocksDbEngine : ITransactionEngine
 
   readonly string Directory;
   readonly bool Optimistic;
+  readonly bool Raw;
   readonly nint BlockCache;
   readonly nint Options;
   readonly nint TransactionDbOptions;
@@ -31,10 +32,11 @@ public sealed unsafe class RocksDbEngine : ITransactionEngine
 
   public IReadOnlyList<string> Settings { get; }
 
-  public RocksDbEngine(EngineOpenOptions options, bool optimistic)
+  public RocksDbEngine(EngineOpenOptions options, bool optimistic, bool raw = false)
   {
     Directory = options.Directory;
     Optimistic = optimistic;
+    Raw = raw;
     var tuning = options.Tuning;
     var writeBufferBytes = (ulong)tuning.RocksDbWriteBufferMb * 1024 * 1024;
     var sync = options.Durability == DurabilityMode.PerCommit;
@@ -57,12 +59,12 @@ public sealed unsafe class RocksDbEngine : ITransactionEngine
     WriteOptions = rocksdb_writeoptions_create();
     rocksdb_writeoptions_set_sync(WriteOptions, sync ? (byte)1 : (byte)0);
 
-    if (optimistic)
+    if (!raw && optimistic)
     {
       BeginOptions = rocksdb_optimistictransaction_options_create();
       rocksdb_optimistictransaction_options_set_set_snapshot(BeginOptions, 1);
     }
-    else
+    else if (!raw)
     {
       TransactionDbOptions = rocksdb_transactiondb_options_create();
       BeginOptions = rocksdb_transaction_options_create();
@@ -73,10 +75,12 @@ public sealed unsafe class RocksDbEngine : ITransactionEngine
 
     Settings =
     [
-      optimistic
+      raw ? "Raw: plain DB Get/Put/Delete; no explicit transactions, snapshots or rollback" : optimistic
           ? "OptimisticTransactionDB; every transaction takes a snapshot and reads it"
           : string.Create(CultureInfo.InvariantCulture, $"TransactionDB; deadlock detection on; lock timeout: {tuning.RocksDbLockTimeoutMs} ms; no snapshot in write transactions"),
-      sync ? "WAL: fsync per commit (sync=true)" : "WAL: written per commit, no fsync (sync=false)",
+      raw
+          ? sync ? "WAL: sync=true per direct write" : "WAL: written per direct write, no fsync (sync=false)"
+          : sync ? "WAL: fsync per commit (sync=true)" : "WAL: written per commit, no fsync (sync=false)",
       string.Create(CultureInfo.InvariantCulture, $"Write buffer: {tuning.RocksDbWriteBufferMb} MB x {tuning.RocksDbMaxWriteBuffers}"),
       string.Create(CultureInfo.InvariantCulture, $"Block cache: {tuning.RocksDbBlockCacheMb} MB; bloom filter: {BloomBitsPerKey} bits per key"),
       string.Create(CultureInfo.InvariantCulture, $"Zstd compression; level style compaction; {Environment.ProcessorCount} background threads"),
@@ -86,6 +90,13 @@ public sealed unsafe class RocksDbEngine : ITransactionEngine
   void Open()
   {
     nint error = 0;
+    if (Raw)
+    {
+      Db = rocksdb_open(Options, Directory, ref error);
+      ThrowIfError(error);
+      BaseDb = Db;
+      return;
+    }
     if (Optimistic)
     {
       Db = rocksdb_optimistictransactiondb_open(Options, Directory, ref error);
@@ -99,6 +110,11 @@ public sealed unsafe class RocksDbEngine : ITransactionEngine
 
   void Close()
   {
+    if (Raw)
+    {
+      rocksdb_close(Db);
+      return;
+    }
     if (Optimistic)
     {
       rocksdb_optimistictransactiondb_close_base_db(BaseDb);
@@ -108,11 +124,11 @@ public sealed unsafe class RocksDbEngine : ITransactionEngine
     rocksdb_transactiondb_close(Db);
   }
 
-  public IEngineSession OpenSession() => new Session(this);
+  public IEngineSession OpenSession() => Raw ? new RawSession(this) : new Session(this);
 
   public void Settle()
   {
-    if (!Optimistic)
+    if (!Optimistic && !Raw)
     {
       // The C API has no flush for a TransactionDB. Opening it writes the WAL to files.
       Close();
@@ -134,6 +150,8 @@ public sealed unsafe class RocksDbEngine : ITransactionEngine
     rocksdb_writeoptions_destroy(WriteOptions);
     rocksdb_options_destroy(Options);
     rocksdb_cache_destroy(BlockCache);
+    if (Raw)
+      return;
     if (Optimistic)
     {
       rocksdb_optimistictransaction_options_destroy(BeginOptions);
@@ -155,12 +173,12 @@ public sealed unsafe class RocksDbEngine : ITransactionEngine
   }
 
   byte* Get(nint readOptions, byte* key, out nuint length, ref nint error) =>
-      Optimistic
+      Optimistic || Raw
           ? rocksdb_get(BaseDb, readOptions, key, sizeof(long), out length, ref error)
           : rocksdb_transactiondb_get(Db, readOptions, key, sizeof(long), out length, ref error);
 
   nint CreateIterator(nint readOptions) =>
-      Optimistic
+      Optimistic || Raw
           ? rocksdb_create_iterator(BaseDb, readOptions)
           : rocksdb_transactiondb_create_iterator(Db, readOptions);
 
@@ -197,6 +215,71 @@ public sealed unsafe class RocksDbEngine : ITransactionEngine
     {
       rocksdb_iter_destroy(iterator);
     }
+  }
+
+  sealed class RawSession : IEngineSession
+  {
+    readonly nint ReadOptions = rocksdb_readoptions_create();
+    readonly RawOperations Operations;
+
+    public RawSession(RocksDbEngine engine) => Operations = new RawOperations(engine, ReadOptions);
+
+    public IEngineReadTransaction BeginRead() => Operations;
+
+    public IEngineTransaction BeginWrite() => Operations;
+
+    public void Dispose() => rocksdb_readoptions_destroy(ReadOptions);
+  }
+
+  sealed class RawOperations(RocksDbEngine engine, nint readOptions) : IEngineTransaction
+  {
+    public bool HasConflict => false;
+
+    public bool TryGet(long key, out byte[] value)
+    {
+      var keyBytes = stackalloc byte[sizeof(long)];
+      WriteKey(key, keyBytes);
+      nint error = 0;
+      var result = engine.Get(readOptions, keyBytes, out var length, ref error);
+      ThrowIfError(error);
+      if (result == null)
+      {
+        value = null!;
+        return false;
+      }
+      value = TakeValue(result, length);
+      return true;
+    }
+
+    public bool TryGetForUpdate(long key, out byte[] value) => TryGet(key, out value);
+
+    public IEnumerable<KeyValuePair<long, byte[]>> Range(long from, long to) =>
+        Scan(engine.CreateIterator(readOptions), from, to);
+
+    public void Put(long key, byte[] value)
+    {
+      var keyBytes = stackalloc byte[sizeof(long)];
+      WriteKey(key, keyBytes);
+      nint error = 0;
+      fixed (byte* valueBytes = value)
+        rocksdb_put(engine.Db, engine.WriteOptions, keyBytes, sizeof(long), valueBytes, (nuint)value.Length, ref error);
+      ThrowIfError(error);
+    }
+
+    public void Delete(long key)
+    {
+      var keyBytes = stackalloc byte[sizeof(long)];
+      WriteKey(key, keyBytes);
+      nint error = 0;
+      rocksdb_delete(engine.Db, engine.WriteOptions, keyBytes, sizeof(long), ref error);
+      ThrowIfError(error);
+    }
+
+    public bool TryCommit() => true;
+
+    public void Rollback() { }
+
+    public void Dispose() { }
   }
 
   sealed class Session(RocksDbEngine engine) : IEngineSession

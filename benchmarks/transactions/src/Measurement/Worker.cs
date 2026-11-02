@@ -64,7 +64,8 @@ public sealed class Worker(
     ValueFactory values,
     bool retryBackoff,
     int index,
-    int seed)
+    int seed,
+    bool analyzeInvariants = true)
 {
   const int MaxBackoffShift = 12;
 
@@ -110,6 +111,8 @@ public sealed class Worker(
 
   public bool IsStopping => control.IsStopping;
 
+  public bool AnalyzeInvariants => analyzeInvariants;
+
   public byte[] NewValue(long counter) => values.Create(counter, RetryRandom);
 
   /// <summary>
@@ -141,7 +144,11 @@ public sealed class Worker(
 
   public void AddRows(long count) => Rows += count;
 
-  public void AddAnomalies(long count = 1) => Anomalies += count;
+  public void AddAnomalies(long count = 1)
+  {
+    if (analyzeInvariants)
+      Anomalies += count;
+  }
 
   public void CompleteOperation(long ticks)
   {

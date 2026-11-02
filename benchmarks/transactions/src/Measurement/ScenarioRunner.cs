@@ -24,7 +24,10 @@ public static class ScenarioRunner
 
     using var monitor = new ProcessMonitor();
     var engine = variant.Open(engineOptions);
-    var context = new ScenarioContext(options, workers, keys, engine);
+    var context = new ScenarioContext(options, workers, keys, engine)
+    {
+      AnalyzeInvariants = !variant.Raw
+    };
     var settings = engine.Settings;
 
     var loadSeconds = Timed(() => scenario.Load(context));
@@ -40,11 +43,14 @@ public static class ScenarioRunner
     var reopenSeconds = Timed(() => engine = variant.Open(engineOptions));
     context.Engine = engine;
 
-    scenario.Verify(context);
-    if (scenario.AnomaliesViolateInvariant)
+    if (context.AnalyzeInvariants)
     {
-      var anomalies = context.TotalAnomalies();
-      context.Check(anomalies == 0, $"workers saw {anomalies} violations during the run");
+      scenario.Verify(context);
+      if (scenario.AnomaliesViolateInvariant)
+      {
+        var anomalies = context.TotalAnomalies();
+        context.Check(anomalies == 0, $"workers saw {anomalies} violations during the run");
+      }
     }
 
     var finalSettleSeconds = Timed(engine.Settle);
@@ -65,7 +71,8 @@ public static class ScenarioRunner
       Workers = workers,
       Keys = keys,
       Status = RunStatus.Ok,
-      InvariantHolds = context.FailedInvariantChecks.Count == 0,
+      InvariantsChecked = context.AnalyzeInvariants,
+      InvariantHolds = context.AnalyzeInvariants && context.FailedInvariantChecks.Count == 0,
       FailedChecks = context.FailedInvariantChecks,
       EngineSettings = settings,
       JobSeconds = measured.Seconds,
@@ -133,7 +140,8 @@ public static class ScenarioRunner
             context.Values,
             options.RetryBackoff,
             index,
-            options.Seed + index * seedStep);
+            options.Seed + index * seedStep,
+            context.AnalyzeInvariants);
         context.AddWorker(role.Name, worker);
         workers.Add((role, worker));
         var share = role.Operations / role.Workers + (i < role.Operations % role.Workers ? 1 : 0);

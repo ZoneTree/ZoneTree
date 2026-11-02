@@ -58,7 +58,8 @@ public sealed class SnapshotPointScenario(string id, string title, string useCas
         using var transaction = worker.Session.BeginRead();
         for (var i = 0; i < ReadsPerTransaction; i++)
         {
-          if (!transaction.TryGet(worker.Random.NextInt64(keys), out _))
+          var found = transaction.TryGet(worker.Random.NextInt64(keys), out _);
+          if (worker.AnalyzeInvariants && !found)
             worker.AddAnomalies();
         }
         worker.AddRows(ReadsPerTransaction);
@@ -115,9 +116,9 @@ public sealed class SnapshotRangeScenario(string id, string title, string useCas
       to = from + BucketWriters.BucketSize - 1;
     }
     using var transaction = worker.Session.BeginRead();
-    var (sum, count) = ScenarioContext.Scan(transaction, from, to);
+    var (sum, count) = ScenarioContext.Scan(transaction, from, to, worker.AnalyzeInvariants);
     worker.AddRows(count);
-    if (sum != 0 || count != to - from + 1)
+    if (worker.AnalyzeInvariants && (sum != 0 || count != to - from + 1))
       worker.AddAnomalies();
   }
 
@@ -161,11 +162,11 @@ public sealed class LongReaderScenario()
   static void HoldSnapshot(Worker worker, long keys)
   {
     using var transaction = worker.Session.BeginRead();
-    var (firstSum, firstCount) = ScenarioContext.Scan(transaction, 0, keys - 1);
+    var (firstSum, firstCount) = ScenarioContext.Scan(transaction, 0, keys - 1, worker.AnalyzeInvariants);
     while (!worker.IsStopping)
       Thread.Sleep(50);
-    var (lastSum, lastCount) = ScenarioContext.Scan(transaction, 0, keys - 1);
-    if (firstSum != lastSum || firstCount != lastCount)
+    var (lastSum, lastCount) = ScenarioContext.Scan(transaction, 0, keys - 1, worker.AnalyzeInvariants);
+    if (worker.AnalyzeInvariants && (firstSum != lastSum || firstCount != lastCount))
       worker.AddAnomalies();
   }
 

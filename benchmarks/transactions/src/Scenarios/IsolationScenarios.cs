@@ -43,7 +43,7 @@ public sealed class WriteSkewScenario(bool guarded)
       using var transaction = worker.Session.BeginWrite();
       var firstOn = Read(transaction, first);
       var secondOn = Read(transaction, second);
-      var bothOff = !transaction.HasConflict && firstOn == 0 && secondOn == 0;
+      var bothOff = worker.AnalyzeInvariants && !transaction.HasConflict && firstOn == 0 && secondOn == 0;
       if (firstOn + secondOn == 2)
         transaction.Put(takeFirst ? first : second, worker.NewValue(0));
       else if (firstOn == 0)
@@ -151,7 +151,7 @@ public sealed class PhantomScenario(bool guarded)
 
       if (worker.Commit(transaction))
       {
-        if (rows > RowLimit)
+        if (worker.AnalyzeInvariants && rows > RowLimit)
           worker.AddAnomalies();
         worker.AddRows(rows);
         return;

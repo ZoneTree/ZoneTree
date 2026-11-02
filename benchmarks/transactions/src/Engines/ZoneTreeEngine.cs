@@ -25,24 +25,7 @@ public sealed class ZoneTreeEngine : ITransactionEngine
     var tuning = options.Tuning;
     Isolation = isolation;
     Durable = options.Durability == DurabilityMode.PerCommit;
-    Tree = new ZoneTreeFactory<long, byte[]>()
-        .SetDataDirectory(options.Directory)
-        .SetMutableSegmentMaxItemCount(tuning.ZoneTreeMutableSegmentMaxItemCount)
-        .SetComparer(new Int64ComparerAscending())
-        .SetKeySerializer(new Int64Serializer())
-        .SetValueSerializer(new ValueSerializer())
-        .ConfigureDiskSegmentOptions(disk =>
-        {
-          disk.DefaultSparseArrayStepSize = tuning.ZoneTreeSparseArrayStepSize;
-          disk.KeyCacheSize = tuning.ZoneTreeKeyCacheSize;
-          disk.ValueCacheSize = tuning.ZoneTreeValueCacheSize;
-        })
-        .ConfigureWriteAheadLogOptions(wal =>
-        {
-          wal.CompressionMethod = CompressionMethod.None; // TODO: RocskDB uses no compression on WAL, do the same for ZoneTree and update the logs.
-          wal.WriteAheadLogMode = walMode;
-        })
-        .OpenOrCreateTransactional();
+    Tree = CreateFactory(options, walMode).OpenOrCreateTransactional();
 
     Maintainer = Tree.CreateMaintainer();
     Maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(1);
@@ -62,6 +45,28 @@ public sealed class ZoneTreeEngine : ITransactionEngine
       string.Create(CultureInfo.InvariantCulture, $"Sparse array step: {tuning.ZoneTreeSparseArrayStepSize}; key cache: {tuning.ZoneTreeKeyCacheSize}; value cache: {tuning.ZoneTreeValueCacheSize}"),
       "Background maintainer with bottom merges started on segment activation",
     ];
+  }
+
+  internal static ZoneTreeFactory<long, byte[]> CreateFactory(EngineOpenOptions options, WriteAheadLogMode walMode)
+  {
+    var tuning = options.Tuning;
+    return new ZoneTreeFactory<long, byte[]>()
+        .SetDataDirectory(options.Directory)
+        .SetMutableSegmentMaxItemCount(tuning.ZoneTreeMutableSegmentMaxItemCount)
+        .SetComparer(new Int64ComparerAscending())
+        .SetKeySerializer(new Int64Serializer())
+        .SetValueSerializer(new ValueSerializer())
+        .ConfigureDiskSegmentOptions(disk =>
+        {
+          disk.DefaultSparseArrayStepSize = tuning.ZoneTreeSparseArrayStepSize;
+          disk.KeyCacheSize = tuning.ZoneTreeKeyCacheSize;
+          disk.ValueCacheSize = tuning.ZoneTreeValueCacheSize;
+        })
+        .ConfigureWriteAheadLogOptions(wal =>
+        {
+          wal.CompressionMethod = CompressionMethod.None; // TODO: RocskDB uses no compression on WAL, do the same for ZoneTree and update the logs.
+          wal.WriteAheadLogMode = walMode;
+        });
   }
 
   void StartBottomMerge(
