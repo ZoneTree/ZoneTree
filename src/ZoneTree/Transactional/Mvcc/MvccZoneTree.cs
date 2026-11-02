@@ -24,9 +24,11 @@ namespace ZoneTree.Transactional.Mvcc;
 /// <para>
 /// A transaction that writes stores a pending status record before its first version.
 /// The commit deletes that record: it is the single write that makes the transaction
-/// committed. After a crash, a remaining status record means the transaction never
-/// committed. The storage tree syncs each segment's WAL before the next segment accepts
-/// writes, so a recovered commit always comes with every write made before it.
+/// committed. Recovery treats remaining status records as aborted transactions.
+/// Full crash guarantees require a successful SyncWALAsync after the commit.
+/// Unsynced writes can persist independently across segments. A transaction may
+/// recover partially, and a later commit may survive while an earlier unsynced
+/// commit is lost.
 /// </para>
 /// <para>
 /// A rollback deletes its versions and then its status record in the storage tree.
@@ -567,8 +569,8 @@ public sealed class MvccZoneTree<TKey, TValue> :
       {
         foreach (var key in transaction.WrittenKeysForRollback)
           Storage.ForceDelete(VersionedKey<TKey>.Data(in key, transaction.TransactionId));
-        // The storage tree keeps the write order across a crash, so a recovered
-        // tree keeps the pending status record unless it keeps every deletion.
+        // Delete the status after its versions. An explicit WAL sync is needed
+        // to guarantee that all of these deletions survive a crash together.
         Storage.ForceDelete(VersionedKey<TKey>.TransactionStatus(transaction.TransactionId));
         isDeleted = true;
       }

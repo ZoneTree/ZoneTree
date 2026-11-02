@@ -35,7 +35,7 @@ Both paths expose a compression method, method-specific level, and block size, b
 | Options | `WriteAheadLogOptions` | `DiskSegmentOptions` |
 | Default method / level | `Zstd` / `CompressionLevels.Zstd0` | `Zstd` / `CompressionLevels.Zstd0` |
 | Default block size | `256 * 1024` bytes, or 256 KiB. | `4 * 1024 * 1024` bytes, or 4 MiB. |
-| Valid block-size range | 256 KiB through 16 MiB. | 1 MiB through 64 MiB. |
+| Valid block-size range | 1 KiB through 16 MiB. | 1 MiB through 64 MiB. |
 | Main work | Append logging and recovery replay. | Writing sorted output and serving block-addressable reads. |
 | Scope of settings | Newly created WALs. Existing WALs retain their own recorded options. | Newly written disk files. Existing files retain their recorded block size and method. |
 

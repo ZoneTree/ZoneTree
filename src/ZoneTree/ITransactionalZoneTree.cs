@@ -15,8 +15,10 @@ namespace ZoneTree;
 /// for serializable transactions, the keys and ranges it read.
 /// </para>
 /// <para>
-/// A commit is a single record, and a crash never recovers part of a transaction.
-/// A committed transaction is visible at once but not yet durable; await
+/// A committed transaction is visible at once but not yet durable. Full crash
+/// guarantees require an explicit sync. Unsynced transactions may recover partially
+/// when their writes span segments, and a later commit may survive while an earlier
+/// unsynced commit is lost. Await
 /// <see cref="ITransaction{TKey, TValue}.CommitDurableAsync"/> or
 /// <see cref="SyncWALAsync"/> when it must survive a power loss. Concurrent waiters
 /// share disk syncs, so syncing once per batch of commits is cheaper than once per commit.

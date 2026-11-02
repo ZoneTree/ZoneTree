@@ -135,7 +135,7 @@ public sealed unsafe partial class CompressedFileStream
         }
         FileStream.SetLength(MetaDataSize);
         FileStream.Position = MetaDataSize;
-        TailBlock = CreateEmptyTail(TailBlock.BlockIndex);
+        TailBlock = CreateEmptyTail(0);
         WriteTailHeader(TailBlock.BlockIndex, 0);
         SkipToTheEnd(out _);
         CurrentBlockPosition = 0;
@@ -234,6 +234,13 @@ public sealed unsafe partial class CompressedFileStream
           // The tail length is zero until the header below covers these bytes.
           WriteToTailFile(TailHeaderSize, truncatedBytes.Span);
           WriteTailHeader(blockIndex, (int)diff);
+        }
+        else
+        {
+          // The new tail follows the kept prefix, even when truncation removed
+          // several blocks that had already been sealed by a background sync.
+          TailBlock = CreateEmptyTail(blockIndex);
+          WriteTailHeader(blockIndex, 0);
         }
         SyncTailFile();
         FileStream.SetLength(physicalPosition);

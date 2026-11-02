@@ -57,40 +57,16 @@ public sealed unsafe partial class CompressedFileStream
   }
 
   /// <summary>
-  /// Flushes the active tail. It does not acknowledge durability of earlier
-  /// main-file blocks; use SyncToDisk to protect the complete stream.
+  /// Syncs the complete stream for the background writer. Unchanged content
+  /// shares the last completed sync and does not issue another disk sync.
   /// </summary>
   public void WriteTail()
   {
-    if (IsClosed || !IsTailFileUnsynced)
+    // Recovered records must be validated by the WAL reader before a background
+    // sync can checkpoint them. Appends and truncation mark the stream modified.
+    if (IsClosed || !IsModified)
       return;
-    lock (TailLock)
-      SyncTailFileWhileAppending();
-  }
-
-  /// <summary>
-  /// Syncs the active tail without acknowledging the main file's durability.
-  /// The caller holds the tail lock.
-  /// </summary>
-  void SyncTailFileWhileAppending()
-  {
-    bool isTailFileUnsynced;
-    lock (SyncRoot)
-    {
-      if (IsClosed)
-        return;
-      if (IsTailFileUnsynced && UsesSyncCheckpoints && CheckpointOffset == 0)
-        PrepareCheckpointRegion();
-      // Later writes set the dirty flag again while this tail is flushed.
-      isTailFileUnsynced = IsTailFileUnsynced;
-      IsTailFileUnsynced = false;
-    }
-    // Writes continue while the tail file is synced to the disk, and they can share
-    // the next sync. The mapping stays valid because releasing it needs the tail lock.
-    if (isTailFileUnsynced)
-      FlushTailFile();
-    // A tail-only flush is not a durable acknowledgement. Its bytes can move
-    // into an unsynced main block when a later append reuses the tail.
+    SyncToDisk();
   }
 
   /// <summary>
@@ -131,7 +107,7 @@ public sealed unsafe partial class CompressedFileStream
             return;
           }
           var readPosition = Position;
-          // An explicit sync must not leave acknowledged bytes in a tail that
+          // A sync must not leave acknowledged bytes in a tail that
           // ordinary appends will reuse. Seal it without a per-block disk sync.
           var sealedTail = TailBlock;
           var hasTail = sealedTail.Length > 0;

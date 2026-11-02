@@ -84,6 +84,7 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
     var valueBytes = ValueSerializer.Serialize(value);
     lock (SyncRoot)
     {
+      using var recordWrite = FileStream.BeginRecordWrite();
       LogEntry.AppendLogEntry(BinaryWriter, keyBytes, valueBytes, opIndex, IsLegacyFormat);
     }
   }
