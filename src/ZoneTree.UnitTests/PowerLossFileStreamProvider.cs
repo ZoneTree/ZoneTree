@@ -105,7 +105,7 @@ public sealed class PowerLossFileStreamProvider : IFileStreamProvider
 
   byte[] ReadLiveOrDurable(string path, byte[] durable)
   {
-    // A replacement on another thread updates the live file first.
+    // A deletion on another thread can remove the live file before bookkeeping.
     try
     {
       return Live.ReadAllBytes(path);
@@ -213,10 +213,12 @@ public sealed class PowerLossFileStreamProvider : IFileStreamProvider
     destinationBackupFileName = destinationBackupFileName == null
         ? null
         : NormalizePath(destinationBackupFileName);
-    Live.Replace(sourceFileName, destinationFileName, destinationBackupFileName);
-    replacedFiles.Enqueue(destinationFileName);
     ChangeDurable(() =>
     {
+      // Replacement is atomic in this model. Snapshots must not combine the
+      // new live file with the old durable file's length or sectors.
+      Live.Replace(sourceFileName, destinationFileName, destinationBackupFileName);
+      replacedFiles.Enqueue(destinationFileName);
       if (destinationBackupFileName != null &&
           Durable.TryGetValue(destinationFileName, out var destination))
         Durable[destinationBackupFileName] = destination;
@@ -235,9 +237,9 @@ public sealed class PowerLossFileStreamProvider : IFileStreamProvider
   {
     sourcePath = NormalizePath(sourcePath);
     destinationPath = NormalizePath(destinationPath);
-    Live.MoveFile(sourcePath, destinationPath);
     ChangeDurable(() =>
     {
+      Live.MoveFile(sourcePath, destinationPath);
       Durable[destinationPath] = Durable[sourcePath];
       Durable.Remove(sourcePath);
     });
