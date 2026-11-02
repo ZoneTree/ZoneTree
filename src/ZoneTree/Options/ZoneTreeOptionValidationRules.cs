@@ -18,7 +18,7 @@ internal static class ZoneTreeOptionValidationRules
       Rule.Min(16);
 
   public static readonly Rule WriteAheadLogCompressionBlockSize =
-      Rule.MinKB(256).MaxMB(16);
+      Rule.MinKB(1).MaxMB(16);
 
   public static readonly Rule DiskSegmentCompressionBlockSize =
       Rule.MinMB(1).MaxMB(64);

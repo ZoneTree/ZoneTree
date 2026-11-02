@@ -208,8 +208,9 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
     }
     if (syncRequests.Count > 0)
       SyncAndComplete(syncRequests);
-    else
-      FileStream.WriteTail();
+    // This drain runs during Close. Disposing the stream syncs both files;
+    // avoid a redundant background checkpoint and still let Close release
+    // the streams after a previous disk sync failure.
   }
 
   void DoWrite()

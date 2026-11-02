@@ -37,10 +37,10 @@ public sealed class ZoneTreeEngine : ITransactionEngine
     [
       $"Isolation: {isolation}",
       Durable
-          ? $"WAL: {walMode}; every commit waits for a shared WAL sync (TryCommitDurableAsync)"
+          ? $"WAL: {walMode}; compression disabled; every commit waits for a shared WAL sync (TryCommitDurableAsync)"
           : walMode == WriteAheadLogMode.SyncCompressed
-              ? "WAL: SyncCompressed; commits go to a memory-mapped tail, a full block is synced, and the tail is synced periodically"
-              : $"WAL: {walMode}; the background writer syncs on its own, and commits do not wait",
+              ? "WAL: SyncCompressed; compression disabled; appends use a memory-mapped tail; periodic flushes sync the complete dirty WAL"
+              : $"WAL: {walMode}; compression disabled; the background writer syncs the complete dirty WAL when its queue empties; commits do not wait for durability",
       string.Create(CultureInfo.InvariantCulture, $"Mutable segment: {tuning.ZoneTreeMutableSegmentMaxItemCount} records"),
       string.Create(CultureInfo.InvariantCulture, $"Sparse array step: {tuning.ZoneTreeSparseArrayStepSize}; key cache: {tuning.ZoneTreeKeyCacheSize}; value cache: {tuning.ZoneTreeValueCacheSize}"),
       "Background maintainer with bottom merges started on segment activation",
@@ -64,8 +64,9 @@ public sealed class ZoneTreeEngine : ITransactionEngine
         })
         .ConfigureWriteAheadLogOptions(wal =>
         {
-          wal.CompressionMethod = CompressionMethod.None; // TODO: RocskDB uses no compression on WAL, do the same for ZoneTree and update the logs.
+          wal.CompressionMethod = CompressionMethod.None;
           wal.WriteAheadLogMode = walMode;
+          wal.CompressionBlockSize = 1024 * 256;
         });
   }
 

@@ -168,6 +168,10 @@ public sealed unsafe partial class CompressedFileStream
     Write(buffer.AsSpan(offset, count));
   }
 
+  // A WAL record can span several BinaryWriter calls. Keep its complete
+  // append under the same lock as checkpoint sealing, including between fields.
+  internal Lock.Scope BeginRecordWrite() => SyncRoot.EnterScope();
+
   public override void WriteByte(byte value)
   {
     Span<byte> buffer = stackalloc byte[1] { value };

@@ -166,7 +166,7 @@ Read-only work uses each engine's snapshot: `BeginReadOnlyTransaction` on ZoneTr
 
 `--engine` accepts `all`, a family (`zonetree`, `rocksdb`, `sqlite`) or variant ids.
 
-The ZoneTree `-async` ids use the `AsyncCompressed` WAL, where a background writer does the WAL work. The `-sync` ids use `SyncCompressed`, where the committing thread appends to a memory-mapped tail file, and compresses and syncs each block that fills.
+The ZoneTree `-async` ids use the `AsyncCompressed` WAL, where a background writer does the WAL work. The `-sync` ids use `SyncCompressed`, where the writing thread appends to a memory-mapped tail file. Both variants disable WAL compression in this benchmark.
 
 RocksDB runs with a 1 GB block cache and bloom filters of 10 bits per key, so reads are not limited by its 8 MB default cache. SQLite's page cache has the same size. `--rocksdb-block-cache-mb` changes it.
 
@@ -184,14 +184,14 @@ The other categories use each engine's usual setting, where a commit does not wa
 
 | Engine | Default setting | Process crash can lose | Power loss can lose |
 | --- | --- | --- | --- |
-| ZoneTree sync | `SyncCompressed` WAL | Nothing. | What the OS has not written back since the last tail sync. The tail is synced every `TailWriterJobInterval`, and each block when it reaches `CompressionBlockSize`, so at most one interval of commits, within one block. |
-| ZoneTree async | `AsyncCompressed` WAL | Commits the background writer has not written to a file yet: about one `EmptyQueuePollInterval` under light load, one `CompressionBlockSize` block plus its queue under sustained load. | Commits the background writer has not synced to the disk yet: about one `EmptyQueuePollInterval` under light load, one `CompressionBlockSize` block plus its queue under sustained load. It syncs each full block and whenever its queue empties. |
+| ZoneTree sync | `SyncCompressed` WAL, compression disabled | Nothing. | Writes since the last completed WAL sync. The periodic job syncs the complete dirty WAL, with a `TailWriterJobInterval` delay between runs. Its durable prefix stays protected across later rollovers. |
+| ZoneTree async | `AsyncCompressed` WAL, compression disabled | Records still queued for the background writer. Queue size and scheduling determine the exposure. | Queued records and writes since the last completed WAL sync. The writer syncs the complete dirty WAL when its queue empties; sustained load can delay that sync across many main-file blocks. |
 | RocksDB | `sync=false` | Nothing. | What the OS has not written back since the last memtable flush. The WAL is not synced per commit or on a timer, and a flush makes its data durable, so at most the commits in the memtables: up to `max_write_buffer_number` buffers of `write_buffer_size`. |
 | SQLite | `synchronous=NORMAL` | Nothing. | What the OS has not written back since the last checkpoint. A checkpoint syncs, and runs about every `wal_autocheckpoint` WAL pages, so at most about that much WAL, or more while readers hold a checkpoint back. |
 
-`SyncCompressed`, RocksDB and SQLite lose nothing on a process crash. On a power loss they lose only what the OS has not written back, which is usually less than these limits. `AsyncCompressed` is faster because a commit only queues its record for a background writer, so it can lose recent commits on a process crash as well as on a power loss.
+`SyncCompressed`, RocksDB and SQLite lose nothing on a process crash. `AsyncCompressed` queues records for a background writer, so it can lose queued writes on a process crash as well as on a power loss. ZoneTree's automatic syncs protect the complete dirty WAL, but their scheduling does not provide a hard persistence deadline. Use an explicit sync to acknowledge durability across all segments.
 
-On every engine and mode, the data that survives is consistent. An application that needs a commit to survive a crash or power loss must wait for the disk, which is what the `durability` category measures.
+The `durability` category waits for a successful `SyncWALAsync` after committing to acknowledge survival of power loss or an operating-system crash. A process crash preserves writes already handed to the OS; `AsyncCompressed` can still lose queued records. On power loss, unsynced writes across segments can persist independently: a transaction may recover partially, and a later commit may survive while an earlier unsynced commit is lost. Operation indexes order surviving operations but cannot restore missing records.
 
 Durable runs wait for the disk on every commit, so their throughput shows the disk more than the engine. The usual pattern is to commit a batch and wait once, which `durable-batch-100` measures.
 

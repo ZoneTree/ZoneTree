@@ -33,7 +33,9 @@ A power loss can tear everything written after the last disk sync: a final recor
 Which damage a power loss can explain depends on the WAL mode:
 
 - `Sync`: appended sectors can persist in any order. The damage is a torn tail when no valid record follows it, or when a zero run reaches the end of a sector before the next valid record. Otherwise it is corruption.
-- `SyncCompressed` and `AsyncCompressed`: the damage is a torn tail when it reaches the tail block, or the last committed block when the tail file does not hold content newer than that block. Damage in earlier committed blocks is corruption.
+- `SyncCompressed` and `AsyncCompressed`: versioned tails contain checksummed checkpoints that identify the durable main-file prefix and its logical content length. A damaged record starting at or after that logical length is an unsynced tail; a damaged record starting before it is corruption. Recovery also validates compressed blocks after the durable main prefix and truncates a torn suffix. The unsynced suffix can span multiple blocks.
+
+For older compressed tails without checkpoints, recovery uses the tail index and the last main block to identify a possible torn suffix. Unknown tail-format versions and invalid format-descriptor checksums are rejected before recovery changes the files.
 
 For compressed WALs, the record can be damaged within the tail block or span a committed block and the tail. Truncation handles that logical record boundary across the compressed storage. A `.tail` file can also contain complete records; its presence alone is not an incomplete-record error.
 

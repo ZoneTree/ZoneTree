@@ -100,7 +100,7 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
   // a sync. Appended data depends on those bytes, so a sync must include them.
   bool MainFileMayBeUnsynced;
 
-  bool IsModified;
+  volatile bool IsModified;
 
   // The number of bytes ever written to this stream.
   // The sync group counts the part of it that is synced to the disk.
@@ -139,8 +139,8 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
   /// <param name="filePath">The path of the main file.</param>
   /// <param name="blockSize">The size of a decompressed block.</param>
   /// <param name="enableTailWriterJob">
-  /// Flushes the active tail periodically. Explicit SyncToDisk calls protect
-  /// the complete stream across later block rollovers.
+  /// Syncs the complete stream periodically when it has unsynced changes.
+  /// Completed syncs protect its prefix across later block rollovers.
   /// </param>
   /// <param name="tailWriterJobInterval">The delay of the job in milliseconds.</param>
   /// <param name="compressionMethod">The compression method of a new file.</param>

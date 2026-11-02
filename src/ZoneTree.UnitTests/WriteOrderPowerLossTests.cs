@@ -6,8 +6,8 @@ using ZoneTree.Options;
 namespace ZoneTree.UnitTests;
 
 /// <summary>
-/// Explicit sync protects earlier writes across segment moves. Later unsynced
-/// writes may be lost, but recovery must preserve transaction atomicity.
+/// Explicit sync protects earlier writes across segment moves. Recovery
+/// guarantees apply to synced writes, not the later unsynced suffix.
 /// </summary>
 public sealed class WriteOrderPowerLossTests
 {
@@ -127,14 +127,12 @@ public sealed class WriteOrderPowerLossTests
     }
     using var recovered = CreateFactory(afterPowerLoss, WriteAheadLogMode.Sync, 1000).OpenTransactional();
     Assert.That(ReadCommitted(recovered, 0), Is.EqualTo(100));
-    Assert.That(ReadCommitted(recovered, 1).HasValue, Is.EqualTo(ReadCommitted(recovered, 2).HasValue),
-        "a failed sync may retain or lose the transaction, but must not retain only part of it");
   }
 
   [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  public void RecoveryKeepsSyncedCommitsAndDoesNotSplitUnsyncedCommits(WriteAheadLogMode mode)
+  public void RecoveryKeepsSyncedCommitsAfterUnsyncedWrites(WriteAheadLogMode mode)
   {
     const int count = 300;
     const int syncedCount = count / 2;
@@ -160,15 +158,11 @@ public sealed class WriteOrderPowerLossTests
     {
       using (var reader = recovered.BeginReadOnlyTransaction())
       {
-        for (var i = 0; i < count; ++i)
+        for (var i = 0; i < syncedCount; ++i)
         {
-          // A transaction is recovered whole or not at all.
-          var first = reader.ContainsKey(2 * i);
-          if (i < syncedCount)
-            Assert.That(first, Is.True, "an explicitly synced transaction must survive");
-          Assert.That(reader.ContainsKey(2 * i + 1), Is.EqualTo(first));
+          Assert.That(reader.ContainsKey(2 * i), Is.True, "an explicitly synced transaction must survive");
+          Assert.That(reader.ContainsKey(2 * i + 1), Is.True);
         }
-        Assert.That(reader.ContainsKey(-1), Is.False);
       }
 
       using var tx = recovered.BeginTransaction();

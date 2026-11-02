@@ -64,6 +64,45 @@ public sealed class WriteAheadLogSyncTests
     Assert.That(MissingKeys(afterPowerLoss, mode, keys), Is.Empty);
   }
 
+  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  public void AutomaticSyncProtectsAllCompletedWalBlocks(WriteAheadLogMode mode)
+  {
+    const int count = 1000;
+    var provider = new PowerLossFileStreamProvider();
+    using var tree = CreateFactory(provider, mode, emptyQueuePollInterval: 1)
+        .SetDataDirectory("data")
+        .ConfigureWriteAheadLogOptions(options => options.SyncCompressedModeOptions.TailWriterJobInterval = 1)
+        .Create();
+    var mainPath = provider.GetFiles("data/seg").Single(path => !path.EndsWith(".tail", StringComparison.Ordinal));
+    for (var key = 0; key < count; ++key)
+      tree.Upsert(key, key + 1);
+
+    PowerLossFileStreamProvider crash = null;
+    // Observe the durable checkpoint without explicitly syncing or closing the tree.
+    Assert.That(SpinWait.SpinUntil(() =>
+    {
+      var image = provider.SimulatePowerLoss();
+      var tailPath = mainPath + ".tail";
+      var length = image.ReadAllBytes(tailPath).Length;
+      if (length < WalSyncCheckpoint.RegionSize)
+        return false;
+      using var tail = image.CreateFileStream(tailPath, FileMode.Open, FileAccess.Read, FileShare.None);
+      var checkpoint = WalSyncCheckpoint.Read(tail, length - WalSyncCheckpoint.RegionSize, out _);
+      if (checkpoint?.ContentLength != count * (LogEntry.MinimumRecordLength + 2 * sizeof(int)))
+        return false;
+      crash = image;
+      return true;
+    }, TimeSpan.FromSeconds(30)), Is.True, "automatic flush must checkpoint the complete dirty WAL");
+
+    using var recovered = CreateFactory(crash, mode).SetDataDirectory("data").Open();
+    for (var key = 0; key < count; ++key)
+    {
+      Assert.That(recovered.TryGet(key, out var value), Is.True);
+      Assert.That(value, Is.EqualTo(key + 1));
+    }
+  }
+
   [Test]
   public void UnsyncedWritesOfSyncModeDoNotSurvivePowerLoss()
   {

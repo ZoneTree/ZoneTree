@@ -50,15 +50,15 @@ Syncing every write made a single writer about 900 times slower. Concurrent wait
 
 ### How much can be lost without a sync
 
-The compressed modes sync the WAL on their own, so their loss window stays small without `SyncWALAsync`:
+Compressed modes automatically sync each dirty WAL at their background flush points. Writes that have not reached a completed sync can still be lost:
 
 | Mode | Writes lost on a process crash | Writes lost on a power loss |
 | --- | --- | --- |
-| `AsyncCompressed` | The writes still queued. Every write that the background writer has appended survives. | Writes since the background writer's last sync. It syncs each full compression block, and the tail whenever its queue becomes empty. Under light load that is about the last `EmptyQueuePollInterval` (100 ms by default). Under sustained load it is at most one compression block (256 KB of WAL data by default) plus the writes still queued. |
-| `SyncCompressed` | Nothing, because each write reaches the operating system before it returns. | Writes since the last tail sync, at most one compression block. The tail writer job syncs every `TailWriterJobInterval` (500 ms by default), and full blocks sync when they are committed. |
+| `AsyncCompressed` | The writes still queued. Every write that the background writer has appended survives. | Queued records and writes since the last completed WAL sync. The background writer syncs the complete dirty WAL when its queue empties. A continuously busy queue can delay that sync across many blocks. |
+| `SyncCompressed` | Nothing, because each write reaches the operating system before it returns. | Writes since the last completed WAL sync. The background job syncs the complete dirty WAL, with a `TailWriterJobInterval` delay between runs (500 ms by default). |
 | `Sync` | Nothing, because each record reaches the operating system. | Everything that the operating system has not written back yet, because this mode syncs only when the segment closes. |
 
-These windows are far shorter than the operating system's own background writes, and they are small enough for most workloads.
+Automatic syncs include the main file and seal the tail into a checkpointed prefix that remains protected across later rollovers. Unchanged WALs skip repeated disk syncs. Full-block rollovers themselves do not fsync, and background intervals are scheduling settings rather than a guaranteed persistence deadline. Await `SyncWALAsync` to wait for the complete write prefix across all segments before acknowledging it.
 
 <AlertBox
   class="zt-guide-callout"
@@ -82,9 +82,9 @@ These windows are far shorter than the operating system's own background writes,
 
 ### When you need it
 
-The decision depends on how likely a failure is to interrupt a recent write, what losing that update would mean, and the cost of waiting on every save. AsyncCompressed already persists updates automatically. An explicit `SyncWALAsync()` makes the application wait for a particular persistence boundary.
+The decision depends on how likely a failure is to interrupt a recent write, what losing that update would mean, and the cost of waiting on every save. An explicit `SyncWALAsync()` makes the application wait for a particular persistence boundary.
 
-For example, consider the following hypothetical server. These failure rates and exposure times are assumptions for the calculation, not measured industry rates or ZoneTree guarantees:
+For example, consider the following hypothetical server. These failure rates and exposure times are assumptions for the calculation, not measured industry rates or ZoneTree guarantees. In particular, the 100 ms power-loss exposure below cannot be inferred from the background writer's polling interval:
 
 | Failure | Assumed frequency | Assumed exposure for one write | Approximate chance of overlap for that write |
 | --- | --- | --- | --- |
@@ -107,11 +107,13 @@ The task completes when the WAL records of every write that completed before the
 | Mode | Who syncs |
 | --- | --- |
 | `AsyncCompressed` | The background writer. The calling thread does not block, and writes keep queuing during the sync. |
-| `SyncCompressed` | The calling thread. Writes keep appending during the sync. |
+| `SyncCompressed` | The calling thread. Appends wait while the main prefix is sealed and synced, then can continue during the tail checkpoint sync. |
 | `Sync` | The calling thread. WAL appends wait until the sync finishes. |
 | `None` | Nothing. The task completes at once, and unmerged writes stay in memory only. |
 
 If a WAL write or disk sync fails, the task faults with `WriteAheadLogSyncFailedException`, and later calls keep failing until a merge moves the affected segment into a disk segment. The operating system may drop unsynced data after a failed sync, so a later successful sync would not prove durability. A cancellation token cancels only the wait, not the sync.
+
+Segment rotation does not wait for the previous segment's WAL sync. On power loss, unsynced writes in different segments can persist independently: a transaction may recover partially, and a later commit may survive while an earlier unsynced commit is lost. Operation indexes order surviving operations but cannot restore missing records. Commit first, then await `SyncWALAsync` before acknowledging work that must survive a power loss or operating-system crash. `CommitDurableAsync` and `ExecuteDurableAsync` perform that wait for transactions. A process crash preserves records already handed to the operating system; in `AsyncCompressed`, records still queued in process memory can be lost.
 
 `SyncWALAsync` syncs file contents. It does not sync the directory that holds a new WAL file, which some file systems require before a newly created file survives a power loss.
 
@@ -143,14 +145,16 @@ Existing WAL files keep their detected logging mode and recorded compression for
 
 Compressed WALs have a main file of committed blocks and a companion `.tail` file for the unfinished block. Keep both when making an offline copy.
 
-A write to the stream is in the tail file when it returns, so it survives a process crash. With the local file stream provider, the tail file is mapped into memory and takes the size of one compression block plus an 8-byte header once the stream is written to. A write is a memory copy into the operating system's file cache, without a system call. Other file stream providers cannot be mapped, so each write is appended through the provider's stream, which is much slower.
+A write to the stream reaches the operating system before it returns, so it survives a process crash. With the local file stream provider, the active tail is mapped into memory, and appending within it is a memory copy into the operating system's file cache. The prepared tail allocation holds an 8-byte header and one compression block, rounded up to a 512-byte boundary, followed by two 512-byte checkpoint sectors. A 16-byte format descriptor occupies the end of the reserved space. With the default 256 KiB block size, this totals 263,680 bytes. Other file stream providers write the payload and updated length header through their streams.
 
-Disk syncs protect the tail from a power loss:
+A sync seals the current tail into the main file, syncs that file, then writes and syncs a checkpoint in the tail's reserved sectors. Explicit and automatic syncs use the same path. The checkpoint identifies the durable prefix; later appends use a new logical tail without overwriting it. Existing tails without a format descriptor remain readable and are upgraded when needed for checkpointed writes.
 
-| Mode | When the current tail is synced to the disk |
+Automatic sync scheduling:
+
+| Mode | When the complete dirty WAL is synced to the disk |
 | --- | --- |
-| `AsyncCompressed` | The background writer syncs it when the queue becomes empty or `SyncWALAsync` requests a sync; draining and disposal also sync it. |
-| `SyncCompressed` | A tail-writer job syncs it, enabled by default with a 500 ms interval. `SyncWALAsync` and closing the stream also sync it. |
+| `AsyncCompressed` | The background writer syncs the complete dirty WAL when its queue becomes empty. Explicit sync requests also trigger a sync, and closing drains the queue and syncs both files. |
+| `SyncCompressed` | The tail-writer job syncs the complete dirty WAL, enabled by default with a 500 ms interval. Explicit sync requests and closing also protect the complete stream. |
 
 The async writer's default `EmptyQueuePollInterval` is 100 ms. These intervals control scheduling, not a maximum persistence delay.
 
@@ -169,9 +173,10 @@ The async writer's default `EmptyQueuePollInterval` is 100 ms. These intervals c
     ZoneTree's plain Sync path calls <code>BinaryWriter.Flush()</code> per
     record. With the local provider this reaches ordinary
     <code>FileStream.Flush()</code>, while disposal requests
-    <code>Flush(true)</code>. Compressed streams request disk synchronization
-    when committing full blocks or syncing the tail, rather than on every
-    partial-block append.
+    <code>Flush(true)</code>. Compressed full-block commits flush to the OS
+    without a disk sync. Both explicit and background WAL syncs seal and
+    sync the main prefix before syncing its checkpoint. An unchanged WAL
+    does not issue another disk sync.
   </p>
   <p>
     These are the built-in implementations' synchronization points, not a
