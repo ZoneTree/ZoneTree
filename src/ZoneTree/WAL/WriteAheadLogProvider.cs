@@ -8,7 +8,7 @@ using ZoneTree.Serializers;
 
 namespace ZoneTree.WAL;
 
-public sealed class WriteAheadLogProvider : IWriteAheadLogProvider
+public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
 {
   internal const string LegacyWalExtension = ".wal_crc";
 
@@ -44,6 +44,10 @@ public sealed class WriteAheadLogProvider : IWriteAheadLogProvider
     {
       return (IWriteAheadLog<TKey, TValue>)value;
     }
+
+    if (options.WriteAheadLogMode is WriteAheadLogMode.Shared or WriteAheadLogMode.AsyncShared ||
+        FileStreamProvider.FileExists(Path.Combine(WalDirectory, category, SharedWalStore<TKey, TValue>.DirectoryName, SharedWalStore<TKey, TValue>.ManifestName)))
+      return GetSharedWAL(segmentId, category, options, keySerializer, valueSerializer);
 
     (var walPath, var walMode) =
         DetectWalPathAndWriteAheadLogMode(segmentId, category, options);
@@ -131,6 +135,9 @@ public sealed class WriteAheadLogProvider : IWriteAheadLogProvider
 
   public void DropStore()
   {
+    lock (SharedStoresLock)
+      foreach (var store in SharedStores.Values)
+        store.Close();
     if (FileStreamProvider.DirectoryExists(WalDirectory))
       FileStreamProvider.DeleteDirectory(WalDirectory, true);
   }

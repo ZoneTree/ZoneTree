@@ -122,6 +122,12 @@ internal static class ZoneTreeOptionsValidator
   {
     const string owner = nameof(ZoneTreeOptions<object, object>.WriteAheadLogOptions);
 
+    if (options.SharedModeOptions == null)
+      return new MissingOptionException(Option(owner, nameof(options.SharedModeOptions)));
+    if (options.SharedModeOptions.MaximumChunkSize <= 0)
+      return new InvalidOptionValueException(Option(owner, nameof(options.SharedModeOptions.MaximumChunkSize)),
+          options.SharedModeOptions.MaximumChunkSize, "Must be positive");
+
     if (options.SyncCompressedModeOptions == null)
       return new MissingOptionException(Option(owner, nameof(options.SyncCompressedModeOptions)));
 

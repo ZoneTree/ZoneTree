@@ -6,8 +6,9 @@ using ZoneTree.Options;
 namespace ZoneTree.UnitTests;
 
 /// <summary>
-/// Explicit sync protects earlier writes across segment moves. Recovery
-/// guarantees apply to synced writes, not the later unsynced suffix.
+/// Explicit sync protects earlier writes across segment moves. Transactional
+/// factories use a shared journal and recover a committed prefix; ordinary
+/// per-segment WALs guarantee survival of synced writes across segment moves.
 /// </summary>
 public sealed class WriteOrderPowerLossTests
 {
@@ -63,6 +64,8 @@ public sealed class WriteOrderPowerLossTests
   [TestCase(WriteAheadLogMode.Sync, DiskSegmentMode.MultiPartDiskSegment)]
   [TestCase(WriteAheadLogMode.SyncCompressed, DiskSegmentMode.SingleDiskSegment)]
   [TestCase(WriteAheadLogMode.AsyncCompressed, DiskSegmentMode.MultiPartDiskSegment)]
+  [TestCase(WriteAheadLogMode.Shared, DiskSegmentMode.SingleDiskSegment)]
+  [TestCase(WriteAheadLogMode.AsyncShared, DiskSegmentMode.MultiPartDiskSegment)]
   [TestCase(WriteAheadLogMode.None, DiskSegmentMode.SingleDiskSegment)]
   public async Task MergeKeepsTheValueAnUnsyncedCommitReplaces(
       WriteAheadLogMode mode, DiskSegmentMode diskSegmentMode)
@@ -83,8 +86,9 @@ public sealed class WriteOrderPowerLossTests
       storage.MoveMutableSegmentForward();
       storage.StartMergeOperation()?.Join();
 
-      // The new version reaches the merge, but its commit record stays in the
-      // unsynced mutable segment.
+      // The new version enters a frozen segment before its commit record is
+      // appended. With shared WALs, merge publication syncs the whole journal;
+      // with WAL disabled, the new status record can remain only in memory.
       using (var tx = tree.BeginTransaction())
       {
         tx.Upsert(1, 20);
@@ -95,7 +99,11 @@ public sealed class WriteOrderPowerLossTests
       afterPowerLoss = provider.SimulatePowerLoss();
     }
     using var recovered = CreateFactory(afterPowerLoss, mode, 1000).OpenTransactional();
-    Assert.That(ReadCommitted(recovered, 1), Is.AnyOf(10, 20));
+    if (mode == WriteAheadLogMode.None)
+      Assert.That(ReadCommitted(recovered, 1), Is.AnyOf(10, 20));
+    else
+      Assert.That(ReadCommitted(recovered, 1), Is.EqualTo(20),
+          "publishing a shared-WAL merge synced the replacement's commit record too");
   }
 
   [Test]
@@ -103,7 +111,10 @@ public sealed class WriteOrderPowerLossTests
   {
     var provider = new PowerLossFileStreamProvider();
     PowerLossFileStreamProvider afterPowerLoss;
-    using (var tree = CreateFactory(provider, WriteAheadLogMode.Sync, 1000).CreateTransactional())
+    var tree = CreateFactory(provider, WriteAheadLogMode.Shared, 1000)
+        .ConfigureWriteAheadLogOptions(options => options.SyncCompressedModeOptions.EnableTailWriterJob = false)
+        .CreateTransactional();
+    try
     {
       using (var tx = tree.BeginTransaction())
       {
@@ -117,13 +128,19 @@ public sealed class WriteOrderPowerLossTests
         tx.Upsert(1, 10);
         tx.Upsert(2, 20);
         tx.Commit();
-        var segmentId = storage.MutableSegment.SegmentId;
-        provider.FailDiskSync = path => path.Contains($"/seg/{segmentId}.", StringComparison.Ordinal);
+        provider.FailDiskSync = path => path.Contains("/seg/shared/", StringComparison.Ordinal) &&
+            path.EndsWith(".wal", StringComparison.Ordinal);
         Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWALAsync());
       }
       Assert.That(ReadCommitted(tree, 0), Is.EqualTo(100), "reads keep working");
       afterPowerLoss = provider.SimulatePowerLoss();
+    }
+    finally
+    {
       provider.FailDiskSync = null;
+      Assert.Throws<WriteAheadLogSyncFailedException>(tree.Dispose,
+          "a failed shared journal must keep reporting its durability failure");
+      Assert.That(provider.OpenStreamCount, Is.Zero, "failed disposal must release every file");
     }
     using var recovered = CreateFactory(afterPowerLoss, WriteAheadLogMode.Sync, 1000).OpenTransactional();
     Assert.That(ReadCommitted(recovered, 0), Is.EqualTo(100));

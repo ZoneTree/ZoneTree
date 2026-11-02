@@ -175,7 +175,9 @@ foreach (var (key, value) in snapshot.Range(1, 2))
     Console.WriteLine($"{key} = {value}");
 ```
 
-Transactions are multi-version and optimistic: reads never block, and a commit fails only when another transaction committed a conflicting write after this one began; `Execute` retries it. `Serializable`, the default, also protects the keys and ranges a transaction read; `Snapshot` checks only the keys it wrote or read with `TryGetForUpdate`. A commit is visible at once. Use `ExecuteDurableAsync`, `tx.CommitDurableAsync()` or `zoneTree.SyncWALAsync()` when it must survive a power loss.
+Transactions are multi-version and optimistic: reads never block, and a commit fails only when another transaction committed or prepared a conflicting write after this one began; `Execute` retries it. `Serializable`, the default, also protects the keys and ranges a transaction read; `Snapshot` checks only the keys it wrote or read with `TryGetForUpdate`. `Commit()` makes a transaction visible at once. `ExecuteDurableAsync` and `tx.CommitDurableAsync()` sync the WAL before making their commits visible, so readers cannot observe those commits before they are durable. Alternatively, `zoneTree.SyncWALAsync()` makes earlier ordinary commits durable after they have become visible. These durability guarantees require WAL to be enabled.
+
+With the built-in WAL provider, transactional factories promote `Sync` and `SyncCompressed` to `Shared`, and `AsyncCompressed` to `AsyncShared`, so recovery preserves commit order across segments. Compression settings, explicit shared modes and `None` are retained. Custom providers and provider factories keep their configured modes and supply their own transaction recovery guarantees.
 
 Use transactions when your data model requires coordination across multiple keys. For simple high-throughput writes, the non-transactional API is usually the better path.
 
@@ -261,14 +263,20 @@ For read-heavy workloads, memory is mostly shaped by cache behavior and the acti
 
 ZoneTree persists data through disk segments and write-ahead logs. Recent writes enter the mutable segment and are protected according to the configured WAL mode. Maintenance later moves and merges data into disk segments.
 
-ZoneTree uses async compressed WAL by default. It is the recommended starting point for most persistent databases because it keeps WAL protection enabled while preserving very high write throughput.
+Ordinary trees default to `AsyncCompressed`; transactional trees default to `AsyncShared`. Both keep WAL protection enabled while moving serialization and logging to a background writer.
 
 | Need | Consider |
 | --- | --- |
 | Recommended high-throughput persistent WAL mode | Async compressed WAL |
 | Plain synchronous WAL write path | Sync WAL |
 | Compressed WAL with a synchronous caller write path, where each returned write survives a process crash | Sync compressed WAL |
+| One ordered recovery prefix across memory segments, with caller-side writes | Shared WAL (`WriteAheadLogMode.Shared`) |
+| One ordered recovery prefix across memory segments, with queued writes | Async shared WAL (`WriteAheadLogMode.AsyncShared`) |
 | Intentional no-WAL boundary for cache/temp/rebuildable data | No WAL |
+
+Ordinary record appends do not request a disk sync per write. When an ordinary write must survive a power loss before you acknowledge it, await `zoneTree.SyncWALAsync()`. Durable transaction methods sync before publishing their commits to readers. Concurrent callers share disk syncs.
+
+Shared modes keep one ordered journal per tree, split into physical chunks. Recovery stops at the first incomplete record or block across all chunks. Transactions recover a prefix of commits, including every commit covered by a successful sync; incomplete transactions remain invisible. The existing per-segment modes can recover unsynced writes independently across segments. Built-in transactional factories select shared logging automatically; see the transaction section above.
 
 Disk segments can also use compression and different segment layouts. These options help tune disk space, read patterns, merge behavior, and file-size boundaries.
 

@@ -53,6 +53,8 @@ These are storage layers inside one tree. They do not create separate applicatio
 
 Movement and merging are separate operations. Freezing a memory segment does not mean its records have already been compacted into disk segments. See [LSM-tree architecture](lsm-tree.mdx) for the full write and read paths.
 
+With shared WALs, memory segments have logical handles into one ordered journal. Moving a memory segment forward does not wait for an fsync or rotate a physical WAL chunk. Physical chunks rotate at their own size threshold. A merge syncs the shared journal before publishing its checkpoint, persists the output files' directory entries, and only then retires obsolete segment records for chunk reclamation. See [WAL modes](../durability/wal-modes.mdx).
+
 ## Separate a disk segment from its parts
 
 The disk abstraction is `IDiskSegment<TKey, TValue>`. Both single-part and multipart implementations expose a logical ordered record set through that interface.

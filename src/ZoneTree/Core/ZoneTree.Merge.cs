@@ -356,7 +356,24 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       skipElement();
     }
 
+    // A disk checkpoint must not publish writes beyond the durable shared
+    // journal prefix. Memory-segment rotation needs no such barrier.
+    if (Options.WriteAheadLogProvider.GetWAL<TKey, TValue>(MutableSegment.SegmentId, SegmentWalCategory)
+        is ZoneTree.WAL.ISharedWriteAheadLogCoordinator sharedWal)
+      sharedWal.SyncBeforeMerge();
     var newDiskSegment = diskSegmentCreator.CreateReadOnlyDiskSegment();
+    try
+    {
+      // File syncs protect the output bytes; persist their names before metadata
+      // can reference them and before old segments or WAL chunks are removed.
+      Options.RandomAccessDeviceManager.SyncDirectory();
+    }
+    catch
+    {
+      // Copied multipart parts still belong to the old checkpoint.
+      newDiskSegment.Drop(diskSegmentCreator.AppendedPartSegmentIds);
+      throw;
+    }
     newDiskSegment.DropFailureReporter = ReportDropFailure;
     OnDiskSegmentCreated?.Invoke(this, newDiskSegment, false);
     lock (ShortMergerLock)

@@ -20,6 +20,15 @@ public interface IFileStreamProvider
 
   void CreateDirectory(string path);
 
+  /// <summary>
+  /// Makes completed namespace changes in this directory durable on platforms
+  /// that require a directory sync in addition to syncing file contents.
+  /// Providers whose metadata operations are already durable may do nothing.
+  /// Checkpoint publication and shared WALs require this operation before
+  /// deleting files superseded by newly published files or metadata.
+  /// </summary>
+  void SyncDirectory(string path);
+
   void DeleteFile(string path);
 
   void DeleteDirectory(string path, bool recursive);
@@ -40,12 +49,12 @@ public interface IFileStreamProvider
   /// <summary>
   /// Returns file paths directly within the directory, used to locate legacy WALs for renaming.
   /// </summary>
-  IReadOnlyList<string> GetFiles(string path) => throw new NotSupportedException();
+  IReadOnlyList<string> GetFiles(string path);
 
   /// <summary>
   /// Renames a file without overwriting an existing destination, used for legacy WAL format naming.
   /// </summary>
-  void MoveFile(string sourcePath, string destinationPath) => throw new NotSupportedException();
+  void MoveFile(string sourcePath, string destinationPath);
 
   string CombinePaths(string path1, string path2);
 }

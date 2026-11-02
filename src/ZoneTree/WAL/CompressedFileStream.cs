@@ -95,6 +95,10 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
 
   volatile bool IsClosed;
 
+  // Only immutable shared chunks use this close path. Their owner must reopen
+  // the main file for a later disk sync rather than syncing this closed object.
+  bool ClosedWithoutSync;
+
   // A tail that is not prepared is sized to its content, and the tail file holds
   // the same bytes. Streams that are only read stay in this state: they neither
   // change the tail file nor allocate a block. The first write prepares the tail.
@@ -130,6 +134,10 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
   readonly long UnsyncedTailStart;
 
   public string FilePath { get; }
+
+  // Shared journals must also discard later physical chunks when a damaged
+  // block ended this file's recoverable prefix.
+  internal bool RecoveryTruncated { get; private set; }
 
   public override bool CanRead => FileStream.CanRead;
 
@@ -253,6 +261,56 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
   }
 
   public override void Close()
+      => Close(true);
+
+  // A shared journal already synced the immutable main prefix. Its checkpoint
+  // hint needs no extra disk sync when an inactive physical chunk is closed.
+  internal void CloseAfterSync() => Close(false);
+
+  /// <summary>
+  /// Copies the remaining tail into the main file's OS cache and releases all
+  /// handles and mappings without a disk sync. The caller must never append
+  /// again, and must sync the main file before acknowledging its contents.
+  /// </summary>
+  internal void CloseForReopen()
+  {
+    lock (TailLock)
+      lock (SyncRoot)
+      {
+        if (IsClosed)
+          return;
+        ThrowIfDurabilityFailed();
+        StopTailWriter();
+        if (TailBlock.Length > 0)
+        {
+          FileStream.Position = FileStream.Length;
+          // Keep the tail copy and its header intact. Releasing the mapping
+          // must not reuse the only durable copy of a recovered tail.
+          CommitTailBlock(false);
+        }
+
+        ClosedWithoutSync = true;
+        IsClosed = true;
+        var mapping = MappedTail;
+        MappedTail = null;
+        IsTailPrepared = false;
+        TailBlock = CreateEmptyTail(TailBlock.BlockIndex);
+        CurrentBlock = TailBlock;
+        try
+        {
+          // Dirty mapped pages already belong to the OS. An explicit mapping
+          // flush is unnecessary: the main file now contains every record too.
+          mapping?.DisposeWithoutFlush();
+        }
+        finally
+        {
+          try { FileStream.Close(); }
+          finally { TailStream.Close(); }
+        }
+      }
+  }
+
+  void Close(bool syncTail)
   {
     if (IsClosed)
       return;
@@ -261,8 +319,11 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
       {
         if (IsClosed)
           return;
+        if (!syncTail && (TailBlock.Length != 0 || MainFileMayBeUnsynced))
+          throw new InvalidOperationException("The WAL must be sealed and synced before closing without a tail sync.");
         StopTailWriter();
-        SyncTailFile();
+        if (syncTail)
+          SyncTailFile();
         SyncMainFileIfNeeded();
         // Reads of a closed stream can still reach the tail block.
         DetachTail();

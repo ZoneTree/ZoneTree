@@ -212,6 +212,10 @@ public sealed class LiveBackupRestore<TKey, TValue>
       CompressionBlockSize = options.CompressionBlockSize,
       CompressionMethod = options.CompressionMethod,
       CompressionLevel = options.CompressionLevel,
+      SharedModeOptions = new SharedModeOptions
+      {
+        MaximumChunkSize = options.SharedModeOptions.MaximumChunkSize
+      },
       SyncCompressedModeOptions = new SyncCompressedModeOptions
       {
         EnableTailWriterJob = options.SyncCompressedModeOptions.EnableTailWriterJob,

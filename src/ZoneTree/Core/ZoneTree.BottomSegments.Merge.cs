@@ -304,6 +304,16 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     }
 
     var newDiskSegment = diskSegmentCreator.CreateReadOnlyDiskSegment();
+    try
+    {
+      // The replacement's names must survive before old bottom segments go away.
+      Options.RandomAccessDeviceManager.SyncDirectory();
+    }
+    catch
+    {
+      newDiskSegment.Drop(diskSegmentCreator.AppendedPartSegmentIds);
+      throw;
+    }
     newDiskSegment.DropFailureReporter = ReportDropFailure;
     OnDiskSegmentCreated?.Invoke(this, newDiskSegment, true);
     lock (ShortMergerLock)

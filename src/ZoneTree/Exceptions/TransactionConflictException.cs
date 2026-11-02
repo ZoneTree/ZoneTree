@@ -1,8 +1,8 @@
 namespace ZoneTree.Exceptions;
 
 /// <summary>
-/// Thrown when a transaction conflicts with a transaction that committed after
-/// its snapshot. The transaction is rolled back and can be retried from the start.
+/// Thrown when a transaction conflicts with a transaction that committed or prepared
+/// a commit after its snapshot. The transaction is rolled back and can be retried from the start.
 /// </summary>
 public sealed class TransactionConflictException : ZoneTreeException
 {

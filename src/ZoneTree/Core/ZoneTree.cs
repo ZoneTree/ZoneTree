@@ -244,6 +244,11 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     // this call is in one of these segments, or a merge has moved it into a
     // disk segment that was synced to the disk.
     var mutableSegment = MutableSegment;
+    // One shared journal covers every logical segment. Avoid allocating a
+    // sync request per frozen segment when the tree has a large merge backlog.
+    if (Options.WriteAheadLogProvider.GetWAL<TKey, TValue>(mutableSegment.SegmentId, SegmentWalCategory)
+        is ZoneTree.WAL.ISharedWriteAheadLogCoordinator sharedWal)
+      return sharedWal.SyncAsync().WaitAsync(cancellationToken);
     var readOnlySegments = ReadOnlySegmentQueue.ToLastInFirstArray();
     var task = mutableSegment.SyncWALAsync();
     List<Task> syncTasks = null;
@@ -253,7 +258,8 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       // hold no writes of this tree instance.
       if (segment is not IMutableSegment<TKey, TValue> frozenSegment)
         continue;
-      // The WAL of a frozen segment is synced once it is closed.
+      // Private WALs sync when closed. Shared WAL handles instead sync the
+      // ordered journal and can share this call with the mutable segment.
       var syncTask = frozenSegment.SyncWALAsync();
       if (!syncTask.IsCompletedSuccessfully)
         (syncTasks ??= [task]).Add(syncTask);
@@ -313,17 +319,29 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
   public void Dispose()
   {
-    OnZoneTreeIsDisposing?.Invoke(this);
+    Exception error = null;
+    void Release(Action release)
+    {
+      try { release(); }
+      catch (Exception e) { error ??= e; }
+    }
+
+    // A WAL sync failure must still release the metadata WAL and every segment.
+    Release(() => OnZoneTreeIsDisposing?.Invoke(this));
     foreach (var iterator in OpenIterators.Values)
-      iterator.ReleaseOnTreeDisposing();
+      Release(iterator.ReleaseOnTreeDisposing);
     OpenIterators.Clear();
-    MutableSegment.ReleaseResources();
-    _diskSegment.Dispose();
-    MetaWal.Dispose();
+    Release(MutableSegment.ReleaseResources);
+    try { _diskSegment.Dispose(); }
+    catch (Exception e) { error ??= e; }
+    try { MetaWal.Dispose(); }
+    catch (Exception e) { error ??= e; }
     foreach (var ros in ReadOnlySegments)
-      ros.ReleaseResources();
+      Release(ros.ReleaseResources);
     foreach (var bs in BottomSegmentQueue)
-      bs.ReleaseResources();
+      Release(bs.ReleaseResources);
+    if (error != null)
+      System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
   }
 
   public void Drop()
@@ -419,6 +437,10 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       AsyncCompressedModeOptions = new()
       {
         EmptyQueuePollInterval = wal.AsyncCompressedModeOptions.EmptyQueuePollInterval,
+      },
+      SharedModeOptions = new()
+      {
+        MaximumChunkSize = wal.SharedModeOptions.MaximumChunkSize,
       },
       CompressionBlockSize = wal.CompressionBlockSize,
       CompressionLevel = wal.CompressionLevel,

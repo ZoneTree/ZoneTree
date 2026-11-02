@@ -21,6 +21,8 @@ internal sealed unsafe class MappedTailFile : MemoryManager<byte>
 
   readonly int Capacity;
 
+  bool IsDisposed;
+
   /// <summary>
   /// The start of the tail block bytes.
   /// </summary>
@@ -86,8 +88,26 @@ internal sealed unsafe class MappedTailFile : MemoryManager<byte>
   {
     if (!disposing)
       return;
-    View.SafeMemoryMappedViewHandle.ReleasePointer();
-    View.Dispose();
-    MappedFile.Dispose();
+    DisposeMapping(true);
+  }
+
+  // The immutable main file already holds every record in the OS cache. Closing
+  // the view handle first skips MemoryMappedViewAccessor.Dispose's implicit Flush.
+  internal void DisposeWithoutFlush() => DisposeMapping(false);
+
+  void DisposeMapping(bool flush)
+  {
+    if (IsDisposed)
+      return;
+    IsDisposed = true;
+    var handle = View.SafeMemoryMappedViewHandle;
+    try
+    {
+      handle.ReleasePointer();
+      if (!flush)
+        handle.Dispose();
+      View.Dispose();
+    }
+    finally { MappedFile.Dispose(); }
   }
 }

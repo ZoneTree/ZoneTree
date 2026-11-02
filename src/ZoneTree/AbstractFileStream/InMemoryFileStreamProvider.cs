@@ -18,6 +18,9 @@ public sealed class InMemoryFileStreamProvider : IFileStreamProvider
 
   readonly Lock SyncRoot = new();
 
+  // Namespace changes are immediate in this in-process provider.
+  public void SyncDirectory(string path) { }
+
   public IFileStream CreateFileStream(
       string path,
       FileMode mode,

@@ -18,41 +18,48 @@ public sealed class WalReleaseRegressionTests
     ZoneTreeFactory<int, int> Factory(IFileStreamProvider files) => new ZoneTreeFactory<int, int>(files)
         .SetDataDirectory("data")
         .SetLogger(SilentTestLogger.Instance)
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = mode);
+        .ConfigureWriteAheadLogOptions(options =>
+        {
+          options.WriteAheadLogMode = mode;
+          options.SyncCompressedModeOptions.EnableTailWriterJob = false;
+        });
     using var tree = Factory(provider).CreateTransactional();
     using var transaction = tree.BeginTransaction();
     transaction.Upsert(1, 10);
     var storage = tree.Maintenance.ZoneTree.Maintenance;
-    var previousSegmentId = storage.MutableSegment.SegmentId;
     using var syncStarted = new ManualResetEventSlim();
     using var releaseSync = new ManualResetEventSlim();
     provider.BeforeDiskSync = path =>
     {
-      if (!path.Contains($"/seg/{previousSegmentId}.", StringComparison.Ordinal))
+      if (!path.Contains("/seg/shared/", StringComparison.Ordinal) ||
+          !path.EndsWith(".wal", StringComparison.Ordinal))
         return;
       syncStarted.Set();
       if (!releaseSync.Wait(TimeSpan.FromSeconds(30)))
-        throw new TimeoutException("Previous segment sync was not released.");
+        throw new TimeoutException("Shared WAL sync was not released.");
     };
-    var move = Task.Run(() => storage.MoveMutableSegmentForward());
+    var firstSync = Task.Run(() => tree.SyncWALAsync());
+    Task move = null;
     Task sync = null;
     try
     {
       Assert.That(syncStarted.Wait(TimeSpan.FromSeconds(30)), Is.True);
-      // Rotation must finish even while the previous segment's final fsync waits.
+      // Memory-segment rotation must finish while the shared journal's fsync waits.
+      move = Task.Run(() => storage.MoveMutableSegmentForward());
       await move.WaitAsync(TimeSpan.FromSeconds(5));
       transaction.Upsert(2, 20);
       transaction.Commit();
       sync = Task.Run(() => tree.SyncWALAsync());
       await Task.WhenAny(sync, Task.Delay(100));
-      Assert.That(sync.IsCompleted, Is.False, "explicit sync must cover the previous segment too");
+      Assert.That(sync.IsCompleted, Is.False, "explicit sync must wait for the shared journal");
     }
     finally
     {
       releaseSync.Set();
+      await Task.WhenAll(new[] { firstSync, move, sync }.Where(task => task != null))
+          .WaitAsync(TimeSpan.FromSeconds(30));
+      provider.BeforeDiskSync = null;
     }
-    await sync.WaitAsync(TimeSpan.FromSeconds(30));
-    provider.BeforeDiskSync = null;
     using var recovered = Factory(provider.SimulatePowerLoss()).OpenTransactional();
     using var reader = recovered.BeginReadOnlyTransaction();
     Assert.That(reader.TryGet(1, out var first), Is.True);

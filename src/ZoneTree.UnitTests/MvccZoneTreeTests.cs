@@ -1059,9 +1059,12 @@ public sealed class MvccZoneTreeTests
       Assert.That(tx.State, Is.EqualTo(TransactionState.Aborted));
       Assert.Throws<TransactionAbortedException>(() => tx.Commit());
       Assert.That(ReadCommitted(tree, 1), Is.EqualTo(10));
+      Write(tree, (2, 30));
+      tree.SyncWALAsync().GetAwaiter().GetResult();
     }
     using var reopened = CreateFactory().SetValueSerializer(serializer).OpenTransactional();
     Assert.That(ReadCommitted(reopened, 1), Is.EqualTo(10));
+    Assert.That(ReadCommitted(reopened, 2), Is.EqualTo(30));
   }
 
   sealed class BigEndianInt32Serializer : ISerializer<int>

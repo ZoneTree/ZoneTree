@@ -380,20 +380,20 @@ public static class ReportWriter
     }
     md.AppendLine("### Durability");
     md.AppendLine();
-    md.AppendLine("The `durability` scenarios make every commit durable before it returns, on every engine: ZoneTree with `TryCommitDurableAsync`, RocksDB with `sync=true`, SQLite with `synchronous=FULL`.");
+    md.AppendLine("The `durability` scenarios wait for disk durability on every engine: transactional ZoneTree with `TryCommitDurableAsync`, RocksDB with `sync=true`, SQLite with `synchronous=FULL`. ZoneTree durable transactions sync their commit record before publication; raw ZoneTree calls `SyncWALAsync` at the scenario boundary without multi-key transaction atomicity.");
     md.AppendLine();
     md.AppendLine("The other scenarios use each engine's usual setting, where a commit does not wait for the disk:");
     md.AppendLine();
     md.AppendLine("| Engine | Setting | Process crash can lose | Power loss can lose |");
     md.AppendLine("| --- | --- | --- | --- |");
-    md.AppendLine("| ZoneTree sync | `SyncCompressed` WAL | Nothing. | What the OS has not written back since the last tail sync. The tail is synced every `TailWriterJobInterval`, and each block when it reaches `CompressionBlockSize`, so at most one interval of commits, within one block. |");
-    md.AppendLine("| ZoneTree async | `AsyncCompressed` WAL | Commits the background writer has not written to a file yet: about one `EmptyQueuePollInterval` under light load, one `CompressionBlockSize` block plus its queue under sustained load. | Commits the background writer has not synced to the disk yet: about one `EmptyQueuePollInterval` under light load, one `CompressionBlockSize` block plus its queue under sustained load. It syncs each full block and whenever its queue empties. |");
+    md.AppendLine("| ZoneTree sync | `Shared` WAL for transactions; `SyncCompressed` for raw | Nothing from completed commits or raw writes. | Unsynced records since the last completed WAL sync. The periodic job syncs the complete dirty WAL. Transactional recovery retains one commit prefix across segments. |");
+    md.AppendLine("| ZoneTree async | `AsyncShared` WAL for transactions; `AsyncCompressed` for raw | Queued records and ordinary commits depending on them. | Unsynced records since the last completed WAL sync. The writer syncs when its queue empties; sustained load can postpone that sync. Transactional recovery retains one commit prefix. |");
     md.AppendLine("| RocksDB | `sync=false` | Nothing. | What the OS has not written back since the last memtable flush. The WAL is not synced per commit or on a timer, and a flush makes its data durable, so at most the commits in the memtables: up to `max_write_buffer_number` buffers of `write_buffer_size`. |");
     md.AppendLine("| SQLite | `synchronous=NORMAL` | Nothing. | What the OS has not written back since the last checkpoint. A checkpoint syncs, and runs about every `wal_autocheckpoint` WAL pages, so at most about that much WAL, or more while readers hold a checkpoint back. |");
     md.AppendLine();
-    md.AppendLine("`SyncCompressed`, RocksDB and SQLite lose nothing on a process crash. On a power loss they lose only what the OS has not written back, which is usually less than these limits. `AsyncCompressed` is faster because a commit only queues its record for a background writer, so it can lose recent commits on a process crash as well as on a power loss.");
+    md.AppendLine("`Shared` and `SyncCompressed` hand completed appends to the OS. `AsyncShared` and `AsyncCompressed` can lose queued writes on a process crash. Automatic sync scheduling is not a persistence deadline, and full-block rollovers do not fsync. Use durable transaction APIs or an explicit sync when acknowledging disk durability.");
     md.AppendLine();
-    md.AppendLine("On every engine and mode, the data that survives is consistent. An application that needs a commit to survive a crash or power loss must wait for the disk, which is what the `durability` category measures.");
+    md.AppendLine("Transactional ZoneTree uses one shared journal and recovers a prefix of commits, including every synced commit; incomplete transactions remain invisible. Durable commit APIs publish only after sync. Raw per-segment WALs can recover unsynced records independently across segments and provide no multi-key transaction boundary.");
     md.AppendLine();
   }
 

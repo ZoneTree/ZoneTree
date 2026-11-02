@@ -1,6 +1,6 @@
 ---
 title: WAL Modes
-description: Understand ZoneTree's default AsyncCompressed WAL, compare logging paths, wait for durable writes, and manage compressed tails and shutdown.
+description: Compare ordinary and shared WALs, understand commit-prefix recovery and durable visibility, and configure syncs, compressed tails, and shutdown.
 ---
 
 <SectionHeader
@@ -9,7 +9,7 @@ description: Understand ZoneTree's default AsyncCompressed WAL, compare logging 
   title="Keep writes fast with the default WAL"
   titleTag="h1"
   titleId="wal-modes-title"
-  subtitle="AsyncCompressed is the recommended mode for ordinary persistent workloads. It moves serialization, compression, and file writes onto a background path."/>
+  subtitle="Ordinary trees default to AsyncCompressed. Transactional trees use shared journals to recover one commit prefix across memory segments."/>
 
 ## Compare logging paths
 
@@ -18,13 +18,17 @@ description: Understand ZoneTree's default AsyncCompressed WAL, compare logging 
 | **`AsyncCompressed` default** | Enqueues records for background serialization, compression, and writing. | Persistent applications that benefit from keeping logging work off the caller's path. |
 | `SyncCompressed` | Serializes and appends on the caller into a compressed-block stream; the current block is in a companion tail file. | A specific need for caller-side compressed logging, after measuring the workload. |
 | `Sync` | Serializes and appends on the caller through a plain WAL stream, flushing that stream per record. | A specific need for the plain synchronous logging path, accepting its throughput cost. |
+| `Shared` | Appends on the caller to one ordered, chunked journal shared by all memory segments. | Commit-prefix recovery across segments with caller-side logging. |
+| `AsyncShared` | Enqueues records for one background writer into the shared journal. | Commit-prefix recovery with serialization and writing off the caller's path; the default transactional logging path. |
 | `None` | Does not log segment records. Metadata and merged disk segments still exist. | Disposable data or a dataset you intentionally rebuild from another source. |
 
-AsyncCompressed lets the caller continue before background logging finishes. An abrupt process exit loses the records still in the queue; normal disposal drains them.
+`AsyncCompressed` and `AsyncShared` let the caller continue before background logging finishes. An abrupt process exit can lose queued records; normal disposal drains them.
+
+With the built-in provider, transactional factories promote `Sync` and `SyncCompressed` to `Shared`, and `AsyncCompressed` to `AsyncShared`. Compression settings, explicit shared modes, and `None` are retained. Custom providers and provider factories keep their configured modes and define their own recovery guarantees.
 
 ## Acknowledge durable writes
 
-No WAL mode waits for a disk sync on each write. When writes must survive a power loss before you acknowledge them, await `SyncWALAsync` once per request or batch, after all of its writes:
+Ordinary record appends do not require a disk sync per write. When ordinary-tree writes must survive a power loss before you acknowledge them, await `SyncWALAsync` once per request or batch, after all of its writes:
 
 ```csharp
 tree.Upsert(orderKey, order);
@@ -33,6 +37,8 @@ tree.Upsert(auditKey, audit);
 await tree.SyncWALAsync();
 // All three writes survive a power loss. Acknowledge the request.
 ```
+
+For transactions, `CommitDurableAsync`, `TryCommitDurableAsync`, and `ExecuteDurableAsync` sync the commit record before making its writes visible to readers. Ordinary `Commit()` publishes first; a later `SyncWALAsync()` makes those earlier commits durable without undoing their earlier visibility. These guarantees require WAL to be enabled. See [transaction durability](../usage/transactions.mdx#durability).
 
 ### What a disk sync costs
 
@@ -56,7 +62,9 @@ Compressed modes automatically sync each dirty WAL at their background flush poi
 | --- | --- | --- |
 | `AsyncCompressed` | The writes still queued. Every write that the background writer has appended survives. | Queued records and writes since the last completed WAL sync. The background writer syncs the complete dirty WAL when its queue empties. A continuously busy queue can delay that sync across many blocks. |
 | `SyncCompressed` | Nothing, because each write reaches the operating system before it returns. | Writes since the last completed WAL sync. The background job syncs the complete dirty WAL, with a `TailWriterJobInterval` delay between runs (500 ms by default). |
-| `Sync` | Nothing, because each record reaches the operating system. | Everything that the operating system has not written back yet, because this mode syncs only when the segment closes. |
+| `Shared` | Nothing from completed ordinary commits: appended records have reached the operating system. | Unsynced ordinary commits, recovered as one commit prefix across segments. A periodic job syncs the complete dirty journal by default. |
+| `AsyncShared` | Queued records and ordinary commits depending on them. Recovery retains a commit prefix. | Unsynced ordinary commits, recovered as one commit prefix. The writer syncs when its queue empties; continuous load can postpone that automatic sync. |
+| `Sync` | Nothing, because each record reaches the operating system. | Writes not covered by an explicit sync or a segment's completed closing sync and not yet written back by the OS. There is no periodic sync job. |
 
 Automatic syncs seal the tail into checksummed blocks in the main file and sync that file once. That immutable prefix remains protected across later tail rollovers, even if the tail checkpoint is lost. Unchanged WALs skip repeated disk syncs. Full-block rollovers themselves do not fsync, and background intervals are scheduling settings rather than a guaranteed persistence deadline. Await `SyncWALAsync` to wait for the complete write prefix across all segments before acknowledging it.
 
@@ -109,13 +117,25 @@ The task completes when the WAL records of every write that completed before the
 | `AsyncCompressed` | The background writer. The calling thread does not block, and writes keep queuing during the sync. |
 | `SyncCompressed` | The calling thread. Appends into the active tail can continue during the main-file sync; a rollover waits before writing another block to the main file. |
 | `Sync` | The calling thread. WAL appends wait until the sync finishes. |
+| `Shared` | The caller of `SyncWALAsync`, or the periodic shared-journal job. Durable transaction methods use a commit worker so their caller can await publication. |
+| `AsyncShared` | The shared journal's background writer, after processing the preceding queued records. |
 | `None` | Nothing. The task completes at once, and unmerged writes stay in memory only. |
 
-If a WAL write or disk sync fails, the task faults with `WriteAheadLogSyncFailedException`, and later calls keep failing until a merge moves the affected segment into a disk segment. The operating system may drop unsynced data after a failed sync, so a later successful sync would not prove durability. A cancellation token cancels only the wait, not the sync.
+If a WAL write or disk sync fails, the task faults with `WriteAheadLogSyncFailedException`. A shared journal keeps reporting the failure and cannot publish a new checkpoint over it; reopen the tree to recover. A transaction whose durable sync fails stays `InDoubt` and invisible in that instance, and further writing commits are rejected. Its commit record may still be found during recovery. A cancellation token on `SyncWALAsync` cancels only the wait, not the sync.
 
-Segment rotation does not wait for the previous segment's WAL sync. On power loss, unsynced writes in different segments can persist independently: a transaction may recover partially, and a later commit may survive while an earlier unsynced commit is lost. Operation indexes order surviving operations but cannot restore missing records. Commit first, then await `SyncWALAsync` before acknowledging work that must survive a power loss or operating-system crash. `CommitDurableAsync` and `ExecuteDurableAsync` perform that wait for transactions. A process crash preserves records already handed to the operating system; in `AsyncCompressed`, records still queued in process memory can be lost.
+With shared WALs, moving a memory segment forward freezes its logical journal handle and gives the new segment another handle into the same ordered journal. Rotation does not wait for a WAL sync. Recovery validates records in global journal order and stops at the first incomplete suffix across all chunks. Transactions recover one prefix of commits, including every synced commit; incomplete transactions remain invisible. Missing required chunks or broken sequence continuity are corruption.
 
-`SyncWALAsync` syncs file contents. It does not sync the directory that holds a new WAL file, which some file systems require before a newly created file survives a power loss.
+Ordinary trees can still use the per-segment modes `Sync`, `SyncCompressed`, and `AsyncCompressed`. Their unsynced records can persist independently across segments; operation indexes order surviving records but do not restore missing ones. The built-in transactional factories use shared WALs to avoid that limitation.
+
+Shared WAL syncs also persist new journal file names with a directory sync on platforms that require it. Merge publication persists the replacement disk files' directory entries before publishing metadata or reclaiming old segments and WAL chunks. Metadata snapshots persist their rename before clearing the preceding metadata WAL. Custom file providers must supply equivalent namespace durability through `SyncDirectory`.
+
+## Shared journal chunks
+
+`Shared` and `AsyncShared` use the same compressed-block stream and version-1 tail format as the private compressed WALs. One active physical chunk serves all memory segments. `SharedModeOptions.MaximumChunkSize` targets 64 MiB of uncompressed records by default. Records can span compression blocks but never split between chunks; a single larger record can exceed the chunk target.
+
+Physical rotation seals the completed chunk, copies its remaining tail into its main file, and releases its handles and mapping without a disk sync. Later syncs flush unsynced closed main files one at a time and skip sealed chunks already made durable. A continuously busy async writer therefore does not retain every old chunk's open handles.
+
+Only whole obsolete chunks at the beginning of the journal are reclaimed. The durable manifest advances the replay start before those files are deleted. A chunk containing records still needed by a live segment remains retained.
 
 ## Configure only what you need
 
@@ -139,7 +159,7 @@ tree.Upsert(42, "Logged in the background");
 
 For codec defaults and block-size controls, see [compression](../storage/compression.mdx).
 
-Existing WAL files keep their detected logging mode and recorded compression format. Changing the factory configures newly created WALs; reopening an existing file does not convert it to another mode. The built-in provider detects the existing mode from its filename, so preserve WAL filenames when moving a database.
+Existing private WALs keep their detected logging mode and recorded compression format; their filenames identify the mode. Existing shared journals keep the mode in their manifest. Preserve the full WAL directory when moving a database. When selecting shared logging for a database with legacy per-segment WALs, the built-in provider migrates each live WAL and tail into the shared journal and syncs the replacement before deleting the legacy files. Released WALs from 2.0.8 and earlier remain supported.
 
 ## Compressed blocks and the tail file
 
@@ -159,8 +179,10 @@ Automatic sync scheduling:
 | --- | --- |
 | `AsyncCompressed` | The background writer syncs the complete dirty WAL when its queue becomes empty. Explicit sync requests also trigger a sync, and closing drains the queue and syncs both files. |
 | `SyncCompressed` | The tail-writer job syncs the complete dirty WAL, enabled by default with a 500 ms interval. Explicit sync requests and closing also protect the complete stream. |
+| `Shared` | The journal job syncs the complete dirty journal, including closed unsynced chunks. It uses `SyncCompressedModeOptions.EnableTailWriterJob` (true by default) and `TailWriterJobInterval` (500 ms by default). |
+| `AsyncShared` | The writer syncs the complete dirty journal when its queue empties. Explicit requests, including durable commits, cause a sync after a bounded drain of the preceding queue. Closing drains and syncs the journal. |
 
-The async writer's default `EmptyQueuePollInterval` is 100 ms. These intervals control scheduling, not a maximum persistence delay.
+The async writer's default `EmptyQueuePollInterval` is 100 ms. These intervals control scheduling, not a maximum persistence delay. For transactional trees, `AutoSyncInterval` schedules explicit sync requests even while the queue stays busy and advances MVCC's durable bookkeeping. It defaults to zero. The WAL's own background job can sync bytes without updating that MVCC timestamp.
 
 <ExpandablePanel
   title="Stream flushing and disk synchronization"
