@@ -11,6 +11,7 @@ export function registerGuideStyles() {
     const context = { root: styleBuilder.get(theme), colors: zoneTreeColors[theme] }
     registerGuideTypography(context)
     registerGuideExamples(context)
+    registerGuideReference(context)
     registerGuideNavigation(context)
   })
 }
@@ -26,8 +27,13 @@ function registerGuideTypography({ root, colors }: GuideStyleContext) {
   root.select('.doc-content:has(.zt-guide-intro) > h2').paddingTop('24px').marginTop('40px')
     .borderTop(`1px solid ${colors.subtle}`).fontSize('25px').fontWeight('650')
   root.select('.zt-guide-outcomes').marginBlock('28px 32px')
+  root.select('.zt-guide-outcomes > *').minWidth('0')
   root.select('.zt-guide-outcomes strong').fontSize('14px').fontWeight('650')
   root.select('.zt-guide-outcomes p').fontSize('13px').lineHeight('1.7').margin('8px 0 0').color(colors.muted)
+  root.select('.zt-guide-step-header').display('flex').justifyContent('space-between').alignItems('center')
+    .marginBottom('18px').color(colors.accentInk)
+  root.select('.zt-guide-step-header > span').fontSize('10px').fontWeight('700').letterSpacing('1.2px')
+  root.select('.zt-guide-step-header .icon').width('19px').height('19px')
   root.select('.zt-guide-callout').marginBlock('28px').fontSize('14px').lineHeight('1.8')
   root.select('.zt-guide-callout p').margin('0')
   root.select('.zt-guide-callout .flex').minWidth('0')
@@ -43,14 +49,29 @@ function registerGuideExamples({ root, colors }: GuideStyleContext) {
   root.select('.doc-content:has(.zt-guide-intro) pre').maxWidth('100%').overflowX('auto')
     .fontSize('12.5px').lineHeight('1.8').border(`1px solid ${colors.subtle}`)
   root.select('.zt-guide-output pre').background(colors.surfaceAlt).borderColor(colors.accentBorder)
+  root.select('.zt-guide-code-tabs').marginBlock('24px').minWidth('0')
+  root.select('.zt-guide-code-tabs .tabs').border(`1px solid ${colors.subtle}`).borderRadius('12px').overflow('hidden')
+  root.select('.zt-guide-code-tabs .tabs__panel-body').padding('0').minWidth('0')
+  root.select('.zt-guide-code-tabs pre').margin('0').border('0').borderRadius('0').background(colors.surface)
+  root.media('(max-width: 600px)').select('.doc-content:has(.zt-guide-intro) pre').padding('16px').fontSize('12px')
+}
+
+function registerGuideReference({ root, colors }: GuideStyleContext) {
   root.select('.zt-guide-reference').marginBlock('16px')
   root.select('.zt-guide-reference :is(p, li)').fontSize('14px').lineHeight('1.8').overflowWrap('anywhere')
   root.select('.zt-guide-reference table').margin('0')
-  root.media('(max-width: 600px)').select('.doc-content:has(.zt-guide-intro) pre').padding('16px').fontSize('12px')
+  root.select('.zt-guide-definitions').margin('0')
+  root.select('.zt-guide-definitions > div').display('grid').gridTemplateColumns('minmax(0, 1fr) minmax(0, 1.35fr)')
+    .gap('16px').paddingBlock('14px').borderBottom(`1px solid ${colors.subtle}`)
+  root.select('.zt-guide-definitions dt').minWidth('0').fontSize('12px').fontWeight('600').overflowWrap('anywhere')
+  root.select('.zt-guide-definitions dd').margin('0').fontSize('13px').lineHeight('1.7').color(colors.muted)
+  root.select('.zt-guide-definitions > div:last-child').borderBottom('0')
+  root.media('(max-width: 600px)').select('.zt-guide-definitions > div').gridTemplateColumns('minmax(0, 1fr)').gap('6px')
 }
 
 function registerGuideNavigation({ root, colors }: GuideStyleContext) {
   root.select('.zt-guide-next').marginBlock('24px 32px')
+  root.select('.zt-guide-next > *').minWidth('0')
   root.select('.zt-guide-next .docs-card').padding('24px')
   root.select('.zt-guide-next .docs-card-meta').marginBottom('20px')
   root.select('.zt-guide-next .docs-card h3').fontSize('20px').lineHeight('1.3')

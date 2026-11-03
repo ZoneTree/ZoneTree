@@ -282,6 +282,10 @@ Disk segments can also use compression and different segment layouts. These opti
 
 For long-running services, ZoneTree supports live backup for built-in plain and transactional trees, including shared WALs. Live backup creates complete generations while reads and writes continue; transactional generations preserve a published commit snapshot. Local generations can be restored through `ZoneTreeFactory`, with retention preserving files shared by retained generations and active restores.
 
+`ObjectStorageLiveBackupProvider` supplies the same backup/restore workflow through an `IBackupObjectStorage` adapter, with streamed immutable objects, conditional publication, checksums, and persistent restore pins for safe retention across clients.
+
+`ILiveBackup.GetStatus()` provides a consistent in-memory snapshot of accepted attempts, success history, numeric Unix-second timestamps, and failure messages for polling without storage I/O.
+
 ## What can be built with ZoneTree?
 
 ZoneTree is designed from the ground up as a storage-engine foundation for scalable systems. It is not a distributed database by itself; instead, it provides the ordered keyspace, durability controls, iterators, operation indexes, transactions, and maintenance hooks needed to build partitioned, replicated, or domain-specific data platforms above it.

@@ -46,7 +46,12 @@ public sealed class LiveBackupRestoreTargetAlreadyExistsException
 public sealed class LiveBackupIntegrityException : LiveBackupException
 {
   public LiveBackupIntegrityException(string file, string detail)
-      : base($"Live backup integrity check failed for '{file}': {detail}")
+      : this(file, detail, null)
+  {
+  }
+
+  public LiveBackupIntegrityException(string file, string detail, Exception innerException)
+      : base($"Live backup integrity check failed for '{file}': {detail}", innerException)
   {
     FileName = file;
   }
