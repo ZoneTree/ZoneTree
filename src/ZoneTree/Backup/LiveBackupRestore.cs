@@ -24,13 +24,13 @@ public sealed class LiveBackupRestore<TKey, TValue>
 
   public async ValueTask RestoreLatest()
   {
-    using var generation = await Source.ReadLatestGenerationAsync(CancellationToken.None);
+    await using var generation = await Source.ReadLatestGenerationAsync(CancellationToken.None).ConfigureAwait(false);
     await Restore(generation);
   }
 
   public async ValueTask RestoreGeneration(long generationId)
   {
-    using var generation = await Source.ReadGenerationAsync(generationId, CancellationToken.None);
+    await using var generation = await Source.ReadGenerationAsync(generationId, CancellationToken.None).ConfigureAwait(false);
     await Restore(generation);
   }
 
@@ -78,7 +78,7 @@ public sealed class LiveBackupRestore<TKey, TValue>
       if (string.IsNullOrWhiteSpace(file.FileName) || file.FileName.IndexOfAny(['/', '\\']) >= 0 || Path.IsPathRooted(file.FileName))
         throw new LiveBackupIntegrityException(file.FileName, "Expected a segment filename without directories.");
       var destination = Path.Combine(dataDirectory, file.FileName);
-      using var source = await Source.OpenSegmentFileAsync(file, CancellationToken.None);
+      await using var source = await Source.OpenSegmentFileAsync(file, CancellationToken.None).ConfigureAwait(false);
       using var checkedSource = new LiveBackupHashStream(source, leaveOpen: true);
       using var destinationStream = files.CreateFileStream(
           destination,
@@ -106,8 +106,8 @@ public sealed class LiveBackupRestore<TKey, TValue>
     if (batch == null)
       return ([], maximumSegmentId, opIndex);
 
-    using var source = await Source.OpenRecordBatchAsync(batch, CancellationToken.None);
-    using var reader = new LiveBackupRecordBatchReader(source, batch);
+    await using var source = await Source.OpenRecordBatchAsync(batch, CancellationToken.None).ConfigureAwait(false);
+    using var reader = new LiveBackupRecordBatchReader(source, batch, leaveOpen: true);
     if (batch.RecordCount == 0)
     {
       // Even an empty batch must match its checksum, lengths and record count.

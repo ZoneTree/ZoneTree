@@ -50,6 +50,7 @@
     "durability/wal-modes.mdx",
     "durability/recovery.mdx",
     "durability/backups.mdx",
+    "durability/object-storage-backups.mdx",
     "tuning/",
     "tuning/index.mdx",
     "tuning/read-path-caching.mdx",

@@ -1,0 +1,118 @@
+---
+title: Object storage backups
+description: Stream incremental live backups into object storage with conditional publication, checksums, persistent restore pins, and safe retention.
+---
+
+## Back up through your object store
+
+`ObjectStorageLiveBackupProvider` implements both `ILiveBackupStore` and `ILiveBackupSource`. It owns the catalog format, generation allocation, checksums, publication, restore mapping, and retention. Implement `IBackupObjectStorage` for your storage service; ZoneTree has no dependency on a particular vendor SDK or application framework.
+
+The provider supports plain and transactional trees, including `Shared` and `AsyncShared` WALs. It uses the same snapshot capture and record-batch format as [local live backup](backups.mdx). Source WAL files are not uploaded.
+
+```csharp
+using ZoneTree;
+using ZoneTree.Backup;
+
+static async Task BackUpAndRestoreAsync(
+    IBackupObjectStorage storage,
+    ITransactionalZoneTree<int, string> transactions,
+    Func<Task> runApplicationAsync,
+    string unusedRestoreDirectory)
+{
+    var provider = new ObjectStorageLiveBackupProvider(storage,
+        new ObjectStorageLiveBackupOptions
+        {
+            Prefix = "orders/primary",
+            KeepLastGenerations = 7
+        });
+
+    using var backup = transactions.CreateLiveBackup(new LiveBackupOptions
+    {
+        Store = provider,
+        Schedule = LiveBackupSchedule.Every(TimeSpan.FromMinutes(15)),
+        BackupAfterMerge = false
+    });
+    await backup.CreateGenerationAsync();
+    backup.Start();
+    try
+    {
+        await runApplicationAsync(); // Keep the tree and backup alive while serving requests.
+    }
+    finally
+    {
+        backup.Stop();
+        await backup.WaitForLiveBackupAsync();
+    }
+
+    using var restored = await new ZoneTreeFactory<int, string>()
+        .SetDataDirectory(unusedRestoreDirectory)
+        .RestoreTransactionalFromLatestLiveBackup(provider);
+}
+```
+
+This creates an initial generation, then requests one every 15 minutes while `runApplicationAsync` runs. Each successful publication applies retention, keeping the newest seven generations plus any protected by restore pins. The limit counts generations, not days. Stopping the schedule and awaiting active work before restore makes this example's shutdown explicit.
+
+For a plain tree, use its `CreateLiveBackup()` extension and `RestoreFromLatestLiveBackup()`. The existing scheduling options and selected-generation restore methods work with the object provider too. Keep the original comparer, serializers, and compatible storage options in the restore factory.
+
+Poll `backup.GetStatus()` for the coordinator's in-memory attempt status and success history. It performs no storage I/O; see [coordinator status](backups.mdx#poll-coordinator-status) for its semantics. A failure after publication can leave a new generation available even when the status reports `Failed`.
+
+Reserve the entire prefix for one database and its backup history; do not place another database's objects inside that namespace. Keys are case-sensitive opaque strings. A rebuilt database or independently writable fork needs its own prefix: immutable segment identities must never name different contents in one history. Keep one normal backup writer per prefix. Independent provider instances may restore or collect garbage concurrently.
+
+## Storage adapter contract
+
+The adapter implements six operations:
+
+| Operation | Required behavior |
+| --- | --- |
+| `TryOpenReadAsync` | Return a consistent committed version and its stream, or null if absent. Replacing an object must not change the bytes of an already opened read. |
+| `GetInfoAsync` | Return committed identity, length, and opaque version, or null if absent. |
+| `CreateAsync` | Stream into a create-only upload. `CommitAsync` publishes the whole object durably; disposal without commit aborts it. Partial uploads must remain invisible. |
+| `CompareExchangeAsync` | Atomically publish bytes only if the supplied version still matches. A null expected version means create-if-absent. Return null on conflict. |
+| `ListAsync` | Enumerate every object present under the prefix before enumeration started that remains present throughout it. Concurrent additions/deletions may also be returned. Pagination must not omit surviving preexisting objects. |
+| `DeleteAsync` | Idempotently delete an object. A failed deletion can be retried. |
+
+Reads and updates must be linearizable across all clients. A successful commit must survive the backend's stated power-loss durability boundary, with both content and names persisted. A local-filesystem adapter therefore needs file and directory durability; ordinary `FlushAsync()` is insufficient. Eventual visibility and read/modify/unconditional-write emulation of compare-exchange do not satisfy this contract.
+
+Object versions are opaque tokens identifying the exact bytes of a committed object, such as ETags. They fence metadata updates and are not treated as content checksums. The provider increments a manifest revision on every update, so adding and removing a pin cannot recreate earlier manifest bytes or permit an ABA update with a content-derived ETag. Backend object versioning is not required. Lengths and versions returned with an opened read must describe that same version. Dispose read and upload handles to release network sessions and other resources. The adapter must support concurrent file transfers; `MaxConcurrentFileTransfers` controls their number.
+
+## Publication and recovery from interruptions
+
+The provider streams segment files and memory batches directly into immutable objects, calculating SHA-256 during transfer. Unchanged segment objects are reused from the previously published head. Catalogs contain their storage keys, original digests, lengths, and record counts. A catalog is uploaded before the manifest can reference it; its digest and length are anchored in the manifest.
+
+One small checksummed manifest contains allocated generation IDs, published catalog references, the active attempt, and restore pins. Its updates use compare-exchange. Starting another generation allocates a strictly newer ID and fences any unfinished attempt, including one left by a crashed writer. A fenced writer may finish an upload, but cannot publish its catalog or overwrite a newer object's bytes.
+
+An exception or cancellation after a storage operation may have an uncertain outcome. An acknowledged generation is never overwritten. A caller can inspect the latest generation through the source API and start a new backup attempt; generation IDs are never reused. If the manifest is missing while generation objects exist, the provider fails closed instead of initializing over that history.
+
+The layout is private to this provider:
+
+```text
+<prefix>/manifest.ztb
+<prefix>/generations/<generation-id>/catalog.json
+<prefix>/generations/<generation-id>/records.bin
+<prefix>/generations/<generation-id>/segments/<segment-id>/<filename>
+```
+
+The manifest has a versioned binary integrity frame around UTF-8 JSON. Catalogs are versioned JSON, with numeric Unix-second timestamps. Restore verifies the manifest and catalog integrity before trusting references, then validates streamed data through the existing restore checks. Do not edit these objects or mix this layout with local-directory or third-party backup formats.
+
+`MaximumMetadataBytes` defaults to 16 MiB and bounds each manifest or catalog read and publication. Retaining every generation indefinitely can eventually reach that limit; configure retention for long-running deployments. Oversized or invalid metadata stops publication or collection rather than dropping references.
+
+## Restore pins and retention
+
+Before reading a catalog, restore atomically pins its generation in the manifest. Retention retires generations through that same manifest, so a pin racing with retirement either protects the generation or fails before reading its files. Files shared with any retained or pinned generation remain protected. No filesystem leases or process-local locks are used for cross-client coordination.
+
+Factory restore methods release pins asynchronously on both success and failure. Direct source consumers should use `await using`:
+
+```csharp
+await using var generation = await provider.ReadLatestGenerationAsync(cancellationToken);
+// Consume its streams before disposing the generation.
+```
+
+Synchronous disposal remains available. Restore clients need permission to conditionally update the manifest; read-only object credentials cannot create protection against concurrent retention.
+
+Pins do not expire. A crashed restore or a lost acknowledgment can leave one behind, retaining extra generations safely. Inspect them with `ListRestorePinsAsync()`. After confirming that a pin's consumer has stopped, call `ReleaseRestorePinAsync(pin.Id)`, then `ApplyRetentionAsync()` if immediate reclamation is wanted. Releasing a pin while its consumer is still reading permits those objects to be deleted.
+
+`KeepLastGenerations = null` retains every published generation. A positive value keeps the newest requested count plus pinned generations. Successful generation publication also collects abandoned objects, and `ApplyRetentionAsync()` runs collection explicitly. Backend-specific abandoned multipart uploads remain the adapter's responsibility.
+
+`ListGenerationIdsAsync()` returns the currently retained IDs, newest first, without reading every catalog. Listing is a point-in-time observation; acquire a generation through the source API before depending on its files remaining available.
+
+Collection builds the complete protected set before deleting data. It excludes the attempt active at capture and every generation allocated later, so a slow collector cannot delete a concurrent writer's uploads. Late uploads from fenced writers are harmless orphans and can be reclaimed by a later pass. Storage errors, missing retained catalogs, and integrity failures stop dependent deletion. Cleanup failure can be reported after a generation was already published; inspect the latest generation before deciding how to retry.

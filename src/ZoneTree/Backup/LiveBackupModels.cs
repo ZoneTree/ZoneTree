@@ -5,16 +5,22 @@ namespace ZoneTree.Backup;
 /// <summary>The storage layout required to restore a generation.</summary>
 public enum LiveBackupTreeKind { Plain, Transactional }
 
-public sealed class LiveBackupGeneration : IDisposable
+public sealed class LiveBackupGeneration : IDisposable, IAsyncDisposable
 {
   public LiveBackupGeneration() { }
 
   /// <summary>Creates a generation whose retention lease is released by Dispose.</summary>
   public LiveBackupGeneration(IDisposable lease) { Lease = lease; }
 
+  /// <summary>Creates a generation protected by an asynchronous retention lease.</summary>
+  public static LiveBackupGeneration CreateWithAsyncLease(IAsyncDisposable asyncLease)
+      => new() { AsyncLease = asyncLease ?? throw new ArgumentNullException(nameof(asyncLease)) };
+
   // Local sources keep the immutable catalog open while its files are read.
   // Retention needs exclusive access before retiring that catalog.
   internal IDisposable Lease { get; set; }
+
+  internal IAsyncDisposable AsyncLease { get; set; }
 
   public LiveBackupTreeKind TreeKind { get; set; }
 
@@ -29,7 +35,23 @@ public sealed class LiveBackupGeneration : IDisposable
   public LiveBackupRecordBatch RecordBatch { get; set; }
 
   /// <summary>Releases this generation's retention lease. Restore APIs do this automatically.</summary>
-  public void Dispose() { Lease?.Dispose(); Lease = null; }
+  public void Dispose()
+  {
+    Lease?.Dispose(); Lease = null;
+    if (AsyncLease != null)
+      Task.Run(() => DisposeAsync().AsTask()).GetAwaiter().GetResult();
+  }
+
+  public async ValueTask DisposeAsync()
+  {
+    Lease?.Dispose(); Lease = null;
+    var lease = AsyncLease;
+    if (lease != null)
+    {
+      await lease.DisposeAsync().ConfigureAwait(false);
+      AsyncLease = null;
+    }
+  }
 }
 
 public sealed class LiveBackupFile
@@ -46,6 +68,9 @@ public sealed class LiveBackupFile
 
   /// <summary>SHA-256 of the stored file; null for older backups without checksums.</summary>
   public string Sha256 { get; set; }
+
+  /// <summary>Opaque object-storage key. Local-directory providers do not use this field.</summary>
+  public string StorageKey { get; set; }
 }
 
 public sealed class LiveBackupRecord
@@ -78,4 +103,7 @@ public sealed class LiveBackupRecordBatch
 
   /// <summary>SHA-256 of the stored batch; null for older backups without checksums.</summary>
   public string Sha256 { get; set; }
+
+  /// <summary>Opaque object-storage key. Local-directory providers do not use this field.</summary>
+  public string StorageKey { get; set; }
 }

@@ -37,11 +37,7 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
 
   int RunningSchedulerCount;
 
-  long CurrentBackupGenerationId;
-
-  bool IsLiveBackupStarted;
-
-  bool IsGenerationRunning;
+  LiveBackupStatus Status = new(false, LiveBackupAttemptState.None, 0, 0, 0, 0, 0, string.Empty);
 
   bool IsDisposed;
 
@@ -90,8 +86,15 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
     get
     {
       lock (SyncRoot)
-        return CurrentBackupGenerationId;
+        return Status.LastSuccessfulGenerationId;
     }
+  }
+
+  /// <summary>Returns a consistent in-memory status without storage I/O, including after disposal.</summary>
+  public LiveBackupStatus GetStatus()
+  {
+    lock (SyncRoot)
+      return Status;
   }
 
   /// <summary>
@@ -104,10 +107,10 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
     {
       ThrowIfDisposed();
 
-      if (IsLiveBackupStarted)
+      if (Status.Started)
         return;
 
-      IsLiveBackupStarted = true;
+      Status = Status with { Started = true };
       Maintenance.OnMergeOperationEnded += OnMergeOperationEnded;
       StartScheduler();
       SignalStateChanged();
@@ -122,10 +125,10 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
   {
     lock (SyncRoot)
     {
-      if (IsLiveBackupStarted)
+      if (Status.Started)
       {
         Maintenance.OnMergeOperationEnded -= OnMergeOperationEnded;
-        IsLiveBackupStarted = false;
+        Status = Status with { Started = false };
       }
 
       var schedulerCancellation = SchedulerCancellation;
@@ -166,17 +169,10 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
 
     BeginBackupGeneration(
         skipIfBusy: false,
-        requireLiveBackupStarted: false);
+        requireLiveBackupStarted: false,
+        cancellationToken);
 
-    try
-    {
-      await BackupGenerationAsync(cancellationToken)
-          .ConfigureAwait(false);
-    }
-    finally
-    {
-      CompleteBackupGenerationActivity();
-    }
+    await RunAcceptedGenerationAsync(cancellationToken).ConfigureAwait(false);
   }
 
   /// <summary>
@@ -212,8 +208,8 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
 
       lock (SyncRoot)
       {
-        if (!IsLiveBackupStarted &&
-            !IsGenerationRunning &&
+        if (!Status.Started &&
+            Status.AttemptState != LiveBackupAttemptState.Running &&
             RunningSchedulerCount == 0)
         {
           return;
@@ -340,31 +336,19 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
     _ = Task.Run(RunBackgroundBackupGenerationAsync);
   }
 
-  async Task RunBackgroundBackupGenerationAsync()
-  {
-    try
-    {
-      await BackupGenerationAsync(CancellationToken.None)
-          .ConfigureAwait(false);
-    }
-    catch (Exception e)
-    {
-      LogBackupError(e);
-    }
-    finally
-    {
-      CompleteBackupGenerationActivity();
-    }
-  }
+  Task RunBackgroundBackupGenerationAsync()
+      => RunAcceptedGenerationAsync(CancellationToken.None, logFailure: true);
 
   bool BeginBackupGeneration(
       bool skipIfBusy,
-      bool requireLiveBackupStarted)
+      bool requireLiveBackupStarted,
+      CancellationToken cancellationToken = default)
   {
     lock (SyncRoot)
     {
+      cancellationToken.ThrowIfCancellationRequested();
       if (requireLiveBackupStarted &&
-          !IsLiveBackupStarted)
+          !Status.Started)
       {
         return false;
       }
@@ -377,7 +361,7 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
         throw new ObjectDisposedException(GetType().Name);
       }
 
-      if (IsGenerationRunning)
+      if (Status.AttemptState == LiveBackupAttemptState.Running)
       {
         if (skipIfBusy)
           return false;
@@ -386,21 +370,63 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
             "A live backup generation is already running.");
       }
 
-      IsGenerationRunning = true;
+      Status = Status with
+      {
+        AttemptState = LiveBackupAttemptState.Running,
+        AttemptGenerationId = 0,
+        LastStartedAtUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+        LastFinishedAtUnixSeconds = 0,
+        LastError = string.Empty
+      };
       SignalStateChanged();
 
       return true;
     }
   }
 
-  void CompleteBackupGenerationActivity()
+  async Task RunAcceptedGenerationAsync(CancellationToken cancellationToken, bool logFailure = false)
+  {
+    var outcome = LiveBackupAttemptState.Failed;
+    var error = string.Empty;
+    long generationId = 0;
+    try
+    {
+      generationId = await BackupGenerationAsync(cancellationToken).ConfigureAwait(false);
+      outcome = LiveBackupAttemptState.Succeeded;
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+      outcome = LiveBackupAttemptState.Cancelled;
+      throw;
+    }
+    catch (Exception exception)
+    {
+      var cause = exception.GetBaseException();
+      error = ReferenceEquals(cause, exception) ? exception.Message : $"{exception.Message} {cause.Message}";
+      if (logFailure) LogBackupError(exception);
+      else throw;
+    }
+    finally
+    {
+      CompleteBackupGenerationActivity(outcome, generationId, error);
+    }
+  }
+
+  void CompleteBackupGenerationActivity(LiveBackupAttemptState outcome, long generationId, string error)
   {
     lock (SyncRoot)
     {
-      if (!IsGenerationRunning)
-        return;
-
-      IsGenerationRunning = false;
+      // BackupGenerationAsync has disposed the captured segment leases before
+      // returning. Publish the outcome and release the busy state together.
+      var finished = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+      Status = Status with
+      {
+        AttemptState = outcome,
+        LastFinishedAtUnixSeconds = finished,
+        LastError = error,
+        LastSuccessfulGenerationId = outcome == LiveBackupAttemptState.Succeeded ? generationId : Status.LastSuccessfulGenerationId,
+        LastCompletedAtUnixSeconds = outcome == LiveBackupAttemptState.Succeeded ? finished : Status.LastCompletedAtUnixSeconds
+      };
       SignalStateChanged();
     }
   }
@@ -412,7 +438,7 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
     completion.TrySetResult(true);
   }
 
-  async Task BackupGenerationAsync(CancellationToken cancellationToken)
+  async Task<long> BackupGenerationAsync(CancellationToken cancellationToken)
   {
     long generationId = 0;
     try
@@ -429,6 +455,9 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
       if (generationId <= 0)
         throw new InvalidOperationException(
             "Live backup store returned an invalid generation id.");
+
+      lock (SyncRoot)
+        Status = Status with { AttemptGenerationId = generationId };
 
       await Store.BeginGenerationAsync(
           generationId,
@@ -465,10 +494,11 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
         }
       }
 
-      await CompleteGenerationAsync(
+      await Store.CompleteGenerationAsync(
           generationId,
           CoreZoneTree.LastOpIndex,
           cancellationToken).ConfigureAwait(false);
+      return generationId;
     }
     catch (OperationCanceledException)
         when (cancellationToken.IsCancellationRequested)
@@ -650,20 +680,6 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
     }
 
     batch.RecordCount = recordIndex;
-  }
-
-  async Task CompleteGenerationAsync(
-      long generationId,
-      long lastOpIndex,
-      CancellationToken cancellationToken)
-  {
-    await Store.CompleteGenerationAsync(
-        generationId,
-        lastOpIndex,
-        cancellationToken).ConfigureAwait(false);
-
-    lock (SyncRoot)
-      CurrentBackupGenerationId = generationId;
   }
 
   static TaskCompletionSource<bool> CreateTaskSource()

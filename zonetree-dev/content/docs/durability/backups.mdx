@@ -193,6 +193,36 @@ Use one coordinator and a single writer to a given backup root, dedicated to one
 
 The synchronous `CreateGeneration()` and `WaitForLiveBackup()` methods block their caller while running async work without its synchronization context. Use the async methods when the calling thread must remain responsive.
 
+## Poll coordinator status
+
+`ILiveBackup.GetStatus()` returns a consistent, read-only `LiveBackupStatus` snapshot under the coordinator's lock. It performs no storage I/O or clock reads. The same status covers manual, scheduled, and merge-triggered attempts for local and object-storage providers, including transactional trees.
+
+```csharp
+var status = backup.GetStatus();
+var running = status.AttemptState == LiveBackupAttemptState.Running;
+var lastSuccessfulGeneration = status.LastSuccessfulGenerationId;
+var lastCompletedAtUnixSeconds = status.LastCompletedAtUnixSeconds;
+```
+
+| Field | Meaning |
+| --- | --- |
+| `Started` | Automatic operation was enabled with `Start()`. Configured triggers determine which requests are generated. Manual backups can run while false. |
+| `AttemptState` | `None`, `Running`, `Succeeded`, `Failed`, or `Cancelled` for the latest accepted attempt. |
+| `AttemptGenerationId` | Its validated generation ID, or zero until allocation succeeds. Reset when a new attempt is accepted. |
+| `LastSuccessfulGenerationId` | Latest generation successfully completed by this coordinator, also exposed as `CurrentGenerationId`. Preserved across failures and cancellation. |
+| `LastStartedAtUnixSeconds` | When the attempt was accepted, before capture, allocation, or background execution. |
+| `LastFinishedAtUnixSeconds` | When that attempt finished, including cleanup. Reset to zero for the next accepted attempt. |
+| `LastCompletedAtUnixSeconds` | When the latest successful attempt finished. Preserved across failures and cancellation. |
+| `LastError` | The latest failure message, including the underlying cause when wrapped. Empty initially, while running, after success, and after cancellation. |
+
+All timestamps use numeric Unix seconds; zero means unset. They describe wall-clock instants, not monotonic elapsed durations. Timestamps are calculated only on attempt transitions. A new coordinator starts with `None`, zero IDs/timestamps, and an empty error, even if its destination already contains generations.
+
+Accepted attempts become `Running` before capture or allocation can fail. Busy, disposed, and already-cancelled requests do not overwrite an accepted attempt's status. `Stop()` disables automatic triggers without cancelling an active attempt. Cancellation is reported only when an accepted operation observes requested cancellation; a backend timeout without that request is a failure. A completed operation remains successful if it did not observe cancellation.
+
+Success is reported after provider completion and captured-segment cleanup finish. Terminal status and release of the busy state are updated atomically. `GetStatus()` remains available after disposal for final diagnostics.
+
+This status is in memory for the lifetime of one coordinator; it does not discover backups or report scheduler health. **`Failed` or `Cancelled` does not prove that nothing was published.** A provider may publish a generation and then fail during retention, or lose an acknowledgment. Its retained generations remain authoritative for resolving publication. Use the status for polling and operational feedback, alongside the tree's logs.
+
 ## Keep catalogs and shared files together
 
 The local store contains:
@@ -255,9 +285,15 @@ Before a local generation completes, the provider fsyncs newly copied segment fi
     and return it as <code>LiveBackupGeneration.TreeKind</code>. Sources with
     retention should attach their protection lease through
     <code>new LiveBackupGeneration(lease)</code>; restore disposes the generation
-    after all streams have been consumed.
+    after all streams have been consumed. Asynchronous leases can be attached with
+    <code>LiveBackupGeneration.CreateWithAsyncLease(lease)</code>; factory restore
+    awaits their release.
   </p>
 </ExpandablePanel>
+
+## Object storage
+
+Use `ObjectStorageLiveBackupProvider` with an `IBackupObjectStorage` adapter to keep catalog, integrity, publication, and retention policy inside ZoneTree while supplying your own storage service. It supports both plain and transactional trees, streams immutable objects, and coordinates independent restore clients with persistent pins. See [object storage backups](object-storage-backups.mdx) for the required consistency and durability contract, examples, and pin cleanup.
 
 ## Make an offline full copy
 

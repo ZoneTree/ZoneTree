@@ -21,12 +21,17 @@ public sealed class LiveBackupRecordBatchReader : IDisposable
   public LiveBackupRecordBatchReader(
       Stream source,
       LiveBackupRecordBatch batch)
+      : this(source, batch, leaveOpen: false)
+  {
+  }
+
+  internal LiveBackupRecordBatchReader(Stream source, LiveBackupRecordBatch batch, bool leaveOpen)
   {
     Batch = batch ?? throw new ArgumentNullException(nameof(batch));
     ArgumentNullException.ThrowIfNull(source);
     if (batch.RecordCount < 0 || batch.StoredLength < 0 || batch.UncompressedLength < 0)
       throw new LiveBackupIntegrityException($"record batch {batch.BatchId}", "Negative count or length.");
-    Source = new LiveBackupHashStream(source);
+    Source = new LiveBackupHashStream(source, leaveOpen);
   }
 
   public bool TryRead(out LiveBackupRecord record)
@@ -87,10 +92,10 @@ public sealed class LiveBackupRecordBatchReader : IDisposable
         compressedLength <= 0 || compressedLength > Batch.StoredLength - Source.BytesTransferred)
       throw new LiveBackupIntegrityException($"record batch {Batch.BatchId}", "Invalid compressed block lengths.");
     var compressed = ReadBytes(Source, compressedLength);
-    var decompressed = DataCompression.Decompress(
-        Batch.CompressionMethod,
-        compressed,
-        uncompressedLength);
+    Memory<byte> decompressed;
+    try { decompressed = DataCompression.Decompress(Batch.CompressionMethod, compressed, uncompressedLength); }
+    catch (Exception error) when (error is ZstdSharp.ZstdException or InvalidDataException or ArgumentException)
+    { throw new LiveBackupIntegrityException($"record batch {Batch.BatchId}", "Compressed block is damaged or invalid.", error); }
     if (decompressed.Length != uncompressedLength)
       throw new InvalidDataException("Invalid live backup compressed block length.");
     block = decompressed.ToArray();
