@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ZoneTree.AbstractFileStream;
 using ZoneTree.Options;
 using ZoneTree.Segments.Disk;
 
@@ -28,7 +29,17 @@ public sealed class LocalLiveBackupProvider
 
   readonly int BufferSize;
 
+  readonly Action<FileStream> SyncFile;
+
+  readonly Action<string> SyncDirectory;
+
+  bool RootDirectoriesSynced;
+
   readonly LocalDirectoryManifest Manifest = new();
+
+  // Reuse the original digest of immutable files, rather than blessing their
+  // current bytes with a new digest when a later generation references them.
+  readonly Dictionary<string, LocalLiveBackupFile> KnownFiles = new(StringComparer.Ordinal);
 
   bool ManifestLoaded;
 
@@ -49,6 +60,12 @@ public sealed class LocalLiveBackupProvider
 
   public LocalLiveBackupProvider(
       LocalLiveBackupOptions options)
+      : this(options, stream => stream.Flush(flushToDisk: true), DirectorySync.Flush)
+  {
+  }
+
+  internal LocalLiveBackupProvider(LocalLiveBackupOptions options,
+      Action<FileStream> syncFile, Action<string> syncDirectory)
   {
     ArgumentNullException.ThrowIfNull(options);
     options.Normalize();
@@ -59,6 +76,8 @@ public sealed class LocalLiveBackupProvider
     BackupDirectory = options.Directory;
     BufferSize = options.CopyBufferSize;
     KeepLastGenerations = options.KeepLastGenerations;
+    SyncFile = syncFile;
+    SyncDirectory = syncDirectory;
   }
 
   public int? KeepLastGenerations { get; }
@@ -66,13 +85,7 @@ public sealed class LocalLiveBackupProvider
   public LocalLiveBackupGenerationCatalog ReadCurrentGeneration()
   {
     lock (SyncRoot)
-    {
-      LoadManifestIfNeeded();
-      if (Manifest.CurrentGenerationId <= 0)
-        throw new InvalidOperationException(
-            "Local live backup does not contain a completed generation.");
-      return ReadGenerationCatalog(Manifest.CurrentGenerationId);
-    }
+      return ReadGenerationCatalog(ReadPublishedGenerationId());
   }
 
   public LocalLiveBackupGenerationCatalog ReadGeneration(long generationId)
@@ -81,18 +94,16 @@ public sealed class LocalLiveBackupProvider
       return ReadGenerationCatalog(generationId);
   }
 
-  public Task<LiveBackupGeneration> ReadLatestGenerationAsync(
+  public async Task<LiveBackupGeneration> ReadLatestGenerationAsync(
       CancellationToken cancellationToken)
   {
-    cancellationToken.ThrowIfCancellationRequested();
-    lock (SyncRoot)
+    while (true)
     {
-      LoadManifestIfNeeded();
-      if (Manifest.CurrentGenerationId <= 0)
-        throw new InvalidOperationException(
-            "Local live backup does not contain a completed generation.");
-      return Task.FromResult(ToLiveBackupGeneration(
-          ReadGenerationCatalog(Manifest.CurrentGenerationId)));
+      cancellationToken.ThrowIfCancellationRequested();
+      var id = ReadPublishedGenerationId();
+      try { return await ReadGenerationAsync(id, cancellationToken).ConfigureAwait(false); }
+      // A new publication can retire the old head before we acquire its lease.
+      catch (IOException) when (ReadPublishedGenerationId() != id) { }
     }
   }
 
@@ -101,9 +112,37 @@ public sealed class LocalLiveBackupProvider
       CancellationToken cancellationToken)
   {
     cancellationToken.ThrowIfCancellationRequested();
-    lock (SyncRoot)
-      return Task.FromResult(ToLiveBackupGeneration(
-          ReadGenerationCatalog(generationId)));
+    return Task.FromResult(ReadLeasedGeneration(generationId));
+  }
+
+  LiveBackupGeneration ReadLeasedGeneration(long generationId)
+  {
+    var path = GetFullPath(GetGenerationPath(generationId));
+    var lease = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+    try
+    {
+      // On Unix an open descriptor can outlive unlink. IDs are never reused,
+      // so checking the name after acquiring its shared lock closes that race.
+      if (!File.Exists(path)) throw new FileNotFoundException("Backup generation was retired.", path);
+      using var reader = new StreamReader(lease, System.Text.Encoding.UTF8, true, 4096, leaveOpen: true);
+      var catalog = DeserializeGenerationCatalog(reader.ReadToEnd());
+      if (catalog == null || catalog.GenerationId != generationId)
+        throw new LiveBackupIntegrityException(path, "Catalog generation ID does not match its filename.");
+      var generation = ToLiveBackupGeneration(catalog);
+      generation.Lease = lease;
+      return generation;
+    }
+    catch { lease.Dispose(); throw; }
+  }
+
+  long ReadPublishedGenerationId()
+  {
+    using var stream = new FileStream(GetFullPath(ManifestFileName), FileMode.Open, FileAccess.Read,
+        FileShare.ReadWrite | FileShare.Delete);
+    var manifest = JsonSerializer.Deserialize(stream, BackupJsonSerializerContext.Default.LocalDirectoryManifest);
+    if (manifest == null || manifest.CurrentGenerationId <= 0)
+      throw new InvalidOperationException("Local live backup does not contain a completed generation.");
+    return manifest.CurrentGenerationId;
   }
 
   public Task<Stream> OpenSegmentFileAsync(
@@ -150,6 +189,7 @@ public sealed class LocalLiveBackupProvider
   public Task BeginGenerationAsync(
       long generationId,
       DateTime startedAtUtc,
+      LiveBackupTreeKind treeKind,
       CancellationToken cancellationToken)
   {
     cancellationToken.ThrowIfCancellationRequested();
@@ -158,6 +198,8 @@ public sealed class LocalLiveBackupProvider
     {
       ActiveGeneration = new LocalLiveBackupGenerationCatalog
       {
+        Version = treeKind == LiveBackupTreeKind.Transactional ? 3 : 2,
+        TreeKind = treeKind,
         GenerationId = generationId,
         StartedAtUtc = startedAtUtc.ToString("O")
       };
@@ -180,9 +222,13 @@ public sealed class LocalLiveBackupProvider
       AddSegmentId(catalog, file.SegmentId);
       var backupFile = CreateCatalogFile(file);
       var path = GetFullPath(backupFile.BackupPath);
-      if (File.Exists(path))
+      if (File.Exists(path) && KnownFiles.TryGetValue(backupFile.BackupPath, out var known) && known.Sha256 != null)
       {
-        backupFile.ByteLength = new FileInfo(path).Length;
+        RequireChecksum(known.Sha256, file.FileName);
+        if (new FileInfo(path).Length != known.ByteLength)
+          throw new LiveBackupIntegrityException(file.FileName, "Existing backup file length changed.");
+        backupFile.ByteLength = known.ByteLength;
+        backupFile.Sha256 = known.Sha256;
       }
       else
       {
@@ -211,16 +257,22 @@ public sealed class LocalLiveBackupProvider
         path,
         async destination =>
         {
-          await source.CopyToAsync(destination, BufferSize, cancellationToken);
+          using var checkedDestination = new LiveBackupHashStream(destination, leaveOpen: true);
+          await source.CopyToAsync(checkedDestination, BufferSize, cancellationToken).ConfigureAwait(false);
+          backupFile.ByteLength = checkedDestination.BytesTransferred;
+          backupFile.Sha256 = checkedDestination.GetChecksum();
         },
-        cancellationToken);
+        cancellationToken, syncDirectory: false).ConfigureAwait(false);
 
     lock (SyncRoot)
     {
       AddFile(GetActiveGeneration(generationId), backupFile);
+      KnownFiles[backupFile.BackupPath] = backupFile;
     }
   }
 
+  [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
+      Justification = "Ownership transfers to LocalRecordBatchWriter through the hashing stream; construction failures dispose the stream.")]
   public async Task<ILiveBackupRecordWriter> OpenRecordWriterAsync(
       long generationId,
       LiveBackupRecordBatch batch,
@@ -275,7 +327,8 @@ public sealed class LocalLiveBackupProvider
           batch,
           recordBatch,
           tempPath,
-          path);
+          path,
+          SyncFile);
     }
     catch
     {
@@ -298,6 +351,10 @@ public sealed class LocalLiveBackupProvider
       ActiveGeneration = null;
     }
 
+    // All uploads are closed and their contents synced. Persist their names
+    // before any catalog can reference them, batching directory syncs per generation.
+    SyncDirectory(GetFullPath(DataDirectory));
+    SyncDirectory(GetFullPath(RecordsDirectory));
     await WriteGenerationAsync(catalog, cancellationToken);
 
     lock (SyncRoot)
@@ -306,15 +363,26 @@ public sealed class LocalLiveBackupProvider
       Manifest.UpdatedAtUtc = DateTime.UtcNow.ToString("O");
     }
     await WriteManifestAsync(cancellationToken);
+    lock (SyncRoot)
+    {
+      KnownFiles.Clear();
+      foreach (var file in catalog.Files) KnownFiles[file.BackupPath] = file;
+    }
     ApplyRetention(cancellationToken);
   }
 
   void EnsureRootDirectories()
   {
-    Directory.CreateDirectory(BackupDirectory);
-    Directory.CreateDirectory(GetFullPath(DataDirectory));
-    Directory.CreateDirectory(GetFullPath(RecordsDirectory));
-    Directory.CreateDirectory(GetFullPath(GenerationsDirectory));
+    lock (SyncRoot)
+    {
+      if (RootDirectoriesSynced) return;
+      Directory.CreateDirectory(BackupDirectory);
+      Directory.CreateDirectory(GetFullPath(DataDirectory));
+      Directory.CreateDirectory(GetFullPath(RecordsDirectory));
+      Directory.CreateDirectory(GetFullPath(GenerationsDirectory));
+      DirectorySync.FlushTree(Path.GetFullPath(BackupDirectory), SyncDirectory);
+      RootDirectoriesSynced = true;
+    }
   }
 
   void LoadManifestIfNeeded()
@@ -337,6 +405,14 @@ public sealed class LocalLiveBackupProvider
       }
     }
     LastGenerationId = Manifest.CurrentGenerationId;
+    // A complete catalog may precede a failed/crashed manifest publication.
+    // Never overwrite it, or its generation-specific record batch, on restart.
+    foreach (var catalogPath in Directory.GetFiles(GetFullPath(GenerationsDirectory), "*.json"))
+      if (long.TryParse(Path.GetFileNameWithoutExtension(catalogPath), NumberStyles.None, CultureInfo.InvariantCulture, out var id))
+        LastGenerationId = Math.Max(LastGenerationId, id);
+    if (Manifest.CurrentGenerationId > 0)
+      foreach (var file in ReadGenerationCatalog(Manifest.CurrentGenerationId).Files)
+        KnownFiles[file.BackupPath] = file;
     ManifestLoaded = true;
   }
 
@@ -370,7 +446,8 @@ public sealed class LocalLiveBackupProvider
   async Task WriteFileAtomicallyAsync(
       string path,
       Func<Stream, Task> writeAsync,
-      CancellationToken cancellationToken)
+      CancellationToken cancellationToken,
+      bool syncDirectory = true)
   {
     var tempPath = GetTemporaryPath(path);
     try
@@ -388,9 +465,11 @@ public sealed class LocalLiveBackupProvider
           FileOptions.Asynchronous))
       {
         await writeAsync(destination);
-        await destination.FlushAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        SyncFile(destination);
       }
       CommitTemporaryFile(tempPath, path);
+      if (syncDirectory) SyncDirectory(Path.GetDirectoryName(path));
     }
     catch
     {
@@ -431,60 +510,76 @@ public sealed class LocalLiveBackupProvider
 
   void ApplyRetention(CancellationToken cancellationToken)
   {
-    // Retention is applied at the backup-path level, not at the generation level
-    // alone. We first read all generation catalogs and select the newest
-    // KeepLastGenerations catalogs as the retained set. Every file referenced by
-    // those retained catalogs is protected from deletion, including segment files,
-    // record batches, the manifest, and the retained generation catalog files.
-    //
-    // Older generations are then scanned for files to remove. A file from an older
-    // generation is deleted only if its backup path is not referenced by any
-    // retained generation. This is important for reused segment files: when
-    // UseSegmentAsync reuses an existing segment file, it still records that file
-    // in the new generation catalog. Therefore, even if the original older
-    // generation is removed, the physical segment file is preserved as long as a
-    // retained generation still references the same backup path.
     cancellationToken.ThrowIfCancellationRequested();
     if (!KeepLastGenerations.HasValue)
       return;
 
+    foreach (var name in new[] { DataDirectory, RecordsDirectory, GenerationsDirectory })
+      if ((File.GetAttributes(GetFullPath(name)) & FileAttributes.ReparsePoint) != 0)
+        throw new LiveBackupIntegrityException(name, "Backup subdirectories must not be symbolic links.");
+
     var generations = ReadGenerationCatalogs()
         .OrderByDescending(x => x.GenerationId)
         .ToList();
-
+    var published = ReadPublishedGenerationId();
+    if (!generations.Any(x => x.GenerationId == published))
+      throw new LiveBackupIntegrityException(ManifestFileName, "Published generation catalog is missing.");
     var retained = generations
+        .Where(x => x.GenerationId <= published)
         .Take(KeepLastGenerations.Value)
         .ToList();
-    var retainedPaths = retained
-        .SelectMany(GetBackupPaths)
-        .Append(ManifestFileName)
-        .Concat(retained.Select(x => GetGenerationPath(x.GenerationId)))
-        .ToHashSet(StringComparer.Ordinal);
 
-    var deleted = generations
-        .Skip(KeepLastGenerations.Value)
-        .SelectMany(x => GetBackupPaths(x)
-            .Append(GetGenerationPath(x.GenerationId)))
-        .Where(x => !retainedPaths.Contains(x))
-        .Distinct(StringComparer.Ordinal)
-        .ToList();
+    // Retire catalogs before their data. Open restore sources hold shared
+    // catalog leases. DeleteOnClose removes the name while we still own the
+    // exclusive lock, so a new restore cannot acquire a retired generation.
+    foreach (var generation in generations.Except(retained).ToArray())
+    {
+      cancellationToken.ThrowIfCancellationRequested();
+      var path = GetFullPath(GetGenerationPath(generation.GenerationId));
+      try
+      {
+        using var retired = new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.None, 1, FileOptions.DeleteOnClose);
+      }
+      catch (IOException) when (File.Exists(path)) { }
+      if (File.Exists(path)) retained.Add(generation); // Active reader or an unsuccessful delete: keep its files.
+    }
 
-    foreach (var backupPath in deleted)
-      DeleteFile(backupPath, cancellationToken);
-  }
+    // A retired catalog must not reappear after its files have been reclaimed.
+    SyncDirectory(GetFullPath(GenerationsDirectory));
 
-  void DeleteFile(
-      string backupPath,
-      CancellationToken cancellationToken)
-  {
-    cancellationToken.ThrowIfCancellationRequested();
-    var path = GetFullPath(backupPath);
-    if (File.Exists(path))
+    var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+    var retainedPaths = retained.SelectMany(GetBackupPaths).Select(GetFullPath).ToHashSet(comparer);
+    // This also reclaims files left by an interrupted upload or catalog removal.
+    // These two directories are owned by the backup store, never the live tree.
+    foreach (var name in new[] { DataDirectory, RecordsDirectory })
+    {
+      var directory = GetFullPath(name);
+      foreach (var path in Directory.GetFiles(directory))
+      {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!retainedPaths.Contains(Path.GetFullPath(path))) File.Delete(path);
+      }
+    }
+    foreach (var path in Directory.GetFiles(GetFullPath(GenerationsDirectory), "*.tmp")
+        .Concat(Directory.GetFiles(Path.GetFullPath(BackupDirectory), "manifest.json.*.tmp")))
+    {
+      cancellationToken.ThrowIfCancellationRequested();
       File.Delete(path);
+    }
+    SyncDirectory(GetFullPath(DataDirectory));
+    SyncDirectory(GetFullPath(RecordsDirectory));
+    SyncDirectory(GetFullPath(GenerationsDirectory));
+    SyncDirectory(Path.GetFullPath(BackupDirectory));
+    lock (SyncRoot)
+      foreach (var path in KnownFiles.Keys.Where(x => !retainedPaths.Contains(GetFullPath(x))).ToArray())
+        KnownFiles.Remove(path);
   }
 
   static string GetSegmentBackupPath(string fileName)
   {
+    if (string.IsNullOrWhiteSpace(fileName) || fileName.IndexOfAny(['/', '\\']) >= 0 || Path.IsPathRooted(fileName))
+      throw new LiveBackupIntegrityException(fileName, "Expected a segment filename without directories.");
     return DataDirectory + "/" + fileName;
   }
 
@@ -505,7 +600,12 @@ public sealed class LocalLiveBackupProvider
     var path = relativePath
         .Replace('/', Path.DirectorySeparatorChar)
         .Replace('\\', Path.DirectorySeparatorChar);
-    return Path.Combine(BackupDirectory, path);
+    var directory = Path.GetFullPath(BackupDirectory);
+    var root = Path.EndsInDirectorySeparator(directory) ? directory : directory + Path.DirectorySeparatorChar;
+    var fullPath = Path.GetFullPath(Path.Combine(BackupDirectory, path));
+    if (!fullPath.StartsWith(root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+      throw new LiveBackupIntegrityException(relativePath, "Path escapes the backup directory.");
+    return fullPath;
   }
 
   List<LocalLiveBackupGenerationCatalog> ReadGenerationCatalogs()
@@ -518,8 +618,10 @@ public sealed class LocalLiveBackupProvider
     foreach (var path in Directory.GetFiles(directory, "*.json"))
     {
       var catalog = DeserializeGenerationCatalog(File.ReadAllText(path));
-      if (catalog != null)
-        result.Add(catalog);
+      if (catalog == null || !long.TryParse(Path.GetFileNameWithoutExtension(path), NumberStyles.None,
+          CultureInfo.InvariantCulture, out var id) || catalog.GenerationId != id)
+        throw new LiveBackupIntegrityException(path, "Catalog generation ID does not match its filename.");
+      result.Add(catalog);
     }
     return result;
   }
@@ -531,7 +633,10 @@ public sealed class LocalLiveBackupProvider
       throw new FileNotFoundException(
           "Local live backup generation catalog was not found.",
           path);
-    return DeserializeGenerationCatalog(File.ReadAllText(path));
+    var catalog = DeserializeGenerationCatalog(File.ReadAllText(path));
+    if (catalog == null || catalog.GenerationId != generationId)
+      throw new LiveBackupIntegrityException(path, "Catalog generation ID does not match its filename.");
+    return catalog;
   }
 
   static LocalLiveBackupGenerationCatalog DeserializeGenerationCatalog(
@@ -542,8 +647,14 @@ public sealed class LocalLiveBackupProvider
         BackupJsonSerializerContext.Default.LocalLiveBackupGenerationCatalogJsonModel);
     if (model == null)
       return null;
+    if (model.Version is not (1 or 2 or 3))
+      throw new NotSupportedException($"Unsupported live backup catalog version {model.Version}.");
+    if (model.TreeKind != (model.Version == 3 ? LiveBackupTreeKind.Transactional : LiveBackupTreeKind.Plain))
+      throw new LiveBackupIntegrityException($"generation {model.GenerationId}", "Invalid tree kind for catalog version.");
     var catalog = new LocalLiveBackupGenerationCatalog
     {
+      Version = model.Version,
+      TreeKind = model.TreeKind,
       GenerationId = model.GenerationId,
       LastOpIndex = model.LastOpIndex,
       StartedAtUtc = model.StartedAtUtc,
@@ -560,6 +671,8 @@ public sealed class LocalLiveBackupProvider
   {
     return new LocalLiveBackupGenerationCatalogJsonModel
     {
+      Version = catalog.Version,
+      TreeKind = catalog.TreeKind,
       GenerationId = catalog.GenerationId,
       LastOpIndex = catalog.LastOpIndex,
       StartedAtUtc = catalog.StartedAtUtc,
@@ -623,11 +736,10 @@ public sealed class LocalLiveBackupProvider
       LocalLiveBackupGenerationCatalog catalog)
   {
     foreach (var file in catalog.Files)
-      if (!string.IsNullOrWhiteSpace(file.BackupPath))
-        yield return file.BackupPath;
+      yield return GetSegmentBackupPath(file.FileName);
 
-    if (!string.IsNullOrWhiteSpace(catalog.RecordBatch?.BackupPath))
-      yield return catalog.RecordBatch.BackupPath;
+    if (catalog.RecordBatch != null)
+      yield return GetRecordBatchBackupPath(catalog.RecordBatch.BatchId);
   }
 
   static void SortCatalog(LocalLiveBackupGenerationCatalog catalog)
@@ -640,8 +752,16 @@ public sealed class LocalLiveBackupProvider
   static LiveBackupGeneration ToLiveBackupGeneration(
       LocalLiveBackupGenerationCatalog catalog)
   {
+    if (catalog.Version >= 2)
+    {
+      foreach (var file in catalog.Files) RequireChecksum(file.Sha256, file.FileName);
+      if (catalog.RecordBatch != null) RequireChecksum(catalog.RecordBatch.Sha256, $"record batch {catalog.RecordBatch.BatchId}");
+    }
+    if (catalog.RecordBatch != null && !catalog.RecordBatch.Completed)
+      throw new LiveBackupIntegrityException($"generation {catalog.GenerationId}", "Record batch is incomplete.");
     return new LiveBackupGeneration
     {
+      TreeKind = catalog.TreeKind,
       GenerationId = catalog.GenerationId,
       LastOpIndex = catalog.LastOpIndex,
       SegmentIds = [.. catalog.SegmentIds],
@@ -652,10 +772,17 @@ public sealed class LocalLiveBackupProvider
             Order = x.Order,
             FileName = x.FileName,
             RecordCount = x.RecordCount,
-            ByteLength = x.ByteLength
+            ByteLength = x.ByteLength,
+            Sha256 = x.Sha256
           })],
       RecordBatch = ToRecordBatch(catalog.RecordBatch)
     };
+  }
+
+  static void RequireChecksum(string checksum, string file)
+  {
+    if (checksum == null || checksum.Length != 64 || !checksum.All(Uri.IsHexDigit))
+      throw new LiveBackupIntegrityException(file, "Missing or invalid SHA-256 checksum in backup catalog.");
   }
 
   static LiveBackupRecordBatch ToRecordBatch(
@@ -671,7 +798,8 @@ public sealed class LocalLiveBackupProvider
       CompressionLevel = batch.CompressionLevel,
       CompressionBlockSize = batch.CompressionBlockSize,
       UncompressedLength = batch.UncompressedLength,
-      StoredLength = batch.StoredLength
+      StoredLength = batch.StoredLength,
+      Sha256 = batch.Sha256
     };
   }
 
@@ -687,16 +815,23 @@ public sealed class LocalLiveBackupProvider
 
     readonly string DestinationPath;
 
+    readonly FileStream Destination;
+
+    readonly Action<FileStream> SyncFile;
+
     long RecordCount;
 
     public LocalRecordBatchWriter(
-        Stream destination,
+        FileStream destination,
         LiveBackupRecordBatch sourceBatch,
         LocalLiveBackupRecordBatch catalogBatch,
         string tempPath,
-        string destinationPath)
+        string destinationPath,
+        Action<FileStream> syncFile)
     {
-      Writer = new LiveBackupRecordBatchWriter(destination, sourceBatch);
+      Destination = destination;
+      SyncFile = syncFile;
+      Writer = new LiveBackupRecordBatchWriter(destination, sourceBatch, leaveOpen: true);
       SourceBatch = sourceBatch;
       CatalogBatch = catalogBatch;
       TempPath = tempPath;
@@ -716,15 +851,19 @@ public sealed class LocalLiveBackupProvider
       try
       {
         await Writer.DisposeAsync();
+        SyncFile(Destination);
+        await Destination.DisposeAsync();
         CommitTemporaryFile(TempPath, DestinationPath);
         CatalogBatch.RecordCount = RecordCount;
         CatalogBatch.UncompressedLength = SourceBatch.UncompressedLength;
         CatalogBatch.StoredLength = SourceBatch.StoredLength;
+        CatalogBatch.Sha256 = SourceBatch.Sha256;
         CatalogBatch.CompletedAtUtc = DateTime.UtcNow.ToString("O");
         CatalogBatch.Completed = true;
       }
       catch
       {
+        await Destination.DisposeAsync();
         DeleteFileIfExists(TempPath);
         throw;
       }
@@ -752,6 +891,10 @@ internal sealed partial class BackupJsonSerializerContext : JsonSerializerContex
 
 internal sealed class LocalLiveBackupGenerationCatalogJsonModel
 {
+  public int Version { get; set; } = 1;
+
+  public LiveBackupTreeKind TreeKind { get; set; }
+
   public long GenerationId { get; set; }
 
   public long LastOpIndex { get; set; }
@@ -767,6 +910,11 @@ internal sealed class LocalLiveBackupGenerationCatalogJsonModel
 
 public sealed class LocalLiveBackupGenerationCatalog
 {
+  /// <summary>Version 2 requires SHA-256 digests; version 3 identifies transactional storage. Missing versions denote legacy version 1.</summary>
+  public int Version { get; set; } = 1;
+
+  public LiveBackupTreeKind TreeKind { get; set; }
+
   public long GenerationId { get; set; }
 
   public long LastOpIndex { get; set; }
@@ -801,6 +949,8 @@ public sealed class LocalLiveBackupRecordBatch
 
   public long StoredLength { get; set; }
 
+  public string Sha256 { get; set; }
+
   public string StartedAtUtc { get; set; }
 
   public string CompletedAtUtc { get; set; }
@@ -821,6 +971,8 @@ public sealed class LocalLiveBackupFile
   public long RecordCount { get; set; }
 
   public long ByteLength { get; set; }
+
+  public string Sha256 { get; set; }
 
   public string CopiedAtUtc { get; set; }
 }

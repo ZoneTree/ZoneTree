@@ -8,7 +8,7 @@ namespace ZoneTree.Backup;
 /// </summary>
 public sealed class LiveBackupRecordBatchWriter : ILiveBackupRecordWriter
 {
-  readonly Stream Destination;
+  readonly LiveBackupHashStream Destination;
 
   readonly LiveBackupRecordBatch Batch;
 
@@ -17,9 +17,14 @@ public sealed class LiveBackupRecordBatchWriter : ILiveBackupRecordWriter
   public LiveBackupRecordBatchWriter(
       Stream destination,
       LiveBackupRecordBatch batch)
+      : this(destination, batch, leaveOpen: false)
   {
-    Destination = destination ?? throw new ArgumentNullException(nameof(destination));
+  }
+
+  internal LiveBackupRecordBatchWriter(Stream destination, LiveBackupRecordBatch batch, bool leaveOpen)
+  {
     Batch = batch ?? throw new ArgumentNullException(nameof(batch));
+    Destination = new LiveBackupHashStream(destination ?? throw new ArgumentNullException(nameof(destination)), leaveOpen);
     if (batch.CompressionMethod != CompressionMethod.None)
       BlockBuffer = new MemoryStream(batch.CompressionBlockSize);
   }
@@ -28,7 +33,7 @@ public sealed class LiveBackupRecordBatchWriter : ILiveBackupRecordWriter
       LiveBackupRecord record,
       CancellationToken cancellationToken)
   {
-    var destination = BlockBuffer ?? Destination;
+    var destination = BlockBuffer ?? (Stream)Destination;
     await WriteRecordAsync(
         destination,
         record,
@@ -105,9 +110,16 @@ public sealed class LiveBackupRecordBatchWriter : ILiveBackupRecordWriter
 
   public async ValueTask DisposeAsync()
   {
-    await FlushBlockAsync(CancellationToken.None);
-    BlockBuffer?.Dispose();
-    await Destination.FlushAsync();
-    await Destination.DisposeAsync();
+    try
+    {
+      await FlushBlockAsync(CancellationToken.None).ConfigureAwait(false);
+      await Destination.FlushAsync().ConfigureAwait(false);
+      Batch.Sha256 = Destination.GetChecksum();
+    }
+    finally
+    {
+      BlockBuffer?.Dispose();
+      await Destination.DisposeAsync().ConfigureAwait(false);
+    }
   }
 }

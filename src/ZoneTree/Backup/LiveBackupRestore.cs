@@ -1,4 +1,5 @@
 using ZoneTree.Core;
+using ZoneTree.AbstractFileStream;
 using ZoneTree.Options;
 using ZoneTree.WAL;
 
@@ -9,29 +10,35 @@ public sealed class LiveBackupRestore<TKey, TValue>
   readonly ZoneTreeOptions<TKey, TValue> Options;
 
   readonly ILiveBackupSource Source;
+  readonly LiveBackupTreeKind TreeKind;
 
   public LiveBackupRestore(
       ZoneTreeOptions<TKey, TValue> options,
-      ILiveBackupSource source)
+      ILiveBackupSource source,
+      LiveBackupTreeKind treeKind = LiveBackupTreeKind.Plain)
   {
     Options = options ?? throw new ArgumentNullException(nameof(options));
     Source = source ?? throw new ArgumentNullException(nameof(source));
+    TreeKind = treeKind;
   }
 
   public async ValueTask RestoreLatest()
   {
-    var generation = await Source.ReadLatestGenerationAsync(CancellationToken.None);
+    using var generation = await Source.ReadLatestGenerationAsync(CancellationToken.None);
     await Restore(generation);
   }
 
   public async ValueTask RestoreGeneration(long generationId)
   {
-    var generation = await Source.ReadGenerationAsync(generationId, CancellationToken.None);
+    using var generation = await Source.ReadGenerationAsync(generationId, CancellationToken.None);
     await Restore(generation);
   }
 
   async ValueTask Restore(LiveBackupGeneration generation)
   {
+    if (generation.TreeKind != TreeKind)
+      throw new LiveBackupIntegrityException($"generation {generation.GenerationId}",
+          $"This is a {generation.TreeKind} backup; restore requires the matching plain or transactional API.");
     if (ZoneTreeMetaWAL<TKey, TValue>.Exists(Options))
       throw new LiveBackupRestoreTargetAlreadyExistsException();
 
@@ -42,6 +49,8 @@ public sealed class LiveBackupRestore<TKey, TValue>
         GetMaximumSegmentId(generation));
     var mutableSegmentId = ++maximumSegmentId;
     CreateMutableWal(mutableSegmentId);
+    if (Options.WriteAheadLogProvider is WriteAheadLogProvider builtIn)
+      builtIn.SyncCategoryDirectory(ZoneTree<TKey, TValue>.SegmentWalCategory);
     var orderedSegmentIds = GetOrderedSegmentIds(generation);
     var diskSegmentId = orderedSegmentIds.Length > 0 ? orderedSegmentIds[0] : 0;
     var bottomSegments = orderedSegmentIds
@@ -56,41 +65,56 @@ public sealed class LiveBackupRestore<TKey, TValue>
         bottomSegments);
   }
 
+  [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA1849:Call async methods when in an async method",
+      Justification = "Flush(true) is required for power-loss durability; FlushAsync only publishes bytes to the OS.")]
   async ValueTask RestoreDiskSegmentFiles(
       LiveBackupGeneration generation)
   {
     var dataDirectory = GetTargetDataDirectory();
-    Directory.CreateDirectory(dataDirectory);
+    var files = Options.RandomAccessDeviceManager.FileStreamProvider;
+    files.CreateDirectory(dataDirectory);
     foreach (var file in generation.Files)
     {
+      if (string.IsNullOrWhiteSpace(file.FileName) || file.FileName.IndexOfAny(['/', '\\']) >= 0 || Path.IsPathRooted(file.FileName))
+        throw new LiveBackupIntegrityException(file.FileName, "Expected a segment filename without directories.");
       var destination = Path.Combine(dataDirectory, file.FileName);
       using var source = await Source.OpenSegmentFileAsync(file, CancellationToken.None);
-      using var destinationStream = File.Open(
+      using var checkedSource = new LiveBackupHashStream(source, leaveOpen: true);
+      using var destinationStream = files.CreateFileStream(
           destination,
           FileMode.Create,
           FileAccess.Write,
           FileShare.None);
-      await source.CopyToAsync(destinationStream);
+      await checkedSource.CopyToAsync(destinationStream.ToStream()).ConfigureAwait(false);
+      checkedSource.Validate(file.ByteLength, file.Sha256, file.FileName);
+      destinationStream.Flush(flushToDisk: true);
     }
+    // Metadata and later WAL syncs cannot make these immutable copies durable.
+    DirectorySync.FlushTree(dataDirectory, files.SyncDirectory);
   }
 
   async ValueTask<(long[] readOnlySegments, long maximumSegmentId, long)> RestoreInMemoryRecordBatch(
       LiveBackupGeneration generation, long maximumSegmentId)
   {
     var batch = generation.RecordBatch;
-    var hasInMemoryRecordBatch = batch != null && batch.RecordCount > 0;
     var restoreWalOptions = CloneWriteAheadLogOptions(
         Options.WriteAheadLogOptions);
     Options.WriteAheadLogProvider.InitCategory(
         ZoneTree<TKey, TValue>.SegmentWalCategory);
 
     var opIndex = generation.LastOpIndex;
-    if (!hasInMemoryRecordBatch)
+    if (batch == null)
       return ([], maximumSegmentId, opIndex);
 
-    var segmentId = ++maximumSegmentId;
     using var source = await Source.OpenRecordBatchAsync(batch, CancellationToken.None);
     using var reader = new LiveBackupRecordBatchReader(source, batch);
+    if (batch.RecordCount == 0)
+    {
+      // Even an empty batch must match its checksum, lengths and record count.
+      reader.TryRead(out _);
+      return ([], maximumSegmentId, opIndex);
+    }
+    var segmentId = ++maximumSegmentId;
     var wal = Options.WriteAheadLogProvider.GetOrCreateWAL(
         segmentId,
         ZoneTree<TKey, TValue>.SegmentWalCategory,

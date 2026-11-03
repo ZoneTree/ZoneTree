@@ -6,26 +6,60 @@ namespace ZoneTree.Backup;
 /// <summary>
 /// Reads the binary record-batch format used by live backup.
 /// </summary>
+/// <remarks>Consume through the end of the batch to validate its checksum, lengths and record count.</remarks>
 public sealed class LiveBackupRecordBatchReader : IDisposable
 {
-  readonly Stream Source;
+  readonly LiveBackupHashStream Source;
 
   readonly LiveBackupRecordBatch Batch;
 
   MemoryStream BlockBuffer;
+  long RecordsRead;
+  long UncompressedBytesRead;
+  bool Validated;
 
   public LiveBackupRecordBatchReader(
       Stream source,
       LiveBackupRecordBatch batch)
   {
-    Source = source ?? throw new ArgumentNullException(nameof(source));
     Batch = batch ?? throw new ArgumentNullException(nameof(batch));
+    ArgumentNullException.ThrowIfNull(source);
+    if (batch.RecordCount < 0 || batch.StoredLength < 0 || batch.UncompressedLength < 0)
+      throw new LiveBackupIntegrityException($"record batch {batch.BatchId}", "Negative count or length.");
+    Source = new LiveBackupHashStream(source);
   }
 
   public bool TryRead(out LiveBackupRecord record)
   {
+    record = null;
+    if (Validated) return false;
+    var found = TryReadNext(out record);
+    if (!found)
+    {
+      Validate();
+      Validated = true;
+      return false;
+    }
+    ++RecordsRead;
+    if (RecordsRead > Batch.RecordCount || record.RecordIndex != RecordsRead)
+      throw new LiveBackupIntegrityException($"record batch {Batch.BatchId}", "Unexpected record count or index.");
+    UncompressedBytesRead = checked(UncompressedBytesRead + sizeof(long) + sizeof(byte) + 2L * sizeof(int) + record.Key.Length + record.Value.Length);
+    return true;
+  }
+
+  void Validate()
+  {
+    var name = $"record batch {Batch.BatchId}";
+    if (RecordsRead != Batch.RecordCount || UncompressedBytesRead != Batch.UncompressedLength)
+      throw new LiveBackupIntegrityException(name,
+          $"Expected {Batch.RecordCount} records / {Batch.UncompressedLength} uncompressed bytes, read {RecordsRead} / {UncompressedBytesRead}.");
+    Source.Validate(Batch.StoredLength, Batch.Sha256, name);
+  }
+
+  bool TryReadNext(out LiveBackupRecord record)
+  {
     if (Batch.CompressionMethod == CompressionMethod.None)
-      return TryReadRecord(Source, out record);
+      return TryReadRecord(Source, Batch.UncompressedLength - UncompressedBytesRead, out record);
 
     while (BlockBuffer == null || BlockBuffer.Position == BlockBuffer.Length)
     {
@@ -38,7 +72,8 @@ public sealed class LiveBackupRecordBatchReader : IDisposable
       }
       BlockBuffer = new MemoryStream(block, writable: false);
     }
-    return TryReadRecord(BlockBuffer, out record);
+    return TryReadRecord(BlockBuffer, Math.Min(BlockBuffer.Length - BlockBuffer.Position,
+        Batch.UncompressedLength - UncompressedBytesRead), out record);
   }
 
   bool TryReadCompressedBlock(out byte[] block)
@@ -48,6 +83,9 @@ public sealed class LiveBackupRecordBatchReader : IDisposable
       return false;
     if (!TryReadInt32(Source, out var compressedLength))
       throw new EndOfStreamException();
+    if (uncompressedLength <= 0 || uncompressedLength > Batch.UncompressedLength - UncompressedBytesRead ||
+        compressedLength <= 0 || compressedLength > Batch.StoredLength - Source.BytesTransferred)
+      throw new LiveBackupIntegrityException($"record batch {Batch.BatchId}", "Invalid compressed block lengths.");
     var compressed = ReadBytes(Source, compressedLength);
     var decompressed = DataCompression.Decompress(
         Batch.CompressionMethod,
@@ -61,6 +99,7 @@ public sealed class LiveBackupRecordBatchReader : IDisposable
 
   static bool TryReadRecord(
       Stream source,
+      long remainingLength,
       out LiveBackupRecord record)
   {
     record = null;
@@ -69,10 +108,15 @@ public sealed class LiveBackupRecordBatchReader : IDisposable
     var isDeleted = source.ReadByte();
     if (isDeleted < 0)
       throw new EndOfStreamException();
+    if (isDeleted > 1)
+      throw new InvalidDataException("Invalid live backup deletion flag.");
     if (!TryReadInt32(source, out var keyLength))
       throw new EndOfStreamException();
     if (!TryReadInt32(source, out var valueLength))
       throw new EndOfStreamException();
+    if (keyLength < 0 || valueLength < 0 ||
+        sizeof(long) + sizeof(byte) + 2L * sizeof(int) + keyLength + valueLength > remainingLength)
+      throw new InvalidDataException("Invalid live backup record length.");
     record = new LiveBackupRecord
     {
       RecordIndex = recordIndex,

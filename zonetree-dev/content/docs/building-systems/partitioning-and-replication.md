@@ -288,7 +288,7 @@ Bootstrap data and freshness metadata must describe the same base. A newly creat
 
 For whole-partition movement, live backup can transfer the immutable disk files directly and stream recent in-memory records. A generation is a complete restore unit; a store can reuse unchanged segment files across generations.
 
-Built-in live backup supports non-transactional ZoneTrees. Bootstrap a transactional tree from an offline full copy.
+Built-in live backup supports plain and transactional ZoneTrees, including shared WALs. Transactional generations preserve a published commit snapshot; restore them with `RestoreTransactionalFromLatestLiveBackup()` or `RestoreTransactionalFromLiveBackupGeneration()`. See [backup and restore](../durability/backups.mdx) for the capture and retention rules.
 
 ```csharp
 using ZoneTree;

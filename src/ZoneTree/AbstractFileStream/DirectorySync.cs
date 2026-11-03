@@ -9,6 +9,16 @@ internal static class DirectorySync
 {
   const int Interrupted = 4; // EINTR on Linux, macOS and FreeBSD.
 
+  /// <summary>Persists a directory and the ancestor links recursive creation may have added.</summary>
+  internal static void FlushTree(string path, Action<string> syncDirectory)
+  {
+    for (var directory = path; !string.IsNullOrEmpty(directory);
+        directory = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(directory)))
+      syncDirectory(directory);
+    if (!Path.IsPathRooted(path))
+      syncDirectory(".");
+  }
+
   internal static void Flush(string path)
   {
     // Windows has no POSIX directory-fsync operation. Its file flush and

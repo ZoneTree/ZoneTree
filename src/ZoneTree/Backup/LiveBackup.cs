@@ -8,9 +8,9 @@ namespace ZoneTree.Backup;
 
 /// <summary>
 /// Coordinates live backup of immutable ZoneTree disk segments and in-memory
-/// records without changing the live ZoneTree state.
+/// records while the source tree remains open for reads and writes.
 /// </summary>
-public sealed class LiveBackup<TKey, TValue> : IDisposable
+public sealed class LiveBackup<TKey, TValue> : ILiveBackup
 {
   readonly IZoneTree<TKey, TValue> ZoneTree;
 
@@ -28,14 +28,14 @@ public sealed class LiveBackup<TKey, TValue> : IDisposable
 
   readonly ILiveBackupStore Store;
 
+  readonly Func<Core.ZoneTree<TKey, TValue>.BackupSegmentCollection> Capture;
+
   TaskCompletionSource<bool> StateChanged = CreateTaskSource();
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2213:Disposable fields should be disposed", Justification = "SchedulerCancellation is dispsed correctly.")]
   CancellationTokenSource SchedulerCancellation;
 
   int RunningSchedulerCount;
-
-  long RecordBatchId;
 
   long CurrentBackupGenerationId;
 
@@ -48,6 +48,14 @@ public sealed class LiveBackup<TKey, TValue> : IDisposable
   public LiveBackup(
       IZoneTree<TKey, TValue> zoneTree,
       LiveBackupOptions options)
+      : this(zoneTree, options, null)
+  {
+  }
+
+  internal LiveBackup(
+      IZoneTree<TKey, TValue> zoneTree,
+      LiveBackupOptions options,
+      Func<Core.ZoneTree<TKey, TValue>.BackupSegmentCollection> capture)
   {
     ZoneTree = zoneTree ?? throw new ArgumentNullException(nameof(zoneTree));
     CoreZoneTree = zoneTree as Core.ZoneTree<TKey, TValue> ??
@@ -67,6 +75,8 @@ public sealed class LiveBackup<TKey, TValue> : IDisposable
     SourceDataFileStreamProvider =
         ZoneTreeOptions.RandomAccessDeviceManager.FileStreamProvider;
     Store = options.Store;
+    Capture = capture ?? (() => CoreZoneTree.CollectBackupSegments(
+        Options.InMemoryMode == LiveBackupInMemoryMode.Snapshot, Options.IncludeInMemoryRecords));
     Maintenance.OnZoneTreeIsDisposing += OnZoneTreeIsDisposing;
   }
 
@@ -132,10 +142,13 @@ public sealed class LiveBackup<TKey, TValue> : IDisposable
   /// <remarks>
   /// Manual generations are not queued and do not require Start().
   /// If another generation is already running, this method throws.
+  /// Async work runs without the caller's synchronization context; this method
+  /// blocks until it completes. Use CreateGenerationAsync to avoid blocking.
   /// </remarks>
   public void CreateGeneration()
   {
-    CreateGenerationAsync().GetAwaiter().GetResult();
+    // Invoke pluggable async stores without the blocked caller's context.
+    Task.Run(() => CreateGenerationAsync()).GetAwaiter().GetResult();
   }
 
   /// <summary>
@@ -174,10 +187,11 @@ public sealed class LiveBackup<TKey, TValue> : IDisposable
   /// This method waits while Start() is active. Call Stop() to detach automatic
   /// triggers and request scheduler shutdown. The method also waits for the
   /// scheduler to exit and for any running generation to complete.
+  /// Use WaitForLiveBackupAsync to wait without blocking the calling thread.
   /// </remarks>
   public void WaitForLiveBackup()
   {
-    WaitForLiveBackupAsync().GetAwaiter().GetResult();
+    Task.Run(() => WaitForLiveBackupAsync()).GetAwaiter().GetResult();
   }
 
   /// <summary>
@@ -405,12 +419,7 @@ public sealed class LiveBackup<TKey, TValue> : IDisposable
     {
       cancellationToken.ThrowIfCancellationRequested();
 
-      var moveMutableSegmentForward =
-          Options.InMemoryMode == LiveBackupInMemoryMode.Snapshot;
-
-      using var segments = CoreZoneTree.CollectBackupSegments(
-          moveMutableSegmentForward,
-          Options.IncludeInMemoryRecords);
+      using var segments = Capture();
 
       var startedAtUtc = DateTime.UtcNow;
 
@@ -424,14 +433,15 @@ public sealed class LiveBackup<TKey, TValue> : IDisposable
       await Store.BeginGenerationAsync(
           generationId,
           startedAtUtc,
+          segments.TreeKind,
           cancellationToken).ConfigureAwait(false);
 
-      if (Options.IncludeInMemoryRecords &&
-          segments.InMemoryIterator != null)
+      if (segments.InMemoryIterator != null)
       {
         await BackupInMemoryRecordsAsync(
             generationId,
             segments.InMemoryIterator,
+            segments.AdditionalRecords,
             cancellationToken).ConfigureAwait(false);
       }
 
@@ -579,9 +589,12 @@ public sealed class LiveBackup<TKey, TValue> : IDisposable
   async Task BackupInMemoryRecordsAsync(
       long generationId,
       IZoneTreeIterator<TKey, TValue> iterator,
+      IReadOnlyList<KeyValuePair<TKey, TValue>> additionalRecords,
       CancellationToken cancellationToken)
   {
-    var batchId = Interlocked.Increment(ref RecordBatchId);
+    // Generation IDs are allocated by the store and survive coordinator restarts.
+    // A per-coordinator counter can overwrite an older generation's batch file.
+    var batchId = generationId;
     var batch = new LiveBackupRecordBatch
     {
       BatchId = batchId,
@@ -618,6 +631,22 @@ public sealed class LiveBackup<TKey, TValue> : IDisposable
       await writer.WriteAsync(
           record,
           cancellationToken).ConfigureAwait(false);
+    }
+
+    // Pending statuses override commit markers that were not yet published
+    // when a transactional snapshot was captured.
+    foreach (var pair in additionalRecords)
+    {
+      cancellationToken.ThrowIfCancellationRequested();
+      var key = pair.Key;
+      var value = pair.Value;
+      await writer.WriteAsync(new LiveBackupRecord
+      {
+        RecordIndex = ++recordIndex,
+        Key = ZoneTree.KeySerializer.Serialize(in key),
+        Value = ZoneTree.ValueSerializer.Serialize(in value),
+        IsDeleted = ZoneTreeOptions.IsDeleted(in key, in value)
+      }, cancellationToken).ConfigureAwait(false);
     }
 
     batch.RecordCount = recordIndex;

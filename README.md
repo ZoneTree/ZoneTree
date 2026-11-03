@@ -299,7 +299,7 @@ Selecting a shared mode when opening an existing database migrates its live WALs
 
 Disk segments can also use compression and different segment layouts. These options help tune disk space, read patterns, merge behavior, and file-size boundaries.
 
-For long-running services, ZoneTree also supports live backup for built-in non-transactional trees. Live backup creates complete backup generations while the tree remains open for reads and writes, and local backup generations can be restored through `ZoneTreeFactory`.
+For long-running services, ZoneTree supports live backup for built-in plain and transactional trees, including shared WALs. Live backup creates complete generations while reads and writes continue; transactional generations preserve a published commit snapshot. Local generations can be restored through `ZoneTreeFactory`, with retention preserving files shared by retained generations and active restores.
 
 ## What can be built with ZoneTree?
 

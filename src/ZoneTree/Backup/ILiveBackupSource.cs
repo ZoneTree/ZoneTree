@@ -5,9 +5,11 @@ namespace ZoneTree.Backup;
 /// </summary>
 public interface ILiveBackupSource
 {
+  /// <summary>Returns a generation that must be disposed after its streams have been read.</summary>
   Task<LiveBackupGeneration> ReadLatestGenerationAsync(
       CancellationToken cancellationToken);
 
+  /// <summary>Returns a generation that must be disposed after its streams have been read.</summary>
   Task<LiveBackupGeneration> ReadGenerationAsync(
       long generationId,
       CancellationToken cancellationToken);

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using ZoneTree.Backup;
 using ZoneTree.Comparers;
 using ZoneTree.Core;
 using ZoneTree.Exceptions;
@@ -982,6 +983,50 @@ public sealed class MvccZoneTree<TKey, TValue> :
   public int ConflictIndexCount => ConflictIndex.Count;
 
   public IMaintainer CreateMaintainer() => Storage.CreateMaintainer();
+
+  internal ILiveBackup CreateLiveBackup(LiveBackupOptions options)
+  {
+    ArgumentNullException.ThrowIfNull(options);
+    if (!options.IncludeInMemoryRecords)
+      throw new ArgumentException("Transactional backups require in-memory records and transaction statuses.", nameof(options));
+    return new LiveBackup<VersionedKey<TKey>, VersionedValue<TValue>>(Storage, options, CaptureLiveBackup);
+  }
+
+  ZoneTree<VersionedKey<TKey>, VersionedValue<TValue>>.BackupSegmentCollection CaptureLiveBackup()
+  {
+    lock (CommitLock)
+    {
+      // Keep the latest published snapshot visible to concurrent merge filters
+      // until its immutable segment set is attached. Do not hold StateLock while
+      // taking storage locks: merge filters also acquire StateLock.
+      using var snapshot = BeginReadOnlyTransaction();
+      // A prepared durable commit has already deleted its pending marker, but
+      // is still invisible. Restore that marker in the backup's memory overlay.
+      KeyValuePair<VersionedKey<TKey>, VersionedValue<TValue>>[] pending;
+      lock (StateLock)
+        pending = Entries.Values.Where(entry => entry.State != TransactionState.Committed)
+            .Select(entry => new KeyValuePair<VersionedKey<TKey>, VersionedValue<TValue>>(
+                VersionedKey<TKey>.TransactionStatus(entry.Id), VersionedValue<TValue>.FromSystem(PendingStatus)))
+            .ToArray();
+      var core = (ZoneTree<VersionedKey<TKey>, VersionedValue<TValue>>)Storage;
+      var segments = core.CollectBackupSegments(moveMutableSegmentForward: true, includeInMemorySegments: true);
+      segments.TreeKind = LiveBackupTreeKind.Transactional;
+      segments.AdditionalRecords = pending;
+      return segments;
+    }
+  }
+
+  internal static async ValueTask<ITransactionalZoneTree<TKey, TValue>> RestoreLiveBackup(
+      ZoneTreeOptions<TKey, TValue> options, ILiveBackupSource source, long? generationId)
+  {
+    RejectUnsupportedOptions(options);
+    var storageOptions = CreateStorageOptions(options, new StrongBox<MvccZoneTree<TKey, TValue>>());
+    var restore = new LiveBackupRestore<VersionedKey<TKey>, VersionedValue<TValue>>(
+        storageOptions, source, LiveBackupTreeKind.Transactional);
+    if (generationId.HasValue) await restore.RestoreGeneration(generationId.Value).ConfigureAwait(false);
+    else await restore.RestoreLatest().ConfigureAwait(false);
+    return Load(options, canCreate: false, canOpen: true);
+  }
 
   public void SaveMetaData() => StorageMaintenance.SaveMetaData();
 
