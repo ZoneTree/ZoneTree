@@ -1,316 +1,511 @@
 ---
 title: Backups
-description: Create and verify complete live-backup generations, choose memory capture and scheduling policies, configure retention, and restore into an unused local target.
+description: Back up plain or transactional trees to a local directory or object store. Restore a verified generation, schedule backups, retain recent generations, and monitor coordinator status.
 ---
 
 <SectionHeader
   class="zt-guide-intro"
   eyebrow="DURABILITY / BACKUP AND RESTORE"
-  title="Make backup generations easy to restore"
+  title="Back up a live tree. Restore a complete generation."
   titleTag="h1"
   titleId="backups-title"
-  subtitle="Create a complete live-backup generation while the tree remains open, verify a restore, and configure automatic generation and retention policies."/>
+  subtitle="Keep reads and writes running while ZoneTree captures a backup. Choose a destination, restore and verify a generation, then add a schedule and retention policy."/>
 
-## Live backup, offline copy, and rebuild
+<Grid columns="1" columnsMd="3" class="gap-3 zt-guide-outcomes">
+  <Panel class="p-0" bodyClass="p-4">
+    <div class="zt-guide-step-header">
+      <span>01 / CAPTURE</span><Icon name="tabler:database"/>
+    </div>
+    <strong>Collect a source view</strong>
+    <p>
+      Include memory records and hold immutable disk files while they are
+      copied.
+    </p>
+  </Panel>
+  <Panel class="p-0" bodyClass="p-4">
+    <div class="zt-guide-step-header">
+      <span>02 / TRANSFER</span><Icon name="tabler:copy"/>
+    </div>
+    <strong>Reuse unchanged files</strong>
+    <p>
+      Every generation is complete. Its physical disk files can be shared with
+      earlier generations.
+    </p>
+  </Panel>
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4">
+    <div class="zt-guide-step-header">
+      <span>03 / PUBLISH</span><Icon name="tabler:shield-check"/>
+    </div>
+    <strong>Make it restorable</strong>
+    <p>
+      Publish the catalog after its data is committed. Retention protects files
+      still in use.
+    </p>
+  </Panel>
+</Grid>
 
-| Approach | What it captures | When it fits |
-| --- | --- | --- |
-| Live backup | Leased immutable segment files, streamed memory records, and a generation catalog. | Built-in plain or transactional ZoneTree instances that should stay open. |
-| Offline full copy | The complete closed database, including all separately configured WAL locations. | A maintenance window, or a deployment that needs its full file state copied together. |
-| Rebuild from source | The authoritative input and the application's replay position or rebuild procedure. | Derived indexes, caches, and projections whose data can be recreated. |
+Live backup supports built-in plain and transactional trees, including `Shared` and `AsyncShared` WALs. It captures database records; restore does not need the original production WAL files.
 
-Live backup supports both plain and transactional trees, including `Shared` and `AsyncShared` WALs. It captures database records rather than copying production WAL files.
+## Choose a destination
+
+<Grid columns="1" columnsMd="2" class="gap-3 zt-guide-next">
+  <DocCard
+    number="BUILT-IN FILESYSTEM DESTINATION"
+    title="Local directory"
+    summary="Use LocalLiveBackupProvider to write to a filesystem directory. ZoneTree manages durable publication, shared files, restore leases, and retention."
+    href="#restore-and-verify-a-generation"
+    icon="tabler:folder"
+    label="Try the example below"/>
+  <DocCard
+    number="BRING YOUR STORAGE ADAPTER"
+    title="Object storage"
+    summary="Use ObjectStorageLiveBackupProvider with an IBackupObjectStorage adapter. ZoneTree owns the format, integrity checks, conditional publication, and restore pins."
+    href="/docs/durability/object-storage-backups/"
+    icon="tabler:cloud"
+    label="Configure object storage"/>
+</Grid>
+
+Both destinations use the same coordinator API for manual requests, schedules, and status. Retention belongs to the provider: configure `KeepLastGenerations` in `LocalLiveBackupOptions` or `ObjectStorageLiveBackupOptions`. Choose a backup location with the storage separation your deployment needs; a sibling directory on the same device shares that device's lifetime.
 
 ## Restore and verify a generation
 
-This example backs up disk records and newer in-memory changes, then checks the restored updates and deletion:
+These examples back up a running tree, restore the exact generation just created, and verify its records. The restore directory is unique so the example can be run again. Select the API that matches your source tree.
 
+<div class="zt-guide-code-tabs">
+  <Tabs
+    group="backup-quickstart"
+    selectedTab="backup-plain"
+    ariaLabel="Backup and restore examples by tree type"
+    tone="neutral"
+    variant="none"
+  >
+    <TabPane id="backup-plain" label="Plain tree" icon="tabler:database">
 ```csharp
 using ZoneTree;
 using ZoneTree.Backup;
-
-var root = Path.Combine("data", "backup-demo", Guid.NewGuid().ToString("N"));
-var sourceDirectory = Path.Combine(root, "source");
-var backupDirectory = Path.Combine(root, "backup");
-var restoreDirectory = Path.Combine(root, "restored");
-long generationId;
-
-using (var tree = new ZoneTreeFactory<int, string>()
-    .SetDataDirectory(sourceDirectory)
-    .Create())
-using (var maintainer = tree.CreateMaintainer())
-{
-    tree.Upsert(42, "Ada");
-    tree.Upsert(99, "Temporary record");
-    maintainer.EvictToDisk();
-    await maintainer.WaitForBackgroundThreadsAsync();
-
-    tree.Upsert(42, "Ada Lovelace");
-    tree.Upsert(43, "Grace");
-    tree.ForceDelete(99);
-
-    using var backup = tree.CreateLiveBackup(backupDirectory);
-    await backup.CreateGenerationAsync();
-    generationId = backup.CurrentGenerationId;
-}
-
-using var restored = await new ZoneTreeFactory<int, string>()
-    .SetDataDirectory(restoreDirectory)
-    .RestoreFromLatestLiveBackup(backupDirectory);
-using var restoredMaintainer = restored.CreateMaintainer();
-
-if (!restored.TryGet(42, out var ada) || ada != "Ada Lovelace" ||
-    !restored.TryGet(43, out var grace) || grace != "Grace" ||
-    restored.ContainsKey(99))
-{
-    throw new InvalidOperationException("Restored records did not match.");
-}
-
-Console.WriteLine($"Verified generation {generationId}: {ada}, {grace}");
-```
-
-`CreateGenerationAsync()` is a manual request and does not require `Start()`. Awaiting it completes the generation before this example closes the source. `CreateGeneration()` is the synchronous equivalent.
-
-The example uses unique sibling source, backup, and restore directories for repeatability. For operational backups, choose a destination with the storage separation your deployment needs; another directory on the same device shares that device's lifetime.
-
-### Restore a selected generation
-
-Use `RestoreFromLiveBackupGeneration(backupDirectory, generationId)` instead of `RestoreFromLatestLiveBackup(backupDirectory)` to select a retained generation. Both factory methods restore and return an **already opened tree**; a second `Open()` call is not needed.
-
-Restore into an unused data directory and, if configured separately, an unused WAL directory. The built-in guard throws `LiveBackupRestoreTargetAlreadyExistsException` when ZoneTree metadata already exists; it is not a check that every target directory is otherwise empty.
-
-Use the local provider, a WAL-enabled target, and compatible [data contracts](recovery.mdx#preserve-the-data-contracts). Restore copies disk files, rebuilds backed-up memory records into a read-only WAL, and creates fresh mutable WAL and metadata files. It does not need the original production WALs.
-
-Restore fsyncs the copied immutable files and persists their directory entries before publishing database metadata. Built-in WAL providers also persist the restored WAL names, including a separately configured WAL directory. A successful restore does not depend on a later tree close or transaction sync to protect its restored baseline against power loss.
-
-### Transactional backup and restore
-
-Use the same backup options and scheduling API on a transactional tree, and restore through the transactional factory methods:
-
-```csharp
-using var transactions = new ZoneTreeFactory<int, string>()
-    .SetDataDirectory("data/transactions")
-    .OpenOrCreateTransactional();
-using var backup = transactions.CreateLiveBackup("backups/transactions");
-await backup.CreateGenerationAsync();
-
-using var restored = await new ZoneTreeFactory<int, string>()
-    .SetDataDirectory("data/restored-transactions")
-    .RestoreTransactionalFromLatestLiveBackup("backups/transactions");
-using var read = restored.BeginReadOnlyTransaction();
-```
-
-`RestoreTransactionalFromLiveBackupGeneration(backupDirectory, generationId)` selects a retained generation. Both methods return an already opened transactional tree. Plain and transactional restore methods reject a generation with the wrong storage layout. Keep the original user comparer and serializers in the restore configuration; transactional schema validation still applies.
-
-Each transactional generation captures the latest **published commit snapshot**. Active and rolled-back transactions remain invisible after restore, as do durable commits still waiting to publish when capture starts. Ordinary commits already published at capture are included even if the source has not fsynced them yet. The backup does not wait for an in-progress durable commit's WAL sync.
-
-Commits pause while the immutable segment set and transaction statuses are captured. They can proceed during file transfers. Existing disk files remain reusable across generations; backup does not scan and export every committed user record. Transactional backups always freeze the memory view, regardless of `InMemoryMode`, and reject `IncludeInMemoryRecords = false` because omitting transaction statuses could change visibility.
-
-## In-memory capture modes
-
-Memory records are included by default, including deletion markers needed to hide older records in copied disk files. Their batch is compressed independently of disk files, with Zstd level 0 and 1 MiB blocks by default.
-
-| Setting | Capture behavior | Effect on the source |
-| --- | --- | --- |
-| `IncludeInMemoryRecords = true`, `InMemoryMode = Live` - defaults | Streams mutable and read-only memory segments, including deleted records. | Does not move the mutable segment forward. Concurrent writes can affect the live pass. |
-| `IncludeInMemoryRecords = true`, `InMemoryMode = Snapshot` | Moves the mutable segment forward, collects read-only segments, and waits for them to finish freezing before reading. | Rotates the mutable segment and can trigger normal merge maintenance. |
-| `IncludeInMemoryRecords = false` | Captures the collected disk and bottom segments only. | Recent memory-only changes are absent, including updates or deletions of copied disk records. |
-
-These choices apply to plain trees. Snapshot gives a frozen memory view; it does not coordinate an application's multi-step business operation across writes, trees, or external systems. If a generation must correspond to an application checkpoint, finish those writers before requesting it. The round-trip example has no concurrent application writers. Transactional trees coordinate their own committed snapshot as described above.
-
-The generation's `LastOpIndex` is a sequence high-water mark, not an exact “all writes through this index” capture boundary. Restore also assigns operation indexes while rebuilding memory records. Use application-level checkpoint data when coordinating replay or replication.
-
-## Automate generations and retention
-
-`Start()` attaches successful normal-merge triggers and starts any configured UTC schedule. It does not create an initial generation. Create that generation manually if you want one immediately.
-
-This complete example configures a 15-minute schedule and keeps seven completed local generations. It creates an initial generation and demonstrates a controlled final generation:
-
-```csharp
-using ZoneTree;
-using ZoneTree.Backup;
-
-var root = Path.Combine("data", "scheduled-backup", Guid.NewGuid().ToString("N"));
 
 using var tree = new ZoneTreeFactory<int, string>()
-    .SetDataDirectory(Path.Combine(root, "source"))
-    .Create();
+    .SetDataDirectory("data/catalog")
+    .OpenOrCreate();
 using var maintainer = tree.CreateMaintainer();
+tree.Upsert(42, "Ada Lovelace");
+
 using var backup = tree.CreateLiveBackup(new LiveBackupOptions
 {
-    Store = new LocalLiveBackupProvider(new LocalLiveBackupOptions
-    {
-        Directory = Path.Combine(root, "backup"),
-        KeepLastGenerations = 7
-    }),
-    Schedule = LiveBackupSchedule.Every(TimeSpan.FromMinutes(15)),
-    BackupAfterMerge = true
+    Store = new LocalLiveBackupProvider("backups/catalog"),
+    InMemoryMode = LiveBackupInMemoryMode.Snapshot
+});
+await backup.CreateGenerationAsync();
+
+using var restored = await new ZoneTreeFactory<int, string>()
+    .SetDataDirectory(Path.Combine("restore-checks", Guid.NewGuid().ToString("N")))
+    .RestoreFromLiveBackupGeneration("backups/catalog", backup.CurrentGenerationId);
+
+if (!restored.TryGet(42, out var value) || value != "Ada Lovelace")
+    throw new InvalidOperationException("Restored records did not match.");
+```
+    </TabPane>
+    <TabPane
+      id="backup-transactional"
+      label="Transactional tree"
+      icon="tabler:shield-check"
+    >
+```csharp
+using ZoneTree;
+using ZoneTree.Backup;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data/people")
+    .OpenOrCreateTransactional();
+using var maintainer = tree.CreateMaintainer();
+tree.Execute(tx =>
+{
+    tx.Upsert(42, "Ada");
+    tx.Upsert(43, "Grace");
 });
 
-tree.Upsert(42, "Initial state");
-await backup.CreateGenerationAsync();
-backup.Start();
-
-// In a service, keep the tree and coordinator alive while serving requests.
-tree.Upsert(43, "State before shutdown");
-
-// Application writers are finished in this example.
-await maintainer.WaitForBackgroundThreadsAsync();
-backup.Stop();
-await backup.WaitForLiveBackupAsync();
+using var backup = tree.CreateLiveBackup("backups/people");
 await backup.CreateGenerationAsync();
 
-Console.WriteLine($"Final completed generation: {backup.CurrentGenerationId}");
+using var restored = await new ZoneTreeFactory<int, string>()
+    .SetDataDirectory(Path.Combine("restore-checks", Guid.NewGuid().ToString("N")))
+    .RestoreTransactionalFromLiveBackupGeneration("backups/people", backup.CurrentGenerationId);
+using var read = restored.BeginReadOnlyTransaction();
+
+if (!read.TryGet(42, out var ada) || ada != "Ada" ||
+    !read.TryGet(43, out var grace) || grace != "Grace")
+    throw new InvalidOperationException("Restored transaction did not match.");
+```
+    </TabPane>
+  </Tabs>
+</div>
+
+`CreateGenerationAsync()` creates one generation and does not require `Start()`. Factory restore methods return an **already opened tree**. Use `RestoreFromLatestLiveBackup()` or `RestoreTransactionalFromLatestLiveBackup()` to choose the latest published generation instead of supplying an ID. Each restore overload accepts a local directory, local options, or an `ILiveBackupSource`, including the object-storage provider.
+
+Restore into an unused data directory and, when configured separately, an unused WAL directory. Keep WAL enabled in the target and preserve the source's [data contracts](recovery.mdx#preserve-the-data-contracts): types, serializers, comparer, deletion behavior, and compatible storage options. Plain and transactional restore methods reject the wrong tree layout.
+
+<AlertBox
+  class="zt-guide-callout"
+  tone="info"
+  title="Verify the restored data, not just the operation"
+  icon="tabler:check"
+>
+  <p>
+    Check the records and application invariants that matter to your service.
+    Restore validates file contents and framing before publishing database
+    metadata, but only your application can verify that the chosen generation is
+    the one you need.
+  </p>
+</AlertBox>
+
+### Transaction visibility
+
+A transactional backup preserves the latest **published commit snapshot** at capture. Active and rolled-back transactions stay invisible after restore. A durable commit still waiting to publish is excluded; an ordinary commit already published is included even if the source has not synced it yet.
+
+Commits pause while ZoneTree captures the segment set and transaction statuses, then continue during copying. Transactional backups always freeze the memory view and require `IncludeInMemoryRecords = true`, regardless of `InMemoryMode`.
+
+For plain trees, the example explicitly selects `Snapshot`. The default `Live` mode can observe concurrent writes during its memory pass. A frozen storage view does not make several separate application writes atomic; use transactions for that requirement.
+
+## Schedule backups and retention
+
+This service helper creates an initial generation, requests another every 15 minutes, and keeps the newest seven generations. `runApplicationAsync` represents the application's lifetime, so the tree and coordinator remain alive while scheduled work runs.
+
+```csharp
+static async Task RunWithBackupsAsync(
+    IZoneTree<int, string> tree,
+    Func<Task> runApplicationAsync)
+{
+    using var backup = tree.CreateLiveBackup(new LiveBackupOptions
+    {
+        Store = new LocalLiveBackupProvider(new LocalLiveBackupOptions
+        {
+            Directory = "backups/catalog",
+            KeepLastGenerations = 7
+        }),
+        InMemoryMode = LiveBackupInMemoryMode.Snapshot,
+        Schedule = LiveBackupSchedule.Every(TimeSpan.FromMinutes(15)),
+        BackupAfterMerge = false
+    });
+
+    await backup.CreateGenerationAsync();
+    backup.Start();
+    try
+    {
+        await runApplicationAsync();
+    }
+    finally
+    {
+        backup.Stop();
+        await backup.WaitForLiveBackupAsync();
+    }
+}
 ```
 
-The final-generation sequence stops automatic triggers and waits for active backup work before making the manual request. See [request and completion behavior](#backup-requests-and-completion) below for the individual methods.
+Use `ITransactionalZoneTree<int, string>` for a transactional service; the coordinator body is the same. For object storage, replace `Store` with an `ObjectStorageLiveBackupProvider` configured with `KeepLastGenerations = 7`. See the [combined object-storage schedule and retention example](object-storage-backups.mdx#back-up-through-your-object-store).
 
-### Schedule choices
+<Grid columns="1" columnsMd="2" class="gap-3 zt-guide-outcomes">
+  <Panel class="p-0" bodyClass="p-4">
+    <strong>Scheduling requests work</strong>
+    <p>
+      <code>Start()</code> enables configured triggers. It does not create the
+      first generation. The example creates that generation explicitly.
+    </p>
+  </Panel>
+  <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4">
+    <strong>Retention counts generations</strong>
+    <p>
+      Seven generations is not seven days. More frequent schedules or additional
+      merge triggers can shorten the history covered by that count.
+    </p>
+  </Panel>
+</Grid>
 
-| Factory | Meaning |
+### Choose a trigger
+
+| Schedule | Requests |
 | --- | --- |
-| `LiveBackupSchedule.None` | No timer; manual requests and enabled merge triggers still work. |
-| `LiveBackupSchedule.Every(TimeSpan.FromMinutes(15))` | Interval-based requests. |
-| `LiveBackupSchedule.Daily(new TimeOnly(2, 0), new TimeOnly(14, 0))` | Daily at 02:00 and 14:00 UTC. |
+| `LiveBackupSchedule.None` | Manual requests and enabled merge triggers only. |
+| `LiveBackupSchedule.Every(TimeSpan.FromMinutes(15))` | One request every 15 minutes. |
+| `LiveBackupSchedule.Daily(new TimeOnly(2, 0))` | Daily at 02:00 UTC. |
 | `LiveBackupSchedule.Weekly(LiveBackupSchedule.On(DayOfWeek.Sunday, new TimeOnly(2, 0)))` | Sunday at 02:00 UTC. |
 
-`BackupAfterMerge` defaults to `true`. Successful **normal** merges request a generation after `Start()`; bottom-segment merges do not. A schedule remains useful when writes stay in memory without enough activity to trigger a normal merge.
+`BackupAfterMerge` defaults to `true`. After `Start()`, successful normal merges can request generations in addition to the schedule; bottom-segment merges do not. The example disables merge triggers to use the interval alone. A timer remains useful when changes stay in memory without triggering a merge.
 
-## Backup requests and completion
+### Keep shared files and active restores safe
 
-Each coordinator runs at most one generation at a time. Requests do not form a backlog:
+Each retained generation is logically complete. You do not replay earlier backup generations to restore it, but several catalogs may reference the same physical files. Retention deletes a file only when no retained or protected generation needs it. Keep catalogs, referenced files, and record batches together when copying a backup elsewhere.
 
-| Request | When the coordinator is busy | How a started failure is reported |
-| --- | --- | --- |
-| Manual `CreateGenerationAsync()` | Throws `InvalidOperationException`. | Propagates to the caller, commonly as `LiveBackupGenerationException`. |
-| Schedule or normal-merge trigger | Skips that request. | Logs through the tree's logger. |
+`KeepLastGenerations = null` retains all published generations. A positive limit keeps the newest requested count **plus generations protected by active restores**, so the count can temporarily exceed the limit.
 
-Use one coordinator and a single writer to a given backup root, dedicated to one source database. The per-coordinator guard is not a cross-process lock for multiple writers sharing a destination.
+<Grid columns="1" columnsMd="2" class="gap-3 zt-guide-outcomes">
+  <Panel class="p-0" bodyClass="p-4">
+    <strong>Local restores hold file leases</strong>
+    <p>
+      Factory restore releases the lease automatically. A later successful
+      backup can reclaim released generations and abandoned files.
+    </p>
+  </Panel>
+  <Panel class="p-0" bodyClass="p-4">
+    <strong>Object restores hold persistent pins</strong>
+    <p>
+      Pins do not expire. Inspect and explicitly release an abandoned pin after
+      its consumer stops, then run collection.
+      <a
+        href="/docs/durability/object-storage-backups/#restore-pins-and-retention"
+        >Read the pin lifecycle.</a>
+    </p>
+  </Panel>
+</Grid>
 
-`Stop()` detaches automatic triggers and requests scheduler cancellation. It does not create a final generation or cancel an already running generation. `WaitForLiveBackupAsync()` waits until the coordinator is stopped, its scheduler exits, and any active generation finishes; call `Stop()` before waiting while automatic operation is enabled.
-
-`Dispose()` stops and waits too. Keep the backup coordinator's lifetime inside the tree's lifetime, as the `using` declarations above do. Monitor logged automatic failures as well as the presence and age of completed catalogs; waiting for activity to finish does not itself verify that a generation succeeded.
-
-The synchronous `CreateGeneration()` and `WaitForLiveBackup()` methods block their caller while running async work without its synchronization context. Use the async methods when the calling thread must remain responsive.
+If you consume `ILiveBackupSource` directly, use `await using` for the returned `LiveBackupGeneration` and finish reading its streams before releasing it. Factory restore manages this lifetime for you.
 
 ## Poll coordinator status
 
-`ILiveBackup.GetStatus()` returns a consistent, read-only `LiveBackupStatus` snapshot under the coordinator's lock. It performs no storage I/O or clock reads. The same status covers manual, scheduled, and merge-triggered attempts for local and object-storage providers, including transactional trees.
+`ILiveBackup.GetStatus()` returns a consistent in-memory snapshot for either destination and either tree type. Polling takes the coordinator's lock and performs no storage I/O or clock reads.
 
 ```csharp
 var status = backup.GetStatus();
 var running = status.AttemptState == LiveBackupAttemptState.Running;
-var lastSuccessfulGeneration = status.LastSuccessfulGenerationId;
-var lastCompletedAtUnixSeconds = status.LastCompletedAtUnixSeconds;
+
+Console.WriteLine($"State: {status.AttemptState}");
+Console.WriteLine($"Last success: {status.LastSuccessfulGenerationId}");
+Console.WriteLine($"Completed at (Unix seconds): {status.LastCompletedAtUnixSeconds}");
+if (status.AttemptState == LiveBackupAttemptState.Failed)
+    Console.Error.WriteLine(status.LastError);
 ```
 
-| Field | Meaning |
-| --- | --- |
-| `Started` | Automatic operation was enabled with `Start()`. Configured triggers determine which requests are generated. Manual backups can run while false. |
-| `AttemptState` | `None`, `Running`, `Succeeded`, `Failed`, or `Cancelled` for the latest accepted attempt. |
-| `AttemptGenerationId` | Its validated generation ID, or zero until allocation succeeds. Reset when a new attempt is accepted. |
-| `LastSuccessfulGenerationId` | Latest generation successfully completed by this coordinator, also exposed as `CurrentGenerationId`. Preserved across failures and cancellation. |
-| `LastStartedAtUnixSeconds` | When the attempt was accepted, before capture, allocation, or background execution. |
-| `LastFinishedAtUnixSeconds` | When that attempt finished, including cleanup. Reset to zero for the next accepted attempt. |
-| `LastCompletedAtUnixSeconds` | When the latest successful attempt finished. Preserved across failures and cancellation. |
-| `LastError` | The latest failure message, including the underlying cause when wrapped. Empty initially, while running, after success, and after cancellation. |
+An accepted attempt becomes `Running` before capture or allocation. Busy, disposed, and already-cancelled requests leave its status unchanged. Success history survives a later failure or cancellation. A new coordinator starts with `None`, zero IDs and timestamps, and an empty error; it does not discover existing backups. Status remains readable after disposal.
 
-All timestamps use numeric Unix seconds; zero means unset. They describe wall-clock instants, not monotonic elapsed durations. Timestamps are calculated only on attempt transitions. A new coordinator starts with `None`, zero IDs/timestamps, and an empty error, even if its destination already contains generations.
-
-Accepted attempts become `Running` before capture or allocation can fail. Busy, disposed, and already-cancelled requests do not overwrite an accepted attempt's status. `Stop()` disables automatic triggers without cancelling an active attempt. Cancellation is reported only when an accepted operation observes requested cancellation; a backend timeout without that request is a failure. A completed operation remains successful if it did not observe cancellation.
-
-Success is reported after provider completion and captured-segment cleanup finish. Terminal status and release of the busy state are updated atomically. `GetStatus()` remains available after disposal for final diagnostics.
-
-This status is in memory for the lifetime of one coordinator; it does not discover backups or report scheduler health. **`Failed` or `Cancelled` does not prove that nothing was published.** A provider may publish a generation and then fail during retention, or lose an acknowledgment. Its retained generations remain authoritative for resolving publication. Use the status for polling and operational feedback, alongside the tree's logs.
-
-## Keep catalogs and shared files together
-
-The local store contains:
-
-```text
-backup/
-  manifest.json          latest published generation
-  generations/*.json     completed generation catalogs
-  data/*                 reusable sorted segment files
-  records/*.bin          serialized in-memory record batches
-```
-
-Generations are logically complete, while physical disk files can be shared between them. Keep the catalog, its referenced data files, and its record batch together when copying or relocating a generation. Copying a catalog JSON alone does not copy the data.
-
-New local catalogs use version 2 for plain trees and version 3 for transactional trees. Both include a SHA-256 digest for each stored segment file and record batch. Version 3 also identifies transactional storage so it cannot be opened through the plain restore API. Digests are calculated during transfer, and restore verifies them before publishing the restored database metadata. Restore also checks file lengths, batch lengths, record counts, and consecutive record indexes. Integrity failures reject the restore; remove its partial output before retrying in an empty directory.
-
-Incremental generations retain the original digest when reusing an immutable segment file, so creating another generation does not silently accept changed backup bytes. A new coordinator uses generation IDs for record-batch filenames, preserving batches belonging to older generations. Legacy version 1 catalogs remain readable with length and record-count checks but cannot detect every same-length change without a stored digest. When an old segment file has no digest, a new backup copies it again from the live source to establish its checksum.
-
-`KeepLastGenerations` defaults to `null`, meaning no configured generation limit. A positive value retains the latest published generations and removes unreferenced backup files. A file copied for an older generation survives while any retained generation still uses it. The limit counts generations, not days.
-
-An active restore holds a lease on its generation. Retention preserves that catalog and all its files until the restore finishes, so the count can temporarily exceed the configured limit. A later successful backup reclaims released generations. Factory restore methods release their leases automatically, including on failure. If you call `ILiveBackupSource.ReadGenerationAsync()` or `ReadLatestGenerationAsync()` directly, dispose the returned `LiveBackupGeneration` after reading its streams.
-
-Retention retires catalogs before deleting their files, and also removes abandoned uploads and temporary publication files. A restarted writer allocates IDs beyond existing catalogs, including a catalog left by interrupted manifest publication, so older record batches are never overwritten by ID reuse. Keep the backup root intact and avoid editing catalogs or deleting shared files manually.
-
-Before a local generation completes, the provider fsyncs newly copied segment files and memory batches, persists their names, then durably publishes the catalog and latest-generation manifest. Retention starts only after that publication succeeds. Catalog retirement is persisted before unreferenced files are deleted. A sync failure stops these dependent steps and reports a backup failure; generations already held by restores stay protected. These durability barriers run during backup and restore, without adding syncs to the source's normal transaction commit path.
-
-<ExpandablePanel
-  title="Custom backup stores and restore sources"
-  class="zt-guide-reference"
+<AlertBox
+  class="zt-guide-callout"
+  tone="info"
+  title="A failed attempt may already have published"
+  icon="tabler:info-circle"
 >
   <p>
-    Implement <code>ILiveBackupStore</code> to receive generation operations and
-    <code>ILiveBackupSource</code> to read generations and streams for restore.
-    Stores allocate generation IDs, manage destinations and reuse, publish
-    completed generations, and own retention. ZoneTree collects the source view
-    and leases its disk segments.
+    The provider can publish a generation and then fail during retention, or
+    lose an acknowledgment. <code>GetStatus()</code> reports the coordinator's
+    observed outcome. Inspect the provider's retained generations to resolve
+    uncertain publication.
   </p>
+</AlertBox>
+
+<ExpandablePanel title="Status field reference" class="zt-guide-reference">
+  <dl class="zt-guide-definitions">
+    <div>
+      <dt><code>Started</code></dt>
+      <dd>
+        Automatic operation was enabled with <code>Start()</code>. Manual
+        attempts can run while false.
+      </dd>
+    </div>
+    <div>
+      <dt><code>AttemptState</code></dt>
+      <dd>
+        The latest accepted attempt: <code>None</code>, <code>Running</code>,
+        <code>Succeeded</code>, <code>Failed</code>, or <code>Cancelled</code>.
+      </dd>
+    </div>
+    <div>
+      <dt><code>AttemptGenerationId</code></dt>
+      <dd>
+        Its validated ID. Zero until allocation succeeds, and reset for each
+        accepted attempt.
+      </dd>
+    </div>
+    <div>
+      <dt><code>LastSuccessfulGenerationId</code></dt>
+      <dd>
+        Latest generation successfully completed by this coordinator. Also
+        exposed as <code>CurrentGenerationId</code>.
+      </dd>
+    </div>
+    <div>
+      <dt><code>LastStartedAtUnixSeconds</code></dt>
+      <dd>
+        When the latest attempt was accepted, including time before capture and
+        allocation.
+      </dd>
+    </div>
+    <div>
+      <dt><code>LastFinishedAtUnixSeconds</code></dt>
+      <dd>
+        When that attempt finished, including cleanup. Reset to zero for the
+        next attempt.
+      </dd>
+    </div>
+    <div>
+      <dt><code>LastCompletedAtUnixSeconds</code></dt>
+      <dd>
+        When the latest successful attempt finished. Preserved across failures
+        and cancellation.
+      </dd>
+    </div>
+    <div>
+      <dt><code>LastError</code></dt>
+      <dd>
+        The latest failure message, including the underlying cause when wrapped.
+        Empty initially, while running, after success, and on cancellation.
+      </dd>
+    </div>
+  </dl>
   <p>
-    <code>UseSegmentAsync()</code> returns <code>true</code> when ZoneTree
-    should upload the file, or <code>false</code> when the store can reuse an
-    existing copy. File operations can run concurrently:
-    <code>MaxConcurrentFileTransfers</code> defaults to 8. Make store operations
-    safe for that pattern, or configure 1.
-  </p>
-  <p>
-    Preserve each file's segment ID, filename, and <code>Order</code> in the
-    source catalog. Restore uses that order to reconstruct the current disk and
-    bottom layers. Physical disk files are copied as-is;
-    <code>RecordBatchCompression</code> only configures backup-created memory
-    batches.
-  </p>
-  <p>
-    Restore sources must provide accurate byte lengths and batch record counts.
-    Preserve the optional <code>Sha256</code> fields to enable content verification;
-    <code>LiveBackupRecordBatchWriter</code> fills the batch digest when disposed.
-    Custom stores are responsible for persisting that finalized metadata.
-  </p>
-  <p>
-    Persist the <code>treeKind</code> passed to <code>BeginGenerationAsync()</code>
-    and return it as <code>LiveBackupGeneration.TreeKind</code>. Sources with
-    retention should attach their protection lease through
-    <code>new LiveBackupGeneration(lease)</code>; restore disposes the generation
-    after all streams have been consumed. Asynchronous leases can be attached with
-    <code>LiveBackupGeneration.CreateWithAsyncLease(lease)</code>; factory restore
-    awaits their release.
+    Timestamps are numeric Unix seconds; zero means unset. They represent
+    wall-clock instants, not monotonic elapsed durations. Cancellation is
+    reported when an accepted operation observes requested cancellation; an
+    unrelated backend timeout is a failure. This snapshot does not report
+    scheduler health.
   </p>
 </ExpandablePanel>
 
-## Object storage
+## Backup requests and completion
 
-Use `ObjectStorageLiveBackupProvider` with an `IBackupObjectStorage` adapter to keep catalog, integrity, publication, and retention policy inside ZoneTree while supplying your own storage service. It supports both plain and transactional trees, streams immutable objects, and coordinates independent restore clients with persistent pins. See [object storage backups](object-storage-backups.mdx) for the required consistency and durability contract, examples, and pin cleanup.
+Use one coordinator and one normal writer per backup destination. A coordinator runs at most one generation at a time; it does not build a backlog.
 
-## Make an offline full copy
+| Request while busy | Result |
+| --- | --- |
+| Manual `CreateGenerationAsync()` | Throws `InvalidOperationException`; an accepted failure propagates to the caller. |
+| Schedule or normal-merge trigger | Skips the new request; failures of accepted attempts go to the tree's logger. |
 
-For a maintenance-window backup:
+`Stop()` disables automatic triggers and cancels scheduler waiting. It does not cancel a running generation or create a final one. Stop before calling `WaitForLiveBackupAsync()` while automatic operation is enabled; waiting drains active work and scheduler shutdown, but does not certify backup success.
 
-1. Finish application writes and scans, stop backup scheduling, and wait for active backup and merge work.
-2. If segment WAL is disabled and memory records must be retained, finish a controlled merge before closing.
-3. Dispose the tree, or the transactional tree that owns it.
-4. Copy the entire data directory and every separately configured WAL location from that closed state. Include metadata, multipart parts, WAL companion tails, and supporting files.
-5. Open the copy separately and verify application-level records before treating the copy as a usable backup.
+`Dispose()` stops and waits too. Keep the coordinator inside the source tree's lifetime. If you need a final application checkpoint, finish application writers, stop triggers, await active work, then explicitly await `CreateGenerationAsync()`. `CreateGeneration()` and `WaitForLiveBackup()` are blocking equivalents; prefer their async forms in services.
 
-Keep the deployment's factory configuration with the restore procedure.
+## Capture, integrity, and storage reference
 
-<Flex wrap="true" class="gap-3 zt-guide-next"
-  ><BtnLink
+<ExpandablePanel
+  title="Plain-tree memory capture and performance"
+  class="zt-guide-reference"
+>
+  <p>
+    Memory records are included by default, with deletion markers that hide
+    older disk values. These choices apply to plain trees; transactional backups
+    always use a frozen memory view and reject omission of memory records.
+  </p>
+  <ul>
+    <li>
+      <code>InMemoryMode = Live</code> is the default. It streams mutable and
+      read-only memory segments without forcing a rotation. Concurrent writes
+      can affect the pass.
+    </li>
+    <li>
+      <code>InMemoryMode = Snapshot</code> rotates the mutable segment and waits
+      for captured read-only segments to freeze. Normal merge maintenance may
+      follow.
+    </li>
+    <li>
+      <code>IncludeInMemoryRecords = false</code> captures disk and bottom
+      segments only. Memory-only updates and deletions are absent; use this only
+      when that omission is intentional.
+    </li>
+  </ul>
+  <p>
+    Physical disk files are copied as-is.
+    <code>RecordBatchCompression</code> configures the memory batch
+    independently; defaults are Zstd level 0 with 1 MiB blocks.
+    <code>MaxConcurrentFileTransfers</code> defaults to 8.
+  </p>
+  <p>
+    <code>LastOpIndex</code> is a sequence high-water mark, not an exact capture
+    boundary. Restore assigns operation indexes while rebuilding memory records.
+    Coordinate replay or replication through an application checkpoint rather
+    than interpreting this field as a complete write cut.
+  </p>
+</ExpandablePanel>
+
+<ExpandablePanel
+  title="Local files, integrity, and publication durability"
+  class="zt-guide-reference"
+>
+  <p>
+    The local root contains <code>manifest.json</code>, completed catalogs in
+    <code>generations/</code>, reusable disk files in <code>data/</code>, and
+    memory batches in <code>records/</code>. Copying a catalog alone does not
+    copy its data.
+  </p>
+  <p>
+    The local provider fsyncs new file contents and persists names before
+    publishing the catalog and latest-generation manifest. Retention begins
+    after durable publication and persists catalog retirement before reclaiming
+    its files. Restore fsyncs copied immutable files and persists built-in WAL
+    names before publishing database metadata. These barriers run at backup and
+    restore boundaries.
+  </p>
+  <p>
+    Local catalogs use version 2 for plain trees and version 3 for transactional
+    trees. They store SHA-256 digests for segment files and memory batches; the
+    catalogs themselves are not checksummed. Restore also checks lengths, record
+    counts, and consecutive record indexes. Reused files keep their original
+    digest.
+  </p>
+  <p>
+    Legacy version 1 local catalogs remain readable with length and record-count
+    checks, but lack stored content digests. A new generation recopies legacy
+    files from the source to establish checksums. Local and object-storage
+    layouts are separate formats.
+  </p>
+  <p>
+    Existing database metadata causes
+    <code>LiveBackupRestoreTargetAlreadyExistsException</code>; that guard is
+    not a complete empty-directory check. Integrity failures stop restore before
+    publishing metadata. Remove partial output before retrying into unused data
+    and WAL directories.
+  </p>
+</ExpandablePanel>
+
+<ExpandablePanel title="Custom storage integrations" class="zt-guide-reference">
+  <p>
+    For an object service, use <code>IBackupObjectStorage</code> and the
+    built-in object-storage provider. Its contract requires durable committed
+    writes, consistent reads, conditional publication, listing, and deletion.
+    Read the
+    <a href="/docs/durability/object-storage-backups/#storage-adapter-contract"
+      >adapter contract</a>
+    before implementing it.
+  </p>
+  <p>
+    Implement <code>ILiveBackupStore</code> and
+    <code>ILiveBackupSource</code> directly when you need to own a different
+    format or storage workflow. Preserve tree kind, file ordering, finalized
+    digests, batch lengths, and counts. File operations may run concurrently.
+    Attach restore protection with
+    <code>new LiveBackupGeneration(lease)</code> or
+    <code>LiveBackupGeneration.CreateWithAsyncLease(lease)</code>.
+  </p>
+</ExpandablePanel>
+
+<ExpandablePanel
+  title="Offline full copy and rebuild alternatives"
+  class="zt-guide-reference"
+>
+  <p>
+    For an offline copy, finish writers and scans, stop backup scheduling, await
+    backup and merge work, and dispose the tree. With WAL disabled, merge memory
+    records to disk before closing. Copy the entire closed data directory and
+    every separately configured WAL location, including metadata, multipart
+    files, WAL chunks, and companion tails.
+  </p>
+  <p>
+    Keep the factory configuration with the copy and verify an independent open.
+    A rebuild from authoritative application input is also suitable for derived
+    indexes and caches when you retain the replay position needed to reconstruct
+    them.
+  </p>
+</ExpandablePanel>
+
+<Grid columns="1" columnsMd="2" class="gap-3 zt-guide-next">
+  <DocCard
+    number="NEXT / REMOTE DESTINATIONS"
+    title="Object storage backups"
+    summary="Implement a storage adapter, understand conditional publication, and manage persistent restore pins."
+    href="/docs/durability/object-storage-backups/"
+    icon="tabler:cloud"
+    label="Read the object-storage guide"/>
+  <DocCard
+    number="NEXT / DATABASE RECOVERY"
+    title="Recovery and data contracts"
+    summary="Understand startup recovery, capture diagnostics, and preserve the types and settings needed to read stored data."
     href="/docs/durability/recovery/"
-    tone="accent"
-    icon="tabler:arrow-right"
-    iconPosition="end"
-    >Recovery</BtnLink></Flex>
+    icon="tabler:shield-check"
+    label="Read the recovery guide"/>
+</Grid>
