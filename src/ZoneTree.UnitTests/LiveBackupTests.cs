@@ -1172,6 +1172,7 @@ public sealed class LiveBackupTests
     public virtual Task BeginGenerationAsync(
         long generationId,
         DateTime startedAtUtc,
+        LiveBackupTreeKind treeKind,
         CancellationToken cancellationToken)
     {
       Interlocked.Increment(ref BeginGenerations);

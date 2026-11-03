@@ -555,6 +555,37 @@ public sealed class ZoneTreeFactory<TKey, TValue>
     return Open();
   }
 
+  /// <summary>Restores the latest transactional generation and opens its MVCC tree.</summary>
+  public ValueTask<ITransactionalZoneTree<TKey, TValue>> RestoreTransactionalFromLatestLiveBackup(string backupDirectory)
+      => RestoreTransactionalFromLatestLiveBackup(new LocalLiveBackupProvider(backupDirectory));
+
+  /// <summary>Restores the latest transactional generation and opens its MVCC tree.</summary>
+  public ValueTask<ITransactionalZoneTree<TKey, TValue>> RestoreTransactionalFromLatestLiveBackup(LocalLiveBackupOptions options)
+      => RestoreTransactionalFromLatestLiveBackup(new LocalLiveBackupProvider(options));
+
+  /// <summary>Restores the latest transactional generation and opens its MVCC tree.</summary>
+  public ValueTask<ITransactionalZoneTree<TKey, TValue>> RestoreTransactionalFromLatestLiveBackup(ILiveBackupSource source)
+      => RestoreTransactionalLiveBackup(source, null);
+
+  /// <summary>Restores a specific transactional generation and opens its MVCC tree.</summary>
+  public ValueTask<ITransactionalZoneTree<TKey, TValue>> RestoreTransactionalFromLiveBackupGeneration(string backupDirectory, long generationId)
+      => RestoreTransactionalFromLiveBackupGeneration(new LocalLiveBackupProvider(backupDirectory), generationId);
+
+  /// <summary>Restores a specific transactional generation and opens its MVCC tree.</summary>
+  public ValueTask<ITransactionalZoneTree<TKey, TValue>> RestoreTransactionalFromLiveBackupGeneration(LocalLiveBackupOptions options, long generationId)
+      => RestoreTransactionalFromLiveBackupGeneration(new LocalLiveBackupProvider(options), generationId);
+
+  /// <summary>Restores a specific transactional generation and opens its MVCC tree.</summary>
+  public ValueTask<ITransactionalZoneTree<TKey, TValue>> RestoreTransactionalFromLiveBackupGeneration(ILiveBackupSource source, long generationId)
+      => RestoreTransactionalLiveBackup(source, generationId);
+
+  async ValueTask<ITransactionalZoneTree<TKey, TValue>> RestoreTransactionalLiveBackup(ILiveBackupSource source, long? generationId)
+  {
+    FillMissingOptionsForKnownTypes();
+    InitWriteAheadLogProvider(true);
+    return await MvccZoneTree<TKey, TValue>.RestoreLiveBackup(Options, source, generationId).ConfigureAwait(false);
+  }
+
   /// <summary>
   /// Opens or creates a transactional ZoneTree.
   /// </summary>

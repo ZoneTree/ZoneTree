@@ -22,10 +22,12 @@ public interface ILiveBackupStore
 
   /// <summary>
   /// Called when a new backup generation starts.
+  /// Persist treeKind in the catalog so restore can validate its storage layout.
   /// </summary>
   Task BeginGenerationAsync(
       long generationId,
       DateTime startedAtUtc,
+      LiveBackupTreeKind treeKind,
       CancellationToken cancellationToken);
 
   /// <summary>

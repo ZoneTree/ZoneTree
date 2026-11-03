@@ -25,11 +25,13 @@ public sealed class LiveBackupOptions
   /// <summary>
   /// If true, the current mutable and read-only in-memory records are streamed
   /// through a ZoneTree in-memory iterator.
+  /// Transactional backups require this to be true to preserve transaction outcomes.
   /// </summary>
   public bool IncludeInMemoryRecords { get; set; } = true;
 
   /// <summary>
   /// Controls how in-memory records are collected for each backup generation.
+  /// Transactional backups always capture a frozen snapshot, regardless of this setting.
   /// </summary>
   public LiveBackupInMemoryMode InMemoryMode { get; set; }
       = LiveBackupInMemoryMode.Live;

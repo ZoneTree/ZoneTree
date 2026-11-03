@@ -41,3 +41,15 @@ public sealed class LiveBackupRestoreTargetAlreadyExistsException
   {
   }
 }
+
+/// <summary>A backup file or its metadata failed integrity validation.</summary>
+public sealed class LiveBackupIntegrityException : LiveBackupException
+{
+  public LiveBackupIntegrityException(string file, string detail)
+      : base($"Live backup integrity check failed for '{file}': {detail}")
+  {
+    FileName = file;
+  }
+
+  public string FileName { get; }
+}

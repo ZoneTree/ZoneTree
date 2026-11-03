@@ -16,7 +16,8 @@ public sealed class LocalLiveBackupOptions
   public int CopyBufferSize { get; set; } = 128 * 1024;
 
   /// <summary>
-  /// Keeps only the latest completed backup generations.
+  /// Keeps the latest published backup generations, plus any held by active restores.
+  /// Released generations are reclaimed after a later successful backup.
   /// Null disables local retention.
   /// </summary>
   public int? KeepLastGenerations { get; set; }

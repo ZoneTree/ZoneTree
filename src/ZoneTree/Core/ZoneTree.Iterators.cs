@@ -193,6 +193,10 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
   public sealed class BackupSegmentCollection : IDisposable
   {
+    internal Backup.LiveBackupTreeKind TreeKind { get; set; }
+
+    internal IReadOnlyList<KeyValuePair<TKey, TValue>> AdditionalRecords { get; set; } = [];
+
     bool IsDisposed;
 
     public IDiskSegment<TKey, TValue> DiskSegment { get; set; }

@@ -148,6 +148,11 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
     FileStreamProvider.CreateDirectory(categoryPath);
   }
 
+  // Restore creates closed WALs before publishing database metadata. Persist
+  // their names too, including a separately configured WAL directory.
+  internal void SyncCategoryDirectory(string category)
+      => DirectorySync.FlushTree(Path.Combine(WalDirectory, category), FileStreamProvider.SyncDirectory);
+
   public void MigrateWals(Version databaseVersion)
   {
     if (databaseVersion < new Version("2.0.0"))

@@ -1,7 +1,27 @@
+using ZoneTree.Transactional.Mvcc;
+
 namespace ZoneTree.Backup;
 
 public static class LiveBackupExtensions
 {
+  /// <summary>Creates a consistent transactional live backup with incremental disk-file reuse.</summary>
+  public static ILiveBackup CreateLiveBackup<TKey, TValue>(this ITransactionalZoneTree<TKey, TValue> tree, string directory)
+      => tree.CreateLiveBackup(new LiveBackupOptions { Store = new LocalLiveBackupProvider(directory) });
+
+  public static ILiveBackup CreateLiveBackup<TKey, TValue>(this ITransactionalZoneTree<TKey, TValue> tree, LocalLiveBackupOptions options)
+      => tree.CreateLiveBackup(new LiveBackupOptions { Store = new LocalLiveBackupProvider(options) });
+
+  public static ILiveBackup CreateLiveBackup<TKey, TValue>(this ITransactionalZoneTree<TKey, TValue> tree, ILiveBackupStore store)
+      => tree.CreateLiveBackup(new LiveBackupOptions { Store = store });
+
+  public static ILiveBackup CreateLiveBackup<TKey, TValue>(this ITransactionalZoneTree<TKey, TValue> tree, LiveBackupOptions options)
+  {
+    ArgumentNullException.ThrowIfNull(tree);
+    if (tree is not MvccZoneTree<TKey, TValue> mvcc)
+      throw new NotSupportedException("Transactional live backup requires the built-in MVCC tree.");
+    return mvcc.CreateLiveBackup(options);
+  }
+
   /// <summary>
   /// Creates a live backup coordinator that writes into a local directory.
   /// </summary>
