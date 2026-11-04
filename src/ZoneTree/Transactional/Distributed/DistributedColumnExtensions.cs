@@ -68,4 +68,75 @@ public static class DistributedColumnExtensions
       return value;
     }, TransactionIsolationLevel.Snapshot);
   }
+
+  /// <summary>Asynchronously reads the key in a new database snapshot.</summary>
+  public static async ValueTask<DistributedReadResult<TValue>> TryGetAsync<TKey, TValue>(
+      this IDistributedColumn<TKey, TValue> column,
+      TKey key,
+      CancellationToken cancellationToken = default)
+  {
+    await using var transaction = await column.Database.BeginReadOnlyTransactionAsync(
+        cancellationToken).ConfigureAwait(false);
+    return await transaction.GetColumn(column).TryGetAsync(key, cancellationToken).ConfigureAwait(false);
+  }
+
+  /// <summary>Asynchronously checks the key in a new database snapshot.</summary>
+  public static async ValueTask<bool> ContainsKeyAsync<TKey, TValue>(
+      this IDistributedColumn<TKey, TValue> column,
+      TKey key,
+      CancellationToken cancellationToken = default)
+  {
+    await using var transaction = await column.Database.BeginReadOnlyTransactionAsync(
+        cancellationToken).ConfigureAwait(false);
+    return await transaction.GetColumn(column).ContainsKeyAsync(key, cancellationToken).ConfigureAwait(false);
+  }
+
+  /// <summary>
+  /// Asynchronously writes and commits the key for process-crash durability,
+  /// retrying only on conflicts. Use a database transaction for power-loss durability.
+  /// </summary>
+  public static ValueTask UpsertAsync<TKey, TValue>(
+      this IDistributedColumn<TKey, TValue> column,
+      TKey key,
+      TValue value,
+      CancellationToken cancellationToken = default)
+      => column.Database.ExecuteAsync((transaction, token) =>
+          transaction.GetColumn(column).UpsertAsync(key, value, token),
+          TransactionIsolationLevel.Snapshot, cancellationToken: cancellationToken);
+
+  /// <summary>Asynchronously deletes and commits the key; returns whether it existed.</summary>
+  public static ValueTask<bool> TryDeleteAsync<TKey, TValue>(
+      this IDistributedColumn<TKey, TValue> column,
+      TKey key,
+      CancellationToken cancellationToken = default)
+      => column.Database.ExecuteAsync(async (transaction, token) =>
+      {
+        var view = transaction.GetColumn(column);
+        if (!await view.ContainsKeyAsync(key, token).ConfigureAwait(false))
+          return false;
+        await view.DeleteAsync(key, token).ConfigureAwait(false);
+        return true;
+      }, TransactionIsolationLevel.Snapshot, cancellationToken: cancellationToken);
+
+  /// <summary>
+  /// Asynchronously adds or updates and commits the key. Conflicts rerun the synchronous
+  /// update delegate, which must have no external side effects. Returns the written value.
+  /// </summary>
+  public static ValueTask<TValue> AddOrUpdateAsync<TKey, TValue>(
+      this IDistributedColumn<TKey, TValue> column,
+      TKey key,
+      TValue valueToAdd,
+      Func<TValue, TValue> update,
+      CancellationToken cancellationToken = default)
+  {
+    ArgumentNullException.ThrowIfNull(update);
+    return column.Database.ExecuteAsync(async (transaction, token) =>
+    {
+      var view = transaction.GetColumn(column);
+      var current = await view.TryGetAsync(key, token).ConfigureAwait(false);
+      var value = current.Found ? update(current.Value) : valueToAdd;
+      await view.UpsertAsync(key, value, token).ConfigureAwait(false);
+      return value;
+    }, TransactionIsolationLevel.Snapshot, cancellationToken: cancellationToken);
+  }
 }

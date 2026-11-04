@@ -4,10 +4,11 @@ Distribution is **by column**: each column is a separate ZoneTree with its own
 `TKey`, `TValue`, comparer and serializers. The database is non-generic. Columns
 may share a row-key type, but do not have to; joins are explicit application reads.
 
-This change defines compilable contracts and convenience helpers. The factory,
-coordinator, recovery and distributed backup runtime are **not implemented yet**.
-`DistributedMvccZoneTree<TKey, TValue>` remains the copied MVCC engine to evolve
-into a column participant. The existing single-tree MVCC implementation is unchanged.
+This is an API proposal. The distributed runtime is not implemented yet.
+
+The goals are high performance, feature parity with single-tree MVCC, and one
+algorithm across in-process, cross-process and cross-machine distribution. The
+current API starts with in-process distribution.
 
 ## Usage
 
@@ -49,21 +50,27 @@ static async Task Example(IDistributedDatabaseFactory factory)
   {
     var amounts = transaction.GetColumn(balances);
     var labels = transaction.GetColumn(names);
-    amounts.Upsert(1L, 10_000L);
-    labels.Upsert(1L, "Alice");
-    transaction.Commit(); // Both columns commit together; survives process crash.
+    // Issue independent column operations before awaiting their completion.
+    // WhenAll also drains both operations if one fails.
+    await Task.WhenAll(
+        amounts.UpsertAsync(1L, 10_000L).AsTask(),
+        labels.UpsertAsync(1L, "Alice").AsTask());
+    await transaction.CommitAsync(); // Both columns commit together; survives process crash.
   }
 
   // Retry the entire transaction on conflicts. No external side effects in the body.
-  await database.ExecuteDurableAsync(transaction =>
+  await database.ExecuteDurableAsync(async (transaction, token) =>
   {
     var amounts = transaction.GetColumn(balances);
     var events = transaction.GetColumn(audit);
-    if (!amounts.TryGet(1L, out var balance) || balance < 500L)
+    var balance = await amounts.TryGetAsync(1L, token);
+    if (!balance.Found || balance.Value < 500L)
       throw new InvalidOperationException("Insufficient balance.");
-    amounts.Upsert(1L, balance - 500L);
-    events.Upsert(Guid.NewGuid(), "Withdrawal: 500");
-  }, maxAttempts: 10); // Syncs before publication; survives power loss / OS crash.
+    // The balance read must finish first; these independent column writes can overlap.
+    var balanceWrite = amounts.UpsertAsync(1L, balance.Value - 500L, token);
+    var auditWrite = events.UpsertAsync(Guid.NewGuid(), "Withdrawal: 500", token);
+    await Task.WhenAll(balanceWrite.AsTask(), auditWrite.AsTask());
+  }, maxAttempts: 10); // Survives power loss / OS crash.
 
   using (var snapshot = database.BeginReadOnlyTransaction())
   {
@@ -93,66 +100,36 @@ An explicit transaction also provides `TryCommit()`, `CommitDurableAsync()` and
 storage errors throw. Dispose an active transaction to roll it back. Column views
 are borrowed: only the database transaction commits, rolls back or owns a snapshot.
 
-## Guarantees and performance constraints
+## API behavior
 
-| Operation | Publication and durability contract |
+| Operation | Durability guarantee |
 | --- | --- |
-| `Commit()` / `TryCommit()` | All column writes become visible together after required data and the commit decision reach the OS. Survives process crash; no power-loss sync is requested. |
-| `CommitDurableAsync()` / `TryCommitDurableAsync()` | Syncs required column data, recovery dependencies and the decision before publication. Survives power loss / OS crash. Concurrent commits can share syncs. |
-| `SyncWALAsync()` | Makes the complete database commit prefix published before the call durable, including all its columns and decisions. |
+| `Commit()` / `TryCommit()` | Atomic commit across columns; survives a process crash. |
+| `CommitAsync()` / `TryCommitAsync()` | The same process-crash guarantee, with asynchronous completion. |
+| `CommitDurableAsync()` / `TryCommitDurableAsync()` | Atomic commit across columns; survives power loss or an OS crash. |
+| `SyncWALAsync()` | Makes transactions committed before the call durable across power loss or an OS crash. |
 
-The initial in-process factory uses ordered **Shared WALs** for columns and the
-coordinator. Configurations that weaken these guarantees, including queued writes
-without an OS-append barrier or disabled WALs, are rejected. This deliberately
-makes ordinary commit's process-crash guarantee explicit. The single MVCC factory's
-asynchronous WAL modes can lose queued writes on process crash. Storage must honor
-flushes for the durable guarantee, as it must for the single MVCC tree.
+Transactions support `Serializable` and `Snapshot` isolation. All their column
+views share one snapshot and include the transaction's own writes.
 
-One database snapshot covers every column, including columns accessed later.
-Serializable validation spans all read keys and ranges when any column is written;
-`Snapshot` isolation and `TryGetForUpdate` retain their single-tree meanings across
-columns. Equal keys in different columns never conflict merely because they are equal.
-Read-only transactions never conflict and collect no read set.
+Different column views may be used concurrently; use each individual view
+sequentially. Await all outstanding operations before ending the transaction.
+The example starts independent column writes together and awaits both before commit.
 
-The runtime must preserve these properties:
+Async point methods return `ValueTask`. `TryGetAsync` and `TryGetForUpdateAsync`
+return `DistributedReadResult<TValue>` with `Found` and `Value` properties.
+Ranges and iterators also have asynchronous APIs:
 
-- Direct typed calls for in-process reads/writes: no transport serialization,
-  per-record name lookup, boxing of keys/values or mandatory asynchronous wrapper.
-- Lazy column enlistment and cached views; beginning a transaction does not open
-  a transaction in every column. Global snapshot protection still starts at begin.
-- Stream versions into each column as writes happen; retain conflict metadata,
-  rather than buffering all values until commit. Coordinate only accessed columns
-  and required recovery dependencies. Unrelated columns do not perform per-commit I/O.
-- One recoverable outcome and publication point for the entire transaction. Recovery,
-  version reclamation and backups must understand database decisions. Calling the
-  current independent tree commits in sequence cannot implement this contract.
-- Keep single-column transactions on a fast path and batch durability syncs where
-  ordering permits. Performance is a design constraint here, not a measured claim.
+```csharp
+await foreach (var entry in amounts.RangeAsync(1L, 100L)) { /* Ordered records. */ }
+await using var iterator = amounts.CreateAsyncReverseIterator();
+await iterator.SeekAsync(100L);
+while (await iterator.NextAsync()) { /* Descending records. */ }
+```
 
-An uncertain commit is `InDoubt`, stays invisible in that instance and cannot be
-rolled back. Recovery determines its outcome across all columns before reopening.
-Cancelling a started durable commit only stops waiting; it may still commit.
-Retry helpers retry conflicts only, never cancellation or uncertain/storage failures.
+`Execute`, `ExecuteAsync` and `ExecuteDurableAsync` provide conflict retries.
+Column convenience methods include `TryGet`, `ContainsKey`, `Upsert`, `TryDelete`
+and `AddOrUpdate`, plus async versions. Each convenience call uses its own transaction.
 
-## Other entry points
-
-`IDistributedDatabaseFactory` also defines create-only, open-only, and restore of the
-latest or a selected backup generation into an empty destination. Backups include
-schema, coordinator state and all columns at one consistent snapshot; separate
-column backups cannot be combined into a database backup. Local retention and custom
-`IBackupObjectStorage` providers are exposed, along with existing backup scheduling,
-compression, progress and lifecycle APIs.
-
-`database.Maintenance` exposes database counters, metadata saving and whole-database
-drop. `column.Maintenance` exposes per-column storage diagnostics; column maintainers
-allow separate tuning. Raw column mutations or independent commits bypass coordination
-and are unsupported. Schema and membership are fixed in this first version.
-
-`database.Execute` / `ExecuteDurableAsync` and column `TryGet`, `ContainsKey`, `Upsert`,
-`TryDelete`, `AddOrUpdate` preserve the existing convenience operations. For throughput,
-bind views once and batch work inside an explicit database transaction.
-
-Only in-process creation/opening is proposed now. Cross-process and cross-machine
-placement will add transport/connection entry points around the **same participant
-and coordinator protocol**. Replication, failover and online column relocation need
-separate designs; they are not implied by this initial API.
+The API also exposes database and column maintenance, live backups to local or
+custom object storage, and restore of the latest or a selected backup generation.

@@ -2,22 +2,19 @@ namespace ZoneTree.Transactional.Distributed;
 
 /// <summary>A consistent snapshot shared by all columns read by a transaction.</summary>
 /// <remarks>
-/// Dispose it to release snapshot protection and all open iterators. Column views
-/// are borrowed from this transaction and cannot be used after it ends.
-/// Beginning a transaction must not create a transaction in every column:
-/// column views are acquired lazily while snapshot protection is database-wide.
+/// Different column views may be used concurrently; each individual view is sequential.
+/// Finish outstanding operations before ending the transaction. Column views and
+/// iterators cannot be used after the transaction ends.
 /// </remarks>
-public interface IDistributedReadTransaction : IDisposable
+public interface IDistributedReadTransaction : IDisposable, IAsyncDisposable
 {
   /// <summary>
-  /// The database commit timestamp of this snapshot, not a wall-clock time.
-  /// All column views use this timestamp, regardless of when they are acquired.
+  /// The snapshot timestamp shared by all column views.
   /// </summary>
   long SnapshotTimestamp { get; }
 
   /// <summary>
-  /// Binds a typed column to this transaction. Repeated calls return the same view.
-  /// Cache the view for a loop; point operations need no name lookup or type erasure.
+  /// Gets a typed column view within this transaction.
   /// </summary>
   /// <exception cref="ArgumentException">The handle belongs to another database.</exception>
   /// <remarks>Acquiring a view after the transaction ends is rejected.</remarks>

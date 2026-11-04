@@ -1,14 +1,10 @@
 namespace ZoneTree.Transactional.Distributed;
 
 /// <summary>
-/// A reusable, typed handle to one column owned by a distributed database.
-/// Each column may have different key and value types, comparers and serializers.
-/// Equal keys in different columns are independent; no implicit row join is performed.
+/// A reusable, typed handle to a database column with its own key and value types.
 /// </summary>
 /// <remarks>
-/// This handle does not open a transaction or pin a snapshot. Access values through
-/// a database transaction. The handle remains valid until its database is disposed.
-/// The database owns the underlying tree and its lifetime.
+/// Access values through a database transaction. The database owns the column's lifetime.
 /// </remarks>
 public interface IDistributedColumn<TKey, TValue>
 {
@@ -19,10 +15,7 @@ public interface IDistributedColumn<TKey, TValue>
   IDistributedDatabase Database { get; }
 
   /// <summary>
-  /// Per-column storage maintenance and diagnostics. Transaction timestamps use
-  /// the database clock. Raw storage mutations, Drop and separate transactional
-  /// access bypass database coordination and are unsupported while it is open.
-  /// Use database maintenance to drop the database.
+  /// Per-column storage maintenance and diagnostics.
   /// </summary>
   ITransactionalZoneTreeMaintenance<TKey, TValue> Maintenance { get; }
 

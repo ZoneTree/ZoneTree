@@ -4,19 +4,27 @@ namespace ZoneTree.Transactional.Distributed;
 public interface IDistributedWriteColumn<TKey, TValue> : IDistributedReadColumn<TKey, TValue>
 {
   /// <summary>
-  /// Reads and protects the key, including its absence, like a write at either
-  /// isolation level. A writing transaction fails validation if another transaction
-  /// committed or prepared a write to this column/key after its snapshot. Protection
-  /// still applies when this transaction's writes are only in other columns.
+  /// Reads the key and protects it against concurrent changes, including when absent.
   /// </summary>
   bool TryGetForUpdate(in TKey key, out TValue value);
 
+  /// <summary>Asynchronously reads and protects the key against concurrent changes.</summary>
+  ValueTask<DistributedReadResult<TValue>> TryGetForUpdateAsync(
+      TKey key, CancellationToken cancellationToken = default);
+
   /// <summary>
-  /// Writes a version in this column. A detected conflict sets the parent transaction's
-  /// HasConflict flag and suppresses further writes across all its columns.
+  /// Inserts or updates the key within the transaction.
   /// </summary>
   void Upsert(in TKey key, in TValue value);
 
-  /// <summary>Deletes the key with the same conflict rules as Upsert.</summary>
+  /// <summary>
+  /// Asynchronously inserts or updates the key within the transaction.
+  /// </summary>
+  ValueTask UpsertAsync(TKey key, TValue value, CancellationToken cancellationToken = default);
+
+  /// <summary>Deletes the key within the transaction.</summary>
   void Delete(in TKey key);
+
+  /// <summary>Asynchronously deletes the key within the transaction.</summary>
+  ValueTask DeleteAsync(TKey key, CancellationToken cancellationToken = default);
 }

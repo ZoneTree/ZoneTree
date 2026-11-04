@@ -4,12 +4,10 @@ namespace ZoneTree.Transactional.Distributed;
 
 /// <summary>
 /// Scheduling and transfer settings for consistent database-wide live backups.
-/// Each generation always includes in-memory records and transaction recovery state.
-/// Local and object-storage retention are configured by their existing storage options.
 /// </summary>
 public sealed class DistributedLiveBackupOptions
 {
-  /// <summary>Queues a database generation after a column or coordinator merge.</summary>
+  /// <summary>Whether to create a backup generation after a merge.</summary>
   public bool BackupAfterMerge { get; init; } = true;
 
   /// <summary>The optional UTC schedule for complete database generations.</summary>
