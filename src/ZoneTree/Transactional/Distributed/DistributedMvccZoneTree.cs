@@ -8,6 +8,7 @@ using ZoneTree.Logger;
 using ZoneTree.Options;
 using ZoneTree.Transactional.Conflicts;
 using ZoneTree.Transactional.Versioning;
+using ArgumentOutOfRangeException = System.ArgumentOutOfRangeException;
 
 namespace ZoneTree.Transactional.Distributed;
 
