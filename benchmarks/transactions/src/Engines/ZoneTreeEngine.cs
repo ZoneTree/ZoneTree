@@ -50,10 +50,13 @@ public sealed class ZoneTreeEngine : ITransactionEngine
   }
 
   internal static ZoneTreeFactory<long, byte[]> CreateFactory(EngineOpenOptions options, WriteAheadLogMode walMode)
+      => ConfigureFactory(new ZoneTreeFactory<long, byte[]>().SetDataDirectory(options.Directory), options, walMode);
+
+  internal static ZoneTreeFactory<long, byte[]> ConfigureFactory(
+      ZoneTreeFactory<long, byte[]> factory, EngineOpenOptions options, WriteAheadLogMode walMode)
   {
     var tuning = options.Tuning;
-    return new ZoneTreeFactory<long, byte[]>()
-        .SetDataDirectory(options.Directory)
+    return factory
         .SetMutableSegmentMaxItemCount(tuning.ZoneTreeMutableSegmentMaxItemCount)
         .SetComparer(new Int64ComparerAscending())
         .SetKeySerializer(new Int64Serializer())

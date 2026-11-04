@@ -6,7 +6,8 @@ namespace ZoneTree.Transactional.Distributed;
 /// <summary>
 /// Reads the snapshot of a transaction of <see cref="DistributedMvccZoneTree{TKey, TValue}"/>.
 /// </summary>
-internal abstract class DistributedMvccReader<TKey, TValue> : IReadTransaction<TKey, TValue>
+internal abstract class DistributedMvccReader<TKey, TValue> : DistributedDatabaseColumnView,
+    IReadTransaction<TKey, TValue>, IDistributedReadColumn<TKey, TValue>
 {
   protected readonly DistributedMvccZoneTree<TKey, TValue> Tree;
 
@@ -47,6 +48,20 @@ internal abstract class DistributedMvccReader<TKey, TValue> : IReadTransaction<T
   {
     EnsureActive();
     return ReadVisible(in key, out value);
+  }
+
+  public ValueTask<bool> ContainsKeyAsync(TKey key, CancellationToken cancellationToken = default)
+  {
+    cancellationToken.ThrowIfCancellationRequested();
+    return new(ContainsKey(in key));
+  }
+
+  public ValueTask<DistributedReadResult<TValue>> TryGetAsync(TKey key,
+      CancellationToken cancellationToken = default)
+  {
+    cancellationToken.ThrowIfCancellationRequested();
+    var found = TryGet(in key, out var value);
+    return new(new DistributedReadResult<TValue>(found, value));
   }
 
   /// <summary>
@@ -146,6 +161,16 @@ internal abstract class DistributedMvccReader<TKey, TValue> : IReadTransaction<T
     return CreateIterator(true, options, false, default);
   }
 
+  public IAsyncEnumerable<KeyValuePair<TKey, TValue>> RangeAsync(TKey from, TKey to,
+      bool reverse = false, CancellationToken cancellationToken = default)
+      => new DistributedAsyncRange<TKey, TValue>(Range(in from, in to, reverse), cancellationToken);
+
+  public IDistributedAsyncTransactionIterator<TKey, TValue> CreateAsyncIterator(TransactionIteratorOptions options = null)
+      => new DistributedAsyncTransactionIterator<TKey, TValue>(CreateIterator(options));
+
+  public IDistributedAsyncTransactionIterator<TKey, TValue> CreateAsyncReverseIterator(TransactionIteratorOptions options = null)
+      => new DistributedAsyncTransactionIterator<TKey, TValue>(CreateReverseIterator(options));
+
   DistributedMvccTransactionIterator<TKey, TValue> CreateIterator(
       bool reverse, TransactionIteratorOptions options, bool hasBound, TKey bound)
   {
@@ -173,5 +198,11 @@ internal abstract class DistributedMvccReader<TKey, TValue> : IReadTransaction<T
       OpenIterators[i].Dispose();
   }
 
-  public abstract void Dispose();
+  internal override Task<bool> BeginCommit(bool durable)
+  {
+    Dispose();
+    return Task.FromResult(true);
+  }
+
+  public abstract override void Dispose();
 }

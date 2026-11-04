@@ -637,6 +637,15 @@ public sealed class ZoneTreeFactory<TKey, TValue>
     return MvccZoneTree<TKey, TValue>.Load(Options, canCreate: false, canOpen: true);
   }
 
+  internal Transactional.Distributed.DistributedMvccZoneTree<TKey, TValue> OpenDistributedColumn(
+      bool canCreate, bool canOpen)
+  {
+    FillMissingOptionsForKnownTypes();
+    InitWriteAheadLogProvider(true);
+    return Transactional.Distributed.DistributedMvccZoneTree<TKey, TValue>.Load(
+        Options, canCreate, canOpen);
+  }
+
   /// <summary>
   /// Disables deletion to be able to insert default values of the value type.
   /// Databases created with this option are not able to delete records.

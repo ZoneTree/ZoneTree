@@ -1,29 +1,45 @@
-# Distributed database API proposal
+# Distributed database: first working slice
 
 Distribution is **by column**: each column is a separate ZoneTree with its own
 `TKey`, `TValue`, comparer and serializers. The database is non-generic. Columns
 may share a row-key type, but do not have to; joins are explicit application reads.
 
-This is an API proposal. The distributed runtime is not implemented yet.
+`DistributedDatabaseFactory` opens the first working in-process implementation.
+The original single-tree MVCC engine is unchanged.
 
 The goals are high performance, feature parity with single-tree MVCC, and one
 algorithm across in-process, cross-process and cross-machine distribution. The
 current API starts with in-process distribution.
 
+This slice supports typed columns, reads/writes, rollback, conflict preflight,
+ordinary and durable column commits, iteration, clean reopen and maintenance.
+It is experimental: snapshots and isolation are currently per column, acquired
+when a column is first accessed. There is no shared cross-column snapshot,
+atomic cross-column visibility, or atomic cross-column crash recovery yet.
+Database timestamps are session-local bookkeeping at this stage.
+
+A detected conflict is rejected before any column commits. An error after column
+commits start may leave some columns committed; the database transaction reports
+`InDoubt` and throws rather than reporting a retryable conflict. Database-wide
+backup/restore currently throws `NotSupportedException`. Durability follows each
+column's WAL configuration; new columns default to their own Shared WAL.
+
+The local async data methods currently complete inline over the synchronous MVCC
+engine. For actual thread parallelism, run batches on separate column workers.
+
 ## Usage
 
-The example accepts the proposed factory; a concrete in-process factory comes
-with the runtime implementation. `ConfigureStorage` reuses the existing typed
+`ConfigureStorage` reuses the existing typed
 factory for serializers, comparers, compression, cache and segment tuning.
 
 ```csharp
 using ZoneTree;
-using ZoneTree.Backup;
 using ZoneTree.Transactional;
 using ZoneTree.Transactional.Distributed;
 
-static async Task Example(IDistributedDatabaseFactory factory)
+static async Task Example()
 {
+  var factory = new DistributedDatabaseFactory();
   var options = new DistributedDatabaseOptions
   {
     DataDirectory = "./bank",
@@ -77,7 +93,7 @@ static async Task Example(IDistributedDatabaseFactory factory)
     var amounts = snapshot.GetColumn(balances);
     var labels = snapshot.GetColumn(names);
     labels.TryGet(1L, out var name);
-    amounts.TryGet(1L, out var balance); // Same snapshot as the name, even if bound later.
+    amounts.TryGet(1L, out var balance);
 
     foreach (var entry in amounts.Range(1L, 100L)) { /* Ordered, lazy range. */ }
     using var iterator = amounts.CreateReverseIterator(
@@ -89,9 +105,6 @@ static async Task Example(IDistributedDatabaseFactory factory)
   // Batch ordinary commits, then make all previously published commits durable.
   await database.SyncWALAsync();
 
-  using var backup = database.CreateLiveBackup(
-      new LocalLiveBackupOptions { Directory = "./bank-backup", KeepLastGenerations = 3 });
-  await backup.CreateGenerationAsync();
 }
 ```
 
@@ -100,7 +113,10 @@ An explicit transaction also provides `TryCommit()`, `CommitDurableAsync()` and
 storage errors throw. Dispose an active transaction to roll it back. Column views
 are borrowed: only the database transaction commits, rolls back or owns a snapshot.
 
-## API behavior
+## Target API guarantees
+
+The interfaces describe the target guarantees. The cross-column limitations of
+this first implementation are listed above.
 
 | Operation | Durability guarantee |
 | --- | --- |
@@ -109,8 +125,8 @@ are borrowed: only the database transaction commits, rolls back or owns a snapsh
 | `CommitDurableAsync()` / `TryCommitDurableAsync()` | Atomic commit across columns; survives power loss or an OS crash. |
 | `SyncWALAsync()` | Makes transactions committed before the call durable across power loss or an OS crash. |
 
-Transactions support `Serializable` and `Snapshot` isolation. All their column
-views share one snapshot and include the transaction's own writes.
+Transactions accept `Serializable` and `Snapshot` isolation. In this slice these
+apply within each column; full database isolation remains future work.
 
 Different column views may be used concurrently; use each individual view
 sequentially. Await all outstanding operations before ending the transaction.
@@ -131,5 +147,5 @@ while (await iterator.NextAsync()) { /* Descending records. */ }
 Column convenience methods include `TryGet`, `ContainsKey`, `Upsert`, `TryDelete`
 and `AddOrUpdate`, plus async versions. Each convenience call uses its own transaction.
 
-The API also exposes database and column maintenance, live backups to local or
-custom object storage, and restore of the latest or a selected backup generation.
+Database and column maintenance are available. The backup/restore API remains
+defined for a later slice.

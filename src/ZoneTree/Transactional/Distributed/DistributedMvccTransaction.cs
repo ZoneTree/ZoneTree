@@ -15,7 +15,7 @@ namespace ZoneTree.Transactional.Distributed;
 /// serializable mode the keys and ranges it read.
 /// </remarks>
 internal sealed class DistributedMvccTransaction<TKey, TValue> :
-    DistributedMvccReader<TKey, TValue>, ITransaction<TKey, TValue>
+    DistributedMvccReader<TKey, TValue>, ITransaction<TKey, TValue>, IDistributedWriteColumn<TKey, TValue>
 {
   List<KeyRange<TKey>> ReadRanges;
 
@@ -46,7 +46,9 @@ internal sealed class DistributedMvccTransaction<TKey, TValue> :
 
   public DistributedTransactionEntry Entry { get; }
 
-  public bool HasWrites => WrittenKeys != null;
+  internal override bool HasWrites => WrittenKeys != null;
+  internal override bool ConflictDetected => HasConflict;
+  internal override bool CanCommit() => Tree.CanCommit(this);
 
   /// <summary>
   /// True if the commit validates every read.
@@ -95,6 +97,14 @@ internal sealed class DistributedMvccTransaction<TKey, TValue> :
     return ReadVisible(in key, out value);
   }
 
+  public ValueTask<DistributedReadResult<TValue>> TryGetForUpdateAsync(TKey key,
+      CancellationToken cancellationToken = default)
+  {
+    cancellationToken.ThrowIfCancellationRequested();
+    var found = TryGetForUpdate(in key, out var value);
+    return new(new DistributedReadResult<TValue>(found, value));
+  }
+
   void AddReadKey(in TKey key)
   {
     (ReadKeys ??= new KeyList<TKey>(Tree.KeyComparer)).Add(key);
@@ -108,6 +118,20 @@ internal sealed class DistributedMvccTransaction<TKey, TValue> :
   public void Delete(in TKey key)
   {
     Write(in key, VersionedValue<TValue>.Tombstone);
+  }
+
+  public ValueTask UpsertAsync(TKey key, TValue value, CancellationToken cancellationToken = default)
+  {
+    cancellationToken.ThrowIfCancellationRequested();
+    Upsert(in key, in value);
+    return ValueTask.CompletedTask;
+  }
+
+  public ValueTask DeleteAsync(TKey key, CancellationToken cancellationToken = default)
+  {
+    cancellationToken.ThrowIfCancellationRequested();
+    Delete(in key);
+    return ValueTask.CompletedTask;
   }
 
   void Write(in TKey key, in VersionedValue<TValue> value)
@@ -215,6 +239,53 @@ internal sealed class DistributedMvccTransaction<TKey, TValue> :
   {
     CommitTimestamp = commitTimestamp;
     state = TransactionState.Committed;
+  }
+
+  internal override Task<bool> BeginCommit(bool durable)
+  {
+    EnsureActive();
+    if (HasConflict)
+    {
+      Rollback();
+      return Task.FromResult(false);
+    }
+    ReleaseReaders();
+    try
+    {
+      var commit = durable && HasWrites ? Tree.CommitDurableAsync(this) : Tree.CommitAsync(this);
+      if (commit.IsCompletedSuccessfully)
+      {
+        if (!GetCompletedResult(commit))
+          state = TransactionState.Aborted;
+        return commit;
+      }
+      return CompleteDatabaseCommitAsync(commit);
+    }
+    catch
+    {
+      if (state == TransactionState.Active)
+        state = TransactionState.Aborted;
+      throw;
+    }
+  }
+
+  static bool GetCompletedResult(Task<bool> commit) => commit.GetAwaiter().GetResult();
+
+  async Task<bool> CompleteDatabaseCommitAsync(Task<bool> commit)
+  {
+    try
+    {
+      var committed = await commit.ConfigureAwait(false);
+      if (!committed)
+        state = TransactionState.Aborted;
+      return committed;
+    }
+    catch
+    {
+      if (state == TransactionState.Active)
+        state = TransactionState.Aborted;
+      throw;
+    }
   }
 
   public async Task CommitDurableAsync(CancellationToken cancellationToken = default)

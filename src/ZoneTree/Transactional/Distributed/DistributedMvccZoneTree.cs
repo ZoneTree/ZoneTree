@@ -520,6 +520,22 @@ public sealed class DistributedMvccZoneTree<TKey, TValue> :
   internal bool Commit(DistributedMvccTransaction<TKey, TValue> transaction)
       => PrepareCommit(transaction, false).GetAwaiter().GetResult();
 
+  internal Task<bool> CommitAsync(DistributedMvccTransaction<TKey, TValue> transaction)
+      => PrepareCommit(transaction, false);
+
+  internal bool CanCommit(DistributedMvccTransaction<TKey, TValue> transaction)
+  {
+    transaction.EnsureActive();
+    lock (CommitLock)
+    {
+      if (CommitFailure != null)
+        throw new InvalidOperationException("A previous commit sync failed. Reopen the tree before committing again.", CommitFailure);
+      return !transaction.HasConflict &&
+          (!transaction.HasWrites || LastPreparedCommitTimestamp <= transaction.SnapshotTimestamp ||
+          !transaction.ConflictsWith(ConflictIndex));
+    }
+  }
+
   internal Task<bool> CommitDurableAsync(DistributedMvccTransaction<TKey, TValue> transaction)
       => PrepareCommit(transaction, true);
 

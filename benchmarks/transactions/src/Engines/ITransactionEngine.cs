@@ -98,8 +98,8 @@ public static class EngineCatalog
       "Snapshot: a commit fails if a newer committed or prepared transaction wrote a key it wrote or read for update. Plain reads are not protected.";
 
   /// <summary>
-  /// The order is the report's column order and fixes each engine's chart color,
-  /// so engines of a family stay together and share a color family in SvgCharts.
+  /// The order fixes report columns and chart colors. Append new variants to retain
+  /// existing colors; SvgCharts assigns each family its color range.
   /// </summary>
   public static readonly IReadOnlyList<EngineVariant> All =
   [
@@ -161,6 +161,14 @@ public static class EngineCatalog
         "sqlite-raw", "sqlite", "SQLite raw",
         "Autocommit statements; no explicit BEGIN/COMMIT/ROLLBACK or transaction spanning scenario operations. Each statement retains SQLite's native atomicity.",
         options => new SqliteEngine(options, raw: true), Raw: true),
+    new(
+        "dist-mvcc-ser-async", "zonetree", "Dist MVCC serializable async",
+        "Distributed database with one column. " + SerializableIsolation + " Cross-column guarantees are not exercised.",
+        options => new DistributedZoneTreeEngine(options, WriteAheadLogMode.AsyncShared)),
+    new(
+        "dist-mvcc-ser-sync", "zonetree", "Dist MVCC serializable sync",
+        "Distributed database with one column. " + SerializableIsolation + " Cross-column guarantees are not exercised.",
+        options => new DistributedZoneTreeEngine(options, WriteAheadLogMode.Shared)),
   ];
 
   public static int ColorSlot(string engineId)
