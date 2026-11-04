@@ -68,13 +68,14 @@ public sealed class DistributedDatabaseFactory : IDistributedDatabaseFactory
   {
     using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
     using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
-    writer.Write(1);
+    writer.Write(2);
     writer.Write(definitions.Length);
     foreach (var column in definitions)
     {
       writer.Write(column.Name);
       writer.Write(column.KeyType.FullName);
       writer.Write(column.ValueType.FullName);
+      writer.Write(column.IsRaw);
     }
     writer.Flush();
     stream.Flush(flushToDisk: true);
@@ -84,13 +85,17 @@ public sealed class DistributedDatabaseFactory : IDistributedDatabaseFactory
   {
     using var stream = File.OpenRead(path);
     using var reader = new BinaryReader(stream);
-    if (reader.ReadInt32() != 1 || reader.ReadInt32() != definitions.Length)
+    var version = reader.ReadInt32();
+    if (version is not 1 and not 2 || reader.ReadInt32() != definitions.Length)
       throw new InvalidDataException("The database schema does not match the column definitions.");
     foreach (var column in definitions)
     {
       if (reader.ReadString() != column.Name || reader.ReadString() != column.KeyType.FullName ||
           reader.ReadString() != column.ValueType.FullName)
         throw new InvalidDataException("Column names, types and declaration order must match the stored schema.");
+      var isRaw = version >= 2 && reader.ReadBoolean();
+      if (isRaw != column.IsRaw)
+        throw new InvalidDataException($"Column '{column.Name}' has a different transactional/raw kind.");
     }
     if (stream.Position != stream.Length)
       throw new InvalidDataException("Unexpected data in the database schema.");

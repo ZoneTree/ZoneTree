@@ -5,7 +5,7 @@ Distribution is **by column**: each column is a separate ZoneTree with its own
 may share a row-key type, but do not have to; joins are explicit application reads.
 
 `DistributedDatabaseFactory` opens the first working in-process implementation.
-The original single-tree MVCC engine is unchanged.
+Transactional columns use the copied MVCC engine; raw columns use plain ZoneTree.
 
 The goals are high performance, feature parity with single-tree MVCC, and one
 algorithm across in-process, cross-process and cross-machine distribution. The
@@ -50,7 +50,8 @@ static async Task Example()
         ConfigureStorage = storage => storage.SetMutableSegmentMaxItemCount(1_000_000)
       },
       new DistributedColumnDefinition<long, string>("names"),
-      new DistributedColumnDefinition<Guid, string>("audit")
+      new DistributedColumnDefinition<Guid, string>("audit"),
+      new DistributedRawColumnDefinition<string, Memory<byte>>("cache")
     ]
   };
 
@@ -61,6 +62,11 @@ static async Task Example()
   var balances = database.GetColumn<long, long>("balances");
   var names = database.GetColumn<long, string>("names");
   var audit = database.GetColumn<Guid, string>("audit");
+  var cache = database.GetRawColumn<string, Memory<byte>>("cache");
+
+  // Raw writes take effect immediately, independently of transaction commit/rollback.
+  await cache.UpsertAsync("welcome", new byte[] { 1, 2, 3 });
+  var cached = await cache.TryGetAsync("welcome");
 
   using (var transaction = database.BeginTransaction()) // Serializable by default.
   {
@@ -123,12 +129,22 @@ this first implementation are listed above.
 | `Commit()` / `TryCommit()` | Atomic commit across columns; survives a process crash. |
 | `CommitAsync()` / `TryCommitAsync()` | The same process-crash guarantee, with asynchronous completion. |
 | `CommitDurableAsync()` / `TryCommitDurableAsync()` | Atomic commit across columns; survives power loss or an OS crash. |
-| `SyncWALAsync()` | Makes transactions committed before the call durable across power loss or an OS crash. |
+| `SyncWALAsync()` | Makes completed raw writes and transactions committed before the call durable across power loss or an OS crash. |
 
 Transactions accept `Serializable` and `Snapshot` isolation. In this slice these
-apply within each column; full database isolation remains future work.
+apply within each transactional column; full database isolation remains future work.
 
-Different column views may be used concurrently; use each individual view
+Raw columns expose direct sync/async reads, writes, deletes, ranges and iterators.
+Their handles cannot be passed to `transaction.GetColumn(...)`. Raw writes are
+independent of transaction snapshots, commit and rollback, and use plain ZoneTree's
+value/deletion settings. Raw handles are thread-safe; dispose their iterators when done.
+`IsReadOnly` prevents raw writes and new writing transactions. Database-wide
+`SyncWALAsync`, automatic syncing and maintenance include both kinds of columns.
+
+Column kind is stored with the schema. Reopening with a different raw/transactional
+kind fails; existing transactional-only schemas remain supported.
+
+Different transactional column views may be used concurrently; use each individual view
 sequentially. Await all outstanding operations before ending the transaction.
 The example starts independent column writes together and awaits both before commit.
 
@@ -144,8 +160,9 @@ while (await iterator.NextAsync()) { /* Descending records. */ }
 ```
 
 `Execute`, `ExecuteAsync` and `ExecuteDurableAsync` provide conflict retries.
-Column convenience methods include `TryGet`, `ContainsKey`, `Upsert`, `TryDelete`
-and `AddOrUpdate`, plus async versions. Each convenience call uses its own transaction.
+Transactional column convenience methods include `TryGet`, `ContainsKey`, `Upsert`,
+`TryDelete` and `AddOrUpdate`, plus async versions. Each convenience call uses its
+own transaction. Raw column operations do not create transactions.
 
 Database and column maintenance are available. The backup/restore API remains
 defined for a later slice.

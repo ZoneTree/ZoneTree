@@ -8,6 +8,7 @@ public abstract class DistributedColumnDefinition
 
   internal abstract Type KeyType { get; }
   internal abstract Type ValueType { get; }
+  internal virtual bool IsRaw => false;
   internal abstract DistributedDatabaseColumn Open(
       DistributedDatabase database, int index, bool create);
 

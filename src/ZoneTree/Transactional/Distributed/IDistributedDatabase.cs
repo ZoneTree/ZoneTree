@@ -4,10 +4,11 @@ using ZoneTree.Logger;
 namespace ZoneTree.Transactional.Distributed;
 
 /// <summary>
-/// One transactional database whose independently typed columns each use a ZoneTree.
+/// A database with independently typed transactional and raw columns.
 /// </summary>
 /// <remarks>
-/// Transactions share one snapshot and commit atomically across all accessed columns.
+/// Transactions share one snapshot and commit atomically across accessed transactional columns.
+/// Raw columns are accessed independently.
 /// The database and its column handles are thread-safe.
 /// </remarks>
 public interface IDistributedDatabase : IDisposable, IAsyncDisposable
@@ -19,8 +20,11 @@ public interface IDistributedDatabase : IDisposable, IAsyncDisposable
   /// <exception cref="InvalidOperationException">The column has different types.</exception>
   IDistributedColumn<TKey, TValue> GetColumn<TKey, TValue>(string name);
 
+  /// <summary>Gets a typed handle to a non-transactional column. Names are case-sensitive.</summary>
+  IDistributedRawColumn<TKey, TValue> GetRawColumn<TKey, TValue>(string name);
+
   /// <summary>
-  /// Begins a read/write transaction with the requested isolation level across columns.
+  /// Begins a read/write transaction with the requested isolation level across transactional columns.
   /// </summary>
   /// <exception cref="Exceptions.ZoneTreeIsReadOnlyException">The database is read-only.</exception>
   IDistributedTransaction BeginTransaction(
@@ -34,7 +38,7 @@ public interface IDistributedDatabase : IDisposable, IAsyncDisposable
       CancellationToken cancellationToken = default);
 
   /// <summary>
-  /// Begins a consistent read-only snapshot across columns.
+  /// Begins a consistent read-only snapshot across transactional columns.
   /// </summary>
   IDistributedReadTransaction BeginReadOnlyTransaction();
 
@@ -43,7 +47,7 @@ public interface IDistributedDatabase : IDisposable, IAsyncDisposable
       CancellationToken cancellationToken = default);
 
   /// <summary>
-  /// Makes transactions committed before this call durable across power loss or an OS crash.
+  /// Makes completed raw writes and transactions committed before this call durable across power loss or an OS crash.
   /// </summary>
   Task SyncWALAsync(CancellationToken cancellationToken = default);
 
@@ -53,7 +57,7 @@ public interface IDistributedDatabase : IDisposable, IAsyncDisposable
   TimeSpan AutoSyncInterval { get; set; }
 
   /// <summary>
-  /// Prevents new writing transactions when set.
+  /// Prevents new writing transactions and raw column writes when set.
   /// </summary>
   bool IsReadOnly { get; set; }
 

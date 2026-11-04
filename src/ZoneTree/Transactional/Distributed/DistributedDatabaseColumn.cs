@@ -8,7 +8,7 @@ internal abstract class DistributedDatabaseColumn : IDisposable
   // It currently keeps another database transaction from committing to a column between
   // multi-column conflict preflight and commit startup, which could otherwise cause a
   // late conflict after an earlier column has committed. Single-column commits must
-  // respect it too. Each distributed column owns a separate MVCC tree; the locks
+  // respect it too. Each transactional column owns a separate MVCC tree; the locks
   // inside those trees do not cover this multi-column preflight and commit sequence.
   internal readonly object CommitGate = new();
   public string Name { get; }
@@ -25,6 +25,7 @@ internal abstract class DistributedDatabaseColumn : IDisposable
   internal abstract TimeSpan AutoSyncInterval { get; set; }
   internal abstract int AbortedTransactionCount { get; }
   internal abstract int ConflictIndexCount { get; }
+  internal virtual void SetReadOnly(bool value) { }
   internal abstract void SaveMetaData();
   internal abstract void Drop();
   public abstract IMaintainer CreateMaintainer();

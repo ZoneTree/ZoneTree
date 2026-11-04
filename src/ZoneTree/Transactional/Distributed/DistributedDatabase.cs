@@ -5,7 +5,7 @@ using ArgumentOutOfRangeException = System.ArgumentOutOfRangeException;
 
 namespace ZoneTree.Transactional.Distributed;
 
-/// <summary>An experimental in-process database composed of independent MVCC columns.</summary>
+/// <summary>An experimental in-process database with transactional and raw columns.</summary>
 /// <remarks>Cross-column snapshots, atomic visibility and crash recovery are not provided by this first slice.</remarks>
 public sealed class DistributedDatabase : IDistributedDatabase, IDistributedDatabaseMaintenance
 {
@@ -50,7 +50,16 @@ public sealed class DistributedDatabase : IDistributedDatabase, IDistributedData
     if (!ColumnsByName.TryGetValue(name, out var column))
       throw new KeyNotFoundException($"Column '{name}' does not exist.");
     return column as IDistributedColumn<TKey, TValue>
-        ?? throw new InvalidOperationException($"Column '{name}' has different key or value types.");
+        ?? throw new InvalidOperationException($"Column '{name}' has a different kind, key type or value type.");
+  }
+
+  public IDistributedRawColumn<TKey, TValue> GetRawColumn<TKey, TValue>(string name)
+  {
+    ThrowIfDisposed();
+    if (!ColumnsByName.TryGetValue(name, out var column))
+      throw new KeyNotFoundException($"Column '{name}' does not exist.");
+    return column as IDistributedRawColumn<TKey, TValue>
+        ?? throw new InvalidOperationException($"Column '{name}' has a different kind, key type or value type.");
   }
 
   public IDistributedTransaction BeginTransaction(
@@ -123,7 +132,13 @@ public sealed class DistributedDatabase : IDistributedDatabase, IDistributedData
   public bool IsReadOnly
   {
     get => Volatile.Read(ref readOnly);
-    set { ThrowIfDisposed(); Volatile.Write(ref readOnly, value); }
+    set
+    {
+      ThrowIfDisposed();
+      foreach (var column in Columns)
+        column.SetReadOnly(value);
+      Volatile.Write(ref readOnly, value);
+    }
   }
 
   public IDistributedDatabaseMaintenance Maintenance => this;
