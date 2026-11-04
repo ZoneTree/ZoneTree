@@ -70,7 +70,7 @@ internal static class ObjectDisposedException
 }
 }
 
-namespace ZoneTree.Transactional.Distributed
+namespace ZoneTree.Cluster
 {
 internal static class ObjectDisposedException
 {

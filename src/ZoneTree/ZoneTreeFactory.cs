@@ -637,12 +637,12 @@ public sealed class ZoneTreeFactory<TKey, TValue>
     return MvccZoneTree<TKey, TValue>.Load(Options, canCreate: false, canOpen: true);
   }
 
-  internal Transactional.Distributed.DistributedMvccZoneTree<TKey, TValue> OpenDistributedColumn(
+  internal Cluster.ClusterMvccZoneTree<TKey, TValue> OpenClusterColumn(
       bool canCreate, bool canOpen)
   {
     FillMissingOptionsForKnownTypes();
     InitWriteAheadLogProvider(true);
-    return Transactional.Distributed.DistributedMvccZoneTree<TKey, TValue>.Load(
+    return Cluster.ClusterMvccZoneTree<TKey, TValue>.Load(
         Options, canCreate, canOpen);
   }
 

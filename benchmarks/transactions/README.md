@@ -83,7 +83,7 @@ Add any of these to a command above:
 --engine rocksdb                              # both RocksDB variants
 --engine sqlite                               # SQLite
 --engine zonetree-mvcc-ser-async,sqlite       # these variants
---engine dist-mvcc-ser-async,dist-mvcc-ser-sync  # distributed MVCC, AsyncShared and Shared
+--engine dist-mvcc-ser-async,dist-mvcc-ser-sync  # cluster MVCC, AsyncShared and Shared
 --workers 1,2,4,8,16                          # these worker counts
 --keys 100K                                   # fewer keys mean smaller jobs and a shorter run
 --scale 0.1                                   # a tenth of each job
@@ -159,7 +159,7 @@ Raw engine IDs are distinct in result files, data directories, charts and refere
 | --- | --- | --- |
 | `zonetree-mvcc-ser-async`, `zonetree-mvcc-ser-sync` | ZoneTree MVCC transactional tree, serializable, `AsyncShared` and `Shared` WAL | A commit fails if a newer committed or prepared transaction wrote a key it wrote or read, or a key inside a range it read. |
 | `zonetree-mvcc-snap-async`, `zonetree-mvcc-snap-sync` | ZoneTree MVCC transactional tree, snapshot, `AsyncShared` and `Shared` WAL | A commit fails if a newer committed or prepared transaction wrote a key it wrote or read for update. Plain reads are not protected. |
-| `dist-mvcc-ser-async`, `dist-mvcc-ser-sync` | Distributed MVCC database API, one `long`/`byte[]` column, `AsyncShared` and `Shared` WAL | Serializable within that column. Measures the distributed API's single-column overhead; does not measure cross-column isolation, atomicity or parallelism. |
+| `dist-mvcc-ser-async`, `dist-mvcc-ser-sync` | `ZoneTreeCluster` API, one `long`/`byte[]` column, `AsyncShared` and `Shared` WAL | Serializable within that column. Measures the cluster API's single-column overhead; does not measure cross-column isolation, atomicity or parallelism. |
 | `rocksdb-optimistic` | `OptimisticTransactionDB`, one snapshot per transaction | A commit fails if a newer commit wrote a key it wrote or read for update. Plain reads and ranges are not protected. |
 | `rocksdb-pessimistic` | `TransactionDB`, key locks, deadlock detection, no snapshot in write transactions | Writes and reads for update lock the key and read the latest value. Plain reads see the latest commit, so they are not repeatable. |
 | `sqlite` | WAL mode, `BEGIN IMMEDIATE` | One write transaction at a time, so writes are serializable and never conflict. Readers keep their snapshot and do not block. |
@@ -170,7 +170,7 @@ Read-only work uses each engine's snapshot: `BeginReadOnlyTransaction` on ZoneTr
 
 The transactional ZoneTree `-async` ids configure `AsyncCompressed`, which the factory promotes to `AsyncShared`; a background writer does the WAL work. The transactional `-sync` ids configure `SyncCompressed`, promoted to `Shared`, where the calling thread appends to a memory-mapped tail. Raw ZoneTree variants retain the private `AsyncCompressed` and `SyncCompressed` WALs. All ZoneTree variants explicitly disable WAL compression in this benchmark. The `-sync` suffix selects the append path; durable scenarios separately require a disk sync before acknowledging their work.
 
-The distributed variants select `AsyncShared` and `Shared` directly. They use the same serializers, segment/cache tuning, disabled WAL compression and background maintenance as the MVCC variants. Each worker binds its transaction's column view once. Existing scenarios provide one keyspace, so the adapter uses one column; dedicated multi-column workloads can be added separately.
+The cluster variants select `AsyncShared` and `Shared` directly. They use the same serializers, segment/cache tuning, disabled WAL compression and background maintenance as the MVCC variants. Each worker binds its transaction's column view once. Existing scenarios provide one keyspace, so the adapter uses one column; dedicated multi-column workloads can be added separately.
 
 RocksDB runs with a 1 GB block cache and bloom filters of 10 bits per key, so reads are not limited by its 8 MB default cache. SQLite's page cache has the same size. `--rocksdb-block-cache-mb` changes it.
 
@@ -181,7 +181,7 @@ All three engines can make every commit durable before it returns. The `durabili
 | Engine | Durable scenarios |
 | --- | --- |
 | ZoneTree transactional | `TryCommitDurableAsync`: append the commit record, sync the shared WAL, then publish to readers. Concurrent commits share disk syncs. |
-| ZoneTree distributed (one column) | `IDistributedTransaction.TryCommitDurableAsync` waits for the benchmark column's durable commit. This does not test cross-column durability. |
+| ZoneTreeCluster (one column) | `IClusterTransaction.TryCommitDurableAsync` waits for the benchmark column's durable commit. This does not test cross-column durability. |
 | ZoneTree raw | `SyncWALAsync` at each scenario boundary; raw writes do not provide multi-key transaction atomicity. |
 | RocksDB | `sync=true`, with RocksDB's group commit. |
 | SQLite | `synchronous=FULL`. |

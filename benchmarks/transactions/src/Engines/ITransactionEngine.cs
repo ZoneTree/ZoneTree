@@ -162,13 +162,13 @@ public static class EngineCatalog
         "Autocommit statements; no explicit BEGIN/COMMIT/ROLLBACK or transaction spanning scenario operations. Each statement retains SQLite's native atomicity.",
         options => new SqliteEngine(options, raw: true), Raw: true),
     new(
-        "dist-mvcc-ser-async", "zonetree", "Dist MVCC serializable async",
-        "Distributed database with one column. " + SerializableIsolation + " Cross-column guarantees are not exercised.",
-        options => new DistributedZoneTreeEngine(options, WriteAheadLogMode.AsyncShared)),
+        "dist-mvcc-ser-async", "zonetree", "Cluster MVCC serializable async",
+        "ZoneTreeCluster with one column. " + SerializableIsolation + " Cross-column guarantees are not exercised.",
+        options => new ZoneTreeClusterEngine(options, WriteAheadLogMode.AsyncShared)),
     new(
-        "dist-mvcc-ser-sync", "zonetree", "Dist MVCC serializable sync",
-        "Distributed database with one column. " + SerializableIsolation + " Cross-column guarantees are not exercised.",
-        options => new DistributedZoneTreeEngine(options, WriteAheadLogMode.Shared)),
+        "dist-mvcc-ser-sync", "zonetree", "Cluster MVCC serializable sync",
+        "ZoneTreeCluster with one column. " + SerializableIsolation + " Cross-column guarantees are not exercised.",
+        options => new ZoneTreeClusterEngine(options, WriteAheadLogMode.Shared)),
   ];
 
   public static int ColorSlot(string engineId)

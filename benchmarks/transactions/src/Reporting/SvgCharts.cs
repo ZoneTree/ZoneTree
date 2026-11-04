@@ -26,7 +26,7 @@ public static class SvgCharts
 
   // Slots validated for adjacent series in both modes; the engine catalog's order assigns
   // them, so an engine keeps its color when others are filtered out. Each engine family has
-  // its own color range: ZoneTree blues, RocksDB oranges, then SQLite. Distributed ZoneTree
+  // its own color range: ZoneTree blues, RocksDB oranges, then SQLite. ZoneTreeCluster
   // variants append two blue/teal slots so the existing variants retain their colors.
   const string Style =
       """
