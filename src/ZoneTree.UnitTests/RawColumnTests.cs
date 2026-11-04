@@ -41,6 +41,90 @@ public sealed class RawColumnTests
   };
 
   [Test]
+  public void StorageDefaultsApplyToEveryColumnWithIndependentOverridesAndReopen()
+  {
+    var defaults = new TestStorageDefaults();
+    var options = new ZoneTreeClusterOptions
+    {
+      DataDirectory = DataDirectory,
+      Logger = SilentTestLogger.Instance,
+      StorageDefaults = defaults,
+      Columns =
+      [
+        new ColumnDefinition<int, int>("balances")
+        {
+          ConfigureStorage = storage => storage.SetMutableSegmentMaxItemCount(20_000)
+              .ConfigureWriteAheadLogOptions(wal => wal.WriteAheadLogMode = WriteAheadLogMode.Shared)
+        },
+        new ColumnDefinition<long, string>("names"),
+        new RawColumnDefinition<int, string>("cache")
+        {
+          ConfigureStorage = storage => storage.ConfigureDiskSegmentOptions(disk => disk.KeyCacheSize = 256)
+        },
+        new RawColumnDefinition<long, long>("counters")
+      ]
+    };
+
+    static void Verify(IZoneTreeCluster cluster)
+    {
+      var balances = cluster.GetColumn<int, int>("balances").Maintenance.ZoneTree.Maintenance.CloneOptions();
+      var names = cluster.GetColumn<long, string>("names").Maintenance.ZoneTree.Maintenance.CloneOptions();
+      var cache = cluster.GetRawColumn<int, string>("cache").Maintenance.CloneOptions();
+      var counters = cluster.GetRawColumn<long, long>("counters").Maintenance.CloneOptions();
+      Assert.That(balances.MutableSegmentMaxItemCount, Is.EqualTo(20_000));
+      Assert.That(balances.WriteAheadLogOptions.WriteAheadLogMode, Is.EqualTo(WriteAheadLogMode.Shared));
+      Assert.That(names.MutableSegmentMaxItemCount, Is.EqualTo(10_000));
+      Assert.That(names.WriteAheadLogOptions.WriteAheadLogMode, Is.EqualTo(WriteAheadLogMode.AsyncShared));
+      Assert.That(cache.MutableSegmentMaxItemCount, Is.EqualTo(10_000));
+      Assert.That(cache.WriteAheadLogOptions.WriteAheadLogMode, Is.EqualTo(WriteAheadLogMode.AsyncShared));
+      Assert.That(cache.DiskSegmentOptions.KeyCacheSize, Is.EqualTo(256));
+      Assert.That(counters.MutableSegmentMaxItemCount, Is.EqualTo(10_000));
+      Assert.That(counters.DiskSegmentOptions.KeyCacheSize, Is.EqualTo(128));
+      Assert.That(names.DiskSegmentOptions.KeyCacheSize, Is.EqualTo(128));
+    }
+
+    using (var cluster = Factory.CreateInProcess(options))
+    {
+      Verify(cluster);
+      cluster.GetColumn<int, int>("balances").Upsert(1, 100);
+      cluster.GetColumn<long, string>("names").Upsert(1, "Alice");
+      cluster.GetRawColumn<int, string>("cache").Upsert(1, "cached");
+      cluster.GetRawColumn<long, long>("counters").Upsert(1, 7);
+    }
+
+    using var reopened = Factory.OpenInProcess(options);
+    Verify(reopened);
+    Assert.That(reopened.GetColumn<int, int>("balances").TryGet(1, out var balance), Is.True);
+    Assert.That(balance, Is.EqualTo(100));
+    Assert.That(reopened.GetColumn<long, string>("names").TryGet(1, out var name), Is.True);
+    Assert.That(name, Is.EqualTo("Alice"));
+    Assert.That(reopened.GetRawColumn<int, string>("cache").TryGet(1, out var cached), Is.True);
+    Assert.That(cached, Is.EqualTo("cached"));
+    Assert.That(reopened.GetRawColumn<long, long>("counters").TryGet(1, out var counter), Is.True);
+    Assert.That(counter, Is.EqualTo(7));
+    Assert.That(defaults.Columns, Is.EqualTo(new[]
+    {
+      ("balances", typeof(int), typeof(int)), ("names", typeof(long), typeof(string)),
+      ("cache", typeof(int), typeof(string)), ("counters", typeof(long), typeof(long)),
+      ("balances", typeof(int), typeof(int)), ("names", typeof(long), typeof(string)),
+      ("cache", typeof(int), typeof(string)), ("counters", typeof(long), typeof(long))
+    }));
+  }
+
+  sealed class TestStorageDefaults : IColumnStorageConfigurator
+  {
+    public List<(string Name, Type KeyType, Type ValueType)> Columns { get; } = [];
+
+    public void Configure<TKey, TValue>(ColumnDefinition column, ZoneTreeFactory<TKey, TValue> storage)
+    {
+      Columns.Add((column.Name, typeof(TKey), typeof(TValue)));
+      storage.SetMutableSegmentMaxItemCount(10_000)
+          .ConfigureWriteAheadLogOptions(wal => wal.WriteAheadLogMode = WriteAheadLogMode.AsyncShared)
+          .ConfigureDiskSegmentOptions(disk => disk.KeyCacheSize = 128);
+    }
+  }
+
+  [Test]
   public void RawWritesAreImmediateAndIndependentOfTransactionRollback()
   {
     using var cluster = Factory.CreateInProcess(Options());

@@ -46,7 +46,7 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
         ReadSchema(manifest, definitions);
       var cluster = new ZoneTreeCluster(directory, options.Logger, lease);
       for (; opened < columns.Length; ++opened)
-        columns[opened] = definitions[opened].Open(cluster, opened, create: !exists);
+        columns[opened] = definitions[opened].Open(cluster, opened, create: !exists, options.StorageDefaults);
       if (!exists)
         WriteSchema(manifest, definitions);
       cluster.Initialize(columns, options);

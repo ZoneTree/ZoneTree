@@ -31,6 +31,9 @@ engine. For actual thread parallelism, run batches on separate column workers.
 
 `ConfigureStorage` reuses the existing typed
 factory for serializers, comparers, compression, cache and segment tuning.
+Optional `StorageDefaults` applies to every transactional and raw column when
+creating or opening it. Each column's `ConfigureStorage` runs afterward, allowing
+overrides. The configurator's generic method works with every column's key/value types.
 
 ```csharp
 using ZoneTree;
@@ -43,6 +46,7 @@ static async Task Example()
   var options = new ZoneTreeClusterOptions
   {
     DataDirectory = "./bank",
+    StorageDefaults = new BankStorageDefaults(),
     Columns =
     [
       new ColumnDefinition<long, long>("balances")
@@ -111,6 +115,15 @@ static async Task Example()
   // Batch ordinary commits, then make all previously published commits durable.
   await cluster.SyncWALAsync();
 
+}
+
+sealed class BankStorageDefaults : IColumnStorageConfigurator
+{
+  public void Configure<TKey, TValue>(ColumnDefinition column, ZoneTreeFactory<TKey, TValue> storage)
+  {
+    storage.SetMutableSegmentMaxItemCount(500_000)
+        .ConfigureDiskSegmentOptions(options => options.KeyCacheSize = 4096);
+  }
 }
 ```
 

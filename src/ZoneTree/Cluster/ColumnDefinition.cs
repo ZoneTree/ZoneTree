@@ -10,7 +10,7 @@ public abstract class ColumnDefinition
   internal abstract Type ValueType { get; }
   internal virtual bool IsRaw => false;
   internal abstract Column Open(
-      ZoneTreeCluster cluster, int index, bool create);
+      ZoneTreeCluster cluster, int index, bool create, IColumnStorageConfigurator storageDefaults);
 
   private protected ColumnDefinition(string name)
   {
@@ -31,15 +31,17 @@ public sealed class ColumnDefinition<TKey, TValue> : ColumnDefinition
 
   /// <summary>
   /// Configures the column's storage options, such as comparers, serializers and compression.
+  /// Runs after the cluster's StorageDefaults hook.
   /// </summary>
   public Action<ZoneTreeFactory<TKey, TValue>> ConfigureStorage { get; init; }
 
   internal override Column Open(
-      ZoneTreeCluster cluster, int index, bool create)
+      ZoneTreeCluster cluster, int index, bool create, IColumnStorageConfigurator storageDefaults)
   {
     var factory = new ZoneTreeFactory<TKey, TValue>()
         .SetLogger(cluster.Logger)
         .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = Options.WriteAheadLogMode.Shared);
+    storageDefaults?.Configure(this, factory);
     ConfigureStorage?.Invoke(factory);
     factory.SetDataDirectory(Path.Combine(cluster.DataDirectory, $"column-{index:D6}"));
     return new Column<TKey, TValue>(cluster, index, Name,

@@ -16,6 +16,12 @@ public sealed class ZoneTreeClusterOptions
   public IReadOnlyList<ColumnDefinition> Columns { get; init; }
       = Array.Empty<ColumnDefinition>();
 
+  /// <summary>
+  /// Optional storage defaults for all transactional and raw columns.
+  /// Each column's ConfigureStorage hook runs afterward and can override them.
+  /// </summary>
+  public IColumnStorageConfigurator StorageDefaults { get; init; }
+
   /// <summary>The logger shared by the cluster and its columns.</summary>
   public ILogger Logger { get; init; } = new ConsoleLogger();
 

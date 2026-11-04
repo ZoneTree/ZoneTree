@@ -11,14 +11,16 @@ public sealed class RawColumnDefinition<TKey, TValue> : ColumnDefinition
 
   public RawColumnDefinition(string name) : base(name) { }
 
-  /// <summary>Configures the column's plain ZoneTree storage.</summary>
+  /// <summary>Configures the column's plain ZoneTree storage after the cluster's StorageDefaults hook.</summary>
   public Action<ZoneTreeFactory<TKey, TValue>> ConfigureStorage { get; init; }
 
-  internal override Column Open(ZoneTreeCluster cluster, int index, bool create)
+  internal override Column Open(
+      ZoneTreeCluster cluster, int index, bool create, IColumnStorageConfigurator storageDefaults)
   {
     var factory = new ZoneTreeFactory<TKey, TValue>()
         .SetLogger(cluster.Logger)
         .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.Shared);
+    storageDefaults?.Configure(this, factory);
     ConfigureStorage?.Invoke(factory);
     factory.SetDataDirectory(Path.Combine(cluster.DataDirectory, $"column-{index:D6}"));
     var tree = create ? factory.Create() : factory.Open();
