@@ -222,7 +222,7 @@ internal sealed class MvccTransaction<TKey, TValue> :
     }
     if (commit.IsCompletedSuccessfully)
     {
-      if (!commit.Result)
+      if (!commit.GetAwaiter().GetResult())
         state = TransactionState.Aborted;
     }
     else if (commit.IsCompleted && state == TransactionState.Active)
@@ -243,7 +243,7 @@ internal sealed class MvccTransaction<TKey, TValue> :
   {
     var commit = TryCommitDurableAsync(cancellationToken);
     if (commit.IsCompletedSuccessfully)
-      return commit.Result
+      return commit.GetAwaiter().GetResult()
           ? Task.CompletedTask
           : Task.FromException(new TransactionConflictException(TransactionId));
     // A commit that did not end at once never reports a conflict. Returning its

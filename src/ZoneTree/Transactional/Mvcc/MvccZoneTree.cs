@@ -644,8 +644,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
   // Called under CommitLock.
   void EnsureCommitSyncThread()
   {
-    if (IsCommitSyncStopping)
-      throw new ObjectDisposedException(GetType().FullName);
+    ObjectDisposedException.ThrowIf(IsCommitSyncStopping, this);
     if (CommitSyncThread != null)
       return;
     var thread = new Thread(RunCommitSync)
