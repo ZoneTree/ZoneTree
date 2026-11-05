@@ -73,6 +73,10 @@ internal abstract class ClusterMvccReader<TKey, TValue> : ColumnView,
   /// </summary>
   internal void BeginOperation()
   {
+    // A view of a dropped column fails. Views are not registered with their column, so this
+    // check is what ends them after a drop, iterators included.
+    if (Column.IsDropped)
+      ThrowDropped();
     if ((Interlocked.Increment(ref Operations) & OperationsStopped) == 0 && IsActive)
       return;
     Interlocked.Decrement(ref Operations);
@@ -81,6 +85,8 @@ internal abstract class ClusterMvccReader<TKey, TValue> : ColumnView,
   }
 
   internal void EndOperation() => Interlocked.Decrement(ref Operations);
+
+  void ThrowDropped() => throw new SchemaObjectDroppedException($"Column '{Column.Name}' was dropped.");
 
   /// <summary>
   /// Rejects new operations and waits for the running ones to end.
@@ -271,6 +277,7 @@ internal abstract class ClusterMvccReader<TKey, TValue> : ColumnView,
   internal override void ClaimForCommit() => throw new InvalidOperationException("A read-only view does not commit.");
   internal override bool Validate() => throw new InvalidOperationException("A read-only view does not commit.");
   internal override void Prepare(long commitTimestamp) => throw new InvalidOperationException("A read-only view does not commit.");
+  internal override void WriteCommitRecord() => throw new InvalidOperationException("A read-only view does not commit.");
   internal override void Publish() => throw new InvalidOperationException("A read-only view does not commit.");
   internal override void LeaveInDoubt() => throw new InvalidOperationException("A read-only view does not commit.");
   internal override bool RollbackClaimed() => throw new InvalidOperationException("A read-only view does not commit.");

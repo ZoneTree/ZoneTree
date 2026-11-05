@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using ZoneTree.Transactional;
 using ZoneTree.Exceptions;
 
@@ -9,9 +10,10 @@ namespace ZoneTree.Cluster;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The commit takes the commit gates of the transaction's columns in column id order,
-/// validates every view, takes one timestamp from the domain's sequencer and writes the
-/// commit record of every view that wrote. It then publishes the views. Readers see the
+/// The commit claims the views, then takes the commit gates of the columns that need
+/// validation in column id order, validates those views, takes one timestamp from the
+/// domain's sequencer and registers the written keys. After the gates it writes the commit
+/// record of every view that wrote, then publishes the views. Readers see the
 /// commit in every column at once, when the domain's snapshot reaches its timestamp.
 /// </para>
 /// <para>
@@ -55,6 +57,7 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
       ClusterTransactionOptions options) : base(domain, writer.SnapshotTimestamp)
   {
     Writer = writer;
+    writer.Owner = this;
     TransactionId = writer.TransactionId;
     IsolationLevel = options.IsolationLevel;
     ExpiryTimer = TransactionExpiry.Start(options.Timeout, Expire);
@@ -104,6 +107,9 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
     return cancellationToken.CanBeCanceled ? commit.WaitAsync(cancellationToken) : commit;
   }
 
+  /// <summary>The spins a blocked commit makes before it waits for its visibility.</summary>
+  const int VisibilitySpinCount = 64;
+
   static readonly Task<bool> Committed = Task.FromResult(true);
   static readonly Task<bool> Conflicted = Task.FromResult(false);
 
@@ -142,6 +148,20 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
     // that view has no writes. The disposed views roll back.
     if (Array.Exists(views, static view => view.ConflictDetected))
       return AbortConflict();
+    // The views are claimed, their operations stopped and their keys sorted before any
+    // commit gate is taken, so the gates cover only validation and key registration.
+    var claimed = 0;
+    try
+    {
+      for (; claimed < views.Length; ++claimed)
+        views[claimed].ClaimForCommit();
+    }
+    catch
+    {
+      RollbackViews(views, claimed);
+      RollbackClaimed();
+      throw;
+    }
     if (!Array.Exists(views, static view => view.HasWrites))
       return CommitUnwritten(views, durable);
     // Only the views that wrote or have reads to validate take their column's commit gate.
@@ -154,52 +174,62 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
 
     var coordinator = Domain.Coordinator;
     var entered = 0;
-    var claimed = 0;
+    var conflict = false;
     CommitSequencer.Slot slot = null;
+    Exception failure = null;
     try
     {
-      for (; entered < gated.Length; ++entered)
-        Monitor.Enter(gated[entered].Column.CommitGate);
-      for (; claimed < views.Length; ++claimed)
-        views[claimed].ClaimForCommit();
+      entered = EnterGates(gated);
       // Serializable views validate their reads even if they wrote nothing.
-      if (Array.TrueForAll(gated, static view => view.Validate()))
+      if (!Array.TrueForAll(gated, static view => view.Validate()))
+        conflict = true;
+      else
       {
         state = TransactionState.Committing;
         slot = coordinator.BeginCommit();
-        try
-        {
-          foreach (var view in gated)
-            if (view.HasWrites)
-              view.Prepare(slot.Timestamp);
-        }
-        catch (Exception error)
-        {
-          // Commits stop before the timestamp completes, so the durable timestamp never
-          // reaches records the rollback could not delete.
-          if (!RollbackViews(views, claimed))
-            coordinator.StopCommits(error);
-          _ = coordinator.Sequencer.Complete(slot);
-          claimed = 0;
-          throw;
-        }
+        foreach (var view in gated)
+          if (view.HasWrites)
+            view.Prepare(slot.Timestamp);
       }
     }
-    catch
+    catch (Exception error)
     {
-      RollbackViews(views, claimed);
-      RollbackClaimed();
-      throw;
+      failure = error;
     }
     finally
     {
       for (var index = entered - 1; index >= 0; --index)
         Monitor.Exit(gated[index].Column.CommitGate);
     }
-
-    if (slot == null)
+    // The commit records are written without the gates: a write can rotate a segment, which
+    // syncs the disk. The durable timestamp cannot reach the commit before they are written.
+    if (failure == null && !conflict)
     {
-      RollbackViews(views, claimed);
+      try
+      {
+        foreach (var view in gated)
+          if (view.HasWrites)
+            view.WriteCommitRecord();
+      }
+      catch (Exception error)
+      {
+        failure = error;
+      }
+    }
+    if (failure != null)
+    {
+      // Commits stop before the timestamp completes, so the durable timestamp never
+      // reaches records the rollback could not delete.
+      if (!RollbackViews(views, views.Length) && slot != null)
+        coordinator.StopCommits(failure);
+      if (slot != null)
+        _ = coordinator.Sequencer.Complete(slot);
+      RollbackClaimed();
+      ExceptionDispatchInfo.Throw(failure);
+    }
+    if (conflict)
+    {
+      RollbackViews(views, views.Length);
       return AbortConflict();
     }
     if (durable)
@@ -218,8 +248,12 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
     {
       if (!synchronous)
         return CompleteWhenVisible(visible, slot.Timestamp);
-      // The caller blocks anyway. The completing thread signals a synchronous wait itself,
-      // with no thread pool continuation.
+      // The earlier commits are usually writing their last records, so a short spin sees
+      // them complete without a kernel wait and wake-up. A long wait still blocks; the
+      // completing thread signals it itself, with no thread pool continuation.
+      var spin = new SpinWait();
+      while (!visible.IsCompleted && spin.Count < VisibilitySpinCount)
+        spin.SpinOnce(sleep1Threshold: -1);
 #pragma warning disable CA1849
       visible.GetAwaiter().GetResult();
 #pragma warning restore CA1849
@@ -228,23 +262,48 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
   }
 
   /// <summary>
+  /// Takes the commit gates of the views. A transaction never waits for a gate while it holds
+  /// another: when a gate is taken, it releases the ones it holds, waits for that gate alone,
+  /// and tries again. Commits that share columns then do not queue behind partly held gate
+  /// sets, and commits on other columns still run in parallel. Returns the gates taken.
+  /// </summary>
+  static int EnterGates(ColumnView[] gated)
+  {
+    if (gated.Length == 1)
+    {
+      Monitor.Enter(gated[0].Column.CommitGate);
+      return 1;
+    }
+    var first = 0;
+    while (true)
+    {
+      // The gate that was busy, taken while holding nothing, then the others without waiting.
+      Monitor.Enter(gated[first].Column.CommitGate);
+      var busy = -1;
+      for (var index = 0; index < gated.Length; ++index)
+      {
+        if (index != first && !Monitor.TryEnter(gated[index].Column.CommitGate))
+        {
+          busy = index;
+          break;
+        }
+      }
+      if (busy < 0)
+        return gated.Length;
+      for (var index = busy - 1; index >= 0; --index)
+        if (index != first)
+          Monitor.Exit(gated[index].Column.CommitGate);
+      Monitor.Exit(gated[first].Column.CommitGate);
+      first = busy;
+    }
+  }
+
+  /// <summary>
   /// Commits a transaction that wrote nothing. It is equivalent to running at its snapshot,
   /// which includes every read of a serializable transaction.
   /// </summary>
   Task<bool> CommitUnwritten(ColumnView[] views, bool durable)
   {
-    var claimed = 0;
-    try
-    {
-      for (; claimed < views.Length; ++claimed)
-        views[claimed].ClaimForCommit();
-    }
-    catch
-    {
-      RollbackViews(views, claimed);
-      RollbackClaimed();
-      throw;
-    }
     PublishViews(views);
     var committed = CompleteCommit(SnapshotTimestamp);
     // A durable commit waits until what it read is durable.

@@ -5,13 +5,20 @@ namespace ZoneTree.Cluster;
 /// to coordinate its views of differently typed columns.
 /// </summary>
 /// <remarks>
-/// A writing domain transaction commits its views together, under their columns' commit
-/// gates: it claims each view, validates every view, takes one commit timestamp, prepares
-/// every view that wrote, and then publishes them all. Read-only views never commit.
+/// A writing domain transaction claims its views, then validates them together under their
+/// columns' commit gates, takes one commit timestamp and prepares every view that wrote. It
+/// writes the commit records after the gates, then publishes the views. Read-only views
+/// never commit.
 /// </remarks>
-internal abstract class ColumnView : IDisposable, IColumnDependent
+internal abstract class ColumnView : IDisposable
 {
+  /// <summary>
+  /// The column of the view. A view registers nothing with its column: its operations fail
+  /// once the column is dropped, a commit that used a dropped column fails, and the drop of
+  /// the column's storage closes the files that the view's iterators read.
+  /// </summary>
   internal Column Column;
+
   internal virtual bool ConflictDetected => false;
   internal virtual bool HasWrites => false;
 
@@ -40,10 +47,15 @@ internal abstract class ColumnView : IDisposable, IColumnDependent
   internal abstract bool Validate();
 
   /// <summary>
-  /// Registers the view's written keys at the commit timestamp and writes its commit record.
-  /// Called under the column's commit gate, for views that wrote.
+  /// Registers the view's written keys at the commit timestamp. Called under the column's
+  /// commit gate, for views that wrote; it does no I/O.
   /// </summary>
   internal abstract void Prepare(long commitTimestamp);
+
+  /// <summary>
+  /// Writes the commit record of a prepared view, after the commit gates are released.
+  /// </summary>
+  internal abstract void WriteCommitRecord();
 
   /// <summary>Publishes the committed view; readers see it once the domain's snapshot reaches it.</summary>
   internal abstract void Publish();
@@ -58,16 +70,6 @@ internal abstract class ColumnView : IDisposable, IColumnDependent
   internal abstract bool RollbackClaimed();
 
   public abstract void Dispose();
-
-  /// <summary>
-  /// Ends the view of a dropped column: stops its operations and rolls it back. The domain
-  /// transaction then cannot commit, and reports the dropped column.
-  /// </summary>
-  void IColumnDependent.OnColumnDropped()
-  {
-    StopOperations();
-    Dispose();
-  }
 
   /// <summary>
   /// Runs an async operation of this view on the thread pool. The view is thread-safe,

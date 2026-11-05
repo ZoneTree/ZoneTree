@@ -37,11 +37,6 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
   /// </summary>
   volatile bool hasFailedWrite;
 
-  /// <summary>
-  /// True while the tree counts the view as active. Guarded by the tree state lock.
-  /// </summary>
-  internal bool IsRegistered;
-
   volatile TransactionState state;
 
   volatile bool hasConflict;
@@ -65,12 +60,6 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
   public bool HasConflict => hasConflict;
 
   internal override bool HasFailedWrite => hasFailedWrite;
-
-  /// <summary>
-  /// The clock when the view registered in the tree. Rolled back versions stay registered
-  /// until every view that registered before their deletion has ended.
-  /// </summary>
-  public long BeginSequence { get; internal set; }
 
   public TransactionEntry Entry { get; }
 
@@ -257,10 +246,11 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
         conflictIndex.HasCommitAfter(ReadRanges, SnapshotTimestamp);
   }
 
-  internal TKey[] GetWrittenKeys()
-  {
-    return WrittenKeys.ToDistinctArray();
-  }
+  /// <summary>
+  /// The distinct written keys in order, sorted when the commit claims the view, before it
+  /// takes the commit gates.
+  /// </summary>
+  internal TKey[] CommitKeys { get; private set; }
 
   internal IEnumerable<TKey> WrittenKeysForRollback => WrittenKeys.Items;
 
@@ -274,11 +264,15 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
     }
     StopOperations();
     ReleaseReaders();
+    if (WrittenKeys != null)
+      CommitKeys = WrittenKeys.ToDistinctArray();
   }
 
   internal override bool Validate() => Tree.Validate(this);
 
   internal override void Prepare(long commitTimestamp) => Tree.Prepare(this, commitTimestamp);
+
+  internal override void WriteCommitRecord() => Tree.WriteCommitRecord(this);
 
   internal override void Publish()
   {

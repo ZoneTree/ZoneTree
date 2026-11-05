@@ -161,7 +161,44 @@ public sealed class ClusterSchemaLifecycleTests
     var view = snapshot.GetColumn(balances);
     Assert.That(view.ContainsKey(1), Is.False);
     Assert.That(await cluster.Schema.DropColumnAsync("balances"), Is.True);
-    Assert.Throws<ObjectDisposedException>(() => view.ContainsKey(1));
+    Assert.Throws<SchemaObjectDroppedException>(() => view.ContainsKey(1));
+  }
+
+  [Test]
+  public async Task ADropEndsTheDomainViewsThatOpenedIteratorsAndDeletesTheFiles()
+  {
+    using var cluster = Factory.CreateInProcess(Options());
+    var accounts = await cluster.Schema.CreateDomainAsync("accounts");
+    var balances = await cluster.Schema.CreateColumnAsync("accounts", new CoordinatedColumnDefinition<int, int>("balances"));
+    using (var setup = accounts.BeginTransaction())
+    {
+      for (var key = 0; key < 100; ++key)
+        setup.GetColumn(balances).Upsert(key, key);
+      setup.Commit();
+    }
+    // Moving the records to disk makes the iterators hold the segment files.
+    using (var maintainer = cluster.CreateColumnMaintainer("balances"))
+    {
+      maintainer.EvictToDisk();
+      await maintainer.WaitForBackgroundThreadsAsync();
+    }
+    using var snapshot = accounts.BeginReadOnlyTransaction();
+    using var reader = snapshot.GetColumn(balances).CreateIterator();
+    Assert.That(reader.Next(), Is.True);
+    using var transaction = accounts.BeginTransaction();
+    var view = transaction.GetColumn(balances);
+    view.Upsert(1000, 1000);
+    using var writer = view.CreateIterator();
+    Assert.That(writer.Next(), Is.True);
+
+    Assert.That(await cluster.Schema.DropColumnAsync("balances"), Is.True);
+    // The drop ended both views, so their iterators released the files it deleted.
+    Assert.That(Directory.Exists(ColumnDirectory(1)), Is.False);
+    Assert.Throws<SchemaObjectDroppedException>(() => reader.Next());
+    Assert.Throws<SchemaObjectDroppedException>(() => writer.Next());
+    Assert.Throws<SchemaObjectDroppedException>(() => view.TryGet(1, out _));
+    Assert.Throws<SchemaObjectDroppedException>(() => transaction.Commit());
+    Assert.That(transaction.State, Is.EqualTo(Transactional.TransactionState.Aborted));
   }
 
   [Test]

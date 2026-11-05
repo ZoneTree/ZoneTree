@@ -463,7 +463,9 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
   IReadOnlyList<string> IZoneTreeClusterMaintenance.DomainNames
       => Catalog.State.Domains.Select(domain => domain.Name).ToArray();
 
-  public int ActiveTransactionCount => OpenTransactions.Count;
+  // Domains register their transactions; standalone columns register theirs here.
+  public int ActiveTransactionCount
+      => OpenTransactions.Count + Domains.Values.Sum(domain => domain.Coordinator.Snapshots.ActiveCount);
   public int AbortedTransactionCount => OpenColumns.Values.Sum(column => column.AbortedTransactionCount);
   public int ConflictIndexCount => OpenColumns.Values.Sum(column => column.ConflictIndexCount);
 
@@ -472,7 +474,10 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
 
   void RollBackOpenTransactions(ref List<Exception> errors)
   {
-    foreach (var transaction in OpenTransactions.Keys)
+    // Read-only domain transactions hold nothing to roll back; their later calls fail.
+    var transactions = OpenTransactions.Keys
+        .Concat(Domains.Values.SelectMany(domain => domain.Coordinator.Snapshots.GetActiveWriters()));
+    foreach (var transaction in transactions)
     {
       try { transaction.RollbackOnClose(); }
       catch (Exception error) { (errors ??= []).Add(error); }

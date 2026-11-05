@@ -23,36 +23,29 @@ internal sealed class CoordinatedColumn<TKey, TValue> : Column,
     set => Domain.Coordinator.AutoSyncInterval = value;
   }
 
-  // Views are created under the column's operation gate and registered, so a drop of the
-  // column finds every view it has to end.
+  // A view registers nothing with the column. Its operations check that the column was not
+  // dropped, and a commit that used a dropped column fails.
   internal override ColumnView CreateView(bool writing, TransactionIsolationLevel isolation,
       long transactionId, long snapshotTimestamp)
   {
-    BeginOperation();
-    try
-    {
-      var view = (ColumnView)(writing
-          ? Tree.BeginTransaction(isolation, transactionId, snapshotTimestamp)
-          : Tree.BeginReadOnlyTransaction(snapshotTimestamp));
-      view.Column = this;
-      AddDependent(view);
-      return view;
-    }
-    finally
-    {
-      EndOperation();
-    }
+    var view = (ColumnView)(writing
+        ? Tree.BeginTransaction(isolation, transactionId, snapshotTimestamp)
+        : Tree.BeginReadOnlyTransaction(snapshotTimestamp));
+    view.Column = this;
+    return view;
   }
 
   internal override Task SyncWALAsync() => Domain.Coordinator.SyncAsync();
 
-  void ICoordinatedStorage.SyncIfWritten()
+  Task ICoordinatedStorage.StartSync() => IsDropped ? null : Tree.StartSync();
+
+  bool ICoordinatedStorage.OnSyncFailed(Exception error)
   {
-    if (IsDropped)
-      return;
-    try { Tree.SyncIfWritten(); }
-    // A column that closed or was dropped meanwhile has nothing left to make durable.
-    catch (global::System.ObjectDisposedException) when (IsDropped) { }
+    // A column dropped meanwhile has nothing left to make durable.
+    if (IsDropped && error is global::System.ObjectDisposedException)
+      return true;
+    Tree.OnSyncFailed();
+    return false;
   }
 
   void ICoordinatedStorage.OnDomainDurable() => Tree.OnDomainDurable();

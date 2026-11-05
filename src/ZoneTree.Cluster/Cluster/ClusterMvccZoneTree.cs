@@ -90,8 +90,6 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
 
   // The fields below are guarded by StateLock.
 
-  readonly ActiveTransactions<TKey, TValue> Active = new();
-
   /// <summary>
   /// Committed entries, in commit order, until every snapshot sees them and they are durable.
   /// </summary>
@@ -332,14 +330,8 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
         new TransactionEntry(transactionId, TransactionState.Active),
         snapshotTimestamp,
         isolationLevel);
-    lock (StateLock)
-    {
-      // The view reads the tree from now on, so rollbacks before now cannot affect it.
-      transaction.BeginSequence = Coordinator.Clock.Current;
-      Active.AddWriter(transaction);
-    }
-    // Readers look up the entry only for versions of this transaction,
-    // and it writes none before this returns.
+    // The domain keeps the view's snapshot and begin sequence. Readers look up the entry
+    // only for versions of this transaction, and it writes none before this returns.
     Entries[transactionId] = transaction.Entry;
     return transaction;
   }
@@ -348,25 +340,8 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   /// Begins the view of a read-only domain transaction at the domain transaction's snapshot.
   /// </summary>
   internal ClusterMvccReadTransaction<TKey, TValue> BeginReadOnlyTransaction(long snapshotTimestamp)
-  {
-    // Join the bucket of the same snapshot without the state lock. The bucket only
-    // counts the readers of the tree; the domain keeps their snapshots.
-    var bucket = Active.CurrentBucket;
-    if (bucket == null ||
-        bucket.SnapshotTimestamp != snapshotTimestamp ||
-        !bucket.TryJoin())
-    {
-      lock (StateLock)
-      {
-        bucket = Active.CurrentBucket;
-        if (bucket == null ||
-            bucket.SnapshotTimestamp != snapshotTimestamp ||
-            !bucket.TryJoin())
-          bucket = Active.AddBucket(snapshotTimestamp, Coordinator.Clock.Current);
-      }
-    }
-    return new ClusterMvccReadTransaction<TKey, TValue>(this, Comparer, bucket);
-  }
+      // The domain keeps the snapshot and the begin sequence of its read-only transactions.
+      => new(this, Comparer, snapshotTimestamp);
 
   /// <summary>
   /// The oldest snapshot timestamp in use in the domain. Every commit at or before it
@@ -500,14 +475,14 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
 
   /// <summary>
   /// Prepares the commit of a validated view that wrote: registers its keys at the commit
-  /// timestamp and writes its commit record. Called under the column's commit gate.
+  /// timestamp. Called under the column's commit gate, so it does no I/O.
   /// </summary>
   internal void Prepare(ClusterMvccTransaction<TKey, TValue> transaction, long commitTimestamp)
   {
     var entry = transaction.Entry;
     lock (CommitLock)
     {
-      var keys = transaction.GetWrittenKeys();
+      var keys = transaction.CommitKeys;
       // Committers check conflicts under the commit gate, so none sees the keys before the
       // commit. Writers that see them early conflict with a commit that follows. The keys
       // of a failed commit can only make transactions that began before it conflict, and
@@ -517,20 +492,29 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
       entry.CommitTimestamp = commitTimestamp;
       entry.State = TransactionState.Committing;
       transaction.OnCommitting();
-      // The commit record. The commit is visible once the domain's snapshot reaches it.
-      transaction.HasCommitRecord = true;
-      try
-      {
-        Storage.Upsert(
-            VersionedKey<TKey>.TransactionStatus(transaction.TransactionId),
-            VersionedValue<TValue>.FromSystem(commitTimestamp));
-      }
-      catch (ZoneTreeIsReadOnlyException)
-      {
-        // A read-only tree rejects the write before it stores anything.
-        transaction.HasCommitRecord = false;
-        throw;
-      }
+    }
+  }
+
+  /// <summary>
+  /// Writes the commit record of a prepared view, after the commit gates are released: the
+  /// write may rotate the mutable segment, which syncs the disk. The commit is visible once
+  /// the domain's snapshot reaches it, and durable once the domain's durable timestamp
+  /// does, which waits for this record.
+  /// </summary>
+  internal void WriteCommitRecord(ClusterMvccTransaction<TKey, TValue> transaction)
+  {
+    transaction.HasCommitRecord = true;
+    try
+    {
+      Storage.Upsert(
+          VersionedKey<TKey>.TransactionStatus(transaction.TransactionId),
+          VersionedValue<TValue>.FromSystem(transaction.Entry.CommitTimestamp));
+    }
+    catch (ZoneTreeIsReadOnlyException)
+    {
+      // A read-only tree rejects the write before it stores anything.
+      transaction.HasCommitRecord = false;
+      throw;
     }
     Volatile.Write(ref HasUnsyncedCommits, 1);
   }
@@ -575,30 +559,32 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   {
     transaction.OnCommitInDoubt();
     transaction.Entry.State = TransactionState.InDoubt;
-    if (transaction.IsRegistered)
-      EndTransaction(transaction);
+    EndTransaction(transaction);
   }
 
   /// <summary>
-  /// Syncs the write ahead log if the tree wrote commit records since its last sync.
-  /// Called by the domain's sync thread.
+  /// Starts a sync of the write ahead log if the tree wrote commit records since its last
+  /// sync, or returns null. Called by the domain's sync thread, which starts the syncs of
+  /// all its columns before it waits for them. The WAL completes a sync on the calling
+  /// thread or on its writer thread, never on the thread pool.
   /// </summary>
-  internal void SyncIfWritten()
+  internal Task StartSync()
   {
     if (Interlocked.Exchange(ref HasUnsyncedCommits, 0) == 0)
-      return;
+      return null;
     try
     {
-      // Blocking keeps the sync thread off the thread pool: the WAL completes the sync
-      // on this thread or on its writer thread.
-      Storage.SyncWALAsync().GetAwaiter().GetResult();
+      return Storage.SyncWALAsync();
     }
     catch
     {
-      Volatile.Write(ref HasUnsyncedCommits, 1);
+      OnSyncFailed();
       throw;
     }
   }
+
+  /// <summary>Called after a sync failed, so the next domain sync syncs the tree again.</summary>
+  internal void OnSyncFailed() => Volatile.Write(ref HasUnsyncedCommits, 1);
 
   /// <summary>
   /// Rolls back a view: deletes its versions and its status record. Returns false if a
@@ -654,12 +640,10 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   }
 
   /// <summary>
-  /// Releases the snapshot of the transaction. Called under the state lock.
+  /// Prunes what the ended view kept. Called under the state lock.
   /// </summary>
   void EndTransactionLocked(ClusterMvccTransaction<TKey, TValue> transaction)
   {
-    if (transaction.IsRegistered)
-      Active.RemoveWriter(transaction);
     PruneCommittedTransactions();
     ForgetRolledBackTransactions();
   }
@@ -699,9 +683,10 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   {
     if (RolledBackTransactions.Count == 0)
       return;
-    // A transaction that began before the deletions may hold an iterator
-    // over segments that have the versions without the deletions.
-    var oldestBeginSequence = Active.OldestBeginSequence(long.MaxValue);
+    // A transaction that began before the deletions may hold an iterator over segments
+    // that have the versions without the deletions. The domain knows when its
+    // transactions began, including those that have no view in this tree yet.
+    var oldestBeginSequence = Coordinator.Snapshots.OldestBeginSequence;
     while (RolledBackTransactions.TryPeek(out var entry) &&
         entry.AbortSequence < oldestBeginSequence)
     {
@@ -813,14 +798,10 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
 
   public IZoneTree<VersionedKey<TKey>, VersionedValue<TValue>> ZoneTree => Storage;
 
+  // The writing views open in this column. The domain registers the transactions, and
+  // read-only views register nothing in the column, so this counts entries instead.
   public int ActiveTransactionCount
-  {
-    get
-    {
-      lock (StateLock)
-        return Active.Count;
-    }
-  }
+      => Entries.Values.Count(entry => entry.State == TransactionState.Active);
 
   public long LastCommitTimestamp => Coordinator.Sequencer.SnapshotTimestamp;
 

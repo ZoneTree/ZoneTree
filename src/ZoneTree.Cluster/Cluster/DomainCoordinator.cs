@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using ZoneTree.Exceptions;
 using ZoneTree.Logger;
 
@@ -7,10 +8,16 @@ namespace ZoneTree.Cluster;
 internal interface ICoordinatedStorage
 {
   /// <summary>
-  /// Syncs the column's write ahead log if the column wrote commit records since its last
-  /// sync. A closed or dropped column has nothing to sync.
+  /// Starts a sync of the column's write ahead log if the column wrote commit records since
+  /// its last sync, or returns null. A closed or dropped column has nothing to sync.
   /// </summary>
-  void SyncIfWritten();
+  Task StartSync();
+
+  /// <summary>
+  /// Handles a failed sync. Returns true if the failure does not count: the column was
+  /// dropped meanwhile.
+  /// </summary>
+  bool OnSyncFailed(Exception error);
 
   /// <summary>Called after the domain's durable timestamp advanced.</summary>
   void OnDomainDurable();
@@ -31,8 +38,9 @@ internal interface ICoordinatedStorage
 /// in every column, so what survives is a prefix of the commits, with every transaction whole.
 /// </para>
 /// <para>
-/// Syncs run on a dedicated thread, which also publishes the durable commits it made durable.
-/// Callers that block on a durable commit then never wait for a thread pool thread.
+/// Syncs run on a dedicated thread, which syncs the columns in parallel, records the durable
+/// timestamp in the catalog, and publishes the durable commits it made durable. Callers that
+/// block on a durable commit then never wait for a thread pool thread.
 /// A failed sync stops the domain's commits until the cluster reopens, and recovery decides
 /// the outcome of the commits it left in doubt.
 /// </para>
@@ -176,10 +184,41 @@ internal sealed class DomainCoordinator
     }
   }
 
+  /// <summary>
+  /// Syncs every column that wrote commit records. The syncs run in parallel: each column
+  /// has its own write ahead log.
+  /// </summary>
   void SyncColumns()
   {
+    List<(ICoordinatedStorage Storage, Task Sync)> syncs = null;
+    Exception failure = null;
     foreach (var column in Cluster.OpenColumnsOf(Domain))
-      ((ICoordinatedStorage)column).SyncIfWritten();
+    {
+      var storage = (ICoordinatedStorage)column;
+      try
+      {
+        var sync = storage.StartSync();
+        if (sync != null)
+          (syncs ??= []).Add((storage, sync));
+      }
+      catch (Exception error) when (!storage.OnSyncFailed(error))
+      {
+        failure ??= error;
+      }
+    }
+    if (syncs != null)
+    {
+      foreach (var (storage, sync) in syncs)
+      {
+        try { sync.GetAwaiter().GetResult(); }
+        catch (Exception error) when (!storage.OnSyncFailed(error))
+        {
+          failure ??= error;
+        }
+      }
+    }
+    if (failure != null)
+      ExceptionDispatchInfo.Throw(failure);
   }
 
   void NotifyDurable()

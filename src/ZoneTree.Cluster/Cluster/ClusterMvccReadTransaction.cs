@@ -3,22 +3,20 @@ using ZoneTree.Comparers;
 namespace ZoneTree.Cluster;
 
 /// <summary>
-/// A read-only transaction of <see cref="ClusterMvccZoneTree{TKey, TValue}"/>.
-/// It reads the snapshot of its bucket and keeps no read set.
+/// The view of a read-only domain transaction in the tree of a coordinated column. It reads
+/// the snapshot of its domain transaction and keeps no read set. The domain registers the
+/// snapshot, so the view registers nothing in the tree.
 /// </summary>
 internal sealed class ClusterMvccReadTransaction<TKey, TValue> : ClusterMvccReader<TKey, TValue>
 {
-  readonly SnapshotBucket Bucket;
-
   int isDisposed;
 
   public ClusterMvccReadTransaction(
       ClusterMvccZoneTree<TKey, TValue> tree,
       IRefComparer<TKey> comparer,
-      SnapshotBucket bucket)
-      : base(tree, comparer, 0, bucket.SnapshotTimestamp)
+      long snapshotTimestamp)
+      : base(tree, comparer, 0, snapshotTimestamp)
   {
-    Bucket = bucket;
   }
 
   protected override bool IsActive => Volatile.Read(ref isDisposed) == 0;
@@ -36,8 +34,5 @@ internal sealed class ClusterMvccReadTransaction<TKey, TValue> : ClusterMvccRead
       return;
     StopOperations();
     ReleaseReaders();
-    // Leaves without the state lock; a later writer or merge
-    // prunes what the snapshot kept.
-    Bucket.Leave();
   }
 }

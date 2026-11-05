@@ -45,7 +45,8 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
     Domain = domain;
     Cluster = domain.Cluster;
     SnapshotTimestamp = snapshot;
-    Cluster.TransactionStarted(this);
+    // The domain registers the transaction with its snapshot; a closing cluster rolls back
+    // the writing ones it finds there.
   }
 
   /// <summary>Begins a read-only transaction in a domain snapshot bucket it joined.</summary>
@@ -149,7 +150,6 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
     {
       ExpiryTimer?.Dispose();
       ReleaseSnapshot();
-      Cluster.TransactionEnded(this);
     }
     if (errors != null)
       throw new AggregateException(errors);
@@ -158,11 +158,7 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
   /// <summary>Releases the snapshot the domain registered for the transaction.</summary>
   protected virtual void ReleaseSnapshot() => Bucket?.Leave();
 
-  static void CloseView(ColumnView view)
-  {
-    view.Column.RemoveDependent(view);
-    view.Dispose();
-  }
+  static void CloseView(ColumnView view) => view.Dispose();
 
   /// <summary>Rolls back an active transaction. Returns false if a commit or rollback claimed its end.</summary>
   protected bool RollbackCore()
