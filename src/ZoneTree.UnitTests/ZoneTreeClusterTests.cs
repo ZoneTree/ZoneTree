@@ -41,6 +41,33 @@ public sealed class ZoneTreeClusterTests
   };
 
   [Test]
+  public async Task AsyncColumnOperationsKeepTheirCallOrderInEachColumn()
+  {
+    using var cluster = Factory.CreateInProcess(Options());
+    var numbers = cluster.GetColumn<int, int>("numbers");
+    var names = cluster.GetColumn<long, string>("names");
+    using (var transaction = cluster.BeginTransaction())
+    {
+      var numberView = transaction.GetColumn(numbers);
+      var nameView = transaction.GetColumn(names);
+      // The columns run in parallel, the operations of each column in call order.
+      var writes = new List<Task>();
+      for (var i = 1; i <= 100; ++i)
+      {
+        writes.Add(numberView.UpsertAsync(1, i).AsTask());
+        writes.Add(nameView.UpsertAsync(i, $"name {i}").AsTask());
+      }
+      await Task.WhenAll(writes);
+      var own = await numberView.TryGetAsync(1);
+      Assert.That(own.Found && own.Value == 100, Is.True);
+      transaction.Commit();
+    }
+    Assert.That(numbers.TryGet(1, out var value) && value == 100, Is.True);
+    for (var i = 1L; i <= 100; ++i)
+      Assert.That(names.TryGet(i, out var name) && name == $"name {i}", Is.True, $"key {i}");
+  }
+
+  [Test]
   public void CommitsTypedColumnsAndPreservesEachColumnSnapshot()
   {
     using var cluster = Factory.CreateInProcess(Options());

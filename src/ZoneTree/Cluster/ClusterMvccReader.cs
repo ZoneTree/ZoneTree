@@ -52,18 +52,11 @@ internal abstract class ClusterMvccReader<TKey, TValue> : ColumnView,
   }
 
   public ValueTask<bool> ContainsKeyAsync(TKey key, CancellationToken cancellationToken = default)
-  {
-    cancellationToken.ThrowIfCancellationRequested();
-    return new(ContainsKey(in key));
-  }
+      => RunAsync(() => ContainsKey(in key), cancellationToken);
 
   public ValueTask<ReadResult<TValue>> TryGetAsync(TKey key,
       CancellationToken cancellationToken = default)
-  {
-    cancellationToken.ThrowIfCancellationRequested();
-    var found = TryGet(in key, out var value);
-    return new(new ReadResult<TValue>(found, value));
-  }
+      => RunAsync(() => new ReadResult<TValue>(TryGet(in key, out var value), value), cancellationToken);
 
   /// <summary>
   /// Reads the newest version of a key the transaction can see.

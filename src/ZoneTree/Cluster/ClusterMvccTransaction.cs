@@ -100,11 +100,7 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
 
   public ValueTask<ReadResult<TValue>> TryGetForUpdateAsync(TKey key,
       CancellationToken cancellationToken = default)
-  {
-    cancellationToken.ThrowIfCancellationRequested();
-    var found = TryGetForUpdate(in key, out var value);
-    return new(new ReadResult<TValue>(found, value));
-  }
+      => RunAsync(() => new ReadResult<TValue>(TryGetForUpdate(in key, out var value), value), cancellationToken);
 
   void AddReadKey(in TKey key)
   {
@@ -122,18 +118,10 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
   }
 
   public ValueTask UpsertAsync(TKey key, TValue value, CancellationToken cancellationToken = default)
-  {
-    cancellationToken.ThrowIfCancellationRequested();
-    Upsert(in key, in value);
-    return ValueTask.CompletedTask;
-  }
+      => RunAsync(() => Upsert(in key, in value), cancellationToken);
 
   public ValueTask DeleteAsync(TKey key, CancellationToken cancellationToken = default)
-  {
-    cancellationToken.ThrowIfCancellationRequested();
-    Delete(in key);
-    return ValueTask.CompletedTask;
-  }
+      => RunAsync(() => Delete(in key), cancellationToken);
 
   void Write(in TKey key, in VersionedValue<TValue> value)
   {
