@@ -267,11 +267,13 @@ internal abstract class ClusterMvccReader<TKey, TValue> : ColumnView,
       iterators[i].Dispose();
   }
 
-  internal override Task<bool> BeginCommit(bool durable)
-  {
-    Dispose();
-    return Task.FromResult(true);
-  }
+  // Only the views of writing domain transactions commit; they override these.
+  internal override void ClaimForCommit() => throw new InvalidOperationException("A read-only view does not commit.");
+  internal override bool Validate() => throw new InvalidOperationException("A read-only view does not commit.");
+  internal override void Prepare(long commitTimestamp) => throw new InvalidOperationException("A read-only view does not commit.");
+  internal override void Publish() => throw new InvalidOperationException("A read-only view does not commit.");
+  internal override void LeaveInDoubt() => throw new InvalidOperationException("A read-only view does not commit.");
+  internal override bool RollbackClaimed() => throw new InvalidOperationException("A read-only view does not commit.");
 
   public abstract override void Dispose();
 }

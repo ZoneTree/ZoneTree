@@ -34,8 +34,11 @@ public sealed class CoordinatedColumnDefinition<TKey, TValue> : CoordinatedColum
   Column ITypedColumnDefinition<TKey, TValue>.OpenStorage(
       ZoneTreeCluster cluster, ColumnRecord record, ZoneTreeFactory<TKey, TValue> factory)
   {
+    var coordinator = cluster.DomainOf(record).Coordinator;
+    var domain = cluster.Catalog.State.FindDomain(record.DomainId);
     var tree = ClusterMvccZoneTreeFactory.Open(factory,
-        canCreate: record.State == ColumnState.Creating, canOpen: true);
+        canCreate: record.State == ColumnState.Creating, canOpen: true,
+        coordinator, domain.IsRolledBack);
     return new CoordinatedColumn<TKey, TValue>(cluster, record.Id, Name, tree);
   }
 }

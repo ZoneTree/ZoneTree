@@ -21,11 +21,38 @@ internal enum ColumnState : byte
 internal sealed record ClusterRecord(
     Guid ClusterId, long SchemaEpoch, long NextDomainId, long NextColumnId);
 
+/// <summary>A range of commit timestamps, from <see cref="From"/> exclusive to <see cref="To"/> inclusive.</summary>
+internal readonly record struct TimestampRange(long From, long To)
+{
+  internal bool Contains(long timestamp) => timestamp > From && timestamp <= To;
+}
+
 /// <summary>The catalog record of a domain.</summary>
 /// <param name="TimestampBound">
 /// The highest transaction id and commit timestamp the domain may issue before it reserves more.
 /// </param>
-internal sealed record DomainRecord(long Id, string Name, long TimestampBound);
+/// <param name="DurableTimestamp">
+/// Every commit at or below it is complete and synced in every column of the domain.
+/// </param>
+/// <param name="IsClean">True if the domain was closed cleanly after its last open.</param>
+/// <param name="RolledBackRanges">
+/// The commit timestamps that recoveries rolled back: each unclean shutdown rolls back the
+/// commits between the durable timestamp and the timestamp bound of the closed process.
+/// A column that opens later rolls back its commits in these ranges too.
+/// </param>
+internal sealed record DomainRecord(long Id, string Name, long TimestampBound,
+    long DurableTimestamp, bool IsClean, IReadOnlyList<TimestampRange> RolledBackRanges)
+{
+  internal bool IsRolledBack(long commitTimestamp)
+  {
+    foreach (var range in RolledBackRanges)
+    {
+      if (range.Contains(commitTimestamp))
+        return true;
+    }
+    return false;
+  }
+}
 
 /// <summary>
 /// The catalog record of a column. A column outside domains has domain id zero, and a column
@@ -77,10 +104,28 @@ internal static class CatalogRecords
     writer.Write(record.Id);
     writer.Write(record.Name);
     writer.Write(record.TimestampBound);
+    writer.Write(record.DurableTimestamp);
+    writer.Write(record.IsClean);
+    writer.Write(record.RolledBackRanges.Count);
+    foreach (var range in record.RolledBackRanges)
+    {
+      writer.Write(range.From);
+      writer.Write(range.To);
+    }
   });
 
   internal static DomainRecord DecodeDomain(Memory<byte> value) => Read(value, reader =>
-      new DomainRecord(reader.ReadInt64(), reader.ReadString(), reader.ReadInt64()));
+  {
+    var id = reader.ReadInt64();
+    var name = reader.ReadString();
+    var bound = reader.ReadInt64();
+    var durable = reader.ReadInt64();
+    var clean = reader.ReadBoolean();
+    var ranges = new TimestampRange[reader.ReadInt32()];
+    for (var index = 0; index < ranges.Length; ++index)
+      ranges[index] = new TimestampRange(reader.ReadInt64(), reader.ReadInt64());
+    return new DomainRecord(id, name, bound, durable, clean, ranges);
+  });
 
   internal static Memory<byte> Encode(ColumnRecord record) => Write(writer =>
   {

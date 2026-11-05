@@ -3,8 +3,21 @@ using ZoneTree.Exceptions;
 namespace ZoneTree.Cluster;
 
 /// <summary>
-/// Issues a domain's transaction ids and commit timestamps from one clock, and keeps the
-/// domain's snapshot timestamp.
+/// The clock of a domain: one total order of transaction ids and commit timestamps for every
+/// column of the domain. Across machines, it becomes a timestamp service.
+/// </summary>
+internal interface ITimestampOracle
+{
+  /// <summary>Issues the next transaction id or commit timestamp.</summary>
+  long Next();
+
+  /// <summary>The latest issued value. Later values are larger.</summary>
+  long Current { get; }
+}
+
+/// <summary>
+/// Issues a domain's transaction ids and commit timestamps from one clock, within the bound
+/// reserved in the catalog.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -19,7 +32,7 @@ namespace ZoneTree.Cluster;
 /// if it reaches the bound before the next batch is durable.
 /// </para>
 /// </remarks>
-internal sealed class DomainTimestampSource
+internal sealed class DomainTimestampSource : ITimestampOracle
 {
   const long HalfBatch = ClusterCatalog.TimestampBatch / 2;
 
@@ -30,7 +43,6 @@ internal sealed class DomainTimestampSource
   readonly TimestampReservationWorker Reservations;
   readonly object Gate = new();
   long Clock;
-  long snapshotTimestamp;
   long reservedBound;
   // The fields below are written under the gate.
   volatile bool requested;
@@ -45,43 +57,20 @@ internal sealed class DomainTimestampSource
     Reservations = reservations;
     DomainId = domainId;
     Clock = start;
-    snapshotTimestamp = start;
     this.reservedBound = reservedBound;
   }
 
-  /// <summary>
-  /// The timestamp a new snapshot of the domain reads at: every commit at or below it is
-  /// included. A commit gets its timestamp only after it is visible, so the highest commit
-  /// timestamp is such a point. It never decreases; after a restart it starts at the restart
-  /// epoch, which is above every earlier commit.
-  /// </summary>
-  internal long SnapshotTimestamp => Volatile.Read(ref snapshotTimestamp);
+  public long Current => Volatile.Read(ref Clock);
 
   /// <summary>The bound that the next reservation reserves.</summary>
   internal long NextBound => Volatile.Read(ref reservedBound) + ClusterCatalog.TimestampBatch;
 
-  /// <summary>Issues the next transaction id or commit timestamp.</summary>
-  internal long Next()
+  public long Next()
   {
     var value = Interlocked.Increment(ref Clock);
     if (value > Volatile.Read(ref reservedBound) - HalfBatch)
       EnsureReserved(value);
     return value;
-  }
-
-  /// <summary>Issues the timestamp of a visible commit and advances the snapshot timestamp.</summary>
-  internal long Commit()
-  {
-    var timestamp = Next();
-    var current = Volatile.Read(ref snapshotTimestamp);
-    while (current < timestamp)
-    {
-      var observed = Interlocked.CompareExchange(ref snapshotTimestamp, timestamp, current);
-      if (observed == current)
-        break;
-      current = observed;
-    }
-    return timestamp;
   }
 
   void EnsureReserved(long value)

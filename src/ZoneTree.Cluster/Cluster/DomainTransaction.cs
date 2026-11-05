@@ -1,11 +1,28 @@
 using ZoneTree.Transactional;
-using System.Runtime.ExceptionServices;
 using ZoneTree.Exceptions;
 
 namespace ZoneTree.Cluster;
 
+/// <summary>
+/// A writing transaction of a domain. Its writes in every column of the domain commit
+/// together, at one commit timestamp, or not at all.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The commit takes the commit gates of the transaction's columns in column id order,
+/// validates every view, takes one timestamp from the domain's sequencer and writes the
+/// commit record of every view that wrote. It then publishes the views. Readers see the
+/// commit in every column at once, when the domain's snapshot reaches its timestamp.
+/// </para>
+/// <para>
+/// A failure before the commit records are complete rolls back every view. A durable
+/// commit is published only after the domain made it durable; a failed domain sync leaves
+/// it in doubt.
+/// </para>
+/// </remarks>
 internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransaction
 {
+  readonly DomainSnapshots.Writer Writer;
   bool CommitConflict;
   public long TransactionId { get; }
   public long CommitTimestamp { get; private set; }
@@ -13,6 +30,7 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
   public TransactionState State => state;
   protected override bool IsWriting => true;
   protected override TransactionIsolationLevel Isolation => IsolationLevel;
+  protected override long ViewTransactionId => TransactionId;
 
   public bool HasConflict
   {
@@ -33,10 +51,11 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
     }
   }
 
-  internal DomainTransaction(ClusterDomain domain, long id, long snapshot,
-      ClusterTransactionOptions options) : base(domain, snapshot)
+  internal DomainTransaction(ClusterDomain domain, DomainSnapshots.Writer writer,
+      ClusterTransactionOptions options) : base(domain, writer.SnapshotTimestamp)
   {
-    TransactionId = id;
+    Writer = writer;
+    TransactionId = writer.TransactionId;
     IsolationLevel = options.IsolationLevel;
     ExpiryTimer = TransactionExpiry.Start(options.Timeout, Expire);
   }
@@ -56,7 +75,8 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
       throw new TransactionConflictException(TransactionId);
   }
 
-  public bool TryCommit() => BeginCommit(false).GetAwaiter().GetResult();
+  // The commit waits on this thread, so a blocked caller never needs a thread pool thread.
+  public bool TryCommit() => BeginCommit(false, synchronous: true).GetAwaiter().GetResult();
 
   public async ValueTask CommitAsync(CancellationToken cancellationToken = default)
   {
@@ -67,7 +87,7 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
   public ValueTask<bool> TryCommitAsync(CancellationToken cancellationToken = default)
   {
     cancellationToken.ThrowIfCancellationRequested();
-    var commit = BeginCommit(false);
+    var commit = BeginCommit(false, synchronous: false);
     return new(cancellationToken.CanBeCanceled ? commit.WaitAsync(cancellationToken) : commit);
   }
 
@@ -80,11 +100,19 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
   public Task<bool> TryCommitDurableAsync(CancellationToken cancellationToken = default)
   {
     cancellationToken.ThrowIfCancellationRequested();
-    var commit = BeginCommit(true);
+    var commit = BeginCommit(true, synchronous: false);
     return cancellationToken.CanBeCanceled ? commit.WaitAsync(cancellationToken) : commit;
   }
 
-  Task<bool> BeginCommit(bool durable)
+  static readonly Task<bool> Committed = Task.FromResult(true);
+  static readonly Task<bool> Conflicted = Task.FromResult(false);
+
+  /// <param name="durable">True to publish the commit once the domain made it durable.</param>
+  /// <param name="synchronous">
+  /// True if the caller blocks on the result: an ordinary commit then waits for its
+  /// visibility on the calling thread.
+  /// </param>
+  Task<bool> BeginCommit(bool durable, bool synchronous)
   {
     EnsureActive();
     var views = TryClaimEnd(rollback: false);
@@ -97,122 +125,219 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
     foreach (var view in views)
       view.StopOperations();
     // A dropped column ended its view, so the transaction cannot commit any of its writes.
-    var dropped = Array.Find(views, view => view.Column.IsDropped);
+    var dropped = Array.Find(views, static view => view.Column.IsDropped);
     if (dropped != null)
     {
       RollbackClaimed();
       throw new SchemaObjectDroppedException(
           $"Column '{dropped.Column.Name}' was dropped, so transaction {TransactionId} was rolled back.");
     }
-    if (views.Length == 0)
-      return CompleteCommit(false);
-    if (views.Length == 1)
-      return BeginSingleCommit(views[0], durable);
+    // A failed write rolled back its view, so the other views roll back too.
+    if (Array.Exists(views, static view => view.HasFailedWrite))
+    {
+      RollbackClaimed();
+      throw new TransactionAbortedException(TransactionId);
+    }
+    // A write that found a newer commit stored nothing, so the transaction conflicts even if
+    // that view has no writes. The disposed views roll back.
+    if (Array.Exists(views, static view => view.ConflictDetected))
+      return AbortConflict();
+    if (!Array.Exists(views, static view => view.HasWrites))
+      return CommitUnwritten(views, durable);
+    // Only the views that wrote or have reads to validate take their column's commit gate.
+    // The others cannot conflict, so they do not wait for the commits of their columns.
+    var gated = Array.TrueForAll(views, static view => view.NeedsValidation)
+        ? views
+        : Array.FindAll(views, static view => view.NeedsValidation);
+    if (gated.Length > 1)
+      Array.Sort(gated, static (left, right) => left.Column.Id.CompareTo(right.Column.Id));
 
-    Array.Sort(views, static (left, right) => left.Column.Id.CompareTo(right.Column.Id));
+    var coordinator = Domain.Coordinator;
     var entered = 0;
+    var claimed = 0;
+    CommitSequencer.Slot slot = null;
     try
     {
-      for (; entered < views.Length; ++entered)
-        Monitor.Enter(views[entered].Column.CommitGate);
-      foreach (var view in views)
-        if (!view.CanCommit())
-          return AbortConflict();
-      state = TransactionState.Committing;
-      var commits = new Task<bool>[views.Length];
-      Array.Fill(commits, Task.FromResult(true));
-      var hasWrites = false;
-      Exception startError = null;
-      for (var index = 0; index < views.Length; ++index)
+      for (; entered < gated.Length; ++entered)
+        Monitor.Enter(gated[entered].Column.CommitGate);
+      for (; claimed < views.Length; ++claimed)
+        views[claimed].ClaimForCommit();
+      // Serializable views validate their reads even if they wrote nothing.
+      if (Array.TrueForAll(gated, static view => view.Validate()))
       {
-        hasWrites |= views[index].HasWrites;
-        try { commits[index] = views[index].BeginCommit(durable); }
-        catch (Exception error) { startError = error; break; }
+        state = TransactionState.Committing;
+        slot = coordinator.BeginCommit();
+        try
+        {
+          foreach (var view in gated)
+            if (view.HasWrites)
+              view.Prepare(slot.Timestamp);
+        }
+        catch (Exception error)
+        {
+          // Commits stop before the timestamp completes, so the durable timestamp never
+          // reaches records the rollback could not delete.
+          if (!RollbackViews(views, claimed))
+            coordinator.StopCommits(error);
+          _ = coordinator.Sequencer.Complete(slot);
+          claimed = 0;
+          throw;
+        }
       }
-      if (startError == null && Array.TrueForAll(commits, static commit => commit.IsCompletedSuccessfully && commit.Result))
-        return CompleteCommit(hasWrites);
-      return FinishCommitsAsync(commits, hasWrites, startError);
     }
     catch
     {
-      if (state == TransactionState.Active)
-        RollbackClaimed();
+      RollbackViews(views, claimed);
+      RollbackClaimed();
       throw;
     }
     finally
     {
       for (var index = entered - 1; index >= 0; --index)
-        Monitor.Exit(views[index].Column.CommitGate);
+        Monitor.Exit(gated[index].Column.CommitGate);
     }
-  }
 
-  Task<bool> BeginSingleCommit(ColumnView view, bool durable)
-  {
-    lock (view.Column.CommitGate)
+    if (slot == null)
     {
-      try
-      {
-        state = TransactionState.Committing;
-        var hasWrites = view.HasWrites;
-        var commit = view.BeginCommit(durable);
-        if (commit.IsCompletedSuccessfully)
-          return IsCommitted(commit) ? CompleteCommit(hasWrites) : AbortConflict();
-        return FinishSingleCommitAsync(commit, hasWrites);
-      }
-      catch
-      {
-        if (state == TransactionState.Active)
-          RollbackClaimed();
-        else if (state == TransactionState.Committing)
-          FailCommit();
-        throw;
-      }
+      RollbackViews(views, claimed);
+      return AbortConflict();
     }
-  }
-
-  async Task<bool> FinishSingleCommitAsync(Task<bool> commit, bool hasWrites)
-  {
+    if (durable)
+      return CommitDurable(views, slot);
+    Task visible;
     try
     {
-      if (!await commit.ConfigureAwait(false))
-        return await AbortConflict().ConfigureAwait(false);
-      return await CompleteCommit(hasWrites).ConfigureAwait(false);
+      PublishViews(views);
     }
-    catch { FailCommit(); throw; }
+    finally
+    {
+      // The domain's snapshot moves past the commit even if a publication failed.
+      visible = coordinator.Sequencer.Complete(slot);
+    }
+    if (!visible.IsCompleted)
+    {
+      if (!synchronous)
+        return CompleteWhenVisible(visible, slot.Timestamp);
+      // The caller blocks anyway. The completing thread signals a synchronous wait itself,
+      // with no thread pool continuation.
+#pragma warning disable CA1849
+      visible.GetAwaiter().GetResult();
+#pragma warning restore CA1849
+    }
+    return CompleteCommit(slot.Timestamp);
   }
 
-  async Task<bool> FinishCommitsAsync(Task<bool>[] commits, bool hasWrites, Exception startError)
+  /// <summary>
+  /// Commits a transaction that wrote nothing. It is equivalent to running at its snapshot,
+  /// which includes every read of a serializable transaction.
+  /// </summary>
+  Task<bool> CommitUnwritten(ColumnView[] views, bool durable)
   {
+    var claimed = 0;
     try
     {
-      var results = await Task.WhenAll(commits).ConfigureAwait(false);
-      if (startError != null)
-        ExceptionDispatchInfo.Capture(startError).Throw();
-      // A column rejected its commit after validation, and other columns may have committed.
-      if (Array.Exists(results, static result => !result))
-        throw new TransactionInDoubtException(TransactionId);
-      return await CompleteCommit(hasWrites).ConfigureAwait(false);
+      for (; claimed < views.Length; ++claimed)
+        views[claimed].ClaimForCommit();
     }
-    catch { FailCommit(); throw; }
+    catch
+    {
+      RollbackViews(views, claimed);
+      RollbackClaimed();
+      throw;
+    }
+    PublishViews(views);
+    var committed = CompleteCommit(SnapshotTimestamp);
+    // A durable commit waits until what it read is durable.
+    return durable ? SyncReadsAsync() : committed;
   }
 
-  Task<bool> CompleteCommit(bool hasWrites)
+  async Task<bool> SyncReadsAsync()
   {
-    CommitTimestamp = hasWrites ? Domain.TransactionCommitted() : SnapshotTimestamp;
+    await Domain.Coordinator.SyncAsync().ConfigureAwait(false);
+    return true;
+  }
+
+  /// <summary>
+  /// Waits until the domain made the commit durable. The domain's sync thread then
+  /// publishes the views, in commit order.
+  /// </summary>
+  async Task<bool> CommitDurable(ColumnView[] views, CommitSequencer.Slot slot)
+  {
+    var sequencer = Domain.Coordinator.Sequencer;
+    sequencer.MarkWritten(slot);
+    Task visible = null;
+    try
+    {
+      await Domain.Coordinator.WaitDurable(slot.Timestamp, () =>
+      {
+        PublishViews(views);
+        visible = sequencer.Complete(slot);
+      }).ConfigureAwait(false);
+    }
+    catch (Exception error)
+    {
+      // The records may be on the disk, so recovery decides the outcome.
+      if (visible == null)
+      {
+        foreach (var view in views)
+          view.LeaveInDoubt();
+        _ = sequencer.Complete(slot);
+      }
+      state = TransactionState.InDoubt;
+      Close();
+      throw new TransactionInDoubtException(TransactionId, error);
+    }
+    await visible.ConfigureAwait(false);
+    return await CompleteCommit(slot.Timestamp).ConfigureAwait(false);
+  }
+
+  async Task<bool> CompleteWhenVisible(Task visible, long commitTimestamp)
+  {
+    // An earlier commit of the domain is still in flight; the snapshot reaches this one
+    // after it, and the commit returns only then, so a later transaction reads it.
+    await visible.ConfigureAwait(false);
+    return await CompleteCommit(commitTimestamp).ConfigureAwait(false);
+  }
+
+  static void PublishViews(ColumnView[] views)
+  {
+    foreach (var view in views)
+      view.Publish();
+  }
+
+  /// <summary>
+  /// Rolls back the views whose end the commit claimed. Returns false if a rollback could
+  /// not delete the records of its view.
+  /// </summary>
+  static bool RollbackViews(ColumnView[] views, int claimed)
+  {
+    var deleted = true;
+    for (var index = 0; index < claimed; ++index)
+      deleted &= views[index].RollbackClaimed();
+    return deleted;
+  }
+
+  Task<bool> CompleteCommit(long commitTimestamp)
+  {
+    CommitTimestamp = commitTimestamp;
     state = TransactionState.Committed;
     Close();
-    return Task.FromResult(true);
+    return Committed;
   }
 
   Task<bool> AbortConflict()
   {
     CommitConflict = true;
     RollbackClaimed();
-    return Task.FromResult(false);
+    return Conflicted;
   }
 
-  static bool IsCommitted(Task<bool> commit)
-      => commit.IsCompletedSuccessfully && commit.GetAwaiter().GetResult();
+  // A cluster that closes while the transaction begins may end it before it has its writer.
+  protected override void ReleaseSnapshot()
+  {
+    if (Writer != null)
+      Domain.Coordinator.Snapshots.EndWriter(Writer);
+  }
 
   protected override void ThrowEnding() => throw new TransactionCommitInProgressException(TransactionId);
 
@@ -223,13 +348,6 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
     TransactionState.InDoubt => new TransactionInDoubtException(TransactionId),
     _ => new TransactionAbortedException(TransactionId),
   };
-
-  void FailCommit()
-  {
-    if (state != TransactionState.Committed)
-      state = TransactionState.InDoubt;
-    Close();
-  }
 
   public void Rollback() => Dispose();
   public ValueTask RollbackAsync() => DisposeAsync();

@@ -7,18 +7,18 @@ using ZoneTree.Transactional.Versioning;
 namespace ZoneTree.Cluster;
 
 /// <summary>
-/// A transaction of <see cref="ClusterMvccZoneTree{TKey, TValue}"/> that can write.
+/// The view of a writing domain transaction in the tree of a coordinated column.
 /// </summary>
 /// <remarks>
 /// Writes go to the storage tree at once, stored under the transaction id, and stay
-/// invisible to other transactions until the commit. The transaction keeps the keys
-/// it wrote to detect conflicts and to roll back, the keys it read for update, and in
-/// serializable mode the keys and ranges it read. Its operations can run concurrently.
-/// One commit or rollback owns the end of the transaction, and waits for the running
-/// operations before it reads the keys.
+/// invisible to other transactions until the commit. The view keeps the keys it wrote to
+/// detect conflicts and to roll back, the keys it read for update, and in serializable mode
+/// the keys and ranges it read. Its operations can run concurrently. Only its domain
+/// transaction commits it: the domain claims the end of every view, waits for the running
+/// operations, validates, prepares and publishes the views together.
 /// </remarks>
 internal sealed class ClusterMvccTransaction<TKey, TValue> :
-    ClusterMvccReader<TKey, TValue>, ITransaction<TKey, TValue>, IWriteColumn<TKey, TValue>
+    ClusterMvccReader<TKey, TValue>, IWriteColumn<TKey, TValue>
 {
   List<KeyRange<TKey>> ReadRanges;
 
@@ -32,13 +32,13 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
   bool IsStatusStored;
 
   /// <summary>
-  /// True once a write failed in the storage tree. The transaction is rolled back,
-  /// and a commit that waited for the write fails.
+  /// True once a write failed in the storage tree. The view is rolled back, and the
+  /// domain commit that waited for the write fails.
   /// </summary>
-  volatile bool HasFailedWrite;
+  volatile bool hasFailedWrite;
 
   /// <summary>
-  /// True while the tree counts the transaction as active. Guarded by the tree state lock.
+  /// True while the tree counts the view as active. Guarded by the tree state lock.
   /// </summary>
   internal bool IsRegistered;
 
@@ -47,7 +47,7 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
   volatile bool hasConflict;
 
   /// <summary>
-  /// Who owns the end of the transaction: <see cref="EndedByCommit"/>,
+  /// Who owns the end of the view: <see cref="EndedByCommit"/>,
   /// <see cref="EndedByRollback"/>, or 0 while nobody does.
   /// </summary>
   int EndOwner;
@@ -64,17 +64,19 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
 
   public bool HasConflict => hasConflict;
 
+  internal override bool HasFailedWrite => hasFailedWrite;
+
   /// <summary>
-  /// The clock when the transaction began. Rolled back versions stay registered
-  /// until every transaction that began before their deletion has ended.
+  /// The clock when the view registered in the tree. Rolled back versions stay registered
+  /// until every view that registered before their deletion has ended.
   /// </summary>
-  public long BeginSequence => TransactionId;
+  public long BeginSequence { get; internal set; }
 
   public TransactionEntry Entry { get; }
 
   internal override bool HasWrites => WrittenKeys != null;
+  internal override bool NeedsValidation => WrittenKeys != null || ReadKeys != null || ReadRanges != null;
   internal override bool ConflictDetected => HasConflict;
-  internal override bool CanCommit() => Tree.CanCommit(this);
 
   /// <summary>
   /// True if the commit validates every read.
@@ -205,7 +207,7 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
       }
       catch (Exception e)
       {
-        HasFailedWrite = true;
+        hasFailedWrite = true;
         failure = e;
       }
     }
@@ -241,12 +243,13 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
   }
 
   /// <summary>
-  /// Checks the transaction against the commits after its snapshot.
-  /// Called by the tree under its commit lock, after the operations stopped.
+  /// Checks the view against the commits after its snapshot: the keys it wrote, and the
+  /// keys and ranges it read. Called by the tree under its commit lock, after the
+  /// operations stopped.
   /// </summary>
   internal bool ConflictsWith(ConflictIndex<TKey> conflictIndex)
   {
-    if (conflictIndex.HasCommitAfter(WrittenKeys.Items, SnapshotTimestamp))
+    if (WrittenKeys != null && conflictIndex.HasCommitAfter(WrittenKeys.Items, SnapshotTimestamp))
       return true;
     if (ReadKeys != null && conflictIndex.HasCommitAfter(ReadKeys.Items, SnapshotTimestamp))
       return true;
@@ -261,32 +264,7 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
 
   internal IEnumerable<TKey> WrittenKeysForRollback => WrittenKeys.Items;
 
-  public void Commit()
-  {
-    if (!TryCommit())
-      throw new TransactionConflictException(TransactionId);
-  }
-
-  public bool TryCommit()
-  {
-    BeginEnd();
-    Task<bool> commit;
-    lock (Tree.CommitGate)
-    {
-      if (!CanStartCommit())
-        return false;
-      ReleaseReaders();
-      commit = StartCommit(false);
-    }
-    // Waiting on the task itself needs no thread pool thread:
-    // the commit sync thread completes a pending commit.
-    return commit.GetAwaiter().GetResult();
-  }
-
-  /// <summary>
-  /// Takes the end of the transaction for a commit, and waits for the running operations.
-  /// </summary>
-  void BeginEnd()
+  internal override void ClaimForCommit()
   {
     EnsureActive();
     if (Interlocked.CompareExchange(ref EndOwner, EndedByCommit, 0) != 0)
@@ -295,59 +273,40 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
       ThrowEnding();
     }
     StopOperations();
+    ReleaseReaders();
   }
 
-  /// <summary>
-  /// Rolls back a transaction that cannot commit. Returns false for a conflict,
-  /// and throws for a failed write.
-  /// </summary>
-  bool CanStartCommit()
+  internal override bool Validate() => Tree.Validate(this);
+
+  internal override void Prepare(long commitTimestamp) => Tree.Prepare(this, commitTimestamp);
+
+  internal override void Publish()
   {
-    if (HasFailedWrite)
-    {
-      RollbackOwned();
-      throw new TransactionAbortedException(TransactionId);
-    }
-    if (hasConflict)
-    {
-      RollbackOwned();
-      return false;
-    }
-    return true;
+    if (HasWrites)
+      Tree.Publish(this);
+    else
+      Tree.EndUnwritten(this);
   }
 
-  /// <summary>
-  /// Starts the commit in the tree, and sets the state of a commit that ends at once.
-  /// The tree publishes a pending commit, or marks it in doubt, before it completes its
-  /// task. So callers can wait on the returned task without a continuation.
-  /// </summary>
-  Task<bool> StartCommit(bool durable)
+  internal override void LeaveInDoubt()
   {
-    Task<bool> commit;
-    try
-    {
-      commit = durable ? Tree.CommitDurableAsync(this) : Tree.CommitAsync(this);
-    }
-    catch (Exception e)
-    {
-      // A failure before the commit point rolled the transaction back,
-      // and one after it leaves the transaction committed.
-      if (state == TransactionState.Active)
-        state = TransactionState.Aborted;
-      return Task.FromException<bool>(e);
-    }
-    if (commit.IsCompletedSuccessfully)
-    {
-      if (!commit.GetAwaiter().GetResult())
-        state = TransactionState.Aborted;
-    }
-    else if (commit.IsCompleted && state == TransactionState.Active)
-      state = TransactionState.Aborted;
-    return commit;
+    if (HasWrites)
+      Tree.LeaveInDoubt(this);
+    else
+      Tree.EndUnwritten(this);
   }
 
   /// <summary>
-  /// Marks the transaction committed. Called by the tree at the commit point.
+  /// True once the view may have written its commit record. Its versions then look committed
+  /// to recovery unless the rollback deletes them.
+  /// </summary>
+  internal bool HasCommitRecord;
+
+  // Without a commit record, the pending status keeps remaining versions aborted.
+  internal override bool RollbackClaimed() => RollbackOwned() || !HasCommitRecord;
+
+  /// <summary>
+  /// Marks the view committed. Called by the tree when it publishes the view.
   /// </summary>
   internal void OnCommitted(long commitTimestamp)
   {
@@ -355,71 +314,13 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
     state = TransactionState.Committed;
   }
 
-  internal override Task<bool> BeginCommit(bool durable)
-  {
-    BeginEnd();
-    if (!CanStartCommit())
-      return Task.FromResult(false);
-    ReleaseReaders();
-    return StartCommit(durable && HasWrites);
-  }
-
-  public Task CommitDurableAsync(CancellationToken cancellationToken = default)
-  {
-    var commit = TryCommitDurableAsync(cancellationToken);
-    if (commit.IsCompletedSuccessfully)
-      return commit.GetAwaiter().GetResult()
-          ? Task.CompletedTask
-          : Task.FromException(new TransactionConflictException(TransactionId));
-    // A commit that did not end at once never reports a conflict. Returning its
-    // task keeps a blocking caller from waiting for a thread pool continuation.
-    return commit;
-  }
-
-  public Task<bool> TryCommitDurableAsync(CancellationToken cancellationToken = default)
-  {
-    if (cancellationToken.IsCancellationRequested)
-      return ThrowCanceledAsync(cancellationToken);
-    Task<bool> commit;
-    try
-    {
-      BeginEnd();
-      lock (Tree.CommitGate)
-      {
-        if (!CanStartCommit())
-          return Task.FromResult(false);
-        ReleaseReaders();
-        commit = StartCommit(true);
-      }
-    }
-    catch (Exception e)
-    {
-      return Task.FromException<bool>(e);
-    }
-    // Cancellation stops this wait, not the sync or its eventual publication.
-    return commit.IsCompleted || !cancellationToken.CanBeCanceled
-        ? commit
-        : commit.WaitAsync(cancellationToken);
-  }
-
-  /// <summary>
-  /// Fails with <see cref="OperationCanceledException"/> itself, not a
-  /// <see cref="TaskCanceledException"/>, before the commit starts.
-  /// </summary>
-  static async Task<bool> ThrowCanceledAsync(CancellationToken cancellationToken)
-  {
-    await Task.CompletedTask.ConfigureAwait(false);
-    cancellationToken.ThrowIfCancellationRequested();
-    return false;
-  }
-
   internal void OnCommitting() => state = TransactionState.Committing;
 
   internal void OnCommitInDoubt() => state = TransactionState.InDoubt;
 
   /// <summary>
-  /// Rolls back an active transaction. A commit or another rollback that owns the end
-  /// of the transaction makes it a no-op.
+  /// Rolls back an active view. A commit or another rollback that owns the end of the
+  /// view makes it a no-op.
   /// </summary>
   public void Rollback()
   {
@@ -428,12 +329,12 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
     RollbackOwned();
   }
 
-  void RollbackOwned()
+  bool RollbackOwned()
   {
     state = TransactionState.Aborted;
     StopOperations();
     ReleaseReaders();
-    Tree.Rollback(this);
+    return Tree.Rollback(this);
   }
 
   public override void Dispose()

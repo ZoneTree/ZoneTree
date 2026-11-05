@@ -21,9 +21,13 @@ namespace ZoneTree.Cluster;
 /// Versions of active transactions are kept, and versions of rolled back transactions dropped.
 /// </para>
 /// <para>
-/// A commit hides older versions only once it is durable: synced, or written to the disk
-/// by this merge or an earlier one. Otherwise a crash could keep the merge output but
-/// lose the commit, and recovery would find neither the new value nor the old one.
+/// A commit hides older versions only once it is durable in the whole domain. Otherwise
+/// recovery could roll it back after a crash and find neither the new value nor the old one.
+/// </para>
+/// <para>
+/// A merge that includes the oldest records also drops the commit records of commits that
+/// are durable and visible to every snapshot. No older copy of such a record can remain
+/// outside the merge, and without it the versions count as committed.
 /// </para>
 /// <para>
 /// A version without an entry is committed unless the storage tree deleted it for a
@@ -52,8 +56,6 @@ internal sealed class VersionGarbageFilter<TKey, TValue> :
 
   readonly long DurableCommitTimestamp;
 
-  readonly long MergedSegmentId;
-
   bool HasCurrentKey;
 
   TKey CurrentKey;
@@ -78,8 +80,7 @@ internal sealed class VersionGarbageFilter<TKey, TValue> :
       IRefComparer<TKey> comparer,
       bool includesOldestRecords,
       long[] snapshots,
-      long durableCommitTimestamp,
-      long mergedSegmentId)
+      long durableCommitTimestamp)
   {
     Tree = tree;
     Comparer = comparer;
@@ -88,11 +89,13 @@ internal sealed class VersionGarbageFilter<TKey, TValue> :
     Horizon = snapshots[0];
     LatestSnapshot = snapshots[^1];
     DurableCommitTimestamp = durableCommitTimestamp;
-    MergedSegmentId = mergedSegmentId;
   }
 
   public bool Keep(in VersionedKey<TKey> key, in VersionedValue<TValue> value)
   {
+    if (key.Kind == VersionedKeyKind.TransactionStatus)
+      return !(IncludesOldestRecords &&
+          Tree.CanDropStatus(key.Version, in value, Horizon, DurableCommitTimestamp));
     if (key.Kind != VersionedKeyKind.Data)
       return true;
     if (!HasCurrentKey || Comparer.Compare(in CurrentKey, in key.Key) != 0)
@@ -107,7 +110,6 @@ internal sealed class VersionGarbageFilter<TKey, TValue> :
         key.Version,
         Horizon,
         DurableCommitTimestamp,
-        MergedSegmentId,
         out var commitTimestamp);
     switch (state)
     {

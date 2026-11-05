@@ -1,43 +1,37 @@
 using ZoneTree.Transactional;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
-using ZoneTree.Backup;
 using ZoneTree.Comparers;
 using ZoneTree.Core;
 using ZoneTree.Exceptions;
 using ZoneTree.Logger;
 using ZoneTree.Options;
 using ZoneTree.Transactional.Versioning;
-using ArgumentOutOfRangeException = System.ArgumentOutOfRangeException;
 
 namespace ZoneTree.Cluster;
 
 /// <summary>
-/// A transactional ZoneTree that stores every version of a key in a single storage tree,
-/// with multi-version snapshot reads and optimistic, commit-time conflict detection.
+/// The MVCC tree of a coordinated column: every version of a key in a single storage tree,
+/// with snapshot reads and optimistic, commit-time conflict detection. The column's domain
+/// coordinates its transactions with the other columns of the domain.
 /// </summary>
 /// <remarks>
 /// <para>
-/// One clock issues transaction ids and commit timestamps. A transaction reads the
-/// snapshot of the latest commit timestamp when it begins. Its writes are stored at once
-/// under its id, so they persist and merge like any other record, and they stay invisible
-/// to others until the commit.
+/// The domain's clock issues transaction ids and commit timestamps, and a domain transaction
+/// reads one snapshot in every column. Writes are stored at once under the transaction id, so
+/// they persist and merge like any other record, and they stay invisible to others until the
+/// commit.
 /// </para>
 /// <para>
-/// A transaction that writes stores a pending status record before its first version.
-/// The commit deletes that record: it is the single write that makes the transaction
-/// committed. Recovery treats remaining status records as aborted transactions.
-/// CommitDurableAsync keeps the transaction invisible until that deletion is synced.
-/// A failed commit sync leaves its outcome in doubt and prevents further commits
-/// until the tree is reopened; recovery decides whether its commit record survived.
-/// Completed writes in synchronous WAL modes survive a process crash;
-/// AsyncCompressed and AsyncShared can lose records still queued in process memory.
-/// To wait for power-loss or operating-system-crash durability, await SyncWALAsync
-/// after an ordinary commit, or use CommitDurableAsync to sync before publication.
-/// Built-in transactional factories select Shared or AsyncShared WALs, which
-/// recover one prefix of commits across segments, including every synced commit;
-/// incomplete transactions remain invisible. Custom providers supply their own
-/// recovery guarantees. None disables WAL durability.
+/// A transaction that writes stores a pending status record before its first version. Its
+/// commit replaces that record with the commit timestamp, in every column it wrote. The
+/// commit becomes visible when the domain's snapshot timestamp reaches it, after it is
+/// published in every column, so a reader sees all of its writes or none.
+/// </para>
+/// <para>
+/// Recovery treats remaining pending records as rolled back. A commit record counts unless
+/// its timestamp is in a range the domain rolled back after an unclean shutdown: then the
+/// record becomes pending again. So every column keeps the same prefix of the domain's commits.
 /// </para>
 /// <para>
 /// A rollback deletes its versions and then its status record in the storage tree.
@@ -54,16 +48,17 @@ namespace ZoneTree.Cluster;
 /// <typeparam name="TKey">The key type.</typeparam>
 /// <typeparam name="TValue">The value type.</typeparam>
 internal sealed class ClusterMvccZoneTree<TKey, TValue> :
-    ITransactionalZoneTree<TKey, TValue>,
     ITransactionalZoneTreeMaintenance<TKey, TValue>
 {
-  /// <summary>
-  /// The clock values reserved by one write of the clock record.
-  /// A restart continues after the reserved values.
-  /// </summary>
-  const long ClockReservationSize = 1 << 20;
+  /// <summary>The status of a transaction that wrote and did not commit yet.</summary>
+  const long PendingStatus = 0;
 
-  const long PendingStatus = 1;
+  /// <summary>
+  /// The committed transactions that wait for the domain to make them durable. Beyond it,
+  /// the tree asks for a domain sync, so their entries and the versions they hide do not
+  /// pile up when nothing else syncs.
+  /// </summary>
+  const int UnsyncedCommitThreshold = 4096;
 
   readonly IRefComparer<TKey> Comparer;
 
@@ -80,53 +75,25 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
 
   readonly Lock CommitLock = new();
 
-  // TODO: Consider making this gate optional after further measurements. It serializes
-  // commit admission and conflict cleanup to reduce retry storms. In the 10K-key,
-  // 16-worker hot-1 benchmark, AsyncShared improved 68.8K -> 121.9K ops/s (+77%),
-  // with conflicts 129,112 -> 22,847; Shared improved 73.9K -> 102.1K ops/s (+38%),
-  // with conflicts 79,404 -> 24,042. Smaller differences may be measurement noise.
-  internal readonly object CommitGate = new();
-
-  readonly Queue<PendingCommit> PendingCommits = new();
-
-  PendingCommit LastPendingCommit;
-
-  bool CommitSyncRunning;
-
-  // Syncs and publishes the pending commits. Callers block on pending commits, so the
-  // worker must not need a thread pool thread: it could queue behind the blocked callers.
-  Thread CommitSyncThread;
-
-  readonly AutoResetEvent CommitSyncSignal = new(false);
-
-  bool IsCommitSyncStopping;
+  readonly DomainCoordinator Coordinator;
 
   long LastPreparedCommitTimestamp;
 
-  Exception CommitFailure;
+  /// <summary>One if the tree wrote commit records since its last sync.</summary>
+  int HasUnsyncedCommits;
 
-  sealed class PendingCommit(ClusterMvccTransaction<TKey, TValue> transaction, bool ready)
-  {
-    internal readonly ClusterMvccTransaction<TKey, TValue> Transaction = transaction;
-    internal readonly TaskCompletionSource<bool> Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    internal bool Ready = ready;
-    internal bool Synced;
-  }
+  /// <summary>One while a sync the tree asked for is pending.</summary>
+  int IsSyncRequested;
 
-  readonly Lock AutoSyncLock = new();
+  /// <summary>The commits published since the domain last made commits durable. Guarded by StateLock.</summary>
+  int UnsyncedCommitCount;
 
   // The fields below are guarded by StateLock.
-
-  long Clock;
-
-  long ReservedClock;
-
-  long lastCommitTimestamp;
 
   readonly ActiveTransactions<TKey, TValue> Active = new();
 
   /// <summary>
-  /// Committed entries, in commit order, until every snapshot sees them.
+  /// Committed entries, in commit order, until every snapshot sees them and they are durable.
   /// </summary>
   readonly Queue<TransactionEntry> CommittedTransactions = new();
 
@@ -136,58 +103,41 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   /// </summary>
   readonly Queue<TransactionEntry> RolledBackTransactions = new();
 
-  /// <summary>
-  /// Committed entries, in commit order, whose commit record may not be durable yet.
-  /// </summary>
-  readonly Queue<TransactionEntry> NonDurableCommits = new();
-
-  /// <summary>
-  /// Every commit at or before it survives a crash. A merge may drop the versions a
-  /// commit hides only when the commit is durable, otherwise a crash could keep the
-  /// merge but lose the commit, and with it the only remaining value.
-  /// </summary>
-  long DurableCommitTimestamp;
-
-  /// <summary>
-  /// False when the write ahead log is disabled, so syncs make nothing durable.
-  /// </summary>
-  readonly bool HasDurableWriteAheadLog;
-
-  TimeSpan autoSyncInterval;
-
-  CancellationTokenSource AutoSyncCancellation;
-
-  Task AutoSyncTask;
-
-  bool isDisposed;
-
   internal IZoneTree<VersionedKey<TKey>, VersionedValue<TValue>> Storage { get; }
 
   IZoneTreeMaintenance<VersionedKey<TKey>, VersionedValue<TValue>> StorageMaintenance { get; }
 
   ClusterMvccZoneTree(
       IZoneTree<VersionedKey<TKey>, VersionedValue<TValue>> storage,
-      ZoneTreeOptions<TKey, TValue> options)
+      ZoneTreeOptions<TKey, TValue> options,
+      DomainCoordinator coordinator,
+      Func<long, bool> isRolledBack)
   {
     Storage = storage;
     StorageMaintenance = storage.Maintenance;
     Comparer = options.Comparer;
     KeyComparer = new ComparerFromRefComparer<TKey>(Comparer);
     ConflictIndex = new ConflictIndex<TKey>(Comparer);
-    HasDurableWriteAheadLog =
-        options.WriteAheadLogOptions.WriteAheadLogMode != WriteAheadLogMode.None;
-    Recover();
+    Coordinator = coordinator;
+    Recover(isRolledBack);
     ValidateSchema(options);
     StorageMaintenance.OnMergeOperationEnded += OnMergeOperationEnded;
   }
 
   /// <summary>
-  /// Opens or creates a transactional tree with the given user options.
+  /// Opens or creates the tree of a coordinated column.
   /// </summary>
+  /// <param name="options">The user options of the column.</param>
+  /// <param name="canCreate">True if the tree may be created.</param>
+  /// <param name="canOpen">True if an existing tree may be opened.</param>
+  /// <param name="coordinator">The coordinator of the column's domain.</param>
+  /// <param name="isRolledBack">True for the commit timestamps the domain rolled back.</param>
   internal static ClusterMvccZoneTree<TKey, TValue> Load(
       ZoneTreeOptions<TKey, TValue> options,
       bool canCreate,
-      bool canOpen)
+      bool canOpen,
+      DomainCoordinator coordinator,
+      Func<long, bool> isRolledBack)
   {
     RejectUnsupportedOptions(options);
     var owner = new StrongBox<ClusterMvccZoneTree<TKey, TValue>>();
@@ -208,7 +158,7 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
     }
     try
     {
-      owner.Value = new ClusterMvccZoneTree<TKey, TValue>(storage, options);
+      owner.Value = new ClusterMvccZoneTree<TKey, TValue>(storage, options, coordinator, isRolledBack);
       return owner.Value;
     }
     catch
@@ -268,7 +218,7 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   }
 
   /// <summary>
-  /// The schema records share the clock record kind. Version 0 is the clock reservation.
+  /// The schema records share the clock record kind, from version 1 on.
   /// </summary>
   const long ComparerSchemaVersion = 1;
 
@@ -282,36 +232,46 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   readonly long?[] StoredSchema = new long?[ValueSerializerSchemaVersion + 1];
 
   /// <summary>
-  /// Restores the clock, the schema and the transactions that never committed
-  /// from the system records.
+  /// Restores the schema and the transactions that never committed from the system records.
   /// </summary>
-  void Recover()
+  /// <remarks>
+  /// A pending record stays registered as rolled back: its transaction did not commit, and
+  /// its versions may be anywhere in the tree. A commit record in a range the domain rolled
+  /// back becomes pending again, so the rollback holds in every later recovery too.
+  /// </remarks>
+  void Recover(Func<long, bool> isRolledBack)
   {
-    using var iterator = Storage.CreateIterator(IteratorType.NoRefresh, false, true);
-    iterator.SeekFirst();
-    while (iterator.Next())
+    var rolledBack = new List<long>();
+    using (var iterator = Storage.CreateIterator(IteratorType.NoRefresh, false, true))
     {
-      var key = iterator.CurrentKey;
-      if (key.Kind == VersionedKeyKind.Data)
-        break;
-      if (key.Kind == VersionedKeyKind.Clock)
+      iterator.SeekFirst();
+      while (iterator.Next())
       {
-        if (key.Version == 0)
-          ReservedClock = iterator.CurrentValue.Meta;
-        else if (key.Version < StoredSchema.Length)
-          StoredSchema[key.Version] = iterator.CurrentValue.Meta;
-        continue;
+        var key = iterator.CurrentKey;
+        if (key.Kind == VersionedKeyKind.Data)
+          break;
+        var value = iterator.CurrentValue;
+        if (key.Kind == VersionedKeyKind.Clock)
+        {
+          if (key.Version > 0 && key.Version < StoredSchema.Length)
+            StoredSchema[key.Version] = value.Meta;
+          continue;
+        }
+        var transactionId = key.Version;
+        if (value.Meta == PendingStatus)
+          Entries[transactionId] = new TransactionEntry(transactionId, TransactionState.Aborted);
+        else if (isRolledBack(value.Meta))
+          rolledBack.Add(transactionId);
       }
-      // The transaction did not commit before the tree closed, and its versions
-      // were not all deleted. They may be anywhere in the tree, so it stays
-      // registered as rolled back.
-      var transactionId = key.Version;
+    }
+    foreach (var transactionId in rolledBack)
+    {
+      Storage.Upsert(
+          VersionedKey<TKey>.TransactionStatus(transactionId),
+          VersionedValue<TValue>.FromSystem(PendingStatus));
       Entries[transactionId] = new TransactionEntry(transactionId, TransactionState.Aborted);
     }
-    Clock = ReservedClock;
-    lastCommitTimestamp = Clock;
-    LastPreparedCommitTimestamp = Clock;
-    DurableCommitTimestamp = Clock;
+    LastPreparedCommitTimestamp = Coordinator.Sequencer.SnapshotTimestamp;
   }
 
   /// <summary>
@@ -355,76 +315,64 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
     return unchecked((long)hash);
   }
 
-  public ITransaction<TKey, TValue> BeginTransaction(
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable)
+  /// <summary>
+  /// Begins the view of a writing domain transaction, with the domain transaction's id
+  /// and snapshot.
+  /// </summary>
+  internal ClusterMvccTransaction<TKey, TValue> BeginTransaction(
+      TransactionIsolationLevel isolationLevel, long transactionId, long snapshotTimestamp)
   {
     if (!Enum.IsDefined(isolationLevel))
       throw new ArgumentOutOfRangeException(nameof(isolationLevel), isolationLevel, null);
     if (IsReadOnly)
       throw new ZoneTreeIsReadOnlyException();
-    ClusterMvccTransaction<TKey, TValue> transaction;
+    var transaction = new ClusterMvccTransaction<TKey, TValue>(
+        this,
+        Comparer,
+        new TransactionEntry(transactionId, TransactionState.Active),
+        snapshotTimestamp,
+        isolationLevel);
     lock (StateLock)
     {
-      var snapshotTimestamp = lastCommitTimestamp;
-      var id = NextTimestamp();
-      transaction = new ClusterMvccTransaction<TKey, TValue>(
-          this,
-          Comparer,
-          new TransactionEntry(id, TransactionState.Active),
-          snapshotTimestamp,
-          isolationLevel);
+      // The view reads the tree from now on, so rollbacks before now cannot affect it.
+      transaction.BeginSequence = Coordinator.Clock.Current;
       Active.AddWriter(transaction);
     }
     // Readers look up the entry only for versions of this transaction,
     // and it writes none before this returns.
-    Entries[transaction.TransactionId] = transaction.Entry;
+    Entries[transactionId] = transaction.Entry;
     return transaction;
   }
 
-  public IReadTransaction<TKey, TValue> BeginReadOnlyTransaction()
+  /// <summary>
+  /// Begins the view of a read-only domain transaction at the domain transaction's snapshot.
+  /// </summary>
+  internal ClusterMvccReadTransaction<TKey, TValue> BeginReadOnlyTransaction(long snapshotTimestamp)
   {
-    // Join the bucket of the latest snapshot without the state lock. A bucket of an
-    // older snapshot is never joined, so a reader sees every commit that finished
-    // before it began, including the caller's own.
+    // Join the bucket of the same snapshot without the state lock. The bucket only
+    // counts the readers of the tree; the domain keeps their snapshots.
     var bucket = Active.CurrentBucket;
     if (bucket == null ||
-        bucket.SnapshotTimestamp != Volatile.Read(ref lastCommitTimestamp) ||
+        bucket.SnapshotTimestamp != snapshotTimestamp ||
         !bucket.TryJoin())
     {
       lock (StateLock)
       {
         bucket = Active.CurrentBucket;
         if (bucket == null ||
-            bucket.SnapshotTimestamp != lastCommitTimestamp ||
+            bucket.SnapshotTimestamp != snapshotTimestamp ||
             !bucket.TryJoin())
-          bucket = Active.AddBucket(lastCommitTimestamp, Clock);
+          bucket = Active.AddBucket(snapshotTimestamp, Coordinator.Clock.Current);
       }
     }
     return new ClusterMvccReadTransaction<TKey, TValue>(this, Comparer, bucket);
   }
 
   /// <summary>
-  /// Issues the next clock value. Called under the state lock.
+  /// The oldest snapshot timestamp in use in the domain. Every commit at or before it
+  /// is visible to every active and future snapshot.
   /// </summary>
-  long NextTimestamp()
-  {
-    var next = Clock + 1;
-    if (next > ReservedClock)
-    {
-      // Persist the reservation before any id from it can reach the storage tree.
-      var reserved = next + ClockReservationSize - 1;
-      Storage.Upsert(VersionedKey<TKey>.Clock, VersionedValue<TValue>.FromSystem(reserved));
-      ReservedClock = reserved;
-    }
-    Clock = next;
-    return next;
-  }
-
-  /// <summary>
-  /// The oldest snapshot timestamp in use. Every commit at or before it
-  /// is visible to every active and future snapshot. Called under the state lock.
-  /// </summary>
-  long GetHorizon() => Active.OldestSnapshot(lastCommitTimestamp);
+  long GetHorizon() => Coordinator.Snapshots.OldestSnapshot;
 
   /// <summary>
   /// Checks whether a version is in the snapshot of a transaction.
@@ -442,20 +390,18 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   }
 
   /// <summary>
-  /// Classifies a version for a merge. A commit that may not survive a crash
-  /// counts as active: the merge keeps its version and drops nothing under it.
+  /// Classifies a version for a merge. A commit that is not durable in the whole domain counts
+  /// as active: recovery may roll it back, so the merge keeps its version and drops nothing
+  /// under it.
   /// </summary>
   /// <param name="version">The version.</param>
   /// <param name="horizon">The oldest snapshot.</param>
-  /// <param name="durableCommitTimestamp">Commits at or before it are durable.</param>
-  /// <param name="mergedSegmentId">Commit records in this segment or an older one
-  /// become durable with the merge output.</param>
+  /// <param name="durableCommitTimestamp">Commits at or before it are durable in the domain.</param>
   /// <param name="commitTimestamp">The commit timestamp of a committed version.</param>
   internal VersionState GetVersionState(
       long version,
       long horizon,
       long durableCommitTimestamp,
-      long mergedSegmentId,
       out long commitTimestamp)
   {
     commitTimestamp = 0;
@@ -467,8 +413,7 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
         return VersionState.Aborted;
       case TransactionState.Committed:
         commitTimestamp = entry.CommitTimestamp;
-        if (commitTimestamp > durableCommitTimestamp &&
-            entry.CommitSegmentId > mergedSegmentId)
+        if (commitTimestamp > durableCommitTimestamp)
           return VersionState.Active;
         return commitTimestamp <= horizon ?
             VersionState.VisibleToAll :
@@ -479,19 +424,32 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   }
 
   /// <summary>
-  /// Marks the commits made durable by a write ahead log sync or a merge.
-  /// Called under the state lock.
+  /// Checks whether a status record can leave the tree in a merge that includes the oldest
+  /// records: a commit record of a commit that is durable in the domain and visible to every
+  /// snapshot, whose entry is gone. Without the record, its versions count as committed.
   /// </summary>
-  void MarkCommitsDurable(long syncedCommitTimestamp, long mergedSegmentId)
+  internal bool CanDropStatus(long transactionId, in VersionedValue<TValue> value,
+      long horizon, long durableCommitTimestamp)
   {
-    while (NonDurableCommits.TryPeek(out var entry) &&
-        (entry.CommitTimestamp <= syncedCommitTimestamp ||
-         entry.CommitSegmentId <= mergedSegmentId))
+    if (value.Kind != VersionedValueKind.System || value.Meta == PendingStatus)
+      return false;
+    var commitTimestamp = value.Meta;
+    return commitTimestamp <= durableCommitTimestamp &&
+        commitTimestamp <= horizon &&
+        !Entries.ContainsKey(transactionId);
+  }
+
+  /// <summary>
+  /// Called by the coordinator after the domain made more commits durable.
+  /// </summary>
+  internal void OnDomainDurable()
+  {
+    lock (StateLock)
     {
-      NonDurableCommits.Dequeue();
-      DurableCommitTimestamp = entry.CommitTimestamp;
+      UnsyncedCommitCount = 0;
+      Volatile.Write(ref IsSyncRequested, 0);
+      PruneCommittedTransactions();
     }
-    PruneCommittedTransactions();
   }
 
   internal bool HasCommitAfter(in TKey key, long timestamp)
@@ -523,235 +481,130 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   }
 
   /// <summary>
-  /// Commits the transaction, or rolls it back if it conflicts.
+  /// Validates a view of a committing domain transaction against the commits after its
+  /// snapshot: its writes, and in serializable mode its reads, even in a view that wrote
+  /// nothing. Called under the column's commit gate, after the view's operations stopped.
   /// </summary>
-  /// <remarks>
-  /// Validation and WAL append run under CommitLock. Durable commits publish
-  /// only after syncing, without holding that lock during disk I/O. Later commits
-  /// wait for the preceding publication so snapshots never acquire missing commits.
-  /// </remarks>
-  internal Task<bool> CommitAsync(ClusterMvccTransaction<TKey, TValue> transaction)
-      => PrepareCommit(transaction, false);
-
-  internal bool CanCommit(ClusterMvccTransaction<TKey, TValue> transaction)
+  internal bool Validate(ClusterMvccTransaction<TKey, TValue> transaction)
   {
-    transaction.EnsureActive();
     lock (CommitLock)
     {
-      if (CommitFailure != null)
-        throw new TransactionalTreeCommitsStoppedException(CommitFailure);
-      return !transaction.HasConflict &&
-          (!transaction.HasWrites || LastPreparedCommitTimestamp <= transaction.SnapshotTimestamp ||
-          !transaction.ConflictsWith(ConflictIndex));
+      Coordinator.ThrowIfCommitsStopped();
+      if (transaction.HasConflict)
+        return false;
+      // Prepared commits reserve their keys too, even while invisible during sync.
+      return LastPreparedCommitTimestamp <= transaction.SnapshotTimestamp ||
+          !transaction.ConflictsWith(ConflictIndex);
     }
   }
 
-  internal Task<bool> CommitDurableAsync(ClusterMvccTransaction<TKey, TValue> transaction)
-      => PrepareCommit(transaction, true);
-
-  Task<bool> PrepareCommit(ClusterMvccTransaction<TKey, TValue> transaction, bool durable)
+  /// <summary>
+  /// Prepares the commit of a validated view that wrote: registers its keys at the commit
+  /// timestamp and writes its commit record. Called under the column's commit gate.
+  /// </summary>
+  internal void Prepare(ClusterMvccTransaction<TKey, TValue> transaction, long commitTimestamp)
   {
     var entry = transaction.Entry;
-    if (!transaction.HasWrites)
-    {
-      // Nothing to publish: the transaction is equivalent to running at its snapshot.
-      transaction.OnCommitted(transaction.SnapshotTimestamp);
-      Entries.TryRemove(entry.Id, out _);
-      EndTransaction(transaction);
-      return durable ? SyncReadOnlyCommitAsync() : Task.FromResult(true);
-    }
-
-    var hasConflict = false;
-    long commitTimestamp = 0;
-    PendingCommit pending = null;
     lock (CommitLock)
     {
+      var keys = transaction.GetWrittenKeys();
+      // Committers check conflicts under the commit gate, so none sees the keys before the
+      // commit. Writers that see them early conflict with a commit that follows. The keys
+      // of a failed commit can only make transactions that began before it conflict, and
+      // they are pruned like the keys of a commit.
+      ConflictIndex.Add(keys, commitTimestamp);
+      LastPreparedCommitTimestamp = commitTimestamp;
+      entry.CommitTimestamp = commitTimestamp;
+      entry.State = TransactionState.Committing;
+      transaction.OnCommitting();
+      // The commit record. The commit is visible once the domain's snapshot reaches it.
+      transaction.HasCommitRecord = true;
       try
       {
-        if (CommitFailure != null)
-          throw new TransactionalTreeCommitsStoppedException(CommitFailure);
-        // A commit that will wait for the worker needs it before the commit point.
-        if (durable || PendingCommits.Count != 0)
-          EnsureCommitSyncThread();
-        // Prepared commits reserve their keys too, even while invisible during sync.
-        hasConflict =
-            LastPreparedCommitTimestamp > transaction.SnapshotTimestamp &&
-            transaction.ConflictsWith(ConflictIndex);
-        if (!hasConflict)
-        {
-          var keys = transaction.GetWrittenKeys();
-          lock (StateLock)
-            commitTimestamp = NextTimestamp();
-          // Committers check conflicts under this lock, so none sees the keys before the
-          // commit point. Writers that see them early conflict with a commit that follows.
-          // The keys added for a failed commit can only make transactions that began
-          // before it conflict. They are pruned like the keys of a commit.
-          ConflictIndex.Add(keys, commitTimestamp);
-          LastPreparedCommitTimestamp = commitTimestamp;
-          if (durable || PendingCommits.Count != 0)
-            pending = new PendingCommit(transaction, !durable);
-          // The commit point: a single record, durable with the next WAL sync.
-          Storage.ForceDelete(VersionedKey<TKey>.TransactionStatus(transaction.TransactionId));
-        }
+        Storage.Upsert(
+            VersionedKey<TKey>.TransactionStatus(transaction.TransactionId),
+            VersionedValue<TValue>.FromSystem(commitTimestamp));
       }
-      catch
+      catch (ZoneTreeIsReadOnlyException)
       {
-        Rollback(transaction);
+        // A read-only tree rejects the write before it stores anything.
+        transaction.HasCommitRecord = false;
         throw;
       }
-      if (!hasConflict)
-      {
-        entry.CommitTimestamp = commitTimestamp;
-        // Read after the commit record was written, so it is at or after its segment.
-        entry.CommitSegmentId = StorageMaintenance.MutableSegment.SegmentId;
-        if (pending == null)
-          PublishCommit(transaction, false);
-        else
-        {
-          transaction.OnCommitting();
-          entry.State = TransactionState.Committing;
-          PendingCommits.Enqueue(pending);
-          LastPendingCommit = pending;
-          if (!CommitSyncRunning)
-          {
-            CommitSyncRunning = true;
-            CommitSyncSignal.Set();
-          }
-        }
-      }
     }
-    if (hasConflict)
-    {
-      Rollback(transaction);
-      return Task.FromResult(false);
-    }
-    if (pending == null)
-      return Task.FromResult(true);
-    // Completes with true once published, or with the sync failure. A conflict is
-    // only found before the commit point, so it never completes a pending commit.
-    return pending.Completion.Task;
+    Volatile.Write(ref HasUnsyncedCommits, 1);
   }
 
-  async Task<bool> SyncReadOnlyCommitAsync()
-  {
-    await SyncWALAsync().ConfigureAwait(false);
-    return true;
-  }
-
-  // Called under CommitLock. No disk I/O occurs during publication.
-  void PublishCommit(ClusterMvccTransaction<TKey, TValue> transaction, bool synced)
+  /// <summary>
+  /// Publishes a prepared view. Readers see it once the domain's snapshot reaches its
+  /// commit timestamp, which happens after every view of the transaction is published.
+  /// </summary>
+  internal void Publish(ClusterMvccTransaction<TKey, TValue> transaction)
   {
     var entry = transaction.Entry;
     entry.State = TransactionState.Committed;
+    bool requestSync;
     lock (StateLock)
     {
-      Volatile.Write(ref lastCommitTimestamp, entry.CommitTimestamp);
       CommittedTransactions.Enqueue(entry);
-      NonDurableCommits.Enqueue(entry);
       transaction.OnCommitted(entry.CommitTimestamp);
-      if (synced && HasDurableWriteAheadLog)
-        MarkCommitsDurable(entry.CommitTimestamp, 0);
       EndTransactionLocked(transaction);
+      // Entries a long reader keeps do not count: a sync would not release them.
+      requestSync = ++UnsyncedCommitCount >= UnsyncedCommitThreshold;
     }
+    if (requestSync && Interlocked.Exchange(ref IsSyncRequested, 1) == 0)
+      _ = Coordinator.SyncAsync();
   }
 
-  // Called under CommitLock.
-  void EnsureCommitSyncThread()
+  /// <summary>
+  /// Ends a view that wrote nothing in a committed domain transaction. It is equivalent to
+  /// running at its snapshot.
+  /// </summary>
+  internal void EndUnwritten(ClusterMvccTransaction<TKey, TValue> transaction)
   {
-    ObjectDisposedException.ThrowIf(IsCommitSyncStopping, this);
-    if (CommitSyncThread != null)
+    transaction.OnCommitted(transaction.SnapshotTimestamp);
+    Entries.TryRemove(transaction.TransactionId, out _);
+    EndTransaction(transaction);
+  }
+
+  /// <summary>
+  /// Leaves a prepared view in doubt after the domain failed to make its commit durable.
+  /// Recovery decides its outcome when the cluster reopens.
+  /// </summary>
+  internal void LeaveInDoubt(ClusterMvccTransaction<TKey, TValue> transaction)
+  {
+    transaction.OnCommitInDoubt();
+    transaction.Entry.State = TransactionState.InDoubt;
+    if (transaction.IsRegistered)
+      EndTransaction(transaction);
+  }
+
+  /// <summary>
+  /// Syncs the write ahead log if the tree wrote commit records since its last sync.
+  /// Called by the domain's sync thread.
+  /// </summary>
+  internal void SyncIfWritten()
+  {
+    if (Interlocked.Exchange(ref HasUnsyncedCommits, 0) == 0)
       return;
-    var thread = new Thread(RunCommitSync)
-    {
-      IsBackground = true,
-      Name = "ZoneTree commit sync"
-    };
-    thread.Start();
-    CommitSyncThread = thread;
-  }
-
-  void RunCommitSync()
-  {
-    while (true)
-    {
-      CommitSyncSignal.WaitOne();
-      SyncAndPublish();
-      // Stopping signals after it is set, so the commits pending by then are published.
-      if (Volatile.Read(ref IsCommitSyncStopping))
-        return;
-    }
-  }
-
-  void SyncAndPublish()
-  {
-    var published = new List<PendingCommit>();
     try
     {
-      while (true)
-      {
-        PendingCommit covered;
-        lock (CommitLock)
-        {
-          if (PendingCommits.Count == 0)
-          {
-            LastPendingCommit = null;
-            CommitSyncRunning = false;
-            return;
-          }
-          covered = LastPendingCommit;
-        }
-        // One worker batches all prepared records preceding this sync. The
-        // commit lock is free during I/O, and cancelling a caller cannot stop it.
-        // Blocking keeps the worker off the thread pool: the WAL completes the sync
-        // on this thread or on its writer thread.
-        Storage.SyncWALAsync().GetAwaiter().GetResult();
-        lock (CommitLock)
-        {
-          foreach (var item in PendingCommits)
-          {
-            item.Ready = item.Synced = true;
-            if (item == covered)
-              break;
-          }
-          while (PendingCommits.TryPeek(out var next) && next.Ready)
-          {
-            PublishCommit(next.Transaction, next.Synced);
-            PendingCommits.Dequeue();
-            published.Add(next);
-          }
-        }
-        // Blocked callers wake on this thread. Waking them after the commit lock is
-        // released keeps them from contending for it with the rest of the batch.
-        foreach (var item in published)
-          item.Completion.TrySetResult(true);
-        published.Clear();
-      }
+      // Blocking keeps the sync thread off the thread pool: the WAL completes the sync
+      // on this thread or on its writer thread.
+      Storage.SyncWALAsync().GetAwaiter().GetResult();
     }
-    catch (Exception error)
+    catch
     {
-      lock (CommitLock)
-      {
-        CommitFailure ??= error;
-        while (PendingCommits.TryDequeue(out var next))
-        {
-          // The commit record may have reached storage. Do not roll it back or
-          // publish it after a failed sync; recovery determines its final outcome.
-          if (next.Transaction.State != TransactionState.Committed)
-          {
-            next.Transaction.OnCommitInDoubt();
-            next.Transaction.Entry.State = TransactionState.InDoubt;
-          }
-          if (next.Transaction.IsRegistered)
-            EndTransaction(next.Transaction);
-          next.Completion.TrySetException(error);
-        }
-        LastPendingCommit = null;
-        CommitSyncRunning = false;
-      }
+      Volatile.Write(ref HasUnsyncedCommits, 1);
+      throw;
     }
   }
 
-  internal void Rollback(ClusterMvccTransaction<TKey, TValue> transaction)
+  /// <summary>
+  /// Rolls back a view: deletes its versions and its status record. Returns false if a
+  /// deletion failed; the entry then stays, so the versions remain invisible.
+  /// </summary>
+  internal bool Rollback(ClusterMvccTransaction<TKey, TValue> transaction)
   {
     var entry = transaction.Entry;
     var isDeleted = false;
@@ -778,15 +631,20 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
         Logger.LogError(e);
       }
     }
+    // The deletion of a commit record must be durable before the domain's durable timestamp
+    // reaches the commit, so the next domain sync syncs this tree.
+    if (transaction.HasCommitRecord)
+      Volatile.Write(ref HasUnsyncedCommits, 1);
     lock (StateLock)
     {
       if (isDeleted)
       {
-        entry.AbortSequence = Clock;
+        entry.AbortSequence = Coordinator.Clock.Current;
         RolledBackTransactions.Enqueue(entry);
       }
       EndTransactionLocked(transaction);
     }
+    return isDeleted || !transaction.HasWrites;
   }
 
   void EndTransaction(ClusterMvccTransaction<TKey, TValue> transaction)
@@ -800,14 +658,15 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   /// </summary>
   void EndTransactionLocked(ClusterMvccTransaction<TKey, TValue> transaction)
   {
-    Active.RemoveWriter(transaction);
+    if (transaction.IsRegistered)
+      Active.RemoveWriter(transaction);
     PruneCommittedTransactions();
     ForgetRolledBackTransactions();
   }
 
   /// <summary>
-  /// Forgets the commits every snapshot sees, and the committed keys no writing
-  /// transaction can conflict with. Called under the state lock.
+  /// Forgets the commits every snapshot sees and the domain made durable, and the committed
+  /// keys no writing transaction can conflict with. Called under the state lock.
   /// </summary>
   void PruneCommittedTransactions()
   {
@@ -815,7 +674,7 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
     {
       // A missing entry means durable and visible to all, which lets merges
       // drop the versions it hides.
-      var horizon = Math.Min(GetHorizon(), DurableCommitTimestamp);
+      var horizon = Math.Min(GetHorizon(), Coordinator.DurableTimestamp);
       while (CommittedTransactions.TryPeek(out var entry) &&
           entry.CommitTimestamp <= horizon)
       {
@@ -825,7 +684,7 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
     }
     // Read-only transactions never check conflicts, so a long report
     // does not keep the committed keys.
-    ConflictIndex.Prune(Active.OldestWriterSnapshot(lastCommitTimestamp));
+    ConflictIndex.Prune(Coordinator.Snapshots.OldestWriterSnapshot);
   }
 
   /// <summary>
@@ -849,6 +708,26 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
       RolledBackTransactions.Dequeue();
       Entries.TryRemove(entry.Id, out _);
     }
+  }
+
+  /// <summary>
+  /// The outcome of a transaction in this column, if the column knows it.
+  /// </summary>
+  internal TransactionOutcome GetOutcome(long transactionId)
+  {
+    if (Entries.TryGetValue(transactionId, out var entry))
+    {
+      return entry.State switch
+      {
+        TransactionState.Committed => TransactionOutcome.Committed,
+        TransactionState.Aborted => TransactionOutcome.Aborted,
+        _ => TransactionOutcome.Pending,
+      };
+    }
+    if (!Storage.TryGet(VersionedKey<TKey>.TransactionStatus(transactionId), out var status) ||
+        status.Kind != VersionedValueKind.System)
+      return TransactionOutcome.Unknown;
+    return status.Meta == PendingStatus ? TransactionOutcome.Aborted : TransactionOutcome.Committed;
   }
 
   /// <summary>
@@ -895,130 +774,31 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   internal IMergeFilter<VersionedKey<TKey>, VersionedValue<TValue>> CreateMergeFilter(
       MergeFilterContext context)
   {
-    long[] snapshots;
-    long durableCommitTimestamp;
-    lock (StateLock)
-    {
-      // Snapshots that begin during the merge read the latest commit or a later one.
-      snapshots = Active.GetSnapshots(lastCommitTimestamp);
-      durableCommitTimestamp = DurableCommitTimestamp;
-    }
+    // The domain's snapshots, then its durable timestamp: a commit that becomes durable in
+    // between only makes the filter keep more.
+    var snapshots = Coordinator.Snapshots.GetSnapshots();
+    var durableCommitTimestamp = Coordinator.DurableTimestamp;
     return new VersionGarbageFilter<TKey, TValue>(
         this,
         Comparer,
         context.IncludesOldestRecords,
         snapshots,
-        durableCommitTimestamp,
-        context.NewestMergedSegmentId);
+        durableCommitTimestamp);
   }
 
   /// <summary>
-  /// Commit records merged into the disk segment are durable with it. Read-only
-  /// transactions end without the state lock, so every merge end also forgets
+  /// Read-only transactions end without the state lock, so every merge end also forgets
   /// what they kept.
   /// </summary>
   void OnMergeOperationEnded(
       IZoneTreeMaintenance<VersionedKey<TKey>, VersionedValue<TValue>> zoneTree,
       MergeResult mergeResult)
   {
-    var mergedSegmentId = mergeResult == MergeResult.SUCCESS ? GetMergedSegmentId() : 0;
     lock (StateLock)
     {
-      MarkCommitsDurable(0, mergedSegmentId);
+      PruneCommittedTransactions();
       ForgetRolledBackTransactions();
     }
-  }
-
-  /// <summary>
-  /// The newest mutable segment id whose records are all in disk segments:
-  /// every segment older than the remaining in-memory segments was merged.
-  /// </summary>
-  long GetMergedSegmentId()
-  {
-    var oldest = StorageMaintenance.MutableSegment.SegmentId;
-    foreach (var segment in StorageMaintenance.ReadOnlySegments)
-      oldest = Math.Min(oldest, segment.SegmentId);
-    return oldest - 1;
-  }
-
-  public async Task SyncWALAsync(CancellationToken cancellationToken = default)
-  {
-    // The sync covers every commit record written before the call.
-    var syncedCommitTimestamp = LastCommitTimestamp;
-    await Storage.SyncWALAsync(cancellationToken).ConfigureAwait(false);
-    if (!HasDurableWriteAheadLog)
-      return;
-    lock (StateLock)
-      MarkCommitsDurable(syncedCommitTimestamp, 0);
-  }
-
-  public TimeSpan AutoSyncInterval
-  {
-    get => autoSyncInterval;
-    set
-    {
-      if (value != TimeSpan.Zero &&
-          (value.TotalMilliseconds < 1 || value.TotalMilliseconds >= uint.MaxValue))
-        throw new ArgumentOutOfRangeException(
-            nameof(value), value,
-            "The interval must be zero or at least 1 millisecond and less than 4294967295 milliseconds.");
-      lock (AutoSyncLock)
-      {
-        StopAutoSync();
-        autoSyncInterval = value;
-        if (value > TimeSpan.Zero && !isDisposed)
-          StartAutoSync(value);
-      }
-    }
-  }
-
-  void StartAutoSync(TimeSpan interval)
-  {
-    var cancellation = new CancellationTokenSource();
-    AutoSyncCancellation = cancellation;
-    AutoSyncTask = Task.Run(async () =>
-    {
-      using var timer = new PeriodicTimer(interval);
-      try
-      {
-        while (await timer.WaitForNextTickAsync(cancellation.Token).ConfigureAwait(false))
-        {
-          try
-          {
-            await SyncWALAsync(cancellation.Token).ConfigureAwait(false);
-          }
-          catch (OperationCanceledException)
-          {
-            return;
-          }
-          catch (Exception e)
-          {
-            Logger.LogError(e);
-          }
-        }
-      }
-      catch (OperationCanceledException)
-      {
-      }
-    });
-  }
-
-  void StopAutoSync()
-  {
-    var cancellation = AutoSyncCancellation;
-    if (cancellation == null)
-      return;
-    cancellation.Cancel();
-    try
-    {
-      AutoSyncTask.Wait();
-    }
-    catch (AggregateException)
-    {
-    }
-    cancellation.Dispose();
-    AutoSyncCancellation = null;
-    AutoSyncTask = null;
   }
 
   public bool IsReadOnly
@@ -1042,7 +822,7 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
     }
   }
 
-  public long LastCommitTimestamp => Volatile.Read(ref lastCommitTimestamp);
+  public long LastCommitTimestamp => Coordinator.Sequencer.SnapshotTimestamp;
 
   public int AbortedTransactionCount =>
       Entries.Values.Count(x => x.State == TransactionState.Aborted);
@@ -1051,90 +831,17 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
 
   public IMaintainer CreateMaintainer() => Storage.CreateMaintainer();
 
-  internal ILiveBackup CreateLiveBackup(LiveBackupOptions options)
-  {
-    ArgumentNullException.ThrowIfNull(options);
-    if (!options.IncludeInMemoryRecords)
-      throw new ArgumentException("Transactional backups require in-memory records and transaction statuses.", nameof(options));
-    return new LiveBackup<VersionedKey<TKey>, VersionedValue<TValue>>(Storage, options, CaptureLiveBackup);
-  }
-
-  ZoneTree<VersionedKey<TKey>, VersionedValue<TValue>>.BackupSegmentCollection CaptureLiveBackup()
-  {
-    lock (CommitLock)
-    {
-      // Keep the latest published snapshot visible to concurrent merge filters
-      // until its immutable segment set is attached. Do not hold StateLock while
-      // taking storage locks: merge filters also acquire StateLock.
-      using var snapshot = BeginReadOnlyTransaction();
-      // A prepared durable commit, or one in doubt, has already deleted its pending
-      // marker, but is still invisible. Restore that marker in the backup's memory
-      // overlay. Other entries need none: an active writer and a failed rollback
-      // still have their marker, and a finished rollback deleted it after its
-      // versions, so restoring it would keep the rollback registered for good.
-      KeyValuePair<VersionedKey<TKey>, VersionedValue<TValue>>[] pending;
-      lock (StateLock)
-        pending = Entries.Values
-            .Where(entry => entry.State is TransactionState.Committing or TransactionState.InDoubt)
-            .Select(entry => new KeyValuePair<VersionedKey<TKey>, VersionedValue<TValue>>(
-                VersionedKey<TKey>.TransactionStatus(entry.Id), VersionedValue<TValue>.FromSystem(PendingStatus)))
-            .ToArray();
-      var core = (ZoneTree<VersionedKey<TKey>, VersionedValue<TValue>>)Storage;
-      var segments = core.CollectBackupSegments(moveMutableSegmentForward: true, includeInMemorySegments: true);
-      segments.TreeKind = LiveBackupTreeKind.Transactional;
-      segments.AdditionalRecords = pending;
-      return segments;
-    }
-  }
-
-  internal static async ValueTask<ITransactionalZoneTree<TKey, TValue>> RestoreLiveBackup(
-      ZoneTreeOptions<TKey, TValue> options, ILiveBackupSource source, long? generationId)
-  {
-    RejectUnsupportedOptions(options);
-    var storageOptions = CreateStorageOptions(options, new StrongBox<ClusterMvccZoneTree<TKey, TValue>>());
-    var restore = new LiveBackupRestore<VersionedKey<TKey>, VersionedValue<TValue>>(
-        storageOptions, source, LiveBackupTreeKind.Transactional);
-    if (generationId.HasValue) await restore.RestoreGeneration(generationId.Value).ConfigureAwait(false);
-    else await restore.RestoreLatest().ConfigureAwait(false);
-    return Load(options, canCreate: false, canOpen: true);
-  }
-
   public void SaveMetaData() => StorageMaintenance.SaveMetaData();
 
   public void Drop()
   {
-    DetachAndStop();
-    StorageMaintenance.Drop();
-  }
-
-  void DetachAndStop()
-  {
-    lock (AutoSyncLock)
-    {
-      isDisposed = true;
-      StopAutoSync();
-    }
-    Thread commitSync;
-    lock (CommitLock)
-    {
-      // Later commits that would wait for the worker throw instead.
-      IsCommitSyncStopping = true;
-      commitSync = CommitSyncThread;
-      CommitSyncThread = null;
-    }
-    if (commitSync != null)
-    {
-      // The worker publishes the pending commits before it stops.
-      CommitSyncSignal.Set();
-      commitSync.Join();
-    }
-    CommitSyncSignal.Dispose();
     StorageMaintenance.OnMergeOperationEnded -= OnMergeOperationEnded;
+    StorageMaintenance.Drop();
   }
 
   public void Dispose()
   {
-    DetachAndStop();
+    StorageMaintenance.OnMergeOperationEnded -= OnMergeOperationEnded;
     Storage.Dispose();
   }
 }

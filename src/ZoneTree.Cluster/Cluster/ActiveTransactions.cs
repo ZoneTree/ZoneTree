@@ -4,15 +4,15 @@ namespace ZoneTree.Cluster;
 #pragma warning disable CA2000
 
 /// <summary>
-/// The active transactions. The tree guards it with its state lock, except that
-/// read-only transactions join and leave <see cref="SnapshotBucket"/>s without it.
+/// The active transaction views of a tree, for its begin sequences and counts. The tree
+/// guards it with its state lock, except that read-only views join and leave
+/// <see cref="SnapshotBucket"/>s without it. The domain keeps the snapshots.
 /// </summary>
 /// <remarks>
-/// Writing transactions and snapshot buckets are created under the state lock, and
-/// their snapshot timestamps and begin sequences never decrease, so the oldest one
-/// holds the smallest of both. Ended writers and empty buckets leave lazily: they are
-/// dropped when they reach the front, and the writer queue is rebuilt when ended
-/// writers dominate it.
+/// Writing views and snapshot buckets are registered under the state lock, and their begin
+/// sequences never decrease, so the oldest one holds the smallest. Ended writers and empty
+/// buckets leave lazily: they are dropped when they reach the front, and the writer queue
+/// is rebuilt when ended writers dominate it.
 /// </remarks>
 internal sealed class ActiveTransactions<TKey, TValue>
 {
@@ -99,24 +99,6 @@ internal sealed class ActiveTransactions<TKey, TValue>
   }
 
   /// <summary>
-  /// The snapshot timestamp of the oldest active transaction.
-  /// </summary>
-  public long OldestSnapshot(long defaultValue)
-  {
-    TrimBuckets();
-    var oldest = OldestWriterSnapshot(defaultValue);
-    if (Buckets.TryPeek(out var bucket))
-      oldest = Math.Min(oldest, bucket.SnapshotTimestamp);
-    return oldest;
-  }
-
-  /// <summary>
-  /// The snapshot timestamp of the oldest active transaction that can write.
-  /// </summary>
-  public long OldestWriterSnapshot(long defaultValue)
-      => Writers.TryPeek(out var writer) ? writer.SnapshotTimestamp : defaultValue;
-
-  /// <summary>
   /// The begin sequence of the oldest active transaction.
   /// </summary>
   public long OldestBeginSequence(long defaultValue)
@@ -128,24 +110,5 @@ internal sealed class ActiveTransactions<TKey, TValue>
     return oldest;
   }
 
-  /// <summary>
-  /// The snapshot timestamps in use in ascending order, followed by the given one.
-  /// </summary>
-  public long[] GetSnapshots(long latestSnapshot)
-  {
-    TrimBuckets();
-    var snapshots = new List<long>(WriterCount + Buckets.Count + 1);
-    foreach (var writer in Writers)
-    {
-      if (writer.IsRegistered)
-        snapshots.Add(writer.SnapshotTimestamp);
-    }
-    // Buckets with no reader may still be joined while the merge runs.
-    foreach (var bucket in Buckets)
-      snapshots.Add(bucket.SnapshotTimestamp);
-    snapshots.Add(latestSnapshot);
-    snapshots.Sort();
-    return snapshots.ToArray();
-  }
 }
 #pragma warning restore CA2000

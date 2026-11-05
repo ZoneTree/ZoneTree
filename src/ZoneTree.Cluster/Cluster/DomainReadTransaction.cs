@@ -28,11 +28,19 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
   protected Timer ExpiryTimer;
   int Ended;
 
+  /// <summary>The domain snapshot bucket of a read-only transaction; null for a writing one.</summary>
+  readonly SnapshotBucket Bucket;
+
+  /// <summary>The snapshot the transaction reads in every column of the domain.</summary>
   public long SnapshotTimestamp { get; }
   protected virtual bool IsWriting => false;
   protected virtual TransactionIsolationLevel Isolation => TransactionIsolationLevel.Snapshot;
 
-  internal DomainReadTransaction(ClusterDomain domain, long snapshot)
+  /// <summary>The id the column views carry: zero for a read-only transaction.</summary>
+  protected virtual long ViewTransactionId => 0;
+
+  /// <summary>Begins a transaction whose snapshot the domain registered.</summary>
+  protected DomainReadTransaction(ClusterDomain domain, long snapshot)
   {
     Domain = domain;
     Cluster = domain.Cluster;
@@ -40,7 +48,12 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
     Cluster.TransactionStarted(this);
   }
 
-  internal DomainReadTransaction(ClusterDomain domain, long snapshot, TimeSpan timeout) : this(domain, snapshot)
+  /// <summary>Begins a read-only transaction in a domain snapshot bucket it joined.</summary>
+  internal DomainReadTransaction(ClusterDomain domain, SnapshotBucket bucket)
+      : this(domain, bucket.SnapshotTimestamp) => Bucket = bucket;
+
+  internal DomainReadTransaction(ClusterDomain domain, SnapshotBucket bucket, TimeSpan timeout)
+      : this(domain, bucket)
     => ExpiryTimer = TransactionExpiry.Start(timeout, ExpireReadOnly);
 
   void ExpireReadOnly()
@@ -63,14 +76,14 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
         ThrowEnding();
       }
       if (FirstView == null)
-        FirstView = local.CreateView(IsWriting, Isolation);
+        FirstView = local.CreateView(IsWriting, Isolation, ViewTransactionId, SnapshotTimestamp);
       if (FirstView.Column == local)
         return (IReadColumn<TKey, TValue>)FirstView;
       if (OtherViews != null)
         foreach (var view in OtherViews)
           if (view.Column == local)
             return (IReadColumn<TKey, TValue>)view;
-      var created = local.CreateView(IsWriting, Isolation);
+      var created = local.CreateView(IsWriting, Isolation, ViewTransactionId, SnapshotTimestamp);
       (OtherViews ??= []).Add(created);
       return (IReadColumn<TKey, TValue>)created;
     }
@@ -135,11 +148,15 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
     finally
     {
       ExpiryTimer?.Dispose();
+      ReleaseSnapshot();
       Cluster.TransactionEnded(this);
     }
     if (errors != null)
       throw new AggregateException(errors);
   }
+
+  /// <summary>Releases the snapshot the domain registered for the transaction.</summary>
+  protected virtual void ReleaseSnapshot() => Bucket?.Leave();
 
   static void CloseView(ColumnView view)
   {

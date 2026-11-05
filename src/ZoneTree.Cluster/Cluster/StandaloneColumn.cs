@@ -135,7 +135,8 @@ internal sealed class StandaloneColumn<TKey, TValue> : Column,
     }
   }
 
-  internal override ColumnView CreateView(bool writing, TransactionIsolationLevel isolation)
+  internal override ColumnView CreateView(bool writing, TransactionIsolationLevel isolation,
+      long transactionId, long snapshotTimestamp)
       => throw new InvalidOperationException("Standalone columns cannot participate in domain transactions.");
 
   internal override void SaveMetaData() => Tree.Maintenance.SaveMetaData();

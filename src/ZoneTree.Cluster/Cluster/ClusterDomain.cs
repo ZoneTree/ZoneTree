@@ -11,7 +11,8 @@ internal sealed class ClusterDomain : IClusterDomain
   /// <summary>The catalog id of the domain, which never changes and is never reused.</summary>
   internal readonly long Id;
 
-  readonly DomainTimestampSource Timestamps;
+  /// <summary>Coordinates the domain's transactions across its columns.</summary>
+  internal DomainCoordinator Coordinator { get; }
 
   string name;
   volatile bool dropped;
@@ -21,14 +22,15 @@ internal sealed class ClusterDomain : IClusterDomain
   /// <summary>The domain's column names in creation order, including columns created at run time.</summary>
   public IReadOnlyList<string> ColumnNames => Cluster.Catalog.State.ColumnNamesOf(Id);
   IZoneTreeCluster IClusterDomain.Cluster => Cluster;
-  public long SnapshotTimestamp => Timestamps.SnapshotTimestamp;
+  public long SnapshotTimestamp => Coordinator.Sequencer.SnapshotTimestamp;
 
-  internal ClusterDomain(ZoneTreeCluster cluster, DomainRecord record, DomainTimestampSource timestamps)
+  internal ClusterDomain(ZoneTreeCluster cluster, DomainRecord record, DomainCoordinator coordinator)
   {
     Cluster = cluster;
     Id = record.Id;
     name = record.Name;
-    Timestamps = timestamps;
+    Coordinator = coordinator;
+    coordinator.Domain = this;
   }
 
   internal void Rename(string newName) => Volatile.Write(ref name, newName);
@@ -64,7 +66,17 @@ internal sealed class ClusterDomain : IClusterDomain
     TransactionExpiry.Validate(options);
     if (Cluster.IsReadOnly)
       throw new ZoneTreeIsReadOnlyException();
-    return new DomainTransaction(this, Timestamps.Next(), Timestamps.SnapshotTimestamp, options);
+    var writer = Coordinator.Snapshots.BeginWriter();
+    try
+    {
+      return new DomainTransaction(this, writer, options);
+    }
+    catch
+    {
+      // A registered writer keeps the domain's conflict keys and old versions.
+      Coordinator.Snapshots.EndWriter(writer);
+      throw;
+    }
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
@@ -89,7 +101,7 @@ internal sealed class ClusterDomain : IClusterDomain
   public IDomainReadTransaction BeginReadOnlyTransaction()
   {
     EnsureUsable();
-    return new DomainReadTransaction(this, Timestamps.SnapshotTimestamp);
+    return new DomainReadTransaction(this, Coordinator.Snapshots.JoinReader());
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
@@ -106,7 +118,16 @@ internal sealed class ClusterDomain : IClusterDomain
     options ??= new();
     EnsureUsable();
     TransactionExpiry.Validate(options);
-    return new DomainReadTransaction(this, Timestamps.SnapshotTimestamp, options.Timeout);
+    var bucket = Coordinator.Snapshots.JoinReader();
+    try
+    {
+      return new DomainReadTransaction(this, bucket, options.Timeout);
+    }
+    catch
+    {
+      bucket.Leave();
+      throw;
+    }
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
@@ -118,23 +139,41 @@ internal sealed class ClusterDomain : IClusterDomain
     return new(BeginReadOnlyTransaction(options));
   }
 
-  // A transaction's outcome is decided by its commit, and an in-doubt outcome only by
-  // recovery. Until the commit protocol records outcomes, this process does not know them.
+  // Outcomes come from the columns open in this process: their transaction entries, then
+  // their commit records, until merges drop the records of durable commits.
   public ValueTask<TransactionOutcome> GetTransactionOutcomeAsync(
       long transactionId, CancellationToken cancellationToken = default)
   {
     EnsureUsable();
-    cancellationToken.ThrowIfCancellationRequested();
-    return new(TransactionOutcome.Unknown);
+    return AsyncOperations.Run(() => FindOutcome(transactionId), cancellationToken);
+  }
+
+  /// <summary>
+  /// A committed column decides the outcome, then a column that has not decided yet, then a
+  /// rolled back one. A column the transaction never wrote does not know it.
+  /// </summary>
+  TransactionOutcome FindOutcome(long transactionId)
+  {
+    if (transactionId <= 0 || transactionId > Coordinator.Clock.Current)
+      return TransactionOutcome.Unknown;
+    var outcome = TransactionOutcome.Unknown;
+    foreach (var column in Cluster.OpenColumnsOf(this))
+    {
+      var columnOutcome = ((ICoordinatedStorage)column).GetOutcome(transactionId);
+      if (columnOutcome == TransactionOutcome.Committed)
+        return columnOutcome;
+      if (columnOutcome == TransactionOutcome.Pending ||
+          (columnOutcome == TransactionOutcome.Aborted && outcome == TransactionOutcome.Unknown))
+        outcome = columnOutcome;
+    }
+    return outcome;
   }
 
   public Task SyncWALAsync(CancellationToken cancellationToken = default)
   {
     EnsureUsable();
     cancellationToken.ThrowIfCancellationRequested();
-    var sync = Task.WhenAll(Cluster.OpenColumnsOf(this).Select(column => column.SyncWALAsync()));
+    var sync = Coordinator.SyncAsync();
     return cancellationToken.CanBeCanceled ? sync.WaitAsync(cancellationToken) : sync;
   }
-
-  internal long TransactionCommitted() => Timestamps.Commit();
 }

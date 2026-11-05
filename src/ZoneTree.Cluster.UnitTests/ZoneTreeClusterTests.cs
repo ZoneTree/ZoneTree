@@ -507,22 +507,34 @@ public sealed class ZoneTreeClusterTests
   }
 
   [Test]
-  public void AColumnFailureAfterCommitStartsIsNotReportedAsARetryableConflict()
+  public void AColumnFailureDuringCommitRollsBackEveryColumn()
   {
     using var cluster = Factory.CreateInProcess(Options());
-    var numbers = cluster.GetDomain(Domain).GetColumn<int, int>("numbers");
-    var names = cluster.GetDomain(Domain).GetColumn<long, string>("names");
-    using var transaction = cluster.GetDomain(Domain).BeginTransaction();
+    var domain = cluster.GetDomain(Domain);
+    var numbers = domain.GetColumn<int, int>("numbers");
+    var names = domain.GetColumn<long, string>("names");
+    using var transaction = domain.BeginTransaction();
     transaction.GetColumn(numbers).Upsert(1, 42);
     transaction.GetColumn(names).Upsert(1L, "Alice");
-    cluster.GetCoordinatedColumnMaintenance<long, string>("names").ZoneTree.IsReadOnly = true;
+    var namesTree = cluster.GetCoordinatedColumnMaintenance<long, string>("names").ZoneTree;
+    namesTree.IsReadOnly = true;
+    // The failure is not a conflict, and no column keeps the transaction's writes.
     Assert.Throws<ZoneTreeIsReadOnlyException>(() => transaction.TryCommit());
-    Assert.That(transaction.State, Is.EqualTo(TransactionState.InDoubt));
-    Assert.Throws<TransactionInDoubtException>(() => transaction.GetColumn(numbers));
-    Assert.That(numbers.TryGet(1, out var value), Is.True);
-    Assert.That(value, Is.EqualTo(42));
-    Assert.That(names.ContainsKey(1L), Is.False);
+    Assert.That(transaction.State, Is.EqualTo(TransactionState.Aborted));
+    Assert.That(transaction.HasConflict, Is.False);
+    Assert.Throws<TransactionAbortedException>(() => transaction.GetColumn(numbers));
+    Assert.That(numbers.ContainsKey(1), Is.False);
     Assert.That(cluster.Maintenance.ActiveTransactionCount, Is.Zero);
+    namesTree.IsReadOnly = false;
+    Assert.That(names.ContainsKey(1L), Is.False);
+
+    // The rejected write stored nothing, so the domain keeps committing.
+    using var next = domain.BeginTransaction();
+    next.GetColumn(numbers).Upsert(2, 2);
+    next.GetColumn(names).Upsert(2L, "Bob");
+    next.Commit();
+    Assert.That(numbers.TryGet(2, out var number) && number == 2, Is.True);
+    Assert.That(names.TryGet(2L, out var name) && name == "Bob", Is.True);
   }
 
   [Test]

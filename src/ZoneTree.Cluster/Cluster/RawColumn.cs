@@ -132,7 +132,8 @@ internal sealed class RawColumn<TKey, TValue> : Column,
 
   internal override Task SyncWALAsync() => SyncWALAsync(default);
   internal override void SaveMetaData() => Tree.Maintenance.SaveMetaData();
-  internal override ColumnView CreateView(bool writing, TransactionIsolationLevel isolation)
+  internal override ColumnView CreateView(bool writing, TransactionIsolationLevel isolation,
+      long transactionId, long snapshotTimestamp)
       => throw new InvalidOperationException("Raw columns cannot participate in cluster transactions.");
 
   internal override TimeSpan AutoSyncInterval

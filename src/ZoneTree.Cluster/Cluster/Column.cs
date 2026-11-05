@@ -9,12 +9,9 @@ internal abstract class Column : IDisposable
   internal readonly ZoneTreeCluster Cluster;
   /// <summary>The catalog id of the column, which never changes and is never reused.</summary>
   internal readonly long Id;
-  // TODO: Revisit this extra gate when column validation and preparation can be atomic.
-  // It currently keeps another cluster transaction from committing to a column between
-  // multi-column conflict preflight and commit startup, which could otherwise cause a
-  // late conflict after an earlier column has committed. Single-column commits must
-  // respect it too. Each coordinated column owns a separate MVCC tree; the locks
-  // inside those trees do not cover this multi-column preflight and commit sequence.
+  // Held by every domain commit that uses the column, taken in column id order. A domain
+  // commit validates all of its views and prepares the views that wrote under these gates,
+  // so no other commit to its columns comes between the validation and the commit records.
   internal readonly object CommitGate = new();
 
   readonly ColumnOperationGate Operations = new();
@@ -91,7 +88,8 @@ internal abstract class Column : IDisposable
     DropTree();
   }
 
-  internal abstract ColumnView CreateView(bool writing, TransactionIsolationLevel isolation);
+  internal abstract ColumnView CreateView(bool writing, TransactionIsolationLevel isolation,
+      long transactionId, long snapshotTimestamp);
   internal abstract Task SyncWALAsync();
   internal abstract TimeSpan AutoSyncInterval { get; set; }
   internal abstract int AbortedTransactionCount { get; }

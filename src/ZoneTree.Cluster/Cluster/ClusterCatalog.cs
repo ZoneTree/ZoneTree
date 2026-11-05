@@ -112,7 +112,8 @@ internal sealed class ClusterCatalog : IDisposable
       var current = state;
       if (current.FindDomain(name) != null)
         throw new SchemaObjectAlreadyExistsException($"Domain '{name}' already exists.");
-      var domain = new DomainRecord(current.Cluster.NextDomainId, name, TimestampBatch);
+      var domain = new DomainRecord(current.Cluster.NextDomainId, name, TimestampBatch,
+          DurableTimestamp: 0, IsClean: false, RolledBackRanges: []);
       var cluster = current.Cluster with
       {
         SchemaEpoch = current.Cluster.SchemaEpoch + 1,
@@ -311,6 +312,65 @@ internal sealed class ClusterCatalog : IDisposable
           transaction.Upsert(CatalogRecords.DomainKey(domain.Id), CatalogRecords.Encode(domain));
       });
       state = current.With(domains);
+    }
+  }
+
+  /// <summary>
+  /// Prepares every domain for this process in one durable commit. A domain that was not
+  /// closed cleanly rolls back the commits above its durable timestamp: the range up to its
+  /// timestamp bound joins its rolled back ranges, so every column applies it when it opens,
+  /// whenever that is. Each domain reserves the next batch above its bound, and is marked as
+  /// not closed cleanly until it closes again.
+  /// </summary>
+  /// <returns>The domains, each with the start of its clock in this process.</returns>
+  internal IReadOnlyList<(DomainRecord Domain, long ClockStart)> OpenDomains()
+  {
+    lock (WriteLock)
+    {
+      var current = state;
+      if (current.Domains.Count == 0)
+        return [];
+      var opened = current.Domains
+          .Select(domain => (Domain: domain with
+          {
+            TimestampBound = domain.TimestampBound + TimestampBatch,
+            IsClean = false,
+            RolledBackRanges = domain.IsClean || domain.DurableTimestamp >= domain.TimestampBound
+                ? domain.RolledBackRanges
+                : [.. domain.RolledBackRanges, new TimestampRange(domain.DurableTimestamp, domain.TimestampBound)]
+          }, ClockStart: domain.TimestampBound))
+          .ToArray();
+      Commit(Tree, transaction =>
+      {
+        foreach (var (domain, _) in opened)
+          transaction.Upsert(CatalogRecords.DomainKey(domain.Id), CatalogRecords.Encode(domain));
+      });
+      state = current.With(opened.Select(item => item.Domain).ToArray());
+      return opened;
+    }
+  }
+
+  /// <summary>
+  /// Records that every commit of a domain at or below a timestamp is complete and synced,
+  /// and whether the domain is closing cleanly. The durable timestamp never decreases.
+  /// </summary>
+  internal void SetDomainDurable(long id, long durableTimestamp, bool isClean)
+  {
+    lock (WriteLock)
+    {
+      var current = state;
+      var domain = current.FindDomain(id);
+      if (domain == null)
+        return;
+      var durable = domain with
+      {
+        DurableTimestamp = Math.Max(domain.DurableTimestamp, durableTimestamp),
+        IsClean = isClean
+      };
+      if (durable == domain)
+        return;
+      Commit(Tree, transaction => transaction.Upsert(CatalogRecords.DomainKey(id), CatalogRecords.Encode(durable)));
+      state = current.With([durable]);
     }
   }
 

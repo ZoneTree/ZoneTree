@@ -65,16 +65,20 @@ A column's registered encodings are the schema that hosts and clients share.
 
 The cluster supports typed columns, reads and writes, rollback, conflict
 preflight, ordinary and durable commits, iteration, reopening and maintenance.
-A detected conflict is rejected before any column commits. Durability follows
-each column's WAL configuration; new columns default to their own Shared WAL.
+A domain transaction commits atomically across its columns: it takes one commit
+timestamp, readers see it in every column at once, and recovery keeps it whole. A
+conflict or a failure before the commit completes rolls back every column. New
+columns default to their own Shared WAL; a domain syncs its columns together.
 
 ## Current limitations
 
-- Snapshots and isolation are per column, taken when a transaction first reads
-  or writes the column. There is no shared snapshot across a domain's columns.
-- Commits across columns are not atomic for visibility or crash recovery. An
-  error after column commits start may leave some columns committed; the
-  transaction then reports `InDoubt` and throws rather than reporting a conflict.
+- An ordinary commit survives a process crash only once its domain synced. After an
+  unclean shutdown, recovery rolls back every commit the domain had not synced, in
+  every column, so a prefix of the commits survives with every transaction whole.
+  Durable commits, `SyncWALAsync` and automatic syncing are not affected. A domain
+  also syncs on its own after 4096 commits.
+- A durable commit waits for a sync of each column the domain wrote since its last
+  sync, then for a catalog commit. Concurrent durable commits share both.
 - Cluster-wide backup and restore throw `NotSupportedException`.
 
 The async data methods of column views and raw columns run on the thread pool, so
@@ -236,9 +240,10 @@ The interfaces describe the guarantees the cluster is built to provide.
 | `CommitDurableAsync()` / `TryCommitDurableAsync()` | Atomic commit across columns; survives power loss or an OS crash. |
 | `SyncWALAsync()` | Makes completed raw writes and transactions committed before the call durable across power loss or an OS crash. |
 
-Transactions accept `Serializable` and `Snapshot` isolation. They currently apply
-within each coordinated column; isolation across a domain's columns is not
-implemented yet.
+Transactions accept `Serializable` and `Snapshot` isolation across the columns of
+their domain. A transaction reads one snapshot of the domain in every column, and a
+serializable commit validates its reads in every column, including columns it did
+not write.
 
 Raw columns expose direct sync/async reads, writes, deletes, ranges and iterators.
 Raw and standalone handles cannot be passed to `transaction.GetColumn(...)`. Raw writes are

@@ -13,7 +13,7 @@ namespace ZoneTree.Cluster;
 /// <remarks>
 /// The catalog is the source of truth for the schema. A column opens when it is declared or
 /// created in this process, or when it is first requested with its types.
-/// Snapshots, visibility and crash recovery across the columns of a domain are not atomic yet.
+/// The transactions of a domain commit atomically across its coordinated columns.
 /// </remarks>
 internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMaintenance
 {
@@ -67,22 +67,25 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
   }
 
   /// <summary>
-  /// Starts the timestamp source of every domain after the bound it reserved before, and
-  /// reserves the next batches first, in one durable catalog commit.
+  /// Starts every domain's clock after the bound it reserved before, in one durable catalog
+  /// commit that reserves the next batches and records the commits recovery rolls back: after
+  /// an unclean shutdown, those above the domain's durable timestamp.
   /// </summary>
   void StartDomains()
   {
-    var domains = Catalog.State.Domains;
-    Catalog.ReserveTimestamps(domains
-        .Select(domain => (domain.Id, domain.TimestampBound + ClusterCatalog.TimestampBatch))
-        .ToArray());
-    foreach (var domain in domains)
-    {
-      var timestamps = new DomainTimestampSource(Reservations, domain.Id,
-          start: domain.TimestampBound, reservedBound: domain.TimestampBound + ClusterCatalog.TimestampBatch);
-      Domains[domain.Id] = new ClusterDomain(this, domain, timestamps);
-    }
+    foreach (var (domain, clockStart) in Catalog.OpenDomains())
+      Domains[domain.Id] = CreateDomain(domain, clockStart);
   }
+
+  ClusterDomain CreateDomain(DomainRecord record, long clockStart)
+  {
+    var clock = new DomainTimestampSource(Reservations, record.Id, clockStart, record.TimestampBound);
+    var coordinator = new DomainCoordinator(this, record.Id, clock, clockStart, record.DurableTimestamp);
+    return new ClusterDomain(this, record, coordinator);
+  }
+
+  /// <summary>The domain of a coordinated column.</summary>
+  internal ClusterDomain DomainOf(ColumnRecord record) => Domains[record.DomainId];
 
   /// <summary>
   /// Applies the declared schema: creates the missing domains and columns, checks the existing
@@ -130,8 +133,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
         return getOrCreate ? existing : throw new SchemaObjectAlreadyExistsException($"Domain '{name}' already exists.");
       ThrowIfReadOnly();
       var record = Catalog.CreateDomain(name);
-      var domain = new ClusterDomain(this, record,
-          new DomainTimestampSource(Reservations, record.Id, start: 0, reservedBound: record.TimestampBound));
+      var domain = CreateDomain(record, clockStart: 0);
       Domains[record.Id] = domain;
       return domain;
     }
@@ -207,7 +209,10 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
       ThrowIfReadOnly();
       Catalog.DropDomain(record.Id);
       if (Domains.TryRemove(record.Id, out var domain))
+      {
         domain.MarkDropped();
+        domain.Coordinator.Shutdown(clean: false);
+      }
       return true;
     }
   }
@@ -371,7 +376,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
       if (record.State == ColumnState.Creating)
         Catalog.MarkColumnReady(record.Id);
       if (record.Kind == ColumnKind.Coordinated)
-        column.Domain = Domains[record.DomainId];
+        column.Domain = DomainOf(record);
       column.AutoSyncInterval = autoSyncInterval;
       column.SetReadOnly(readOnly);
     }
@@ -398,8 +403,12 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
   {
     ThrowIfDisposed();
     cancellationToken.ThrowIfCancellationRequested();
-    // Columns not opened in this process have no writes to sync.
-    var sync = Task.WhenAll(OpenColumns.Values.Select(column => column.SyncWALAsync()));
+    // Columns not opened in this process have no writes to sync. A domain syncs its
+    // coordinated columns together.
+    var sync = Task.WhenAll(OpenColumns.Values
+        .Where(column => column.Domain == null)
+        .Select(column => column.SyncWALAsync())
+        .Concat(Domains.Values.Select(domain => domain.Coordinator.SyncAsync())));
     return cancellationToken.CanBeCanceled ? sync.WaitAsync(cancellationToken) : sync;
   }
 
@@ -534,6 +543,8 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     errors?.ForEach(Logger.LogError);
     try
     {
+      foreach (var domain in Domains.Values)
+        domain.Coordinator.Shutdown(clean: false);
       lock (SchemaLock)
       {
         foreach (var column in OpenColumns.Values)
@@ -564,6 +575,12 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
       return;
     List<Exception> errors = null;
     RollBackOpenTransactions(ref errors);
+    // The domains sync their columns and record a clean shutdown while the columns are open.
+    foreach (var domain in Domains.Values)
+    {
+      try { domain.Coordinator.Shutdown(clean: true); }
+      catch (Exception error) { (errors ??= []).Add(error); }
+    }
     lock (SchemaLock)
     {
       foreach (var column in OpenColumns.Values)
