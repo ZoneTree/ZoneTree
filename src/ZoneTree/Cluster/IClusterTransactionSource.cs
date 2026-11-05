@@ -21,7 +21,9 @@ public interface IClusterTransactionSource<TTransaction>
 
   /// <summary>
   /// Finds the outcome of a transaction of this source, for example after its commit
-  /// ended in doubt.
+  /// ended in doubt. <see cref="TransactionOutcome.Pending"/> means the outcome is not
+  /// decided yet, so ask again; <see cref="TransactionOutcome.Unknown"/> means this source
+  /// cannot tell it.
   /// </summary>
   ValueTask<TransactionOutcome> GetTransactionOutcomeAsync(
       long transactionId, CancellationToken cancellationToken = default);
