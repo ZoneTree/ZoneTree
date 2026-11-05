@@ -21,17 +21,32 @@ internal sealed class CoordinatedColumn<TKey, TValue> : Column,
     set => Tree.AutoSyncInterval = value;
   }
 
+  // Views are created under the column's operation gate and registered, so a drop of the
+  // column finds every view it has to end.
   internal override ColumnView CreateView(bool writing, TransactionIsolationLevel isolation)
   {
-    var view = (ColumnView)(writing
-        ? Tree.BeginTransaction(isolation) : Tree.BeginReadOnlyTransaction());
-    view.Column = this;
-    return view;
+    BeginOperation();
+    try
+    {
+      var view = (ColumnView)(writing
+          ? Tree.BeginTransaction(isolation) : Tree.BeginReadOnlyTransaction());
+      view.Column = this;
+      AddDependent(view);
+      return view;
+    }
+    finally
+    {
+      EndOperation();
+    }
   }
 
   internal override Task SyncWALAsync() => Tree.SyncWALAsync();
   internal override void SaveMetaData() => Tree.SaveMetaData();
-  internal override void Drop() => Tree.Drop();
+  protected override void DropTree() => Tree.Drop();
   public override IMaintainer CreateMaintainer() => Tree.CreateMaintainer();
-  public override void Dispose() => Tree.Dispose();
+  public override void Dispose()
+  {
+    StopOperations();
+    Tree.Dispose();
+  }
 }

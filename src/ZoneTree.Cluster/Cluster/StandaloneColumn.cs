@@ -17,18 +17,43 @@ internal sealed class StandaloneColumn<TKey, TValue> : Column,
 
   public IStandaloneTransaction<TKey, TValue> BeginTransaction(
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable)
-  {
-    EnsureOpen();
-    return new StandaloneTransaction<TKey, TValue>(Cluster, Tree.BeginTransaction(isolationLevel), TimeSpan.Zero);
-  }
+      => Begin(isolationLevel, TimeSpan.Zero);
 
   public IStandaloneTransaction<TKey, TValue> BeginTransaction(ClusterTransactionOptions options)
   {
     options ??= new();
-    EnsureOpen();
     TransactionExpiry.Validate(options);
-    return new StandaloneTransaction<TKey, TValue>(
-        Cluster, Tree.BeginTransaction(options.IsolationLevel), options.Timeout);
+    return Begin(options.IsolationLevel, options.Timeout);
+  }
+
+  // Transactions begin under the column's operation gate and are registered, so a drop of
+  // the column finds every transaction it has to end.
+  StandaloneTransaction<TKey, TValue> Begin(TransactionIsolationLevel isolationLevel, TimeSpan timeout)
+  {
+    BeginOperation();
+    try
+    {
+      EnsureOpen();
+      return new StandaloneTransaction<TKey, TValue>(this, Tree.BeginTransaction(isolationLevel), timeout);
+    }
+    finally
+    {
+      EndOperation();
+    }
+  }
+
+  StandaloneReadTransaction<TKey, TValue> BeginRead(TimeSpan timeout)
+  {
+    BeginOperation();
+    try
+    {
+      EnsureOpen();
+      return new StandaloneReadTransaction<TKey, TValue>(this, Tree.BeginReadOnlyTransaction(), timeout);
+    }
+    finally
+    {
+      EndOperation();
+    }
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
@@ -50,11 +75,7 @@ internal sealed class StandaloneColumn<TKey, TValue> : Column,
     return new(BeginTransaction(options));
   }
 
-  public IStandaloneReadTransaction<TKey, TValue> BeginReadOnlyTransaction()
-  {
-    EnsureOpen();
-    return new StandaloneReadTransaction<TKey, TValue>(Cluster, Tree.BeginReadOnlyTransaction());
-  }
+  public IStandaloneReadTransaction<TKey, TValue> BeginReadOnlyTransaction() => BeginRead(TimeSpan.Zero);
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
       Justification = "The returned ValueTask transfers transaction ownership to the caller.")]
@@ -68,9 +89,8 @@ internal sealed class StandaloneColumn<TKey, TValue> : Column,
   public IStandaloneReadTransaction<TKey, TValue> BeginReadOnlyTransaction(ClusterReadTransactionOptions options)
   {
     options ??= new();
-    EnsureOpen();
     TransactionExpiry.Validate(options);
-    return new StandaloneReadTransaction<TKey, TValue>(Cluster, Tree.BeginReadOnlyTransaction(), options.Timeout);
+    return BeginRead(options.Timeout);
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
@@ -126,9 +146,8 @@ internal sealed class StandaloneColumn<TKey, TValue> : Column,
     return Tree.CreateMaintainer();
   }
 
-  internal override void Drop()
+  protected override void DropTree()
   {
-    EnsureOpen();
     Disposed = true;
     Tree.Maintenance.Drop();
   }
@@ -138,8 +157,13 @@ internal sealed class StandaloneColumn<TKey, TValue> : Column,
     if (Disposed)
       return;
     Disposed = true;
+    StopOperations();
     Tree.Dispose();
   }
 
-  void EnsureOpen() => ObjectDisposedException.ThrowIf(Disposed, this);
+  void EnsureOpen()
+  {
+    ThrowIfDropped();
+    ObjectDisposedException.ThrowIf(Disposed, this);
+  }
 }

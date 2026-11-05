@@ -9,7 +9,7 @@ namespace ZoneTree.Cluster;
 /// <remarks>The domain and its column handles are thread-safe.</remarks>
 public interface IClusterDomain : IClusterTransactionSource<IDomainTransaction>
 {
-  /// <summary>The persisted, case-sensitive domain name.</summary>
+  /// <summary>The current, case-sensitive domain name. Renaming the domain changes it.</summary>
   string Name { get; }
 
   /// <summary>The cluster that owns this domain.</summary>

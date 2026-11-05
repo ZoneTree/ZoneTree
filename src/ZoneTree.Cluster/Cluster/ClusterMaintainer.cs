@@ -1,14 +1,15 @@
 namespace ZoneTree.Cluster;
 
 /// <summary>
-/// Maintains every column the cluster has open, including the columns that open after the
-/// maintainer was created. New columns get the maintainer's current settings.
+/// Maintains a set of open columns: every column of the cluster, including those that open
+/// later with the maintainer's current settings, or one column. A dropped column leaves it.
 /// </summary>
 internal sealed class ClusterMaintainer : IMaintainer
 {
   readonly ZoneTreeCluster Cluster;
   readonly Lock MaintainersLock = new();
-  readonly List<IMaintainer> Maintainers = [];
+  readonly Dictionary<Column, IMaintainer> Maintainers = [];
+  readonly bool FollowsNewColumns;
   bool Disposed;
 
   // The defaults of a ZoneTree maintainer, used until a column maintainer reports its own.
@@ -18,23 +19,24 @@ internal sealed class ClusterMaintainer : IMaintainer
   TimeSpan blockCacheLifeTime = TimeSpan.FromMinutes(1);
   TimeSpan inactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(30);
 
-  internal ClusterMaintainer(ZoneTreeCluster cluster, IEnumerable<Column> columns)
+  internal ClusterMaintainer(ZoneTreeCluster cluster, IEnumerable<Column> columns, bool followsNewColumns)
   {
     Cluster = cluster;
+    FollowsNewColumns = followsNewColumns;
     try
     {
       foreach (var column in columns)
-        Maintainers.Add(column.CreateMaintainer());
+        Maintainers.Add(column, column.CreateMaintainer());
     }
     catch
     {
-      for (var index = Maintainers.Count - 1; index >= 0; --index)
-        Maintainers[index].Dispose();
+      foreach (var maintainer in Maintainers.Values)
+        maintainer.Dispose();
       throw;
     }
     if (Maintainers.Count == 0)
       return;
-    var first = Maintainers[0];
+    var first = Maintainers.Values.First();
     thresholdForMergeOperationStart = first.ThresholdForMergeOperationStart;
     maximumReadOnlySegmentCount = first.MaximumReadOnlySegmentCount;
     enableJobForCleaningInactiveCaches = first.EnableJobForCleaningInactiveCaches;
@@ -47,7 +49,7 @@ internal sealed class ClusterMaintainer : IMaintainer
   {
     lock (MaintainersLock)
     {
-      if (Disposed)
+      if (Disposed || !FollowsNewColumns)
         return;
       var maintainer = column.CreateMaintainer();
       maintainer.ThresholdForMergeOperationStart = thresholdForMergeOperationStart;
@@ -55,14 +57,27 @@ internal sealed class ClusterMaintainer : IMaintainer
       maintainer.BlockCacheLifeTime = blockCacheLifeTime;
       maintainer.InactiveBlockCacheCleanupInterval = inactiveBlockCacheCleanupInterval;
       maintainer.EnableJobForCleaningInactiveCaches = enableJobForCleaningInactiveCaches;
-      Maintainers.Add(maintainer);
+      Maintainers.Add(column, maintainer);
     }
+  }
+
+  /// <summary>Stops maintaining a dropped column, waiting for its background work.</summary>
+  internal void Remove(Column column)
+  {
+    IMaintainer maintainer;
+    lock (MaintainersLock)
+    {
+      if (!Maintainers.TryGetValue(column, out maintainer))
+        return;
+      Maintainers.Remove(column);
+    }
+    maintainer.Dispose();
   }
 
   IMaintainer[] Snapshot()
   {
     lock (MaintainersLock)
-      return Maintainers.ToArray();
+      return Maintainers.Values.ToArray();
   }
 
   // The setting is stored under the lock, so a column added meanwhile gets the new value.
@@ -71,7 +86,7 @@ internal sealed class ClusterMaintainer : IMaintainer
     lock (MaintainersLock)
     {
       store();
-      foreach (var maintainer in Maintainers)
+      foreach (var maintainer in Maintainers.Values)
         apply(maintainer);
     }
   }
@@ -160,7 +175,7 @@ internal sealed class ClusterMaintainer : IMaintainer
       if (Disposed)
         return;
       Disposed = true;
-      maintainers = Maintainers.ToArray();
+      maintainers = Maintainers.Values.ToArray();
     }
     Cluster.RemoveMaintainer(this);
     // Disposal mostly waits for merge threads, and the merges of all columns already

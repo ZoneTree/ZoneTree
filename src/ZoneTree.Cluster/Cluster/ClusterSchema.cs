@@ -34,6 +34,18 @@ internal sealed class ClusterSchema(ZoneTreeCluster cluster) : IClusterSchema
       RawColumnDefinition<TKey, TValue> definition, CancellationToken cancellationToken = default)
       => Create<IRawColumn<TKey, TValue>, TKey, TValue>(definition, null, true, cancellationToken);
 
+  public ValueTask<bool> DropColumnAsync(string name, CancellationToken cancellationToken = default)
+      => AsyncOperations.Run(() => cluster.DropColumn(name), cancellationToken);
+
+  public ValueTask RenameColumnAsync(string name, string newName, CancellationToken cancellationToken = default)
+      => AsyncOperations.Run(() => cluster.RenameColumn(name, newName), cancellationToken);
+
+  public ValueTask<bool> DropDomainAsync(string name, CancellationToken cancellationToken = default)
+      => AsyncOperations.Run(() => cluster.DropDomain(name), cancellationToken);
+
+  public ValueTask RenameDomainAsync(string name, string newName, CancellationToken cancellationToken = default)
+      => AsyncOperations.Run(() => cluster.RenameDomain(name, newName), cancellationToken);
+
   ValueTask<THandle> Create<THandle, TKey, TValue>(
       ColumnDefinition definition, string domain, bool getOrCreate, CancellationToken cancellationToken)
       => AsyncOperations.Run(

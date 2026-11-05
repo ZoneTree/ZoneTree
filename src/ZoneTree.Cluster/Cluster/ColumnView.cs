@@ -4,7 +4,7 @@ namespace ZoneTree.Cluster;
 /// The view of one column inside a domain transaction, which the domain transaction uses
 /// to coordinate its views of differently typed columns.
 /// </summary>
-internal abstract class ColumnView : IDisposable
+internal abstract class ColumnView : IDisposable, IColumnDependent
 {
   internal Column Column;
   internal virtual bool ConflictDetected => false;
@@ -19,6 +19,16 @@ internal abstract class ColumnView : IDisposable
 
   internal abstract Task<bool> BeginCommit(bool durable);
   public abstract void Dispose();
+
+  /// <summary>
+  /// Ends the view of a dropped column: stops its operations and rolls it back. The domain
+  /// transaction then cannot commit, and reports the dropped column.
+  /// </summary>
+  void IColumnDependent.OnColumnDropped()
+  {
+    StopOperations();
+    Dispose();
+  }
 
   /// <summary>
   /// Runs an async operation of this view on the thread pool. The view is thread-safe,

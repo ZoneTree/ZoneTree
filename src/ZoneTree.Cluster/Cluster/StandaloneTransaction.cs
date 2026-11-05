@@ -8,8 +8,8 @@ internal sealed class StandaloneTransaction<TKey, TValue> :
 {
   readonly ITransaction<TKey, TValue> Writer;
 
-  internal StandaloneTransaction(ZoneTreeCluster cluster, ITransaction<TKey, TValue> transaction, TimeSpan timeout)
-      : base(cluster, transaction)
+  internal StandaloneTransaction(Column column, ITransaction<TKey, TValue> transaction, TimeSpan timeout)
+      : base(column, transaction)
   {
     Writer = transaction;
     ExpiryTimer = TransactionExpiry.Start(timeout, Expire);
@@ -31,11 +31,23 @@ internal sealed class StandaloneTransaction<TKey, TValue> :
   public TransactionState State => Writer.State;
   public bool HasConflict => Writer.HasConflict;
 
-  public bool TryGetForUpdate(in TKey key, out TValue value) => Writer.TryGetForUpdate(in key, out value);
+  SchemaObjectDroppedException Dropped() => new($"Column '{Column.Name}' was dropped.");
 
-  public void Upsert(in TKey key, in TValue value) => Writer.Upsert(in key, in value);
+  /// <summary>The writing MVCC transaction, once the column is known not to be dropped.</summary>
+  ITransaction<TKey, TValue> ActiveWriter
+  {
+    get
+    {
+      Column.ThrowIfDropped();
+      return Writer;
+    }
+  }
 
-  public void Delete(in TKey key) => Writer.Delete(in key);
+  public bool TryGetForUpdate(in TKey key, out TValue value) => ActiveWriter.TryGetForUpdate(in key, out value);
+
+  public void Upsert(in TKey key, in TValue value) => ActiveWriter.Upsert(in key, in value);
+
+  public void Delete(in TKey key) => ActiveWriter.Delete(in key);
 
   public ValueTask<ReadResult<TValue>> TryGetForUpdateAsync(TKey key, CancellationToken cancellationToken = default)
       => AsyncOperations.Run(() => new ReadResult<TValue>(TryGetForUpdate(in key, out var value), value), cancellationToken);
@@ -48,13 +60,13 @@ internal sealed class StandaloneTransaction<TKey, TValue> :
 
   public void Commit()
   {
-    try { Writer.Commit(); }
+    try { ActiveWriter.Commit(); }
     finally { EndIfFinished(); }
   }
 
   public bool TryCommit()
   {
-    try { return Writer.TryCommit(); }
+    try { return ActiveWriter.TryCommit(); }
     finally { EndIfFinished(); }
   }
 
@@ -86,10 +98,14 @@ internal sealed class StandaloneTransaction<TKey, TValue> :
   }
 
   public Task CommitDurableAsync(CancellationToken cancellationToken = default)
-      => EndWhenFinished(Writer.CommitDurableAsync(cancellationToken));
+      => Column.IsDropped
+          ? Task.FromException(Dropped())
+          : EndWhenFinished(Writer.CommitDurableAsync(cancellationToken));
 
   public Task<bool> TryCommitDurableAsync(CancellationToken cancellationToken = default)
   {
+    if (Column.IsDropped)
+      return Task.FromException<bool>(Dropped());
     var commit = Writer.TryCommitDurableAsync(cancellationToken);
     EndWhenFinished(commit);
     return commit;

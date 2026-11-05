@@ -32,6 +32,14 @@ durable catalog commit with its own schema epoch.
   cluster runs: `CreateDomainAsync`, `CreateColumnAsync`, their idempotent
   `GetOrCreate` forms, and `DescribeAsync`. A column that exists with another kind,
   domain or encoding fails with `SchemaConflictException`.
+- **Dropping and renaming.** `DropColumnAsync` and `DropDomainAsync` return false for
+  a missing name, so retries are safe; a domain is dropped only without columns. A
+  dropped column's name is free at once, but its id is never reused. Its running
+  operations finish, the transactions and iterators that used it end, and a domain
+  transaction that used it cannot commit any of its writes. Its handles then throw
+  `SchemaObjectDroppedException`, and the task completes once its storage is deleted.
+  `RenameColumnAsync` and `RenameDomainAsync` keep handles, transactions and data. A
+  declaration of a dropped or old name creates a new, empty column on the next open.
 - **Opening columns.** A column opens when it is declared or created in this process,
   or when it is first requested with its types, such as `GetRawColumn<TKey, TValue>`.
 - **Encodings.** Definitions name their key serializer, value serializer and comparer
@@ -68,7 +76,6 @@ each column's WAL configuration; new columns default to their own Shared WAL.
   error after column commits start may leave some columns committed; the
   transaction then reports `InDoubt` and throws rather than reporting a conflict.
 - Cluster-wide backup and restore throw `NotSupportedException`.
-- Columns and domains cannot be dropped or renamed yet.
 
 The async data methods of column views and raw columns run on the thread pool, so
 operations run in parallel, on one view or on different columns. The caller decides

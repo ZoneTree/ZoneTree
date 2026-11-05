@@ -23,25 +23,25 @@ internal sealed class RawColumn<TKey, TValue> : Column,
 
   public bool ContainsKey(in TKey key)
   {
-    EnsureOpen();
+    EnsureUsable();
     return Tree.ContainsKey(in key);
   }
 
   public bool TryGet(in TKey key, out TValue value)
   {
-    EnsureOpen();
+    EnsureUsable();
     return Tree.TryGet(in key, out value);
   }
 
   public void Upsert(in TKey key, in TValue value)
   {
-    EnsureOpen();
+    EnsureUsable();
     Tree.Upsert(in key, in value);
   }
 
   public void Delete(in TKey key)
   {
-    EnsureOpen();
+    EnsureUsable();
     Tree.ForceDelete(in key);
   }
 
@@ -61,7 +61,7 @@ internal sealed class RawColumn<TKey, TValue> : Column,
 
   public IEnumerable<KeyValuePair<TKey, TValue>> Range(in TKey from, in TKey to, bool reverse = false)
   {
-    EnsureOpen();
+    EnsureUsable();
     return EnumerateRange(from, to, reverse);
   }
 
@@ -70,7 +70,8 @@ internal sealed class RawColumn<TKey, TValue> : Column,
     var comparer = Tree.Comparer;
     if (comparer.Compare(in from, in to) > 0)
       yield break;
-    using var iterator = reverse ? Tree.CreateReverseIterator() : Tree.CreateIterator();
+    // The column's iterator reports a drop, which also disposes it.
+    using var iterator = reverse ? CreateReverseIterator() : CreateIterator();
     iterator.Seek(reverse ? to : from);
     while (iterator.Next())
     {
@@ -87,16 +88,24 @@ internal sealed class RawColumn<TKey, TValue> : Column,
 
   public ITransactionIterator<TKey, TValue> CreateIterator(TransactionIteratorOptions options = null)
   {
-    EnsureOpen();
-    return new RawColumnIterator<TKey, TValue>(
-        options == null ? Tree.CreateIterator() : Tree.CreateIterator(ToStorageOptions(options)));
+    BeginOperation();
+    try
+    {
+      return new RawColumnIterator<TKey, TValue>(this,
+          options == null ? Tree.CreateIterator() : Tree.CreateIterator(ToStorageOptions(options)));
+    }
+    finally { EndOperation(); }
   }
 
   public ITransactionIterator<TKey, TValue> CreateReverseIterator(TransactionIteratorOptions options = null)
   {
-    EnsureOpen();
-    return new RawColumnIterator<TKey, TValue>(
-        options == null ? Tree.CreateReverseIterator() : Tree.CreateReverseIterator(ToStorageOptions(options)));
+    BeginOperation();
+    try
+    {
+      return new RawColumnIterator<TKey, TValue>(this,
+          options == null ? Tree.CreateReverseIterator() : Tree.CreateReverseIterator(ToStorageOptions(options)));
+    }
+    finally { EndOperation(); }
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
@@ -117,7 +126,7 @@ internal sealed class RawColumn<TKey, TValue> : Column,
 
   public Task SyncWALAsync(CancellationToken cancellationToken = default)
   {
-    EnsureOpen();
+    EnsureUsable();
     return Tree.SyncWALAsync(cancellationToken);
   }
 
@@ -191,10 +200,11 @@ internal sealed class RawColumn<TKey, TValue> : Column,
       Disposed = true;
       StopAutoSync();
     }
+    StopOperations();
     Tree.Dispose();
   }
 
-  internal override void Drop()
+  protected override void DropTree()
   {
     lock (AutoSyncLock)
     {
@@ -206,4 +216,12 @@ internal sealed class RawColumn<TKey, TValue> : Column,
   }
 
   void EnsureOpen() => ObjectDisposedException.ThrowIf(Disposed, this);
+
+  // Reads and writes only check the flags. An operation that runs while the column closes
+  // fails like one on a disposed ZoneTree; the engine serializes its own close.
+  void EnsureUsable()
+  {
+    ThrowIfDropped();
+    EnsureOpen();
+  }
 }

@@ -54,6 +54,7 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
     EnsureActive();
     if (column is not CoordinatedColumn<TKey, TValue> local || local.Domain != Domain)
       throw new ArgumentException("The column belongs to another domain.", nameof(column));
+    local.ThrowIfDropped();
     lock (ViewLock)
     {
       if (EndClaimed)
@@ -121,13 +122,13 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
     {
       if (FirstView != null)
       {
-        try { FirstView.Dispose(); }
+        try { CloseView(FirstView); }
         catch (Exception error) { errors = [error]; }
       }
       if (OtherViews != null)
         foreach (var view in OtherViews)
         {
-          try { view.Dispose(); }
+          try { CloseView(view); }
           catch (Exception error) { (errors ??= []).Add(error); }
         }
     }
@@ -138,6 +139,12 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
     }
     if (errors != null)
       throw new AggregateException(errors);
+  }
+
+  static void CloseView(ColumnView view)
+  {
+    view.Column.RemoveDependent(view);
+    view.Dispose();
   }
 
   /// <summary>Rolls back an active transaction. Returns false if a commit or rollback claimed its end.</summary>

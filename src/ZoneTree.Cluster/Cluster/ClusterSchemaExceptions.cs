@@ -6,6 +6,12 @@ namespace ZoneTree.Cluster;
 public sealed class SchemaObjectAlreadyExistsException(string message) : ZoneTreeException(message);
 
 /// <summary>
+/// The domain or column was dropped. Its handles, and the transactions and iterators that
+/// used it, can no longer be used.
+/// </summary>
+public sealed class SchemaObjectDroppedException(string message) : ZoneTreeException(message);
+
+/// <summary>
 /// A domain or column exists with a different definition: another kind, domain or encoding.
 /// </summary>
 public sealed class SchemaConflictException(string message) : ZoneTreeException(message);

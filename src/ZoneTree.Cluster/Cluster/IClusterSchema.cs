@@ -56,6 +56,38 @@ public interface IClusterSchema
   ValueTask<IRawColumn<TKey, TValue>> GetOrCreateColumnAsync<TKey, TValue>(
       RawColumnDefinition<TKey, TValue> definition, CancellationToken cancellationToken = default);
 
+  /// <summary>
+  /// Drops a column of any kind. Its name is free at once. Its running operations finish,
+  /// and the transactions and iterators that use it end: a domain transaction that used it
+  /// cannot commit, and the uses of its handles throw <see cref="SchemaObjectDroppedException"/>.
+  /// The task completes once the column's storage is deleted. A transaction that already
+  /// started its commit can finish it, and may end in doubt if the column closes during its
+  /// durable sync. A declared column is created again, empty, the next time the cluster opens.
+  /// </summary>
+  /// <returns>True if the column was dropped; false if no column has the name.</returns>
+  ValueTask<bool> DropColumnAsync(string name, CancellationToken cancellationToken = default);
+
+  /// <summary>
+  /// Renames a column. Its handles, transactions and data are not affected; a declaration of
+  /// the old name creates a new column the next time the cluster opens.
+  /// </summary>
+  /// <exception cref="KeyNotFoundException">No column has the name.</exception>
+  /// <exception cref="SchemaObjectAlreadyExistsException">A column with the new name exists.</exception>
+  ValueTask RenameColumnAsync(string name, string newName, CancellationToken cancellationToken = default);
+
+  /// <summary>
+  /// Drops a domain without columns. Its handle throws <see cref="SchemaObjectDroppedException"/>
+  /// afterward.
+  /// </summary>
+  /// <returns>True if the domain was dropped; false if no domain has the name.</returns>
+  /// <exception cref="SchemaConflictException">The domain has columns. Drop them first.</exception>
+  ValueTask<bool> DropDomainAsync(string name, CancellationToken cancellationToken = default);
+
+  /// <summary>Renames a domain. Its handle, columns and transactions are not affected.</summary>
+  /// <exception cref="KeyNotFoundException">No domain has the name.</exception>
+  /// <exception cref="SchemaObjectAlreadyExistsException">A domain with the new name exists.</exception>
+  ValueTask RenameDomainAsync(string name, string newName, CancellationToken cancellationToken = default);
+
   /// <summary>Describes the current schema.</summary>
   ValueTask<ClusterSchemaDescription> DescribeAsync(CancellationToken cancellationToken = default);
 }

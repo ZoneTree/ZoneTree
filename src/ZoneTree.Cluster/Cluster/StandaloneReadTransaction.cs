@@ -3,11 +3,16 @@ using ZoneTree.Transactional;
 namespace ZoneTree.Cluster;
 
 /// <summary>A read-only transaction of a standalone column, over the transaction of its MVCC tree.</summary>
+/// <remarks>
+/// The transaction registers with its column. Dropping the column ends it, and its later
+/// operations report the drop.
+/// </remarks>
 internal class StandaloneReadTransaction<TKey, TValue> :
-    IStandaloneReadTransaction<TKey, TValue>, IClusterOpenTransaction
+    IStandaloneReadTransaction<TKey, TValue>, IClusterOpenTransaction, IColumnDependent
 {
-  readonly IReadTransaction<TKey, TValue> Transaction;
+  readonly IReadTransaction<TKey, TValue> transaction;
   protected readonly ZoneTreeCluster Cluster;
+  protected readonly Column Column;
 
   /// <summary>Rolls back a writing transaction when its timeout elapses, or null.</summary>
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2213",
@@ -15,15 +20,17 @@ internal class StandaloneReadTransaction<TKey, TValue> :
   protected Timer ExpiryTimer;
   int Ended;
 
-  internal StandaloneReadTransaction(ZoneTreeCluster cluster, IReadTransaction<TKey, TValue> transaction)
+  internal StandaloneReadTransaction(Column column, IReadTransaction<TKey, TValue> transaction)
   {
-    Cluster = cluster;
-    Transaction = transaction;
-    cluster.TransactionStarted(this);
+    Column = column;
+    Cluster = column.Cluster;
+    this.transaction = transaction;
+    Cluster.TransactionStarted(this);
+    column.AddDependent(this);
   }
 
-  internal StandaloneReadTransaction(ZoneTreeCluster cluster, IReadTransaction<TKey, TValue> transaction, TimeSpan timeout)
-      : this(cluster, transaction)
+  internal StandaloneReadTransaction(Column column, IReadTransaction<TKey, TValue> transaction, TimeSpan timeout)
+      : this(column, transaction)
     => ExpiryTimer = TransactionExpiry.Start(timeout, ExpireReadOnly);
 
   void ExpireReadOnly()
@@ -34,7 +41,17 @@ internal class StandaloneReadTransaction<TKey, TValue> :
     Cluster.Logger.LogWarning("A read-only transaction of a standalone column timed out and was ended.");
   }
 
-  public long SnapshotTimestamp => Transaction.SnapshotTimestamp;
+  /// <summary>The transaction of the MVCC tree, once the column is known not to be dropped.</summary>
+  IReadTransaction<TKey, TValue> Transaction
+  {
+    get
+    {
+      Column.ThrowIfDropped();
+      return transaction;
+    }
+  }
+
+  public long SnapshotTimestamp => transaction.SnapshotTimestamp;
 
   public bool ContainsKey(in TKey key) => Transaction.ContainsKey(in key);
 
@@ -71,14 +88,19 @@ internal class StandaloneReadTransaction<TKey, TValue> :
     if (Interlocked.Exchange(ref Ended, 1) != 0)
       return;
     ExpiryTimer?.Dispose();
+    Column.RemoveDependent(this);
     Cluster.TransactionEnded(this);
   }
 
   public virtual void RollbackOnClose() => Dispose();
 
+  // The MVCC transaction stops its running operations before it rolls back, so the storage
+  // closes after them.
+  void IColumnDependent.OnColumnDropped() => Dispose();
+
   public void Dispose()
   {
-    try { Transaction.Dispose(); }
+    try { transaction.Dispose(); }
     finally { End(); }
   }
 

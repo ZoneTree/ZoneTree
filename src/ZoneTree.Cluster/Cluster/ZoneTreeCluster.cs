@@ -50,6 +50,20 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     Schema = new ClusterSchema(this);
     autoSyncInterval = options.AutoSyncInterval;
     StartDomains();
+    PurgeDroppedColumns();
+  }
+
+  /// <summary>
+  /// Finishes the drops a crash interrupted: deletes the storage of each dropped column, then
+  /// its record.
+  /// </summary>
+  void PurgeDroppedColumns()
+  {
+    foreach (var column in Catalog.State.DroppedColumns)
+    {
+      DeleteDirectory(ColumnDirectory(column.Id));
+      Catalog.PurgeColumn(column.Id);
+    }
   }
 
   /// <summary>
@@ -120,6 +134,96 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
           new DomainTimestampSource(Reservations, record.Id, start: 0, reservedBound: record.TimestampBound));
       Domains[record.Id] = domain;
       return domain;
+    }
+  }
+
+  /// <summary>
+  /// Drops a column. The catalog drops it at once, so its name is free and its handles reject
+  /// new uses. Its running operations finish, and its views, transactions and iterators end.
+  /// Then its storage is deleted and its record purged. Returns false if no column has the name.
+  /// </summary>
+  internal bool DropColumn(string name)
+  {
+    ColumnRecord record;
+    Column column;
+    ClusterMaintainer[] maintainers;
+    lock (SchemaLock)
+    {
+      ThrowIfDisposed();
+      record = Catalog.State.FindColumn(name);
+      if (record == null)
+        return false;
+      ThrowIfReadOnly();
+      Catalog.DropColumn(record.Id);
+      if (OpenColumns.TryGetValue(record.Id, out column))
+        OpenColumns.TryRemove(record.Id, out _);
+      column?.MarkDropped();
+      maintainers = Maintainers.ToArray();
+    }
+    // Nothing can reach the column any more, so deleting it needs no schema lock. A crash
+    // from here on leaves a dropped record, which the next open purges.
+    if (column != null)
+    {
+      foreach (var maintainer in maintainers)
+      {
+        try { maintainer.Remove(column); }
+        catch (Exception error) { Logger.LogError(error); }
+      }
+      column.DropStorage(Logger);
+    }
+    DeleteDirectory(ColumnDirectory(record.Id));
+    Catalog.PurgeColumn(record.Id);
+    return true;
+  }
+
+  /// <summary>Renames a column. Its handles, views and transactions are not affected.</summary>
+  internal void RenameColumn(string name, string newName)
+  {
+    lock (SchemaLock)
+    {
+      ThrowIfDisposed();
+      var record = Catalog.State.FindColumn(name)
+          ?? throw new KeyNotFoundException($"Column '{name}' does not exist.");
+      ThrowIfReadOnly();
+      Catalog.RenameColumn(record.Id, newName);
+      if (OpenColumns.TryGetValue(record.Id, out var column))
+        column.Rename(newName);
+    }
+  }
+
+  /// <summary>
+  /// Drops a domain without columns, so its handle rejects new uses. Returns false if no
+  /// domain has the name.
+  /// </summary>
+  /// <exception cref="SchemaConflictException">The domain has columns.</exception>
+  internal bool DropDomain(string name)
+  {
+    lock (SchemaLock)
+    {
+      ThrowIfDisposed();
+      var record = Catalog.State.FindDomain(name);
+      if (record == null)
+        return false;
+      ThrowIfReadOnly();
+      Catalog.DropDomain(record.Id);
+      if (Domains.TryRemove(record.Id, out var domain))
+        domain.MarkDropped();
+      return true;
+    }
+  }
+
+  /// <summary>Renames a domain. Its handle, columns and transactions are not affected.</summary>
+  internal void RenameDomain(string name, string newName)
+  {
+    lock (SchemaLock)
+    {
+      ThrowIfDisposed();
+      var record = Catalog.State.FindDomain(name)
+          ?? throw new KeyNotFoundException($"Domain '{name}' does not exist.");
+      ThrowIfReadOnly();
+      Catalog.RenameDomain(record.Id, newName);
+      if (Domains.TryGetValue(record.Id, out var domain))
+        domain.Rename(newName);
     }
   }
 
@@ -371,7 +475,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     lock (SchemaLock)
     {
       ThrowIfDisposed();
-      var maintainer = new ClusterMaintainer(this, OpenColumns.Values.OrderBy(column => column.Id));
+      var maintainer = new ClusterMaintainer(this, OpenColumns.Values.OrderBy(column => column.Id), followsNewColumns: true);
       Maintainers.Add(maintainer);
       return maintainer;
     }
@@ -388,10 +492,17 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     ThrowIfDisposed();
     var record = Catalog.State.FindColumn(name)
         ?? throw new KeyNotFoundException($"Column '{name}' does not exist.");
-    return OpenColumns.TryGetValue(record.Id, out var column)
-        ? column.CreateMaintainer()
-        : throw new InvalidOperationException(
+    lock (SchemaLock)
+    {
+      ThrowIfDisposed();
+      if (!OpenColumns.TryGetValue(record.Id, out var column))
+        throw new InvalidOperationException(
             $"Column '{name}' is not open in this process. Get its typed handle to open it.");
+      // A maintainer of one column, which leaves it when the column is dropped.
+      var maintainer = new ClusterMaintainer(this, [column], followsNewColumns: false);
+      Maintainers.Add(maintainer);
+      return maintainer;
+    }
   }
 
   public ITransactionalZoneTreeMaintenance<TKey, TValue> GetCoordinatedColumnMaintenance<TKey, TValue>(string name)
@@ -426,7 +537,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
       lock (SchemaLock)
       {
         foreach (var column in OpenColumns.Values)
-          column.Drop();
+          column.DropStorage(Logger);
       }
       Reservations.Dispose();
       Catalog.Drop();

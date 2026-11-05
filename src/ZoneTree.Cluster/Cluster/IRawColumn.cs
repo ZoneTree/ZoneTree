@@ -9,6 +9,7 @@ namespace ZoneTree.Cluster;
 /// </remarks>
 public interface IRawColumn<TKey, TValue>
 {
+  /// <summary>The current, case-sensitive column name. Renaming the column changes it.</summary>
   string Name { get; }
   IZoneTreeCluster Cluster { get; }
   bool ContainsKey(in TKey key);

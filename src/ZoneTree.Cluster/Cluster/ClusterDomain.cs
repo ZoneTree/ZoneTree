@@ -13,7 +13,11 @@ internal sealed class ClusterDomain : IClusterDomain
 
   readonly DomainTimestampSource Timestamps;
 
-  public string Name { get; }
+  string name;
+  volatile bool dropped;
+
+  /// <summary>The current name of the domain. A rename changes it; the handle stays.</summary>
+  public string Name => Volatile.Read(ref name);
   /// <summary>The domain's column names in creation order, including columns created at run time.</summary>
   public IReadOnlyList<string> ColumnNames => Cluster.Catalog.State.ColumnNamesOf(Id);
   IZoneTreeCluster IClusterDomain.Cluster => Cluster;
@@ -23,12 +27,27 @@ internal sealed class ClusterDomain : IClusterDomain
   {
     Cluster = cluster;
     Id = record.Id;
-    Name = record.Name;
+    name = record.Name;
     Timestamps = timestamps;
   }
 
+  internal void Rename(string newName) => Volatile.Write(ref name, newName);
+
+  internal void MarkDropped() => dropped = true;
+
+  /// <summary>Throws if the cluster is disposed or the domain was dropped.</summary>
+  void EnsureUsable()
+  {
+    Cluster.ThrowIfDisposed();
+    if (dropped)
+      throw new SchemaObjectDroppedException($"Domain '{Name}' was dropped.");
+  }
+
   public ICoordinatedColumn<TKey, TValue> GetColumn<TKey, TValue>(string name)
-      => Cluster.GetCoordinatedColumn<TKey, TValue>(this, name);
+  {
+    EnsureUsable();
+    return Cluster.GetCoordinatedColumn<TKey, TValue>(this, name);
+  }
 
   public IDomainTransaction BeginTransaction(
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable)
@@ -41,7 +60,7 @@ internal sealed class ClusterDomain : IClusterDomain
   public IDomainTransaction BeginTransaction(ClusterTransactionOptions options)
   {
     options ??= new();
-    Cluster.ThrowIfDisposed();
+    EnsureUsable();
     TransactionExpiry.Validate(options);
     if (Cluster.IsReadOnly)
       throw new ZoneTreeIsReadOnlyException();
@@ -69,7 +88,7 @@ internal sealed class ClusterDomain : IClusterDomain
 
   public IDomainReadTransaction BeginReadOnlyTransaction()
   {
-    Cluster.ThrowIfDisposed();
+    EnsureUsable();
     return new DomainReadTransaction(this, Timestamps.SnapshotTimestamp);
   }
 
@@ -85,7 +104,7 @@ internal sealed class ClusterDomain : IClusterDomain
   public IDomainReadTransaction BeginReadOnlyTransaction(ClusterReadTransactionOptions options)
   {
     options ??= new();
-    Cluster.ThrowIfDisposed();
+    EnsureUsable();
     TransactionExpiry.Validate(options);
     return new DomainReadTransaction(this, Timestamps.SnapshotTimestamp, options.Timeout);
   }
@@ -104,14 +123,14 @@ internal sealed class ClusterDomain : IClusterDomain
   public ValueTask<TransactionOutcome> GetTransactionOutcomeAsync(
       long transactionId, CancellationToken cancellationToken = default)
   {
-    Cluster.ThrowIfDisposed();
+    EnsureUsable();
     cancellationToken.ThrowIfCancellationRequested();
     return new(TransactionOutcome.Unknown);
   }
 
   public Task SyncWALAsync(CancellationToken cancellationToken = default)
   {
-    Cluster.ThrowIfDisposed();
+    EnsureUsable();
     cancellationToken.ThrowIfCancellationRequested();
     var sync = Task.WhenAll(Cluster.OpenColumnsOf(this).Select(column => column.SyncWALAsync()));
     return cancellationToken.CanBeCanceled ? sync.WaitAsync(cancellationToken) : sync;

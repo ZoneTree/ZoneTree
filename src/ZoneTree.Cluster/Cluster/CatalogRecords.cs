@@ -10,6 +10,11 @@ internal enum ColumnState : byte
 
   /// <summary>The column's storage was created.</summary>
   Ready = 1,
+
+  /// <summary>
+  /// The column was dropped. Its name is free, and its storage is deleted before the record is.
+  /// </summary>
+  Dropped = 2,
 }
 
 /// <summary>The catalog record of the cluster itself.</summary>
@@ -22,11 +27,14 @@ internal sealed record ClusterRecord(
 /// </param>
 internal sealed record DomainRecord(long Id, string Name, long TimestampBound);
 
-/// <summary>The catalog record of a column. A column outside domains has domain id zero.</summary>
+/// <summary>
+/// The catalog record of a column. A column outside domains has domain id zero, and a column
+/// that was not dropped has dropped epoch zero.
+/// </summary>
 internal sealed record ColumnRecord(
     long Id, string Name, ColumnKind Kind, long DomainId, long CreatedEpoch, ColumnState State,
     ColumnEncoding KeySerializer, ColumnEncoding ValueSerializer, ColumnEncoding Comparer,
-    string KeyType, string ValueType);
+    string KeyType, string ValueType, long DroppedEpoch = 0);
 
 /// <summary>
 /// The keys and value formats of the catalog records. Each value starts with a format byte.
@@ -87,6 +95,7 @@ internal static class CatalogRecords
     WriteEncoding(writer, record.Comparer);
     writer.Write(record.KeyType);
     writer.Write(record.ValueType);
+    writer.Write(record.DroppedEpoch);
   });
 
   internal static ColumnRecord DecodeColumn(Memory<byte> value) => Read(value, reader =>
@@ -103,7 +112,7 @@ internal static class CatalogRecords
       throw new InvalidDataException($"Column '{name}' has an unknown state {state} in the cluster catalog.");
     return new ColumnRecord(id, name, kind, domainId, createdEpoch, state,
         ReadEncoding(reader), ReadEncoding(reader), ReadEncoding(reader),
-        reader.ReadString(), reader.ReadString());
+        reader.ReadString(), reader.ReadString(), reader.ReadInt64());
   });
 
   static void WriteEncoding(BinaryWriter writer, ColumnEncoding encoding)

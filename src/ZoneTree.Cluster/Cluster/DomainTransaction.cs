@@ -96,6 +96,14 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
     // The running operations of the views end before the views are validated.
     foreach (var view in views)
       view.StopOperations();
+    // A dropped column ended its view, so the transaction cannot commit any of its writes.
+    var dropped = Array.Find(views, view => view.Column.IsDropped);
+    if (dropped != null)
+    {
+      RollbackClaimed();
+      throw new SchemaObjectDroppedException(
+          $"Column '{dropped.Column.Name}' was dropped, so transaction {TransactionId} was rolled back.");
+    }
     if (views.Length == 0)
       return CompleteCommit(false);
     if (views.Length == 1)

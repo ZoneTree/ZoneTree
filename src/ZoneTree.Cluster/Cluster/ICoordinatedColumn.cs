@@ -10,7 +10,7 @@ namespace ZoneTree.Cluster;
 /// </remarks>
 public interface ICoordinatedColumn<TKey, TValue>
 {
-  /// <summary>The persisted, case-sensitive column name.</summary>
+  /// <summary>The current, case-sensitive column name. Renaming the column changes it.</summary>
   string Name { get; }
 
   /// <summary>The cluster that owns this column.</summary>

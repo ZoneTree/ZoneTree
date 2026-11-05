@@ -168,13 +168,118 @@ internal sealed class ClusterCatalog : IDisposable
     lock (WriteLock)
     {
       var current = state;
-      var column = current.Columns.First(existing => existing.Id == id);
+      var column = current.FindColumn(id);
       if (column.State == ColumnState.Ready)
         return column;
       var ready = column with { State = ColumnState.Ready };
       Commit(Tree, transaction => transaction.Upsert(CatalogRecords.ColumnKey(id), CatalogRecords.Encode(ready)));
       state = current.With(current.Cluster, ready);
       return ready;
+    }
+  }
+
+  /// <summary>
+  /// Drops a live column: its name becomes free at once, and its record stays, marked dropped,
+  /// until <see cref="PurgeColumn"/> after its storage is deleted.
+  /// </summary>
+  internal void DropColumn(long id)
+  {
+    lock (WriteLock)
+    {
+      var current = state;
+      var column = current.FindColumn(id);
+      if (column == null || column.State == ColumnState.Dropped)
+        throw new KeyNotFoundException($"Column {id} does not exist.");
+      var cluster = current.Cluster with { SchemaEpoch = current.Cluster.SchemaEpoch + 1 };
+      var dropped = column with { State = ColumnState.Dropped, DroppedEpoch = cluster.SchemaEpoch };
+      Commit(Tree, transaction =>
+      {
+        transaction.Upsert(CatalogRecords.ClusterKey, CatalogRecords.Encode(cluster));
+        transaction.Upsert(CatalogRecords.ColumnKey(id), CatalogRecords.Encode(dropped));
+      });
+      state = current.With(cluster, dropped);
+    }
+  }
+
+  /// <summary>
+  /// Removes the record of a dropped column whose storage is deleted. The id stays used:
+  /// column ids are never reused.
+  /// </summary>
+  internal void PurgeColumn(long id)
+  {
+    lock (WriteLock)
+    {
+      var current = state;
+      if (current.FindColumn(id)?.State != ColumnState.Dropped)
+        return;
+      Commit(Tree, transaction => transaction.Delete(CatalogRecords.ColumnKey(id)));
+      state = current.WithoutColumn(id);
+    }
+  }
+
+  /// <summary>Renames a live column. Its id, kind, domain and encodings stay.</summary>
+  /// <exception cref="SchemaObjectAlreadyExistsException">A column with the new name exists.</exception>
+  internal void RenameColumn(long id, string name)
+  {
+    ValidateName(name, "column");
+    lock (WriteLock)
+    {
+      var current = state;
+      var column = current.FindColumn(id);
+      if (column == null || column.State == ColumnState.Dropped)
+        throw new KeyNotFoundException($"Column {id} does not exist.");
+      if (current.FindColumn(name) != null)
+        throw new SchemaObjectAlreadyExistsException($"Column '{name}' already exists.");
+      var cluster = current.Cluster with { SchemaEpoch = current.Cluster.SchemaEpoch + 1 };
+      var renamed = column with { Name = name };
+      Commit(Tree, transaction =>
+      {
+        transaction.Upsert(CatalogRecords.ClusterKey, CatalogRecords.Encode(cluster));
+        transaction.Upsert(CatalogRecords.ColumnKey(id), CatalogRecords.Encode(renamed));
+      });
+      state = current.With(cluster, renamed);
+    }
+  }
+
+  /// <summary>Drops a domain without live columns. The id stays used: domain ids are never reused.</summary>
+  /// <exception cref="SchemaConflictException">The domain has live columns.</exception>
+  internal void DropDomain(long id)
+  {
+    lock (WriteLock)
+    {
+      var current = state;
+      var domain = current.FindDomain(id) ?? throw new KeyNotFoundException($"Domain {id} does not exist.");
+      if (current.ColumnNamesOf(id).Count != 0)
+        throw new SchemaConflictException($"Domain '{domain.Name}' has columns. Drop them first.");
+      var cluster = current.Cluster with { SchemaEpoch = current.Cluster.SchemaEpoch + 1 };
+      Commit(Tree, transaction =>
+      {
+        transaction.Upsert(CatalogRecords.ClusterKey, CatalogRecords.Encode(cluster));
+        transaction.Delete(CatalogRecords.DomainKey(id));
+      });
+      state = current.WithoutDomain(cluster, id);
+    }
+  }
+
+  /// <summary>Renames a domain. Its id, columns and timestamps stay.</summary>
+  /// <exception cref="SchemaObjectAlreadyExistsException">A domain with the new name exists.</exception>
+  internal void RenameDomain(long id, string name)
+  {
+    ValidateName(name, "domain");
+    lock (WriteLock)
+    {
+      var current = state;
+      var domain = current.FindDomain(id) ?? throw new KeyNotFoundException($"Domain {id} does not exist.");
+      if (current.FindDomain(name) != null)
+        throw new SchemaObjectAlreadyExistsException($"Domain '{name}' already exists.");
+      var cluster = current.Cluster with { SchemaEpoch = current.Cluster.SchemaEpoch + 1 };
+      var renamed = domain with { Name = name };
+      Commit(Tree, transaction =>
+      {
+        transaction.Upsert(CatalogRecords.ClusterKey, CatalogRecords.Encode(cluster));
+        transaction.Upsert(CatalogRecords.DomainKey(id), CatalogRecords.Encode(renamed));
+      });
+      state = current.With(cluster, renamed);
     }
   }
 
@@ -189,13 +294,17 @@ internal sealed class ClusterCatalog : IDisposable
     lock (WriteLock)
     {
       var current = state;
+      // A domain dropped meanwhile needs no reservation.
       var domains = reservations
-          .Select(reservation =>
+          .Select(reservation => (Domain: current.FindDomain(reservation.DomainId), reservation.Bound))
+          .Where(reservation => reservation.Domain != null)
+          .Select(reservation => reservation.Domain with
           {
-            var domain = current.FindDomain(reservation.DomainId);
-            return domain with { TimestampBound = Math.Max(domain.TimestampBound, reservation.Bound) };
+            TimestampBound = Math.Max(reservation.Domain.TimestampBound, reservation.Bound)
           })
           .ToArray();
+      if (domains.Length == 0)
+        return;
       Commit(Tree, transaction =>
       {
         foreach (var domain in domains)
