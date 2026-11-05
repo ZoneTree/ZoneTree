@@ -34,10 +34,17 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
   }
 
   internal DomainTransaction(ClusterDomain domain, long id, long snapshot,
-      TransactionIsolationLevel isolation) : base(domain, snapshot)
+      ClusterTransactionOptions options) : base(domain, snapshot)
   {
     TransactionId = id;
-    IsolationLevel = isolation;
+    IsolationLevel = options.IsolationLevel;
+    ExpiryTimer = TransactionExpiry.Start(options.Timeout, Expire);
+  }
+
+  void Expire()
+  {
+    if (RollbackCore())
+      Cluster.Logger.LogWarning($"Transaction {TransactionId} of domain '{Domain.Name}' timed out and was rolled back.");
   }
 
   public new IWriteColumn<TKey, TValue> GetColumn<TKey, TValue>(ICoordinatedColumn<TKey, TValue> column)

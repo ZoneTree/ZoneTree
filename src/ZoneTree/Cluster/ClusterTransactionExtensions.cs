@@ -10,11 +10,13 @@ public static class ClusterTransactionExtensions
   /// Runs a cluster transaction and retries its entire body only on a conflict.
   /// The body may run more than once; do not perform external side effects or end
   /// the transaction in it. Storage failures and uncertain outcomes are never retried.
+  /// Each attempt begins a transaction with the options, so a timeout applies to each
+  /// attempt; an attempt that times out throws and is not retried.
   /// </summary>
   public static TResult Execute<TTransaction, TResult>(
       this IClusterTransactionSource<TTransaction> source,
       Func<TTransaction, TResult> body,
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
+      ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue)
       where TTransaction : IClusterWriteTransaction
   {
@@ -25,9 +27,10 @@ public static class ClusterTransactionExtensions
           nameof(maxAttempts), maxAttempts, "A transaction needs at least one attempt.");
     for (var attempt = 1; ; ++attempt)
     {
-      using var transaction = source.BeginTransaction(isolationLevel);
+      using var transaction = source.BeginTransaction(options);
       var result = body(transaction);
-      if (transaction.State != TransactionState.Active)
+      // An aborted transaction, rolled back by the body or by its timeout, fails its commit.
+      if (transaction.State is not (TransactionState.Active or TransactionState.Aborted))
         throw new InvalidOperationException("The transaction body ended the transaction. Execute commits it.");
       if (transaction.TryCommit())
         return result;
@@ -40,7 +43,7 @@ public static class ClusterTransactionExtensions
   public static void Execute<TTransaction>(
       this IClusterTransactionSource<TTransaction> source,
       Action<TTransaction> body,
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
+      ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue)
       where TTransaction : IClusterWriteTransaction
   {
@@ -49,7 +52,7 @@ public static class ClusterTransactionExtensions
     {
       body(transaction);
       return true;
-    }, isolationLevel, maxAttempts);
+    }, options, maxAttempts);
   }
 
   /// <summary>
@@ -60,7 +63,7 @@ public static class ClusterTransactionExtensions
   public static async Task<TResult> ExecuteDurableAsync<TTransaction, TResult>(
       this IClusterTransactionSource<TTransaction> source,
       Func<TTransaction, TResult> body,
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
+      ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
       where TTransaction : IClusterWriteTransaction
@@ -74,9 +77,9 @@ public static class ClusterTransactionExtensions
     {
       cancellationToken.ThrowIfCancellationRequested();
       await using var transaction = await source.BeginTransactionAsync(
-          isolationLevel, cancellationToken).ConfigureAwait(false);
+          options, cancellationToken).ConfigureAwait(false);
       var result = body(transaction);
-      if (transaction.State != TransactionState.Active)
+      if (transaction.State is not (TransactionState.Active or TransactionState.Aborted))
         throw new InvalidOperationException("The transaction body ended the transaction. ExecuteDurableAsync commits it.");
       if (await transaction.TryCommitDurableAsync(cancellationToken).ConfigureAwait(false))
         return result;
@@ -89,7 +92,7 @@ public static class ClusterTransactionExtensions
   public static Task ExecuteDurableAsync<TTransaction>(
       this IClusterTransactionSource<TTransaction> source,
       Action<TTransaction> body,
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
+      ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
       where TTransaction : IClusterWriteTransaction
@@ -99,7 +102,7 @@ public static class ClusterTransactionExtensions
     {
       body(transaction);
       return true;
-    }, isolationLevel, maxAttempts, cancellationToken);
+    }, options, maxAttempts, cancellationToken);
   }
 
   /// <summary>
@@ -110,31 +113,31 @@ public static class ClusterTransactionExtensions
   public static ValueTask<TResult> ExecuteAsync<TTransaction, TResult>(
       this IClusterTransactionSource<TTransaction> source,
       Func<TTransaction, CancellationToken, ValueTask<TResult>> body,
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
+      ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
       where TTransaction : IClusterWriteTransaction
-      => ExecuteAsyncCore(source, body, false, isolationLevel, maxAttempts, cancellationToken);
+      => ExecuteAsyncCore(source, body, false, options, maxAttempts, cancellationToken);
 
   /// <summary>Runs an asynchronous body without a token parameter and commits for process-crash durability.</summary>
   public static ValueTask<TResult> ExecuteAsync<TTransaction, TResult>(
       this IClusterTransactionSource<TTransaction> source,
       Func<TTransaction, ValueTask<TResult>> body,
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
+      ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
       where TTransaction : IClusterWriteTransaction
   {
     ArgumentNullException.ThrowIfNull(body);
     return source.ExecuteAsync((transaction, _) => body(transaction),
-        isolationLevel, maxAttempts, cancellationToken);
+        options, maxAttempts, cancellationToken);
   }
 
   /// <summary>Runs an asynchronous body and commits for process-crash durability.</summary>
   public static async ValueTask ExecuteAsync<TTransaction>(
       this IClusterTransactionSource<TTransaction> source,
       Func<TTransaction, CancellationToken, ValueTask> body,
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
+      ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
       where TTransaction : IClusterWriteTransaction
@@ -144,21 +147,21 @@ public static class ClusterTransactionExtensions
     {
       await body(transaction, token).ConfigureAwait(false);
       return true;
-    }, isolationLevel, maxAttempts, cancellationToken).ConfigureAwait(false);
+    }, options, maxAttempts, cancellationToken).ConfigureAwait(false);
   }
 
   /// <summary>Runs an asynchronous body without a token parameter and commits for process-crash durability.</summary>
   public static ValueTask ExecuteAsync<TTransaction>(
       this IClusterTransactionSource<TTransaction> source,
       Func<TTransaction, ValueTask> body,
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
+      ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
       where TTransaction : IClusterWriteTransaction
   {
     ArgumentNullException.ThrowIfNull(body);
     return source.ExecuteAsync((transaction, _) => body(transaction),
-        isolationLevel, maxAttempts, cancellationToken);
+        options, maxAttempts, cancellationToken);
   }
 
   /// <summary>
@@ -169,31 +172,31 @@ public static class ClusterTransactionExtensions
   public static ValueTask<TResult> ExecuteDurableAsync<TTransaction, TResult>(
       this IClusterTransactionSource<TTransaction> source,
       Func<TTransaction, CancellationToken, ValueTask<TResult>> body,
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
+      ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
       where TTransaction : IClusterWriteTransaction
-      => ExecuteAsyncCore(source, body, true, isolationLevel, maxAttempts, cancellationToken);
+      => ExecuteAsyncCore(source, body, true, options, maxAttempts, cancellationToken);
 
   /// <summary>Awaits an asynchronous body without a token parameter before a power-loss durable commit.</summary>
   public static ValueTask<TResult> ExecuteDurableAsync<TTransaction, TResult>(
       this IClusterTransactionSource<TTransaction> source,
       Func<TTransaction, ValueTask<TResult>> body,
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
+      ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
       where TTransaction : IClusterWriteTransaction
   {
     ArgumentNullException.ThrowIfNull(body);
     return source.ExecuteDurableAsync((transaction, _) => body(transaction),
-        isolationLevel, maxAttempts, cancellationToken);
+        options, maxAttempts, cancellationToken);
   }
 
   /// <summary>Runs an asynchronous body and commits for power-loss durability.</summary>
   public static async ValueTask ExecuteDurableAsync<TTransaction>(
       this IClusterTransactionSource<TTransaction> source,
       Func<TTransaction, CancellationToken, ValueTask> body,
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
+      ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
       where TTransaction : IClusterWriteTransaction
@@ -203,28 +206,28 @@ public static class ClusterTransactionExtensions
     {
       await body(transaction, token).ConfigureAwait(false);
       return true;
-    }, isolationLevel, maxAttempts, cancellationToken).ConfigureAwait(false);
+    }, options, maxAttempts, cancellationToken).ConfigureAwait(false);
   }
 
   /// <summary>Awaits an asynchronous body without a token parameter before a power-loss durable commit.</summary>
   public static ValueTask ExecuteDurableAsync<TTransaction>(
       this IClusterTransactionSource<TTransaction> source,
       Func<TTransaction, ValueTask> body,
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
+      ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
       where TTransaction : IClusterWriteTransaction
   {
     ArgumentNullException.ThrowIfNull(body);
     return source.ExecuteDurableAsync((transaction, _) => body(transaction),
-        isolationLevel, maxAttempts, cancellationToken);
+        options, maxAttempts, cancellationToken);
   }
 
   static async ValueTask<TResult> ExecuteAsyncCore<TTransaction, TResult>(
       IClusterTransactionSource<TTransaction> source,
       Func<TTransaction, CancellationToken, ValueTask<TResult>> body,
       bool durable,
-      TransactionIsolationLevel isolationLevel,
+      ClusterTransactionOptions options,
       int maxAttempts,
       CancellationToken cancellationToken)
       where TTransaction : IClusterWriteTransaction
@@ -238,9 +241,9 @@ public static class ClusterTransactionExtensions
     {
       cancellationToken.ThrowIfCancellationRequested();
       await using var transaction = await source.BeginTransactionAsync(
-          isolationLevel, cancellationToken).ConfigureAwait(false);
+          options, cancellationToken).ConfigureAwait(false);
       var result = await body(transaction, cancellationToken).ConfigureAwait(false);
-      if (transaction.State != TransactionState.Active)
+      if (transaction.State is not (TransactionState.Active or TransactionState.Aborted))
         throw new InvalidOperationException("The transaction body ended the transaction. The helper commits it.");
       var committed = durable
           ? await transaction.TryCommitDurableAsync(cancellationToken).ConfigureAwait(false)

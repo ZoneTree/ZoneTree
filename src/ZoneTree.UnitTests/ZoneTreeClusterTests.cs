@@ -108,6 +108,93 @@ public sealed class ZoneTreeClusterTests
   }
 
   [Test]
+  public void ATransactionThatTimesOutIsRolledBack()
+  {
+    using var cluster = Factory.CreateInProcess(Options());
+    var domain = cluster.GetDomain(Domain);
+    var numbers = domain.GetColumn<int, int>("numbers");
+    var transaction = domain.BeginTransaction(
+        new ClusterTransactionOptions { Timeout = TimeSpan.FromMilliseconds(100) });
+    transaction.GetColumn(numbers).Upsert(1, 1);
+    Assert.That(SpinWait.SpinUntil(() => transaction.State == TransactionState.Aborted, TimeSpan.FromSeconds(10)), Is.True);
+    Assert.Throws<TransactionAbortedException>(() => transaction.GetColumn(numbers));
+    Assert.Throws<TransactionAbortedException>(() => transaction.Commit());
+    transaction.Dispose();
+    Assert.That(numbers.TryGet(1, out _), Is.False);
+    Assert.That(cluster.Maintenance.ActiveTransactionCount, Is.Zero);
+  }
+
+  [Test]
+  public void AReadOnlyTransactionThatTimesOutEnds()
+  {
+    using var cluster = Factory.CreateInProcess(Options());
+    var domain = cluster.GetDomain(Domain);
+    var numbers = domain.GetColumn<int, int>("numbers");
+    var snapshot = domain.BeginReadOnlyTransaction(
+        new ClusterReadTransactionOptions { Timeout = TimeSpan.FromMilliseconds(100) });
+    var view = snapshot.GetColumn(numbers);
+    Assert.That(view.ContainsKey(1), Is.False);
+    Assert.That(SpinWait.SpinUntil(() => cluster.Maintenance.ActiveTransactionCount == 0, TimeSpan.FromSeconds(10)), Is.True);
+    Assert.Throws<ObjectDisposedException>(() => snapshot.GetColumn(numbers));
+    Assert.Throws<ObjectDisposedException>(() => view.ContainsKey(1));
+    snapshot.Dispose();
+  }
+
+  [Test]
+  public void RetryHelpersApplyTheTransactionOptionsToEachAttempt()
+  {
+    using var cluster = Factory.CreateInProcess(Options());
+    var domain = cluster.GetDomain(Domain);
+    var numbers = domain.GetColumn<int, int>("numbers");
+    var options = new ClusterTransactionOptions
+    {
+      IsolationLevel = TransactionIsolationLevel.Snapshot,
+      Timeout = TimeSpan.FromMilliseconds(100)
+    };
+    domain.Execute(transaction =>
+    {
+      Assert.That(transaction.IsolationLevel, Is.EqualTo(TransactionIsolationLevel.Snapshot));
+      transaction.GetColumn(numbers).Upsert(1, 1);
+    }, options);
+    Assert.That(numbers.TryGet(1, out var value) && value == 1, Is.True);
+    // An attempt that times out is not retried.
+    var attempts = 0;
+    Assert.Throws<TransactionAbortedException>(() => domain.Execute(transaction =>
+    {
+      ++attempts;
+      transaction.GetColumn(numbers).Upsert(2, 2);
+      SpinWait.SpinUntil(() => transaction.State == TransactionState.Aborted, TimeSpan.FromSeconds(10));
+    }, options));
+    Assert.That(attempts, Is.EqualTo(1));
+    Assert.That(numbers.TryGet(2, out _), Is.False);
+  }
+
+  [Test]
+  public void ATransactionThatEndsBeforeItsTimeoutKeepsItsOutcome()
+  {
+    using var cluster = Factory.CreateInProcess(Options());
+    var domain = cluster.GetDomain(Domain);
+    var numbers = domain.GetColumn<int, int>("numbers");
+    var options = new ClusterTransactionOptions
+    {
+      IsolationLevel = TransactionIsolationLevel.Snapshot,
+      Timeout = TimeSpan.FromMilliseconds(100)
+    };
+    using (var transaction = domain.BeginTransaction(options))
+    {
+      Assert.That(transaction.IsolationLevel, Is.EqualTo(TransactionIsolationLevel.Snapshot));
+      transaction.GetColumn(numbers).Upsert(1, 1);
+      transaction.Commit();
+      Thread.Sleep(300);
+      Assert.That(transaction.State, Is.EqualTo(TransactionState.Committed));
+    }
+    Assert.That(numbers.TryGet(1, out var value) && value == 1, Is.True);
+    Assert.Throws<ArgumentOutOfRangeException>(() =>
+        domain.BeginTransaction(new ClusterTransactionOptions { Timeout = TimeSpan.FromSeconds(-1) }));
+    Assert.That(cluster.Maintenance.ActiveTransactionCount, Is.Zero);
+  }
+
+  [Test]
   public void CommitsTypedColumnsAndPreservesEachColumnSnapshot()
   {
     using var cluster = Factory.CreateInProcess(Options());

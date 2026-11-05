@@ -179,6 +179,16 @@ An explicit transaction also provides `TryCommit()`, `CommitDurableAsync()` and
 storage errors throw. Dispose an active transaction to roll it back. Column views
 are borrowed: only the cluster transaction commits, rolls back or owns a snapshot.
 
+`BeginTransaction(new ClusterTransactionOptions { Timeout = TimeSpan.FromSeconds(30) })`
+rolls back a transaction that is still active when the timeout elapses, so a forgotten
+transaction does not keep the versions its snapshot can read. Its later operations and
+its commit throw `TransactionAbortedException`; a commit that started first is not
+affected. The options also carry the isolation level, and work for domains and
+standalone columns alike. The retry helpers take the same options and apply them to
+each attempt; an attempt that times out throws and is not retried.
+`BeginReadOnlyTransaction(new ClusterReadTransactionOptions { Timeout = ... })` ends a
+forgotten read-only transaction the same way; its later reads throw `ObjectDisposedException`.
+
 ## Target API guarantees
 
 The interfaces describe the guarantees the cluster is built to provide.

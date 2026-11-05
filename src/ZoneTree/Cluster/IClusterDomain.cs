@@ -30,6 +30,13 @@ public interface IClusterDomain : IClusterTransactionSource<IDomainTransaction>
   ValueTask<IDomainReadTransaction> BeginReadOnlyTransactionAsync(
       CancellationToken cancellationToken = default);
 
+  /// <summary>Begins a read-only transaction with the given options; null uses the defaults.</summary>
+  IDomainReadTransaction BeginReadOnlyTransaction(ClusterReadTransactionOptions options);
+
+  /// <summary>Asynchronously begins a read-only transaction with the given options.</summary>
+  ValueTask<IDomainReadTransaction> BeginReadOnlyTransactionAsync(
+      ClusterReadTransactionOptions options, CancellationToken cancellationToken = default);
+
   /// <summary>The timestamp of the domain's latest committed transaction.</summary>
   long LastCommitTimestamp { get; }
 

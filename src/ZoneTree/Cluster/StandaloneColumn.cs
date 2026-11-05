@@ -19,7 +19,16 @@ internal sealed class StandaloneColumn<TKey, TValue> : Column,
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable)
   {
     EnsureOpen();
-    return new StandaloneTransaction<TKey, TValue>(Cluster, Tree.BeginTransaction(isolationLevel));
+    return new StandaloneTransaction<TKey, TValue>(Cluster, Tree.BeginTransaction(isolationLevel), TimeSpan.Zero);
+  }
+
+  public IStandaloneTransaction<TKey, TValue> BeginTransaction(ClusterTransactionOptions options)
+  {
+    options ??= new();
+    EnsureOpen();
+    TransactionExpiry.Validate(options);
+    return new StandaloneTransaction<TKey, TValue>(
+        Cluster, Tree.BeginTransaction(options.IsolationLevel), options.Timeout);
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
@@ -30,6 +39,15 @@ internal sealed class StandaloneColumn<TKey, TValue> : Column,
   {
     cancellationToken.ThrowIfCancellationRequested();
     return new(BeginTransaction(isolationLevel));
+  }
+
+  [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
+      Justification = "The returned ValueTask transfers transaction ownership to the caller.")]
+  public ValueTask<IStandaloneTransaction<TKey, TValue>> BeginTransactionAsync(
+      ClusterTransactionOptions options, CancellationToken cancellationToken = default)
+  {
+    cancellationToken.ThrowIfCancellationRequested();
+    return new(BeginTransaction(options));
   }
 
   public IStandaloneReadTransaction<TKey, TValue> BeginReadOnlyTransaction()
@@ -45,6 +63,23 @@ internal sealed class StandaloneColumn<TKey, TValue> : Column,
   {
     cancellationToken.ThrowIfCancellationRequested();
     return new(BeginReadOnlyTransaction());
+  }
+
+  public IStandaloneReadTransaction<TKey, TValue> BeginReadOnlyTransaction(ClusterReadTransactionOptions options)
+  {
+    options ??= new();
+    EnsureOpen();
+    TransactionExpiry.Validate(options);
+    return new StandaloneReadTransaction<TKey, TValue>(Cluster, Tree.BeginReadOnlyTransaction(), options.Timeout);
+  }
+
+  [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
+      Justification = "The returned ValueTask transfers transaction ownership to the caller.")]
+  public ValueTask<IStandaloneReadTransaction<TKey, TValue>> BeginReadOnlyTransactionAsync(
+      ClusterReadTransactionOptions options, CancellationToken cancellationToken = default)
+  {
+    cancellationToken.ThrowIfCancellationRequested();
+    return new(BeginReadOnlyTransaction(options));
   }
 
   // The outcome of an in-doubt commit is decided by recovery when the column reopens.

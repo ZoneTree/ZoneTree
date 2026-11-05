@@ -43,13 +43,20 @@ internal sealed class ClusterDomain : IClusterDomain
   public IDomainTransaction BeginTransaction(
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable)
   {
-    Cluster.ThrowIfDisposed();
     if (isolationLevel is not TransactionIsolationLevel.Snapshot and not TransactionIsolationLevel.Serializable)
       throw new ArgumentOutOfRangeException(nameof(isolationLevel), isolationLevel, null);
+    return BeginTransaction(new ClusterTransactionOptions { IsolationLevel = isolationLevel });
+  }
+
+  public IDomainTransaction BeginTransaction(ClusterTransactionOptions options)
+  {
+    options ??= new();
+    Cluster.ThrowIfDisposed();
+    TransactionExpiry.Validate(options);
     if (Cluster.IsReadOnly)
       throw new ZoneTreeIsReadOnlyException();
     return new DomainTransaction(this, Interlocked.Increment(ref Clock),
-        Volatile.Read(ref LastCommit), isolationLevel);
+        Volatile.Read(ref LastCommit), options);
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
@@ -60,6 +67,15 @@ internal sealed class ClusterDomain : IClusterDomain
   {
     cancellationToken.ThrowIfCancellationRequested();
     return new(BeginTransaction(isolationLevel));
+  }
+
+  [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
+      Justification = "The returned ValueTask transfers transaction ownership to the caller.")]
+  public ValueTask<IDomainTransaction> BeginTransactionAsync(
+      ClusterTransactionOptions options, CancellationToken cancellationToken = default)
+  {
+    cancellationToken.ThrowIfCancellationRequested();
+    return new(BeginTransaction(options));
   }
 
   public IDomainReadTransaction BeginReadOnlyTransaction()
@@ -75,6 +91,23 @@ internal sealed class ClusterDomain : IClusterDomain
   {
     cancellationToken.ThrowIfCancellationRequested();
     return new(BeginReadOnlyTransaction());
+  }
+
+  public IDomainReadTransaction BeginReadOnlyTransaction(ClusterReadTransactionOptions options)
+  {
+    options ??= new();
+    Cluster.ThrowIfDisposed();
+    TransactionExpiry.Validate(options);
+    return new DomainReadTransaction(this, Volatile.Read(ref LastCommit), options.Timeout);
+  }
+
+  [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
+      Justification = "The returned ValueTask transfers transaction ownership to the caller.")]
+  public ValueTask<IDomainReadTransaction> BeginReadOnlyTransactionAsync(
+      ClusterReadTransactionOptions options, CancellationToken cancellationToken = default)
+  {
+    cancellationToken.ThrowIfCancellationRequested();
+    return new(BeginReadOnlyTransaction(options));
   }
 
   // A transaction's outcome is decided by its commit, and an in-doubt outcome only by

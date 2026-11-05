@@ -20,6 +20,13 @@ public interface IStandaloneColumn<TKey, TValue> : IClusterTransactionSource<ISt
   ValueTask<IStandaloneReadTransaction<TKey, TValue>> BeginReadOnlyTransactionAsync(
       CancellationToken cancellationToken = default);
 
+  /// <summary>Begins a read-only transaction of this column with the given options; null uses the defaults.</summary>
+  IStandaloneReadTransaction<TKey, TValue> BeginReadOnlyTransaction(ClusterReadTransactionOptions options);
+
+  /// <summary>Asynchronously begins a read-only transaction of this column with the given options.</summary>
+  ValueTask<IStandaloneReadTransaction<TKey, TValue>> BeginReadOnlyTransactionAsync(
+      ClusterReadTransactionOptions options, CancellationToken cancellationToken = default);
+
   /// <summary>
   /// Makes the column's transactions committed before this call durable across power loss or an OS crash.
   /// </summary>

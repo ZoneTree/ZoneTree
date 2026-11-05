@@ -8,6 +8,10 @@ namespace ZoneTree.Cluster;
 /// </summary>
 public static class CoordinatedColumnExtensions
 {
+  // Each convenience method reads and writes one key, and writing the key detects the
+  // conflicts on it, so snapshot isolation is enough.
+  static readonly ClusterTransactionOptions SnapshotWrite = new() { IsolationLevel = TransactionIsolationLevel.Snapshot };
+
   /// <summary>Reads the key in a new domain snapshot.</summary>
   public static bool TryGet<TKey, TValue>(
       this ICoordinatedColumn<TKey, TValue> column, in TKey key, out TValue value)
@@ -31,7 +35,7 @@ public static class CoordinatedColumnExtensions
     var k = key;
     var v = value;
     column.Domain.Execute(transaction => transaction.GetColumn(column).Upsert(k, v),
-        TransactionIsolationLevel.Snapshot);
+        SnapshotWrite);
   }
 
   /// <summary>Deletes the key in its own transaction; returns whether it existed.</summary>
@@ -46,7 +50,7 @@ public static class CoordinatedColumnExtensions
         return false;
       view.Delete(k);
       return true;
-    }, TransactionIsolationLevel.Snapshot);
+    }, SnapshotWrite);
   }
 
   /// <summary>
@@ -68,7 +72,7 @@ public static class CoordinatedColumnExtensions
       var value = view.TryGet(k, out var current) ? update(current) : added;
       view.Upsert(k, value);
       return value;
-    }, TransactionIsolationLevel.Snapshot);
+    }, SnapshotWrite);
   }
 
   /// <summary>Asynchronously reads the key in a new domain snapshot.</summary>
@@ -104,7 +108,7 @@ public static class CoordinatedColumnExtensions
       CancellationToken cancellationToken = default)
       => column.Domain.ExecuteAsync((transaction, token) =>
           transaction.GetColumn(column).UpsertAsync(key, value, token),
-          TransactionIsolationLevel.Snapshot, cancellationToken: cancellationToken);
+          SnapshotWrite, cancellationToken: cancellationToken);
 
   /// <summary>Asynchronously deletes and commits the key; returns whether it existed.</summary>
   public static ValueTask<bool> TryDeleteAsync<TKey, TValue>(
@@ -118,7 +122,7 @@ public static class CoordinatedColumnExtensions
           return false;
         await view.DeleteAsync(key, token).ConfigureAwait(false);
         return true;
-      }, TransactionIsolationLevel.Snapshot, cancellationToken: cancellationToken);
+      }, SnapshotWrite, cancellationToken: cancellationToken);
 
   /// <summary>
   /// Asynchronously adds or updates and commits the key. Conflicts rerun the synchronous
@@ -139,6 +143,6 @@ public static class CoordinatedColumnExtensions
       var value = current.Found ? update(current.Value) : valueToAdd;
       await view.UpsertAsync(key, value, token).ConfigureAwait(false);
       return value;
-    }, TransactionIsolationLevel.Snapshot, cancellationToken: cancellationToken);
+    }, SnapshotWrite, cancellationToken: cancellationToken);
   }
 }

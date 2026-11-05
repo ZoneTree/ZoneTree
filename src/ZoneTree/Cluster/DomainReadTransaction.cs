@@ -23,6 +23,9 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
   bool EndClaimed;
 
   protected volatile TransactionState state = TransactionState.Active;
+
+  /// <summary>Rolls back the transaction when its timeout elapses, or null.</summary>
+  protected Timer ExpiryTimer;
   int Ended;
 
   public long SnapshotTimestamp { get; }
@@ -35,6 +38,15 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
     Cluster = domain.Cluster;
     SnapshotTimestamp = snapshot;
     Cluster.TransactionStarted(this);
+  }
+
+  internal DomainReadTransaction(ClusterDomain domain, long snapshot, TimeSpan timeout) : this(domain, snapshot)
+    => ExpiryTimer = TransactionExpiry.Start(timeout, ExpireReadOnly);
+
+  void ExpireReadOnly()
+  {
+    if (RollbackCore())
+      Cluster.Logger.LogWarning($"A read-only transaction of domain '{Domain.Name}' timed out and was ended.");
   }
 
   public IReadColumn<TKey, TValue> GetColumn<TKey, TValue>(ICoordinatedColumn<TKey, TValue> column)
@@ -119,15 +131,22 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
           catch (Exception error) { (errors ??= []).Add(error); }
         }
     }
-    finally { Cluster.TransactionEnded(this); }
+    finally
+    {
+      ExpiryTimer?.Dispose();
+      Cluster.TransactionEnded(this);
+    }
     if (errors != null)
       throw new AggregateException(errors);
   }
 
-  protected void RollbackCore()
+  /// <summary>Rolls back an active transaction. Returns false if a commit or rollback claimed its end.</summary>
+  protected bool RollbackCore()
   {
-    if (TryClaimEnd(rollback: true) != null)
-      Close();
+    if (TryClaimEnd(rollback: true) == null)
+      return false;
+    Close();
+    return true;
   }
 
   /// <summary>Rolls back a transaction whose commit claimed its end and cannot finish.</summary>

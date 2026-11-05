@@ -105,6 +105,36 @@ public sealed class StandaloneColumnTests
   }
 
   [Test]
+  public async Task AStandaloneTransactionThatTimesOutIsRolledBack()
+  {
+    using var cluster = Factory.CreateInProcess(Options());
+    var visits = cluster.GetStandaloneColumn<int, int>("visits");
+    var transaction = await visits.BeginTransactionAsync(
+        new ClusterTransactionOptions { Timeout = TimeSpan.FromMilliseconds(100) });
+    await transaction.UpsertAsync(1, 1);
+    Assert.That(SpinWait.SpinUntil(() => transaction.State == TransactionState.Aborted, TimeSpan.FromSeconds(10)), Is.True);
+    Assert.ThrowsAsync<TransactionAbortedException>(async () => await transaction.UpsertAsync(2, 2));
+    Assert.Throws<TransactionAbortedException>(() => transaction.Commit());
+    await transaction.DisposeAsync();
+    Assert.That(cluster.Maintenance.ActiveTransactionCount, Is.Zero);
+    using var read = visits.BeginReadOnlyTransaction();
+    Assert.That(read.ContainsKey(1), Is.False);
+  }
+
+  [Test]
+  public async Task AStandaloneReadOnlyTransactionThatTimesOutEnds()
+  {
+    using var cluster = Factory.CreateInProcess(Options());
+    var visits = cluster.GetStandaloneColumn<int, int>("visits");
+    var snapshot = await visits.BeginReadOnlyTransactionAsync(
+        new ClusterReadTransactionOptions { Timeout = TimeSpan.FromMilliseconds(100) });
+    Assert.That(snapshot.ContainsKey(1), Is.False);
+    Assert.That(SpinWait.SpinUntil(() => cluster.Maintenance.ActiveTransactionCount == 0, TimeSpan.FromSeconds(10)), Is.True);
+    Assert.Throws<ObjectDisposedException>(() => snapshot.ContainsKey(1));
+    await snapshot.DisposeAsync();
+  }
+
+  [Test]
   public async Task StandaloneTransactionsHaveTheClientTransactionApi()
   {
     using var cluster = Factory.CreateInProcess(Options());

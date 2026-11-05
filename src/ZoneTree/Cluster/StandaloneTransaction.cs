@@ -8,8 +8,22 @@ internal sealed class StandaloneTransaction<TKey, TValue> :
 {
   readonly ITransaction<TKey, TValue> Writer;
 
-  internal StandaloneTransaction(ZoneTreeCluster cluster, ITransaction<TKey, TValue> transaction)
-      : base(cluster, transaction) => Writer = transaction;
+  internal StandaloneTransaction(ZoneTreeCluster cluster, ITransaction<TKey, TValue> transaction, TimeSpan timeout)
+      : base(cluster, transaction)
+  {
+    Writer = transaction;
+    ExpiryTimer = TransactionExpiry.Start(timeout, Expire);
+  }
+
+  void Expire()
+  {
+    if (Writer.State != TransactionState.Active)
+      return;
+    Writer.Rollback();
+    if (Writer.State == TransactionState.Aborted)
+      Cluster.Logger.LogWarning($"Transaction {TransactionId} of a standalone column timed out and was rolled back.");
+    EndIfFinished();
+  }
 
   public long TransactionId => Writer.TransactionId;
   public long CommitTimestamp => Writer.CommitTimestamp;

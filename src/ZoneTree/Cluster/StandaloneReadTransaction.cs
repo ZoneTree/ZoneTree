@@ -8,6 +8,11 @@ internal class StandaloneReadTransaction<TKey, TValue> :
 {
   readonly IReadTransaction<TKey, TValue> Transaction;
   protected readonly ZoneTreeCluster Cluster;
+
+  /// <summary>Rolls back a writing transaction when its timeout elapses, or null.</summary>
+  [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2213",
+      Justification = "End disposes it, and every end of the transaction, Dispose included, calls End.")]
+  protected Timer ExpiryTimer;
   int Ended;
 
   internal StandaloneReadTransaction(ZoneTreeCluster cluster, IReadTransaction<TKey, TValue> transaction)
@@ -15,6 +20,18 @@ internal class StandaloneReadTransaction<TKey, TValue> :
     Cluster = cluster;
     Transaction = transaction;
     cluster.TransactionStarted(this);
+  }
+
+  internal StandaloneReadTransaction(ZoneTreeCluster cluster, IReadTransaction<TKey, TValue> transaction, TimeSpan timeout)
+      : this(cluster, transaction)
+    => ExpiryTimer = TransactionExpiry.Start(timeout, ExpireReadOnly);
+
+  void ExpireReadOnly()
+  {
+    if (Volatile.Read(ref Ended) != 0)
+      return;
+    Dispose();
+    Cluster.Logger.LogWarning("A read-only transaction of a standalone column timed out and was ended.");
   }
 
   public long SnapshotTimestamp => Transaction.SnapshotTimestamp;
@@ -51,8 +68,10 @@ internal class StandaloneReadTransaction<TKey, TValue> :
   /// <summary>Stops tracking the transaction once it ended.</summary>
   protected void End()
   {
-    if (Interlocked.Exchange(ref Ended, 1) == 0)
-      Cluster.TransactionEnded(this);
+    if (Interlocked.Exchange(ref Ended, 1) != 0)
+      return;
+    ExpiryTimer?.Dispose();
+    Cluster.TransactionEnded(this);
   }
 
   public virtual void RollbackOnClose() => Dispose();

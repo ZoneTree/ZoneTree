@@ -19,6 +19,14 @@ public interface IClusterTransactionSource<TTransaction>
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       CancellationToken cancellationToken = default);
 
+  /// <summary>Begins a read/write transaction with the given options; null uses the defaults.</summary>
+  /// <exception cref="Exceptions.ZoneTreeIsReadOnlyException">The cluster is read-only.</exception>
+  TTransaction BeginTransaction(ClusterTransactionOptions options);
+
+  /// <summary>Asynchronously begins a read/write transaction with the given options.</summary>
+  ValueTask<TTransaction> BeginTransactionAsync(
+      ClusterTransactionOptions options, CancellationToken cancellationToken = default);
+
   /// <summary>
   /// Finds the outcome of a transaction of this source, for example after its commit
   /// ended in doubt. <see cref="TransactionOutcome.Pending"/> means the outcome is not
