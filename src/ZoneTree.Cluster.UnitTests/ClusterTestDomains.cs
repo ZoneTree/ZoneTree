@@ -1,6 +1,6 @@
 using ZoneTree.Cluster;
 
-namespace ZoneTree.UnitTests;
+namespace ZoneTree.Cluster.UnitTests;
 
 /// <summary>
 /// Places the coordinated columns of a cluster test into one test domain.

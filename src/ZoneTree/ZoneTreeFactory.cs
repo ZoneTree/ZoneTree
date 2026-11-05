@@ -227,7 +227,7 @@ public sealed class ZoneTreeFactory<TKey, TValue>
     return this;
   }
 
-  void InitWriteAheadLogProvider(bool isTransactional = false)
+  internal void InitWriteAheadLogProvider(bool isTransactional = false)
   {
     if (IsWriteAheadLogProviderInitialized)
       return;
@@ -353,7 +353,7 @@ public sealed class ZoneTreeFactory<TKey, TValue>
     return this;
   }
 
-  void FillMissingOptionsForKnownTypes()
+  internal void FillMissingOptionsForKnownTypes()
   {
     if (Options.RandomAccessDeviceManager == null)
     {
@@ -635,15 +635,6 @@ public sealed class ZoneTreeFactory<TKey, TValue>
     FillMissingOptionsForKnownTypes();
     InitWriteAheadLogProvider(true);
     return MvccZoneTree<TKey, TValue>.Load(Options, canCreate: false, canOpen: true);
-  }
-
-  internal Cluster.ClusterMvccZoneTree<TKey, TValue> OpenClusterColumn(
-      bool canCreate, bool canOpen)
-  {
-    FillMissingOptionsForKnownTypes();
-    InitWriteAheadLogProvider(true);
-    return Cluster.ClusterMvccZoneTree<TKey, TValue>.Load(
-        Options, canCreate, canOpen);
   }
 
   /// <summary>

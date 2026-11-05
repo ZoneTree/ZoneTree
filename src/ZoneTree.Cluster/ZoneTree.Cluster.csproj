@@ -34,6 +34,8 @@
 
   <ItemGroup>
     <None Include="README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
     </None>
     <None Include="..\..\LICENSE">
       <Pack>True</Pack>
@@ -43,4 +45,11 @@
   <ItemGroup>
     <ProjectReference Include="..\ZoneTree\ZoneTree.csproj" />
   </ItemGroup>
+
+  <!-- The cluster uses ZoneTree internals, so the package depends on the exact ZoneTree version it was built with. -->
+  <Target Name="PinZoneTreeVersion" AfterTargets="_GetProjectReferenceVersions">
+    <ItemGroup>
+      <_ProjectReferencesWithVersions Update="@(_ProjectReferencesWithVersions)" ProjectVersion="[%(ProjectVersion)]" />
+    </ItemGroup>
+  </Target>
 </Project>

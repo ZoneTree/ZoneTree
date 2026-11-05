@@ -48,6 +48,6 @@ public sealed class CoordinatedColumnDefinition<TKey, TValue> : CoordinatedColum
     ColumnSchema.Verify(factory, Name, Comparer, KeySerializer, ValueSerializer);
     factory.SetDataDirectory(Path.Combine(cluster.DataDirectory, $"column-{index:D6}"));
     return new CoordinatedColumn<TKey, TValue>(cluster, index, Name,
-        factory.OpenClusterColumn(canCreate: create, canOpen: !create));
+        ClusterMvccZoneTreeFactory.Open(factory, canCreate: create, canOpen: !create));
   }
 }

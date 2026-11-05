@@ -5,7 +5,7 @@ using ZoneTree.Serializers;
 using ZoneTree.Cluster;
 using ZoneTree.WAL;
 
-namespace ZoneTree.UnitTests;
+namespace ZoneTree.Cluster.UnitTests;
 
 public sealed class RawColumnTests
 {

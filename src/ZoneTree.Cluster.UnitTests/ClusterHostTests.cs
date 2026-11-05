@@ -2,7 +2,7 @@ using ZoneTree.Cluster;
 using ZoneTree.Comparers;
 using ZoneTree.Serializers;
 
-namespace ZoneTree.UnitTests;
+namespace ZoneTree.Cluster.UnitTests;
 
 public sealed class ClusterHostTests
 {

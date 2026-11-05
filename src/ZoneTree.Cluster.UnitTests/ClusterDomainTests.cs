@@ -1,6 +1,6 @@
 using ZoneTree.Cluster;
 
-namespace ZoneTree.UnitTests;
+namespace ZoneTree.Cluster.UnitTests;
 
 public sealed class ClusterDomainTests
 {

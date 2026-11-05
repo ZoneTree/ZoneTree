@@ -27,7 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ZoneTree\ZoneTree.Cluster.csproj" />
+    <ProjectReference Include="..\ZoneTree.Cluster\ZoneTree.Cluster.csproj" />
   </ItemGroup>
 
 </Project>

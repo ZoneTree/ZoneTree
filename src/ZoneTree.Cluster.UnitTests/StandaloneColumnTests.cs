@@ -2,7 +2,7 @@ using ZoneTree.Exceptions;
 using ZoneTree.Cluster;
 using ZoneTree.Transactional;
 
-namespace ZoneTree.UnitTests;
+namespace ZoneTree.Cluster.UnitTests;
 
 public sealed class StandaloneColumnTests
 {
