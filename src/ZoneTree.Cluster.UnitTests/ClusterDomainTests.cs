@@ -62,8 +62,8 @@ public sealed class ClusterDomainTests
       Assert.Throws<ArgumentException>(() => transaction.GetColumn(products));
       transaction.Commit();
     }
-    Assert.That(accounts.LastCommitTimestamp, Is.GreaterThan(0));
-    Assert.That(catalog.LastCommitTimestamp, Is.Zero);
+    Assert.That(accounts.SnapshotTimestamp, Is.GreaterThan(0));
+    Assert.That(catalog.SnapshotTimestamp, Is.Zero);
     Assert.That(balances.TryGet(1, out var balance) && balance == 100, Is.True);
     Assert.That(audit.TryGet(1, out var entry) && entry == "opened", Is.True);
 

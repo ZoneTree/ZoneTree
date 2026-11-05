@@ -31,6 +31,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
   TimeSpan autoSyncInterval;
 
   internal ClusterCatalog Catalog { get; }
+  readonly TimestampReservationWorker Reservations;
   internal ClusterEncodingRegistry Encodings { get; }
   internal IColumnStorageConfigurator StorageDefaults { get; }
   internal string DataDirectory { get; }
@@ -43,6 +44,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     Logger = options.Logger;
     Lease = lease;
     Catalog = catalog;
+    Reservations = new TimestampReservationWorker(catalog, Logger);
     Encodings = options.Encodings;
     StorageDefaults = options.StorageDefaults;
     Schema = new ClusterSchema(this);
@@ -62,8 +64,8 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
         .ToArray());
     foreach (var domain in domains)
     {
-      var timestamps = new DomainTimestampSource(Catalog, domain.Id,
-          start: domain.TimestampBound, bound: domain.TimestampBound + ClusterCatalog.TimestampBatch);
+      var timestamps = new DomainTimestampSource(Reservations, domain.Id,
+          start: domain.TimestampBound, reservedBound: domain.TimestampBound + ClusterCatalog.TimestampBatch);
       Domains[domain.Id] = new ClusterDomain(this, domain, timestamps);
     }
   }
@@ -115,7 +117,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
       ThrowIfReadOnly();
       var record = Catalog.CreateDomain(name);
       var domain = new ClusterDomain(this, record,
-          new DomainTimestampSource(Catalog, record.Id, start: 0, bound: record.TimestampBound));
+          new DomainTimestampSource(Reservations, record.Id, start: 0, reservedBound: record.TimestampBound));
       Domains[record.Id] = domain;
       return domain;
     }
@@ -275,8 +277,12 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
       throw;
     }
     OpenColumns[record.Id] = column;
+    // The column is open and in use, so a maintainer that cannot attach it is only logged.
     foreach (var maintainer in Maintainers)
-      maintainer.Add(column);
+    {
+      try { maintainer.Add(column); }
+      catch (Exception error) { Logger.LogError(error); }
+    }
     return column;
   }
 
@@ -422,6 +428,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
         foreach (var column in OpenColumns.Values)
           column.Drop();
       }
+      Reservations.Dispose();
       Catalog.Drop();
       // The columns this process did not open have no open files.
       DeleteDirectory(Path.Combine(DataDirectory, "columns"));
@@ -454,6 +461,8 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
         catch (Exception error) { (errors ??= []).Add(error); }
       }
     }
+    // The worker stops before the catalog closes, so no reservation runs against a closed catalog.
+    Reservations.Dispose();
     try { Catalog.Dispose(); }
     catch (Exception error) { (errors ??= []).Add(error); }
     Lease.Dispose();

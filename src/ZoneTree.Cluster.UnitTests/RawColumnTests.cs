@@ -159,7 +159,7 @@ public sealed class RawColumnTests
     Assert.That(cache.TryGet(1, out var updated), Is.True);
     Assert.That(updated, Is.EqualTo("second"));
     Assert.That(cluster.Maintenance.ActiveTransactionCount, Is.Zero);
-    Assert.That(cluster.GetDomain(Domain).LastCommitTimestamp, Is.Zero);
+    Assert.That(cluster.GetDomain(Domain).SnapshotTimestamp, Is.Zero);
     Assert.That(cluster.Maintenance.ConflictIndexCount, Is.Zero);
     Assert.Throws<KeyNotFoundException>(() => cluster.GetDomain(Domain).GetColumn<int, string>("cache"));
     Assert.Throws<InvalidOperationException>(() => cluster.GetRawColumn<int, int>("balances"));

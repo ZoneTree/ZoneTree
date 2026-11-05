@@ -17,7 +17,7 @@ internal sealed class ClusterDomain : IClusterDomain
   /// <summary>The domain's column names in creation order, including columns created at run time.</summary>
   public IReadOnlyList<string> ColumnNames => Cluster.Catalog.State.ColumnNamesOf(Id);
   IZoneTreeCluster IClusterDomain.Cluster => Cluster;
-  public long LastCommitTimestamp => Timestamps.LastCommitTimestamp;
+  public long SnapshotTimestamp => Timestamps.SnapshotTimestamp;
 
   internal ClusterDomain(ZoneTreeCluster cluster, DomainRecord record, DomainTimestampSource timestamps)
   {
@@ -45,7 +45,7 @@ internal sealed class ClusterDomain : IClusterDomain
     TransactionExpiry.Validate(options);
     if (Cluster.IsReadOnly)
       throw new ZoneTreeIsReadOnlyException();
-    return new DomainTransaction(this, Timestamps.Next(), Timestamps.LastCommitTimestamp, options);
+    return new DomainTransaction(this, Timestamps.Next(), Timestamps.SnapshotTimestamp, options);
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
@@ -70,7 +70,7 @@ internal sealed class ClusterDomain : IClusterDomain
   public IDomainReadTransaction BeginReadOnlyTransaction()
   {
     Cluster.ThrowIfDisposed();
-    return new DomainReadTransaction(this, Timestamps.LastCommitTimestamp);
+    return new DomainReadTransaction(this, Timestamps.SnapshotTimestamp);
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
@@ -87,7 +87,7 @@ internal sealed class ClusterDomain : IClusterDomain
     options ??= new();
     Cluster.ThrowIfDisposed();
     TransactionExpiry.Validate(options);
-    return new DomainReadTransaction(this, Timestamps.LastCommitTimestamp, options.Timeout);
+    return new DomainReadTransaction(this, Timestamps.SnapshotTimestamp, options.Timeout);
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",

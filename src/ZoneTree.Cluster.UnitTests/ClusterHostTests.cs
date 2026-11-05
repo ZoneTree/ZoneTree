@@ -102,6 +102,15 @@ public sealed class ClusterHostTests
     };
     var error = Assert.Throws<ArgumentException>(() => Factory.CreateInProcess(options));
     Assert.That(error.Message, Does.Contain("visits"));
+    // The failed creation left nothing behind, so the cluster can be created.
+    Assert.That(Directory.Exists(DataDirectory), Is.False);
+    using var created = Factory.CreateInProcess(new ZoneTreeClusterOptions
+    {
+      DataDirectory = DataDirectory,
+      Logger = SilentTestLogger.Instance,
+      Columns = [new StandaloneColumnDefinition<long, long>("visits") { ComparerId = "zonetree.int64.descending" }]
+    });
+    Assert.That(created.Maintenance.ColumnNames, Is.EqualTo(new[] { "visits" }));
   }
 
   [Test]

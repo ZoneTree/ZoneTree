@@ -26,10 +26,14 @@ internal sealed class ClusterCatalog : IDisposable
 
   internal CatalogState State => state;
 
-  ClusterCatalog(ITransactionalZoneTree<string, Memory<byte>> tree, CatalogState state)
+  /// <summary>True if opening the catalog created it.</summary>
+  internal bool Created { get; }
+
+  ClusterCatalog(ITransactionalZoneTree<string, Memory<byte>> tree, CatalogState state, bool created)
   {
     Tree = tree;
     this.state = state;
+    Created = created;
   }
 
   /// <summary>
@@ -50,7 +54,8 @@ internal sealed class ClusterCatalog : IDisposable
     {
       // A catalog without its cluster record was never created: a crash interrupted it.
       var loaded = Load(tree);
-      if (loaded == null)
+      var created = loaded == null;
+      if (created)
       {
         if (!canCreate)
           throw new DatabaseNotFoundException();
@@ -60,7 +65,7 @@ internal sealed class ClusterCatalog : IDisposable
       }
       else if (!canOpen)
         throw new DatabaseAlreadyExistsException();
-      return new ClusterCatalog(tree, loaded);
+      return new ClusterCatalog(tree, loaded, created);
     }
     catch
     {

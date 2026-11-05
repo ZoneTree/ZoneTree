@@ -24,7 +24,8 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
     ZoneTreeCluster.ValidateSyncInterval(options.AutoSyncInterval);
     var columns = ValidateDeclarations(options);
     var directory = Path.GetFullPath(options.DataDirectory);
-    if (!canCreate && !Directory.Exists(directory))
+    var directoryExisted = Directory.Exists(directory);
+    if (!canCreate && !directoryExisted)
       throw new DatabaseNotFoundException();
     Directory.CreateDirectory(directory);
     var lease = new FileStream(Path.Combine(directory, "database.lock"),
@@ -42,7 +43,10 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
     {
       try
       {
-        if (cluster != null)
+        // Creating a cluster either succeeds or leaves nothing behind, so a retry can create it.
+        if (catalog?.Created == true)
+          DropCreated(directory, cluster, catalog, lease, directoryExisted);
+        else if (cluster != null)
           cluster.Dispose();
         else
         {
@@ -56,6 +60,27 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
       }
       throw;
     }
+  }
+
+  /// <summary>Deletes a cluster that this call created and failed to open.</summary>
+  static void DropCreated(string directory, ZoneTreeCluster cluster, ClusterCatalog catalog,
+      FileStream lease, bool directoryExisted)
+  {
+    if (cluster != null)
+      cluster.Drop();
+    else
+    {
+      catalog.Drop();
+      lease.Dispose();
+      foreach (var path in new[] { Path.Combine(directory, "catalog"), Path.Combine(directory, "columns") })
+      {
+        if (Directory.Exists(path))
+          Directory.Delete(path, recursive: true);
+      }
+      File.Delete(Path.Combine(directory, "database.lock"));
+    }
+    if (!directoryExisted && !Directory.EnumerateFileSystemEntries(directory).Any())
+      Directory.Delete(directory);
   }
 
   /// <summary>

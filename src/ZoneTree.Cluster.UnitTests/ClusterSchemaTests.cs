@@ -239,7 +239,7 @@ public sealed class ClusterSchemaTests
         Domains = [new DomainDefinition("accounts") { Columns = [new CoordinatedColumnDefinition<int, int>("balances")] }]
       });
       var domain = cluster.GetDomain("accounts");
-      Assert.That(domain.LastCommitTimestamp, Is.GreaterThanOrEqualTo(lastCommit));
+      Assert.That(domain.SnapshotTimestamp, Is.GreaterThanOrEqualTo(lastCommit));
       var balances = domain.GetColumn<int, int>("balances");
       using var transaction = domain.BeginTransaction();
       Assert.That(transaction.TransactionId, Is.GreaterThan(lastId));
@@ -258,7 +258,8 @@ public sealed class ClusterSchemaTests
     using (var catalog = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, canCreate: false, canOpen: true))
     {
       var domain = catalog.CreateDomain("accounts");
-      var source = new DomainTimestampSource(catalog, domain.Id, start: 0, bound: domain.TimestampBound);
+      using var worker = new TimestampReservationWorker(catalog, SilentTestLogger.Instance);
+      var source = new DomainTimestampSource(worker, domain.Id, start: 0, reservedBound: domain.TimestampBound);
       var previous = 0L;
       // Crossing several batches makes callers both run ahead of and wait for reservations.
       Parallel.For(0, 4, _ =>
@@ -278,6 +279,46 @@ public sealed class ClusterSchemaTests
     using var reopened = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, canCreate: false, canOpen: true);
     Assert.That(reopened.State.FindDomain("accounts").TimestampBound,
         Is.GreaterThanOrEqualTo(4 * ClusterCatalog.TimestampBatch + 1000));
+  }
+
+  [Test]
+  public void AStoppedReservationWorkerFailsCallersThatNeedANewBatch()
+  {
+    Factory.CreateInProcess(Options()).Dispose();
+    using var catalog = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, canCreate: false, canOpen: true);
+    var domain = catalog.CreateDomain("accounts");
+    var worker = new TimestampReservationWorker(catalog, SilentTestLogger.Instance);
+    worker.Dispose();
+    var source = new DomainTimestampSource(worker, domain.Id, start: 0, reservedBound: 10);
+    // The reserved values stay usable; the first value past the bound fails instead of waiting.
+    for (var expected = 1L; expected <= 10; ++expected)
+      Assert.That(source.Next(), Is.EqualTo(expected));
+    var error = Assert.Throws<ZoneTreeException>(() => source.Next());
+    Assert.That(error.InnerException, Is.InstanceOf<ObjectDisposedException>());
+  }
+
+  [Test]
+  public void ASnapshotIncludesEveryCommitBelowTheDomainSnapshotTimestamp()
+  {
+    using var cluster = Factory.CreateInProcess(new ZoneTreeClusterOptions
+    {
+      DataDirectory = DataDirectory,
+      Logger = SilentTestLogger.Instance,
+      Domains = [new DomainDefinition("accounts") { Columns = [new CoordinatedColumnDefinition<int, int>("balances")] }]
+    });
+    var domain = cluster.GetDomain("accounts");
+    var balances = domain.GetColumn<int, int>("balances");
+    Parallel.For(0, 8, key =>
+    {
+      using var transaction = domain.BeginTransaction();
+      transaction.GetColumn(balances).Upsert(key, key);
+      transaction.Commit();
+      // Read-your-writes: a later snapshot never reads below this commit.
+      Assert.That(domain.SnapshotTimestamp, Is.GreaterThanOrEqualTo(transaction.CommitTimestamp));
+      using var snapshot = domain.BeginReadOnlyTransaction();
+      Assert.That(snapshot.SnapshotTimestamp, Is.GreaterThanOrEqualTo(transaction.CommitTimestamp));
+      Assert.That(snapshot.GetColumn(balances).ContainsKey(key), Is.True);
+    });
   }
 
   [Test]

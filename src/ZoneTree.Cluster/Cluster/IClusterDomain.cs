@@ -37,8 +37,13 @@ public interface IClusterDomain : IClusterTransactionSource<IDomainTransaction>
   ValueTask<IDomainReadTransaction> BeginReadOnlyTransactionAsync(
       ClusterReadTransactionOptions options, CancellationToken cancellationToken = default);
 
-  /// <summary>The timestamp of the domain's latest committed transaction.</summary>
-  long LastCommitTimestamp { get; }
+  /// <summary>
+  /// The timestamp a new snapshot of the domain reads at: every commit at or below it is
+  /// included. It never decreases and is at least the timestamp of every commit this client
+  /// knows of. It is not a commit timestamp itself: after a restart it starts above every
+  /// earlier commit, at the bound the domain's timestamps had reserved.
+  /// </summary>
+  long SnapshotTimestamp { get; }
 
   /// <summary>
   /// Makes the domain's transactions committed before this call durable across power loss or an OS crash.
