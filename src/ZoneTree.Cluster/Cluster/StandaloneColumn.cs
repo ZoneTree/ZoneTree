@@ -15,6 +15,9 @@ internal sealed class StandaloneColumn<TKey, TValue> : Column,
   internal override int AbortedTransactionCount => Tree.Maintenance.AbortedTransactionCount;
   internal override int ConflictIndexCount => Tree.Maintenance.ConflictIndexCount;
 
+  // The MVCC tree counts its own writing and read-only transactions.
+  internal override int ActiveTransactionCount => Tree.Maintenance.ActiveTransactionCount;
+
   public IStandaloneTransaction<TKey, TValue> BeginTransaction(
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable)
       => Begin(isolationLevel, TimeSpan.Zero);
@@ -26,34 +29,19 @@ internal sealed class StandaloneColumn<TKey, TValue> : Column,
     return Begin(options.IsolationLevel, options.Timeout);
   }
 
-  // Transactions begin under the column's operation gate and are registered, so a drop of
-  // the column finds every transaction it has to end.
+  // A transaction registers nothing with the column: its operations check that the column
+  // was not dropped, and dropping the storage closes the files its iterators read. Only a
+  // writing transaction registers with the cluster, which rolls it back when it closes.
   StandaloneTransaction<TKey, TValue> Begin(TransactionIsolationLevel isolationLevel, TimeSpan timeout)
   {
-    BeginOperation();
-    try
-    {
-      EnsureOpen();
-      return new StandaloneTransaction<TKey, TValue>(this, Tree.BeginTransaction(isolationLevel), timeout);
-    }
-    finally
-    {
-      EndOperation();
-    }
+    EnsureOpen();
+    return new StandaloneTransaction<TKey, TValue>(this, Tree.BeginTransaction(isolationLevel), timeout);
   }
 
   StandaloneReadTransaction<TKey, TValue> BeginRead(TimeSpan timeout)
   {
-    BeginOperation();
-    try
-    {
-      EnsureOpen();
-      return new StandaloneReadTransaction<TKey, TValue>(this, Tree.BeginReadOnlyTransaction(), timeout);
-    }
-    finally
-    {
-      EndOperation();
-    }
+    EnsureOpen();
+    return new StandaloneReadTransaction<TKey, TValue>(this, Tree.BeginReadOnlyTransaction(), timeout);
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",

@@ -42,12 +42,13 @@ static class EngineCatalog
 
   public const string RawTree = "zonetree-raw";
   public const string ClusterRaw = "cluster-raw";
+  public const string ClusterStandalone = "cluster-standalone";
 
   /// <summary>The transactional engines, which run by default.</summary>
   public static readonly string[] Names = [OneTree, Trees, ClusterOneColumn, ClusterColumns];
 
   /// <summary>Every engine, including the raw ones that are compared with each other.</summary>
-  public static readonly string[] AllNames = [.. Names, RawTree, ClusterRaw];
+  public static readonly string[] AllNames = [.. Names, ClusterStandalone, RawTree, ClusterRaw];
 
   public static string Describe(string name) => name switch
   {
@@ -55,6 +56,7 @@ static class EngineCatalog
     Trees => "one ZoneTree MVCC tree per logical column; a transaction commits in each tree separately, not atomically",
     RawTree => "a plain ZoneTree, no transactions; the column id is encoded into the key",
     ClusterRaw => "a cluster raw column, no transactions; the column id is encoded into the key",
+    ClusterStandalone => "a cluster standalone column (one MVCC tree); the column id is encoded into the key",
     ClusterOneColumn => "cluster domain with one column; the column id is encoded into the key",
     ClusterColumns => "cluster domain with one coordinated column per logical column",
     _ => throw new ArgumentException($"Unknown engine '{name}'.")
@@ -66,6 +68,7 @@ static class EngineCatalog
     Trees => new TreesEngine(directory, options),
     RawTree => new RawTreeEngine(directory, options),
     ClusterRaw => new ClusterRawEngine(directory, options),
+    ClusterStandalone => new ClusterStandaloneEngine(directory, options),
     ClusterOneColumn => new ClusterEngine(directory, options, separateColumns: false),
     ClusterColumns => new ClusterEngine(directory, options, separateColumns: true),
     _ => throw new ArgumentException($"Unknown engine '{name}'.")
@@ -548,5 +551,101 @@ sealed class ClusterRawEngine : IEngine
     public void BeginRead() { }
     public bool Read(int column1, long key, out byte[] value) => column.TryGet(EngineCatalog.EncodeKey(column1, key), out value);
     public void EndRead() { }
+  }
+}
+
+/// <summary>
+/// A cluster standalone column, which wraps one MVCC tree, with every logical column in one
+/// key space. It is configured like <see cref="OneTreeEngine"/>.
+/// </summary>
+sealed class ClusterStandaloneEngine : IEngine
+{
+  readonly IZoneTreeClusterHost Cluster;
+  readonly IStandaloneColumn<long, byte[]> Column;
+  readonly IMaintainer Maintainer;
+  readonly BenchmarkOptions Options;
+  readonly ClusterTransactionOptions TransactionOptions;
+
+  public ClusterStandaloneEngine(string directory, BenchmarkOptions options)
+  {
+    Options = options;
+    TransactionOptions = new ClusterTransactionOptions { IsolationLevel = options.Isolation };
+    Cluster = new ZoneTreeClusterFactory().CreateInProcess(new ZoneTreeClusterOptions
+    {
+      DataDirectory = directory,
+      Encodings = new ClusterEncodingRegistry()
+          .AddSerializer("benchmark.bytes", 1, new EngineCatalog.BytesSerializer()),
+      Columns =
+      [
+        new StandaloneColumnDefinition<long, byte[]>("standalone")
+        {
+          ValueSerializerId = "benchmark.bytes",
+          ConfigureStorage = factory => EngineCatalog.ConfigureStorage(factory, options, trees: 1)
+        }
+      ]
+    });
+    Column = Cluster.GetStandaloneColumn<long, byte[]>("standalone");
+    Maintainer = Cluster.CreateMaintainer();
+  }
+
+  public IEngineWorker CreateWorker() => new Worker(this);
+
+  public void Settle()
+  {
+    Maintainer.EvictToDisk();
+    Maintainer.WaitForBackgroundThreadsAsync().GetAwaiter().GetResult();
+  }
+
+  public void Dispose()
+  {
+    try
+    {
+      Maintainer.WaitForBackgroundThreadsAsync().GetAwaiter().GetResult();
+      Maintainer.Dispose();
+    }
+    finally
+    {
+      Cluster.Dispose();
+    }
+  }
+
+  sealed class Worker(ClusterStandaloneEngine engine) : IEngineWorker
+  {
+    IStandaloneTransaction<long, byte[]> Write;
+    IStandaloneReadTransaction<long, byte[]> ReadOnly;
+
+    public void BeginWrite() => Write = engine.Column.BeginTransaction(engine.TransactionOptions);
+
+    public bool Get(int column, long key, out byte[] value)
+        => Write.TryGet(EngineCatalog.EncodeKey(column, key), out value);
+
+    public void Put(int column, long key, byte[] value)
+        => Write.Upsert(EngineCatalog.EncodeKey(column, key), value);
+
+    public bool Commit()
+    {
+      try
+      {
+        return engine.Options.Durable
+            ? Write.TryCommitDurableAsync().GetAwaiter().GetResult()
+            : Write.TryCommit();
+      }
+      finally
+      {
+        Write.Dispose();
+        Write = null;
+      }
+    }
+
+    public void BeginRead() => ReadOnly = engine.Column.BeginReadOnlyTransaction();
+
+    public bool Read(int column, long key, out byte[] value)
+        => ReadOnly.TryGet(EngineCatalog.EncodeKey(column, key), out value);
+
+    public void EndRead()
+    {
+      ReadOnly.Dispose();
+      ReadOnly = null;
+    }
   }
 }

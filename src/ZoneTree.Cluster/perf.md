@@ -15,7 +15,8 @@ Four ways to store 8 logical columns, all with the same total memory:
 
 Transactions per second, all from one run on the machine below. The data is 100K records
 with 100-byte values, and the memory budget is 2M mutable records in total, split across an
-engine's trees. A span-4 transaction touches 4 columns.
+engine's trees. A span-4 transaction touches 4 columns. Each measurement runs 0.5 seconds
+of warmup, then counts transactions for 2 seconds.
 
 | Workload | Threads | One MVCC tree | Independent trees | Cluster, one column | Cluster, 8 columns |
 | --- | --- | --- | --- | --- | --- |
@@ -72,6 +73,45 @@ Measured separately:
 dotnet run -c Release -- --keys 100K --mutable-segment 2M --workload write,read,rmw --span 1,4 --threads 1,16 --seconds 2 --warmup 0.5
 ```
 
+## Standalone columns against a plain MVCC tree
+
+A cluster standalone column wraps one engine MVCC tree. It performs about the same as using
+that tree directly. The writes at 16 threads may be a few percent slower.
+
+**Setup:** the machine, data and storage of the raw columns below. Each measurement runs
+0.5 seconds of warmup, then counts transactions for 2 seconds. Both engines use
+serializable isolation, and every logical column is encoded into the key of the one tree.
+The table averages four runs, alternating which engine runs first.
+
+**Results**, transactions per second, averaged over the four runs:
+
+| Workload | Threads | One MVCC tree | Standalone column | Ratio |
+| --- | --- | --- | --- | --- |
+| write | 1 | 653K | 651K | 1.00× |
+| write | 16 | 548K | 511K | 0.93× |
+| read | 1 | 1,153K | 1,106K | 0.96× |
+| read | 16 | 9,705K | 9,613K | 0.99× |
+| rmw | 1 | 273K | 261K | 0.96× |
+| rmw | 16 | 482K | 477K | 0.99× |
+
+**Why they match:** a standalone transaction shares no state with other threads beyond
+what the MVCC tree does.
+- **Drops:** the operations and commits of a transaction check that the column was not
+  dropped. A transaction registers with its column only when it opens an iterator or a
+  range, because the MVCC tree's iterators know nothing of the column; a drop then ends the
+  transaction and its iterators.
+- **Read-only transactions** register nothing else.
+- **Writing transactions** register with the cluster, which rolls them back when it closes.
+  This is likely the few percent on writes at 16 threads.
+
+**To rerun** (about 35 seconds per run), from `benchmarks/domain-transactions/src`:
+
+```
+dotnet run -c Release -- --keys 1M --engine mvcc-one-tree,cluster-standalone --workload write,read,rmw --span 1 --threads 1,16 --seconds 2 --warmup 0.5
+```
+
+Swap the order of the engines to check for order effects.
+
 ## Raw columns against a plain ZoneTree
 
 A cluster raw column performs the same as a plain ZoneTree, within measurement noise.
@@ -86,7 +126,8 @@ A cluster raw column performs the same as a plain ZoneTree, within measurement n
   - sparse array step 16;
   - 1,024 cached keys and values per segment;
   - a background maintainer.
-- **Cells:** 0.5s warmup and 3s measured. Each cell starts with its records on disk and no
+- **Each measurement** (one engine, one workload, one thread count) runs 0.5 seconds of
+  warmup, then counts operations for 3 seconds. It starts with the records on disk and no
   merge running.
 - **Runs:** four, alternating which engine runs first.
 

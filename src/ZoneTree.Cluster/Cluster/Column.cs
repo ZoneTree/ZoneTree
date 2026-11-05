@@ -94,6 +94,12 @@ internal abstract class Column : IDisposable
   internal abstract TimeSpan AutoSyncInterval { get; set; }
   internal abstract int AbortedTransactionCount { get; }
   internal abstract int ConflictIndexCount { get; }
+
+  /// <summary>
+  /// The active transactions of a column that counts its own: a standalone column. A
+  /// domain counts the transactions of its coordinated columns.
+  /// </summary>
+  internal virtual int ActiveTransactionCount => 0;
   internal virtual void SetReadOnly(bool value) { }
   internal abstract void SaveMetaData();
 

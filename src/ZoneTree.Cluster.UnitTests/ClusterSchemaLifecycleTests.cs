@@ -202,6 +202,42 @@ public sealed class ClusterSchemaLifecycleTests
   }
 
   [Test]
+  public async Task ADropEndsTheStandaloneTransactionsThatOpenedIteratorsAndDeletesTheFiles()
+  {
+    using var cluster = Factory.CreateInProcess(Options());
+    var visits = await cluster.Schema.CreateColumnAsync(new StandaloneColumnDefinition<int, int>("visits"));
+    visits.Execute(transaction =>
+    {
+      for (var key = 0; key < 100; ++key)
+        transaction.Upsert(key, key);
+    });
+    // Moving the records to disk makes the iterators hold the segment files.
+    using (var maintainer = cluster.CreateColumnMaintainer("visits"))
+    {
+      maintainer.EvictToDisk();
+      await maintainer.WaitForBackgroundThreadsAsync();
+    }
+    using var snapshot = visits.BeginReadOnlyTransaction();
+    var reader = snapshot.CreateIterator();
+    Assert.That(reader.Next(), Is.True);
+    using var transaction = visits.BeginTransaction();
+    transaction.Upsert(1000, 1000);
+    var writer = transaction.CreateIterator();
+    Assert.That(writer.Next(), Is.True);
+
+    Assert.That(await cluster.Schema.DropColumnAsync("visits"), Is.True);
+    // The drop ended both transactions, so their iterators released the files it deleted.
+    Assert.That(Directory.Exists(ColumnDirectory(1)), Is.False);
+    Assert.That(() => reader.Next(), Throws.Exception);
+    Assert.That(() => writer.Next(), Throws.Exception);
+    Assert.Throws<SchemaObjectDroppedException>(() => snapshot.ContainsKey(1));
+    Assert.Throws<SchemaObjectDroppedException>(() => transaction.Commit());
+    reader.Dispose();
+    writer.Dispose();
+    Assert.That(cluster.Maintenance.ActiveTransactionCount, Is.Zero);
+  }
+
+  [Test]
   public async Task TheTransactionsOfADroppedStandaloneColumnFail()
   {
     using var cluster = Factory.CreateInProcess(Options());

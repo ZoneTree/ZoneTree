@@ -24,7 +24,8 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
   readonly ConcurrentDictionary<long, Column> OpenColumns = new();
   readonly ConcurrentDictionary<long, ClusterDomain> Domains = new();
   readonly List<ClusterMaintainer> Maintainers = [];
-  // The transactions that disposal rolls back if they are still active.
+  // The writing standalone transactions that disposal rolls back if they are still active.
+  // Domains find their writing transactions in their own registries.
   readonly ConcurrentDictionary<IClusterOpenTransaction, byte> OpenTransactions = new();
   int Disposed;
   bool readOnly;
@@ -463,9 +464,10 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
   IReadOnlyList<string> IZoneTreeClusterMaintenance.DomainNames
       => Catalog.State.Domains.Select(domain => domain.Name).ToArray();
 
-  // Domains register their transactions; standalone columns register theirs here.
+  // Domains count the transactions of their columns, and standalone columns count their own.
   public int ActiveTransactionCount
-      => OpenTransactions.Count + Domains.Values.Sum(domain => domain.Coordinator.Snapshots.ActiveCount);
+      => OpenColumns.Values.Sum(column => column.ActiveTransactionCount) +
+          Domains.Values.Sum(domain => domain.Coordinator.Snapshots.ActiveCount);
   public int AbortedTransactionCount => OpenColumns.Values.Sum(column => column.AbortedTransactionCount);
   public int ConflictIndexCount => OpenColumns.Values.Sum(column => column.ConflictIndexCount);
 

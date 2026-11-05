@@ -3,8 +3,12 @@ using ZoneTree.Transactional;
 namespace ZoneTree.Cluster;
 
 /// <summary>A writing transaction of a standalone column, over the transaction of its MVCC tree.</summary>
+/// <remarks>
+/// The transaction registers with the cluster, which rolls it back when it closes. Its
+/// operations and commits report a drop of the column.
+/// </remarks>
 internal sealed class StandaloneTransaction<TKey, TValue> :
-    StandaloneReadTransaction<TKey, TValue>, IStandaloneTransaction<TKey, TValue>
+    StandaloneReadTransaction<TKey, TValue>, IStandaloneTransaction<TKey, TValue>, IClusterOpenTransaction
 {
   readonly ITransaction<TKey, TValue> Writer;
 
@@ -12,8 +16,13 @@ internal sealed class StandaloneTransaction<TKey, TValue> :
       : base(column, transaction)
   {
     Writer = transaction;
+    Cluster.TransactionStarted(this);
     ExpiryTimer = TransactionExpiry.Start(timeout, Expire);
   }
+
+  protected override void OnEnded() => Cluster.TransactionEnded(this);
+
+  public void RollbackOnClose() => Dispose();
 
   void Expire()
   {

@@ -431,6 +431,7 @@ static class Program
     EngineCatalog.ClusterOneColumn => "1col/tree",
     EngineCatalog.ClusterColumns => "cols/tree",
     EngineCatalog.ClusterRaw => "cluster/zt",
+    EngineCatalog.ClusterStandalone => "stand/tree",
     _ => engine
   };
 
@@ -460,7 +461,7 @@ static class Program
         --threads <list>          worker threads (default 1,2,4,8,16)
         --workload <list>         write, rmw, read, mixed, disjoint (default all)
         --engine <list>           mvcc-one-tree, mvcc-trees, cluster-one-column, cluster-columns
-                                  (default), or zonetree-raw, cluster-raw
+                                  (default), cluster-standalone, or zonetree-raw, cluster-raw
         --seconds <n>             measured seconds per cell (default 5)
         --warmup <n>              warmup seconds per cell (default 1)
         --value-size <n>          value bytes (default 100)

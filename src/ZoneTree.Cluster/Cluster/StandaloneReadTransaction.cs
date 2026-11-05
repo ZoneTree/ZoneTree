@@ -4,11 +4,13 @@ namespace ZoneTree.Cluster;
 
 /// <summary>A read-only transaction of a standalone column, over the transaction of its MVCC tree.</summary>
 /// <remarks>
-/// The transaction registers with its column. Dropping the column ends it, and its later
-/// operations report the drop.
+/// Beginning and ending the transaction share no state with other threads beyond what the
+/// MVCC tree does. Its operations report a drop of the column. It registers with the column
+/// only when it opens an iterator or a range: the MVCC tree's iterators know nothing of the
+/// column, so a drop ends the transaction, which ends them. A closing cluster leaves a
+/// read-only transaction to fail on the closed tree.
 /// </remarks>
-internal class StandaloneReadTransaction<TKey, TValue> :
-    IStandaloneReadTransaction<TKey, TValue>, IClusterOpenTransaction, IColumnDependent
+internal class StandaloneReadTransaction<TKey, TValue> : IStandaloneReadTransaction<TKey, TValue>, IColumnDependent
 {
   readonly IReadTransaction<TKey, TValue> transaction;
   protected readonly ZoneTreeCluster Cluster;
@@ -20,13 +22,14 @@ internal class StandaloneReadTransaction<TKey, TValue> :
   protected Timer ExpiryTimer;
   int Ended;
 
+  /// <summary>1 once the transaction registered with its column.</summary>
+  int Registered;
+
   internal StandaloneReadTransaction(Column column, IReadTransaction<TKey, TValue> transaction)
   {
     Column = column;
     Cluster = column.Cluster;
     this.transaction = transaction;
-    Cluster.TransactionStarted(this);
-    column.AddDependent(this);
   }
 
   internal StandaloneReadTransaction(Column column, IReadTransaction<TKey, TValue> transaction, TimeSpan timeout)
@@ -64,17 +67,46 @@ internal class StandaloneReadTransaction<TKey, TValue> :
       => AsyncOperations.Run(() => new ReadResult<TValue>(TryGet(in key, out var value), value), cancellationToken);
 
   public IEnumerable<KeyValuePair<TKey, TValue>> Range(in TKey from, in TKey to, bool reverse = false)
-      => Transaction.Range(in from, in to, reverse);
+  {
+    RegisterForIterators();
+    return Transaction.Range(in from, in to, reverse);
+  }
 
   public IAsyncEnumerable<KeyValuePair<TKey, TValue>> RangeAsync(TKey from, TKey to,
       bool reverse = false, CancellationToken cancellationToken = default)
       => new AsyncRange<TKey, TValue>(Range(in from, in to, reverse), cancellationToken);
 
   public ITransactionIterator<TKey, TValue> CreateIterator(TransactionIteratorOptions options = null)
-      => Transaction.CreateIterator(options);
+  {
+    RegisterForIterators();
+    return Transaction.CreateIterator(options);
+  }
 
   public ITransactionIterator<TKey, TValue> CreateReverseIterator(TransactionIteratorOptions options = null)
-      => Transaction.CreateReverseIterator(options);
+  {
+    RegisterForIterators();
+    return Transaction.CreateReverseIterator(options);
+  }
+
+  /// <summary>
+  /// Registers the transaction with its column before its first iterator, so a drop ends the
+  /// transaction and its iterators before the storage goes. The column's operation gate makes
+  /// a drop wait for a registration that runs, or makes the registration fail after it.
+  /// </summary>
+  void RegisterForIterators()
+  {
+    if (Volatile.Read(ref Registered) != 0 || Interlocked.Exchange(ref Registered, 1) != 0)
+      return;
+    Column.BeginOperation();
+    try
+    {
+      Column.AddDependent(this);
+    }
+    finally
+    {
+      Column.EndOperation();
+    }
+  }
 
   public IAsyncTransactionIterator<TKey, TValue> CreateAsyncIterator(TransactionIteratorOptions options = null)
       => new AsyncTransactionIterator<TKey, TValue>(CreateIterator(options));
@@ -82,26 +114,42 @@ internal class StandaloneReadTransaction<TKey, TValue> :
   public IAsyncTransactionIterator<TKey, TValue> CreateAsyncReverseIterator(TransactionIteratorOptions options = null)
       => new AsyncTransactionIterator<TKey, TValue>(CreateReverseIterator(options));
 
-  /// <summary>Stops tracking the transaction once it ended.</summary>
+  /// <summary>Stops the timer once the transaction ended.</summary>
   protected void End()
   {
     if (Interlocked.Exchange(ref Ended, 1) != 0)
       return;
     ExpiryTimer?.Dispose();
-    Column.RemoveDependent(this);
-    Cluster.TransactionEnded(this);
+    if (Volatile.Read(ref Registered) != 0)
+      Column.RemoveDependent(this);
+    OnEnded();
   }
 
-  public virtual void RollbackOnClose() => Dispose();
-
-  // The MVCC transaction stops its running operations before it rolls back, so the storage
-  // closes after them.
-  void IColumnDependent.OnColumnDropped() => Dispose();
-
-  public void Dispose()
+  // A drop ends a transaction that opened iterators while the tree still exists, so the MVCC
+  // transaction stops its operations and releases its iterators first.
+  void IColumnDependent.OnColumnDropped()
   {
     try { transaction.Dispose(); }
     finally { End(); }
+  }
+
+  /// <summary>Called once, when the transaction ended.</summary>
+  protected virtual void OnEnded()
+  {
+  }
+
+  public void Dispose()
+  {
+    try
+    {
+      // A dropped column's tree is gone, and with it what the transaction kept.
+      if (!Column.IsDropped)
+        transaction.Dispose();
+    }
+    finally
+    {
+      End();
+    }
   }
 
   public ValueTask DisposeAsync()

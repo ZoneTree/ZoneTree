@@ -35,11 +35,11 @@ durable catalog commit with its own schema epoch.
 - **Dropping and renaming.** `DropColumnAsync` and `DropDomainAsync` return false for
   a missing name, so retries are safe; a domain is dropped only without columns. A
   dropped column's name is free at once, but its id is never reused. Its running raw
-  operations finish, its iterators and standalone transactions end, reads and writes
-  through domain transaction views of it throw `SchemaObjectDroppedException`, and a
-  domain transaction that used it cannot commit any of its writes. A view operation that
-  runs while the drop deletes the storage may fail with another exception. Its handles
-  throw `SchemaObjectDroppedException`, and the task completes once its storage is deleted.
+  operations finish and its iterators end. Reads and writes through its standalone
+  transactions and its domain transaction views throw `SchemaObjectDroppedException`, and
+  a transaction that used it cannot commit any of its writes. An operation that runs while
+  the drop deletes the storage may fail with another exception. Its handles throw
+  `SchemaObjectDroppedException`, and the task completes once its storage is deleted.
   `RenameColumnAsync` and `RenameDomainAsync` keep handles, transactions and data. A
   declaration of a dropped or old name creates a new, empty column on the next open.
 - **Opening columns.** A column opens when it is declared or created in this process,

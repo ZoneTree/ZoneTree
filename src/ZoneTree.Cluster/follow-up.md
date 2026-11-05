@@ -28,45 +28,40 @@ only with full ACID guarantees.
 
 ## Durability and performance
 
-Measured with `benchmarks/domain-transactions` (keep runs under 3 minutes). Done so far:
-- commit records are written after the commit gates are released;
-- multi-column commits never wait for a gate while holding another;
-- views no longer register with their columns, and the tree-level transaction registry is gone;
-- the domain's read buckets use fetch-and-add, and writers end without the domain gate;
-- a domain sync syncs its columns in parallel.
+Measured with `benchmarks/domain-transactions` (keep runs under 3 minutes).
 
 - [ ] **Durable commits pay two fsyncs in sequence:** the written columns' WALs, then the
   catalog commit of the durable timestamp. That is about half of one tree's throughput,
-  at every thread count. Pipelining the two stages was tried and was slower: the fsyncs
-  compete for the disk and the batches shrink. Removing the second fsync needs the better
+  at every thread count. Pipelining the two stages does not help: the fsyncs compete for
+  the disk and the batches shrink. Removing the second fsync needs the better
   recovery above, because the catalog's durable timestamp is what keeps commits atomic
   across columns after a crash.
 - [ ] **Engine: segment rotation stalls writers.** `MoveMutableSegmentForward` appends to
   the meta WAL with an fsync on the writing thread, while the tree's other writers spin on
   the frozen segment. Columns with small mutable segments rotate often, so this dominates
-  writes with many columns and a shared memory budget: up to a third of a writer's time,
-  and under the column commit gates before they stopped covering commit records. This
-  lives in `src/ZoneTree`.
+  writes with many columns and a shared memory budget: up to a third of a writer's time.
+  This lives in `src/ZoneTree`.
 
   A rotation appends three meta WAL records (maximum op index, read-only segment, new
-  mutable segment), each with its own fsync, under `AtomicUpdateLock`. An experiment that
-  skipped those three fsyncs (unsafe on power loss, discarded) measured this:
+  mutable segment), each with its own fsync, under `AtomicUpdateLock`. Skipping those three
+  fsyncs, which is unsafe on power loss, measures what they cost:
   - **Setup:** `benchmarks/domain-transactions`, 100K records over 8 logical columns,
-    100-byte values, AsyncShared WAL, serializable isolation, 0.5s warmup and 1s per cell.
+    100-byte values, AsyncShared WAL, serializable isolation. Each measurement runs
+    0.5 seconds of warmup, then counts transactions for 1 second.
   - **Mutable segments:** a budget of 250K records per engine. `mvcc-one-tree` and
     `cluster-one-column` have one tree of 250K records. `mvcc-trees` and `cluster-columns`
     have 8 trees of 31,250 records each, so they rotate about 8 times as often.
 
-  | Workload | Threads | `cluster-columns`, txn/s | `mvcc-trees`, txn/s |
-  | --- | --- | --- | --- |
-  | write, span 1 | 1 | 373K → 592K (1.59×) | 416K → 706K |
-  | write, span 1 | 16 | 540K → 851K (1.58×) | 735K → 1.31M |
-  | write, span 4 | 1 | 104K → 162K (1.55×) | 137K → 179K |
-  | write, span 4 | 16 | 155K → 273K (1.76×) | 172K → 357K |
-  | rmw, span 1 | 16 | 537K → 907K (1.69×) | 493K → 963K |
-  | rmw, span 4 | 16 | 140K → 253K (1.81×) | 165K → 309K |
+  | Workload | Threads | `cluster-columns`, with fsyncs | without | `mvcc-trees`, with fsyncs | without |
+  | --- | --- | --- | --- | --- | --- |
+  | write, span 1 | 1 | 373K | 592K (1.59×) | 416K | 706K |
+  | write, span 1 | 16 | 540K | 851K (1.58×) | 735K | 1.31M |
+  | write, span 4 | 1 | 104K | 162K (1.55×) | 137K | 179K |
+  | write, span 4 | 16 | 155K | 273K (1.76×) | 172K | 357K |
+  | rmw, span 1 | 16 | 537K | 907K (1.69×) | 493K | 963K |
+  | rmw, span 4 | 16 | 140K | 253K (1.81×) | 165K | 309K |
 
-  The engines with one 250K-record tree gained 0–20%: they rotate rarely. Batching the
+  The engines with one 250K-record tree are 0–20% faster without them: they rotate rarely. Batching the
   three records under one fsync is not enough on its own: on power loss, a torn write can
   keep the new mutable segment record without the read-only one, which loses that
   segment. A safe fix writes the read-only and new-segment records, each fsynced, before
@@ -146,7 +141,7 @@ Measured with `benchmarks/domain-transactions` (keep runs under 3 minutes). Done
     cluster's `CommitSequencer` does, plus a short wait before a commit returns, so callers
     still read their own writes. The sequencer must fit the tree's queue of pending durable
     commits.
-  - **Measure first:** compare `mvcc-one-tree` before and after in the same run, writes at
-    1 and 16 threads, and check that 1-thread commits do not get slower.
-  - **Already ruled out:** the cluster's fetch-and-add snapshot bucket gave the MVCC tree no
-    measurable read gain at 16 threads (11.66M before and after), so it was not kept.
+  - **Measure first:** compare `mvcc-one-tree` with and without the change in the same run,
+    writes at 1 and 16 threads, and check that 1-thread commits do not get slower.
+  - **Not a source of gain:** the cluster's fetch-and-add snapshot bucket gives the MVCC
+    tree no measurable read gain (11.66M txn/s at 16 threads with and without it).
