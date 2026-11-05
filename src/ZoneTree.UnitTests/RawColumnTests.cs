@@ -29,16 +29,20 @@ public sealed class RawColumnTests
       Directory.Delete(DataDirectory, recursive: true);
   }
 
-  ZoneTreeClusterOptions Options(params ColumnDefinition[] columns) => new()
+  const string Domain = ClusterTestDomains.Name;
+
+  ZoneTreeClusterOptions Options(params ColumnDefinition[] columns)
   {
-    DataDirectory = DataDirectory,
-    Logger = SilentTestLogger.Instance,
-    Columns = columns.Length != 0 ? columns :
-    [
-      new CoordinatedColumnDefinition<int, int>("balances"),
-      new RawColumnDefinition<int, string>("cache")
-    ]
-  };
+    if (columns.Length == 0)
+      columns = [new CoordinatedColumnDefinition<int, int>("balances"), new RawColumnDefinition<int, string>("cache")];
+    return new()
+    {
+      DataDirectory = DataDirectory,
+      Logger = SilentTestLogger.Instance,
+      Domains = ClusterTestDomains.Domains(columns),
+      Columns = ClusterTestDomains.Others(columns)
+    };
+  }
 
   [Test]
   public void StorageDefaultsApplyToEveryColumnWithIndependentOverridesAndReopen()
@@ -49,14 +53,23 @@ public sealed class RawColumnTests
       DataDirectory = DataDirectory,
       Logger = SilentTestLogger.Instance,
       StorageDefaults = defaults,
+      Domains =
+      [
+        new DomainDefinition(Domain)
+        {
+          Columns =
+          [
+            new CoordinatedColumnDefinition<int, int>("balances")
+            {
+              ConfigureStorage = storage => storage.SetMutableSegmentMaxItemCount(20_000)
+                  .ConfigureWriteAheadLogOptions(wal => wal.WriteAheadLogMode = WriteAheadLogMode.Shared)
+            },
+            new CoordinatedColumnDefinition<long, string>("names")
+          ]
+        }
+      ],
       Columns =
       [
-        new CoordinatedColumnDefinition<int, int>("balances")
-        {
-          ConfigureStorage = storage => storage.SetMutableSegmentMaxItemCount(20_000)
-              .ConfigureWriteAheadLogOptions(wal => wal.WriteAheadLogMode = WriteAheadLogMode.Shared)
-        },
-        new CoordinatedColumnDefinition<long, string>("names"),
         new RawColumnDefinition<int, string>("cache")
         {
           ConfigureStorage = storage => storage.ConfigureDiskSegmentOptions(disk => disk.KeyCacheSize = 256)
@@ -67,8 +80,8 @@ public sealed class RawColumnTests
 
     static void Verify(IZoneTreeCluster cluster)
     {
-      var balances = cluster.GetCoordinatedColumn<int, int>("balances").Maintenance.ZoneTree.Maintenance.CloneOptions();
-      var names = cluster.GetCoordinatedColumn<long, string>("names").Maintenance.ZoneTree.Maintenance.CloneOptions();
+      var balances = cluster.GetDomain(Domain).GetColumn<int, int>("balances").Maintenance.ZoneTree.Maintenance.CloneOptions();
+      var names = cluster.GetDomain(Domain).GetColumn<long, string>("names").Maintenance.ZoneTree.Maintenance.CloneOptions();
       var cache = cluster.GetRawColumn<int, string>("cache").Maintenance.CloneOptions();
       var counters = cluster.GetRawColumn<long, long>("counters").Maintenance.CloneOptions();
       Assert.That(balances.MutableSegmentMaxItemCount, Is.EqualTo(20_000));
@@ -86,17 +99,17 @@ public sealed class RawColumnTests
     using (var cluster = Factory.CreateInProcess(options))
     {
       Verify(cluster);
-      cluster.GetCoordinatedColumn<int, int>("balances").Upsert(1, 100);
-      cluster.GetCoordinatedColumn<long, string>("names").Upsert(1, "Alice");
+      cluster.GetDomain(Domain).GetColumn<int, int>("balances").Upsert(1, 100);
+      cluster.GetDomain(Domain).GetColumn<long, string>("names").Upsert(1, "Alice");
       cluster.GetRawColumn<int, string>("cache").Upsert(1, "cached");
       cluster.GetRawColumn<long, long>("counters").Upsert(1, 7);
     }
 
     using var reopened = Factory.OpenInProcess(options);
     Verify(reopened);
-    Assert.That(reopened.GetCoordinatedColumn<int, int>("balances").TryGet(1, out var balance), Is.True);
+    Assert.That(reopened.GetDomain(Domain).GetColumn<int, int>("balances").TryGet(1, out var balance), Is.True);
     Assert.That(balance, Is.EqualTo(100));
-    Assert.That(reopened.GetCoordinatedColumn<long, string>("names").TryGet(1, out var name), Is.True);
+    Assert.That(reopened.GetDomain(Domain).GetColumn<long, string>("names").TryGet(1, out var name), Is.True);
     Assert.That(name, Is.EqualTo("Alice"));
     Assert.That(reopened.GetRawColumn<int, string>("cache").TryGet(1, out var cached), Is.True);
     Assert.That(cached, Is.EqualTo("cached"));
@@ -128,11 +141,11 @@ public sealed class RawColumnTests
   public void RawWritesAreImmediateAndIndependentOfTransactionRollback()
   {
     using var cluster = Factory.CreateInProcess(Options());
-    var balances = cluster.GetCoordinatedColumn<int, int>("balances");
+    var balances = cluster.GetDomain(Domain).GetColumn<int, int>("balances");
     var cache = cluster.GetRawColumn<int, string>("cache");
     Assert.That(cache.Cluster, Is.SameAs(cluster));
     Assert.That(cache, Is.Not.InstanceOf<ICoordinatedColumn<int, string>>());
-    using (var transaction = cluster.BeginTransaction())
+    using (var transaction = cluster.GetDomain(Domain).BeginTransaction())
     {
       transaction.GetColumn(balances).Upsert(1, 100);
       cache.Upsert(1, "first");
@@ -146,9 +159,9 @@ public sealed class RawColumnTests
     Assert.That(cache.TryGet(1, out var updated), Is.True);
     Assert.That(updated, Is.EqualTo("second"));
     Assert.That(cluster.Maintenance.ActiveTransactionCount, Is.Zero);
-    Assert.That(cluster.Maintenance.LastCommitTimestamp, Is.Zero);
+    Assert.That(cluster.GetDomain(Domain).LastCommitTimestamp, Is.Zero);
     Assert.That(cluster.Maintenance.ConflictIndexCount, Is.Zero);
-    Assert.Throws<InvalidOperationException>(() => cluster.GetCoordinatedColumn<int, string>("cache"));
+    Assert.Throws<KeyNotFoundException>(() => cluster.GetDomain(Domain).GetColumn<int, string>("cache"));
     Assert.Throws<InvalidOperationException>(() => cluster.GetRawColumn<int, int>("balances"));
   }
 
@@ -204,13 +217,13 @@ public sealed class RawColumnTests
     try
     {
       cache.Upsert(1, "value");
-      using var existing = cluster.BeginTransaction();
+      using var existing = cluster.GetDomain(Domain).BeginTransaction();
       cluster.IsReadOnly = true;
       Assert.Throws<ZoneTreeIsReadOnlyException>(() => cache.Upsert(2, "blocked"));
       Assert.Throws<ZoneTreeIsReadOnlyException>(() => cache.Delete(1));
-      Assert.Throws<ZoneTreeIsReadOnlyException>(() => cluster.BeginTransaction());
+      Assert.Throws<ZoneTreeIsReadOnlyException>(() => cluster.GetDomain(Domain).BeginTransaction());
       Assert.That(cache.ContainsKey(1), Is.True);
-      existing.GetColumn(cluster.GetCoordinatedColumn<int, int>("balances")).Upsert(1, 100);
+      existing.GetColumn(cluster.GetDomain(Domain).GetColumn<int, int>("balances")).Upsert(1, 100);
       existing.Commit();
       cluster.IsReadOnly = false;
       cache.Delete(1);
@@ -232,12 +245,12 @@ public sealed class RawColumnTests
         });
     using (var cluster = Factory.CreateInProcess(options))
     {
-      cluster.GetCoordinatedColumn<int, int>("balances").Upsert(1, 100);
+      cluster.GetDomain(Domain).GetColumn<int, int>("balances").Upsert(1, 100);
       cluster.GetRawColumn<int, string>("cache").Upsert(1, "value");
       await cluster.SyncWALAsync();
     }
     using var reopened = Factory.OpenInProcess(options);
-    Assert.That(reopened.GetCoordinatedColumn<int, int>("balances").TryGet(1, out var balance), Is.True);
+    Assert.That(reopened.GetDomain(Domain).GetColumn<int, int>("balances").TryGet(1, out var balance), Is.True);
     Assert.That(balance, Is.EqualTo(100));
     Assert.That(reopened.GetRawColumn<int, string>("cache").TryGet(1, out var value), Is.True);
     Assert.That(value, Is.EqualTo("value"));
@@ -279,7 +292,7 @@ public sealed class RawColumnTests
           ConfigureStorage = factory => Configure(factory, rawFiles, "raw-wal")
         }));
     var cache = cluster.GetRawColumn<int, string>("cache");
-    cluster.GetCoordinatedColumn<int, int>("balances").Upsert(1, 100);
+    cluster.GetDomain(Domain).GetColumn<int, int>("balances").Upsert(1, 100);
     cache.Upsert(1, "first");
     var beforeTransactional = transactionalFiles.DiskSyncCount;
     var beforeRaw = rawFiles.DiskSyncCount;

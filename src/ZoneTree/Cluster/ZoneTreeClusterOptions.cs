@@ -11,7 +11,14 @@ public sealed class ZoneTreeClusterOptions
   public string DataDirectory { get; init; } = "./cluster-data";
 
   /// <summary>
-  /// The column definitions, with unique, case-sensitive names.
+  /// The domains, with unique, case-sensitive names. Coordinated columns are declared in their domain.
+  /// </summary>
+  public IReadOnlyList<DomainDefinition> Domains { get; init; }
+      = Array.Empty<DomainDefinition>();
+
+  /// <summary>
+  /// The standalone and raw column definitions. Column names are unique and case-sensitive
+  /// across the cluster, including the columns of domains.
   /// </summary>
   public IReadOnlyList<ColumnDefinition> Columns { get; init; }
       = Array.Empty<ColumnDefinition>();

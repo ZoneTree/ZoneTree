@@ -2,12 +2,19 @@ using ZoneTree.Options;
 
 namespace ZoneTree.Cluster;
 
+/// <summary>A column that takes part in the cluster transactions of its domain.</summary>
+public abstract class CoordinatedColumnDefinition : ColumnDefinition
+{
+  internal override ColumnKind Kind => ColumnKind.Coordinated;
+
+  private protected CoordinatedColumnDefinition(string name) : base(name) { }
+}
+
 /// <summary>Declares a column that takes part in cluster transactions, with its types and storage options.</summary>
-public sealed class CoordinatedColumnDefinition<TKey, TValue> : ColumnDefinition
+public sealed class CoordinatedColumnDefinition<TKey, TValue> : CoordinatedColumnDefinition
 {
   internal override Type KeyType => typeof(TKey);
   internal override Type ValueType => typeof(TValue);
-  internal override ColumnKind Kind => ColumnKind.Coordinated;
 
   /// <summary>Declares one column. Duplicate names are rejected when opening the cluster.</summary>
   public CoordinatedColumnDefinition(string name) : base(name) { }

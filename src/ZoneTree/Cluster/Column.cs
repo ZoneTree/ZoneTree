@@ -15,6 +15,9 @@ internal abstract class Column : IDisposable
   internal readonly object CommitGate = new();
   public string Name { get; }
 
+  /// <summary>The domain of a coordinated column; null for other kinds.</summary>
+  internal ClusterDomain Domain;
+
   protected Column(ZoneTreeCluster cluster, int index, string name)
   {
     Cluster = cluster;

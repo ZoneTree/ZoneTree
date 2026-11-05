@@ -3,8 +3,8 @@ using ZoneTree.Exceptions;
 
 namespace ZoneTree.Cluster;
 
-/// <summary>Optional transaction helpers with the same retry rules as single-tree helpers.</summary>
-public static class ZoneTreeClusterExtensions
+/// <summary>Domain transaction helpers with the same retry rules as single-tree helpers.</summary>
+public static class ClusterDomainExtensions
 {
   /// <summary>
   /// Runs a cluster transaction and retries its entire body only on a conflict.
@@ -12,19 +12,19 @@ public static class ZoneTreeClusterExtensions
   /// the transaction in it. Storage failures and uncertain outcomes are never retried.
   /// </summary>
   public static TResult Execute<TResult>(
-      this IZoneTreeCluster cluster,
-      Func<IClusterTransaction, TResult> body,
+      this IClusterDomain domain,
+      Func<IDomainTransaction, TResult> body,
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       int maxAttempts = int.MaxValue)
   {
-    ArgumentNullException.ThrowIfNull(cluster);
+    ArgumentNullException.ThrowIfNull(domain);
     ArgumentNullException.ThrowIfNull(body);
     if (maxAttempts < 1)
       throw new ArgumentOutOfRangeException(
           nameof(maxAttempts), maxAttempts, "A transaction needs at least one attempt.");
     for (var attempt = 1; ; ++attempt)
     {
-      using var transaction = cluster.BeginTransaction(isolationLevel);
+      using var transaction = domain.BeginTransaction(isolationLevel);
       var result = body(transaction);
       if (transaction.State != TransactionState.Active)
         throw new InvalidOperationException("The transaction body ended the transaction. Execute commits it.");
@@ -37,13 +37,13 @@ public static class ZoneTreeClusterExtensions
 
   /// <summary>Runs a cluster transaction, retrying the entire body only on a conflict.</summary>
   public static void Execute(
-      this IZoneTreeCluster cluster,
-      Action<IClusterTransaction> body,
+      this IClusterDomain domain,
+      Action<IDomainTransaction> body,
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       int maxAttempts = int.MaxValue)
   {
     ArgumentNullException.ThrowIfNull(body);
-    cluster.Execute(transaction =>
+    domain.Execute(transaction =>
     {
       body(transaction);
       return true;
@@ -56,13 +56,13 @@ public static class ZoneTreeClusterExtensions
   /// The body must not perform external side effects or end the transaction.
   /// </summary>
   public static async Task<TResult> ExecuteDurableAsync<TResult>(
-      this IZoneTreeCluster cluster,
-      Func<IClusterTransaction, TResult> body,
+      this IClusterDomain domain,
+      Func<IDomainTransaction, TResult> body,
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
   {
-    ArgumentNullException.ThrowIfNull(cluster);
+    ArgumentNullException.ThrowIfNull(domain);
     ArgumentNullException.ThrowIfNull(body);
     if (maxAttempts < 1)
       throw new ArgumentOutOfRangeException(
@@ -70,7 +70,7 @@ public static class ZoneTreeClusterExtensions
     for (var attempt = 1; ; ++attempt)
     {
       cancellationToken.ThrowIfCancellationRequested();
-      await using var transaction = await cluster.BeginTransactionAsync(
+      await using var transaction = await domain.BeginTransactionAsync(
           isolationLevel, cancellationToken).ConfigureAwait(false);
       var result = body(transaction);
       if (transaction.State != TransactionState.Active)
@@ -84,14 +84,14 @@ public static class ZoneTreeClusterExtensions
 
   /// <summary>Runs a body and durably commits it, retrying only on a conflict.</summary>
   public static Task ExecuteDurableAsync(
-      this IZoneTreeCluster cluster,
-      Action<IClusterTransaction> body,
+      this IClusterDomain domain,
+      Action<IDomainTransaction> body,
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
   {
     ArgumentNullException.ThrowIfNull(body);
-    return cluster.ExecuteDurableAsync(transaction =>
+    return domain.ExecuteDurableAsync(transaction =>
     {
       body(transaction);
       return true;
@@ -104,36 +104,36 @@ public static class ZoneTreeClusterExtensions
   /// failure, and must not end the transaction or perform external side effects.
   /// </summary>
   public static ValueTask<TResult> ExecuteAsync<TResult>(
-      this IZoneTreeCluster cluster,
-      Func<IClusterTransaction, CancellationToken, ValueTask<TResult>> body,
+      this IClusterDomain domain,
+      Func<IDomainTransaction, CancellationToken, ValueTask<TResult>> body,
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
-      => ExecuteAsyncCore(cluster, body, false, isolationLevel, maxAttempts, cancellationToken);
+      => ExecuteAsyncCore(domain, body, false, isolationLevel, maxAttempts, cancellationToken);
 
   /// <summary>Runs an asynchronous body without a token parameter and commits for process-crash durability.</summary>
   public static ValueTask<TResult> ExecuteAsync<TResult>(
-      this IZoneTreeCluster cluster,
-      Func<IClusterTransaction, ValueTask<TResult>> body,
+      this IClusterDomain domain,
+      Func<IDomainTransaction, ValueTask<TResult>> body,
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
   {
     ArgumentNullException.ThrowIfNull(body);
-    return cluster.ExecuteAsync((transaction, _) => body(transaction),
+    return domain.ExecuteAsync((transaction, _) => body(transaction),
         isolationLevel, maxAttempts, cancellationToken);
   }
 
   /// <summary>Runs an asynchronous body and commits for process-crash durability.</summary>
   public static async ValueTask ExecuteAsync(
-      this IZoneTreeCluster cluster,
-      Func<IClusterTransaction, CancellationToken, ValueTask> body,
+      this IClusterDomain domain,
+      Func<IDomainTransaction, CancellationToken, ValueTask> body,
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
   {
     ArgumentNullException.ThrowIfNull(body);
-    await cluster.ExecuteAsync(async (transaction, token) =>
+    await domain.ExecuteAsync(async (transaction, token) =>
     {
       await body(transaction, token).ConfigureAwait(false);
       return true;
@@ -142,14 +142,14 @@ public static class ZoneTreeClusterExtensions
 
   /// <summary>Runs an asynchronous body without a token parameter and commits for process-crash durability.</summary>
   public static ValueTask ExecuteAsync(
-      this IZoneTreeCluster cluster,
-      Func<IClusterTransaction, ValueTask> body,
+      this IClusterDomain domain,
+      Func<IDomainTransaction, ValueTask> body,
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
   {
     ArgumentNullException.ThrowIfNull(body);
-    return cluster.ExecuteAsync((transaction, _) => body(transaction),
+    return domain.ExecuteAsync((transaction, _) => body(transaction),
         isolationLevel, maxAttempts, cancellationToken);
   }
 
@@ -159,36 +159,36 @@ public static class ZoneTreeClusterExtensions
   /// Cancellation and storage failures propagate without retrying the transaction.
   /// </summary>
   public static ValueTask<TResult> ExecuteDurableAsync<TResult>(
-      this IZoneTreeCluster cluster,
-      Func<IClusterTransaction, CancellationToken, ValueTask<TResult>> body,
+      this IClusterDomain domain,
+      Func<IDomainTransaction, CancellationToken, ValueTask<TResult>> body,
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
-      => ExecuteAsyncCore(cluster, body, true, isolationLevel, maxAttempts, cancellationToken);
+      => ExecuteAsyncCore(domain, body, true, isolationLevel, maxAttempts, cancellationToken);
 
   /// <summary>Awaits an asynchronous body without a token parameter before a power-loss durable commit.</summary>
   public static ValueTask<TResult> ExecuteDurableAsync<TResult>(
-      this IZoneTreeCluster cluster,
-      Func<IClusterTransaction, ValueTask<TResult>> body,
+      this IClusterDomain domain,
+      Func<IDomainTransaction, ValueTask<TResult>> body,
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
   {
     ArgumentNullException.ThrowIfNull(body);
-    return cluster.ExecuteDurableAsync((transaction, _) => body(transaction),
+    return domain.ExecuteDurableAsync((transaction, _) => body(transaction),
         isolationLevel, maxAttempts, cancellationToken);
   }
 
   /// <summary>Runs an asynchronous body and commits for power-loss durability.</summary>
   public static async ValueTask ExecuteDurableAsync(
-      this IZoneTreeCluster cluster,
-      Func<IClusterTransaction, CancellationToken, ValueTask> body,
+      this IClusterDomain domain,
+      Func<IDomainTransaction, CancellationToken, ValueTask> body,
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
   {
     ArgumentNullException.ThrowIfNull(body);
-    await cluster.ExecuteDurableAsync(async (transaction, token) =>
+    await domain.ExecuteDurableAsync(async (transaction, token) =>
     {
       await body(transaction, token).ConfigureAwait(false);
       return true;
@@ -197,26 +197,26 @@ public static class ZoneTreeClusterExtensions
 
   /// <summary>Awaits an asynchronous body without a token parameter before a power-loss durable commit.</summary>
   public static ValueTask ExecuteDurableAsync(
-      this IZoneTreeCluster cluster,
-      Func<IClusterTransaction, ValueTask> body,
+      this IClusterDomain domain,
+      Func<IDomainTransaction, ValueTask> body,
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
   {
     ArgumentNullException.ThrowIfNull(body);
-    return cluster.ExecuteDurableAsync((transaction, _) => body(transaction),
+    return domain.ExecuteDurableAsync((transaction, _) => body(transaction),
         isolationLevel, maxAttempts, cancellationToken);
   }
 
   static async ValueTask<TResult> ExecuteAsyncCore<TResult>(
-      IZoneTreeCluster cluster,
-      Func<IClusterTransaction, CancellationToken, ValueTask<TResult>> body,
+      IClusterDomain domain,
+      Func<IDomainTransaction, CancellationToken, ValueTask<TResult>> body,
       bool durable,
       TransactionIsolationLevel isolationLevel,
       int maxAttempts,
       CancellationToken cancellationToken)
   {
-    ArgumentNullException.ThrowIfNull(cluster);
+    ArgumentNullException.ThrowIfNull(domain);
     ArgumentNullException.ThrowIfNull(body);
     if (maxAttempts < 1)
       throw new ArgumentOutOfRangeException(
@@ -224,7 +224,7 @@ public static class ZoneTreeClusterExtensions
     for (var attempt = 1; ; ++attempt)
     {
       cancellationToken.ThrowIfCancellationRequested();
-      await using var transaction = await cluster.BeginTransactionAsync(
+      await using var transaction = await domain.BeginTransactionAsync(
           isolationLevel, cancellationToken).ConfigureAwait(false);
       var result = await body(transaction, cancellationToken).ConfigureAwait(false);
       if (transaction.State != TransactionState.Active)

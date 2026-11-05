@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using ZoneTree.Transactional;
 using ZoneTree.Backup;
 using ZoneTree.Exceptions;
@@ -6,17 +7,18 @@ using ArgumentOutOfRangeException = System.ArgumentOutOfRangeException;
 
 namespace ZoneTree.Cluster;
 
-/// <summary>An experimental in-process cluster with coordinated, standalone and raw columns.</summary>
-/// <remarks>Cross-column snapshots, atomic visibility and crash recovery are not provided by this first slice.</remarks>
+/// <summary>An in-process cluster with coordinated, standalone and raw columns.</summary>
+/// <remarks>Snapshots, visibility and crash recovery across the columns of a domain are not atomic yet.</remarks>
 public sealed class ZoneTreeCluster : IZoneTreeCluster, IZoneTreeClusterMaintenance
 {
   readonly Dictionary<string, Column> ColumnsByName = new(StringComparer.Ordinal);
+  readonly Dictionary<string, ClusterDomain> DomainsByName = new(StringComparer.Ordinal);
   readonly FileStream Lease;
   Column[] Columns = [];
   IReadOnlyList<string> ColumnNames = Array.Empty<string>();
-  long Clock;
-  long LastCommit;
-  int ActiveTransactions;
+  IReadOnlyList<string> DomainNames = Array.Empty<string>();
+  // The transactions that disposal rolls back if they are still active.
+  readonly ConcurrentDictionary<DomainReadTransaction, byte> OpenTransactions = new();
   int Disposed;
   bool readOnly;
   TimeSpan autoSyncInterval;
@@ -31,7 +33,11 @@ public sealed class ZoneTreeCluster : IZoneTreeCluster, IZoneTreeClusterMaintena
     Lease = lease;
   }
 
-  internal void Initialize(Column[] columns, ZoneTreeClusterOptions options)
+  /// <param name="columns">Every column of the cluster, in schema declaration order.</param>
+  /// <param name="domains">The domain names with the columns of each domain.</param>
+  /// <param name="options">The cluster options.</param>
+  internal void Initialize(Column[] columns,
+      IReadOnlyList<(string Name, Column[] Columns)> domains, ZoneTreeClusterOptions options)
   {
     Columns = columns;
     var names = new string[columns.Length];
@@ -41,17 +47,26 @@ public sealed class ZoneTreeCluster : IZoneTreeCluster, IZoneTreeClusterMaintena
       names[index] = columns[index].Name;
     }
     ColumnNames = Array.AsReadOnly(names);
+    var domainNames = new string[domains.Count];
+    for (var index = 0; index < domains.Count; ++index)
+    {
+      var domain = new ClusterDomain(this, domains[index].Name, domains[index].Columns);
+      foreach (var column in domains[index].Columns)
+        column.Domain = domain;
+      DomainsByName.Add(domain.Name, domain);
+      domainNames[index] = domain.Name;
+    }
+    DomainNames = Array.AsReadOnly(domainNames);
     IsReadOnly = options.IsReadOnly;
     AutoSyncInterval = options.AutoSyncInterval;
   }
 
-  public ICoordinatedColumn<TKey, TValue> GetCoordinatedColumn<TKey, TValue>(string name)
+  public IClusterDomain GetDomain(string name)
   {
     ThrowIfDisposed();
-    if (!ColumnsByName.TryGetValue(name, out var column))
-      throw new KeyNotFoundException($"Column '{name}' does not exist.");
-    return column as ICoordinatedColumn<TKey, TValue>
-        ?? throw new InvalidOperationException($"Column '{name}' has a different kind, key type or value type.");
+    return DomainsByName.TryGetValue(name, out var domain)
+        ? domain
+        : throw new KeyNotFoundException($"Domain '{name}' does not exist.");
   }
 
   public IRawColumn<TKey, TValue> GetRawColumn<TKey, TValue>(string name)
@@ -70,43 +85,6 @@ public sealed class ZoneTreeCluster : IZoneTreeCluster, IZoneTreeClusterMaintena
       throw new KeyNotFoundException($"Column '{name}' does not exist.");
     return column as IStandaloneColumn<TKey, TValue>
         ?? throw new InvalidOperationException($"Column '{name}' has a different kind, key type or value type.");
-  }
-
-  public IClusterTransaction BeginTransaction(
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable)
-  {
-    ThrowIfDisposed();
-    if (isolationLevel is not TransactionIsolationLevel.Snapshot and not TransactionIsolationLevel.Serializable)
-      throw new ArgumentOutOfRangeException(nameof(isolationLevel), isolationLevel, null);
-    if (IsReadOnly)
-      throw new ZoneTreeIsReadOnlyException();
-    return new ClusterTransaction(this, Interlocked.Increment(ref Clock),
-        Volatile.Read(ref LastCommit), isolationLevel);
-  }
-
-  [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
-      Justification = "The returned ValueTask transfers transaction ownership to the caller.")]
-  public ValueTask<IClusterTransaction> BeginTransactionAsync(
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
-      CancellationToken cancellationToken = default)
-  {
-    cancellationToken.ThrowIfCancellationRequested();
-    return new(BeginTransaction(isolationLevel));
-  }
-
-  public IClusterReadTransaction BeginReadOnlyTransaction()
-  {
-    ThrowIfDisposed();
-    return new ClusterReadTransaction(this, Volatile.Read(ref LastCommit));
-  }
-
-  [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
-      Justification = "The returned ValueTask transfers transaction ownership to the caller.")]
-  public ValueTask<IClusterReadTransaction> BeginReadOnlyTransactionAsync(
-      CancellationToken cancellationToken = default)
-  {
-    cancellationToken.ThrowIfCancellationRequested();
-    return new(BeginReadOnlyTransaction());
   }
 
   public Task SyncWALAsync(CancellationToken cancellationToken = default)
@@ -153,25 +131,21 @@ public sealed class ZoneTreeCluster : IZoneTreeCluster, IZoneTreeClusterMaintena
 
   public IZoneTreeClusterMaintenance Maintenance => this;
   IReadOnlyList<string> IZoneTreeClusterMaintenance.ColumnNames => ColumnNames;
-  public int ActiveTransactionCount => Volatile.Read(ref ActiveTransactions);
-  public long LastCommitTimestamp => Volatile.Read(ref LastCommit);
+  IReadOnlyList<string> IZoneTreeClusterMaintenance.DomainNames => DomainNames;
+  public int ActiveTransactionCount => OpenTransactions.Count;
   public int AbortedTransactionCount => Columns.Sum(column => column.AbortedTransactionCount);
   public int ConflictIndexCount => Columns.Sum(column => column.ConflictIndexCount);
 
-  internal void TransactionStarted() => Interlocked.Increment(ref ActiveTransactions);
-  internal void TransactionEnded() => Interlocked.Decrement(ref ActiveTransactions);
-  internal long TransactionCommitted()
+  internal void TransactionStarted(DomainReadTransaction transaction) => OpenTransactions.TryAdd(transaction, 0);
+  internal void TransactionEnded(DomainReadTransaction transaction) => OpenTransactions.TryRemove(transaction, out _);
+
+  void RollBackOpenTransactions(ref List<Exception> errors)
   {
-    var timestamp = Interlocked.Increment(ref Clock);
-    var current = Volatile.Read(ref LastCommit);
-    while (current < timestamp)
+    foreach (var transaction in OpenTransactions.Keys)
     {
-      var observed = Interlocked.CompareExchange(ref LastCommit, timestamp, current);
-      if (observed == current)
-        break;
-      current = observed;
+      try { transaction.RollbackOnClose(); }
+      catch (Exception error) { (errors ??= []).Add(error); }
     }
-    return timestamp;
   }
 
   public IMaintainer CreateMaintainer()
@@ -189,8 +163,12 @@ public sealed class ZoneTreeCluster : IZoneTreeCluster, IZoneTreeClusterMaintena
 
   public void Drop()
   {
-    ThrowIfDisposed();
-    EnsureNoActiveTransactions();
+    if (Interlocked.Exchange(ref Disposed, 1) != 0)
+      ObjectDisposedException.ThrowIf(true, this);
+    // The dropped data goes away with the transactions, so a failed rollback is only logged.
+    List<Exception> errors = null;
+    RollBackOpenTransactions(ref errors);
+    errors?.ForEach(Logger.LogError);
     try
     {
       foreach (var column in Columns)
@@ -198,7 +176,6 @@ public sealed class ZoneTreeCluster : IZoneTreeCluster, IZoneTreeClusterMaintena
     }
     finally
     {
-      Interlocked.Exchange(ref Disposed, 1);
       Lease.Dispose();
     }
     File.Delete(Path.Combine(DataDirectory, "database.schema"));
@@ -207,12 +184,10 @@ public sealed class ZoneTreeCluster : IZoneTreeCluster, IZoneTreeClusterMaintena
 
   public void Dispose()
   {
-    if (Volatile.Read(ref Disposed) != 0)
-      return;
-    EnsureNoActiveTransactions();
     if (Interlocked.Exchange(ref Disposed, 1) != 0)
       return;
     List<Exception> errors = null;
+    RollBackOpenTransactions(ref errors);
     foreach (var column in Columns)
     {
       try { column.Dispose(); }
@@ -229,21 +204,15 @@ public sealed class ZoneTreeCluster : IZoneTreeCluster, IZoneTreeClusterMaintena
     return ValueTask.CompletedTask;
   }
 
-  void EnsureNoActiveTransactions()
-  {
-    if (ActiveTransactionCount != 0)
-      throw new InvalidOperationException("End active transactions before disposing or dropping the cluster.");
-  }
-
   internal void ThrowIfDisposed()
   {
     ObjectDisposedException.ThrowIf(Volatile.Read(ref Disposed) != 0, this);
   }
 
   public ILiveBackup CreateLiveBackup(LocalLiveBackupOptions storage, ClusterLiveBackupOptions options = null)
-      => throw new NotSupportedException("Cluster-wide backup and restore are not part of the first slice.");
+      => throw new NotSupportedException("Cluster-wide backup and restore are not supported yet.");
 
   public ILiveBackup CreateLiveBackup(IBackupObjectStorage storage,
       ObjectStorageLiveBackupOptions storageOptions = null, ClusterLiveBackupOptions options = null)
-      => throw new NotSupportedException("Cluster-wide backup and restore are not part of the first slice.");
+      => throw new NotSupportedException("Cluster-wide backup and restore are not supported yet.");
 }

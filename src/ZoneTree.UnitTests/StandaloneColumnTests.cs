@@ -7,6 +7,7 @@ public sealed class StandaloneColumnTests
 {
   string DataDirectory;
   readonly ZoneTreeClusterFactory Factory = new();
+  const string Domain = ClusterTestDomains.Name;
 
   [SetUp]
   public void SetUp()
@@ -25,16 +26,18 @@ public sealed class StandaloneColumnTests
       Directory.Delete(DataDirectory, recursive: true);
   }
 
-  ZoneTreeClusterOptions Options(params ColumnDefinition[] columns) => new()
+  ZoneTreeClusterOptions Options(params ColumnDefinition[] columns)
   {
-    DataDirectory = DataDirectory,
-    Logger = SilentTestLogger.Instance,
-    Columns = columns.Length != 0 ? columns :
-    [
-      new CoordinatedColumnDefinition<int, int>("balances"),
-      new StandaloneColumnDefinition<int, int>("visits")
-    ]
-  };
+    if (columns.Length == 0)
+      columns = [new CoordinatedColumnDefinition<int, int>("balances"), new StandaloneColumnDefinition<int, int>("visits")];
+    return new()
+    {
+      DataDirectory = DataDirectory,
+      Logger = SilentTestLogger.Instance,
+      Domains = ClusterTestDomains.Domains(columns),
+      Columns = ClusterTestDomains.Others(columns)
+    };
+  }
 
   [Test]
   public void StandaloneTransactionsCommitAndSurviveAReopen()
@@ -64,7 +67,7 @@ public sealed class StandaloneColumnTests
   public void HandlesAreTypedByColumnKind()
   {
     using var cluster = Factory.CreateInProcess(Options());
-    Assert.Throws<InvalidOperationException>(() => cluster.GetCoordinatedColumn<int, int>("visits"));
+    Assert.Throws<KeyNotFoundException>(() => cluster.GetDomain(Domain).GetColumn<int, int>("visits"));
     Assert.Throws<InvalidOperationException>(() => cluster.GetRawColumn<int, int>("visits"));
     Assert.Throws<InvalidOperationException>(() => cluster.GetStandaloneColumn<int, int>("balances"));
     Assert.Throws<InvalidOperationException>(() => cluster.GetStandaloneColumn<long, int>("visits"));

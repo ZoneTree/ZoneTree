@@ -3,24 +3,24 @@ using ZoneTree.Transactional;
 namespace ZoneTree.Cluster;
 
 /// <summary>
-/// Single-column convenience operations, each using its own cluster transaction.
-/// Use explicit cluster transactions to batch work or change several columns atomically.
+/// Single-column convenience operations, each using its own domain transaction.
+/// Use explicit domain transactions to batch work or change several columns atomically.
 /// </summary>
 public static class CoordinatedColumnExtensions
 {
-  /// <summary>Reads the key in a new cluster snapshot.</summary>
+  /// <summary>Reads the key in a new domain snapshot.</summary>
   public static bool TryGet<TKey, TValue>(
       this ICoordinatedColumn<TKey, TValue> column, in TKey key, out TValue value)
   {
-    using var transaction = column.Cluster.BeginReadOnlyTransaction();
+    using var transaction = column.Domain.BeginReadOnlyTransaction();
     return transaction.GetColumn(column).TryGet(in key, out value);
   }
 
-  /// <summary>Checks the key in a new cluster snapshot.</summary>
+  /// <summary>Checks the key in a new domain snapshot.</summary>
   public static bool ContainsKey<TKey, TValue>(
       this ICoordinatedColumn<TKey, TValue> column, in TKey key)
   {
-    using var transaction = column.Cluster.BeginReadOnlyTransaction();
+    using var transaction = column.Domain.BeginReadOnlyTransaction();
     return transaction.GetColumn(column).ContainsKey(in key);
   }
 
@@ -30,7 +30,7 @@ public static class CoordinatedColumnExtensions
   {
     var k = key;
     var v = value;
-    column.Cluster.Execute(transaction => transaction.GetColumn(column).Upsert(k, v),
+    column.Domain.Execute(transaction => transaction.GetColumn(column).Upsert(k, v),
         TransactionIsolationLevel.Snapshot);
   }
 
@@ -39,7 +39,7 @@ public static class CoordinatedColumnExtensions
       this ICoordinatedColumn<TKey, TValue> column, in TKey key)
   {
     var k = key;
-    return column.Cluster.Execute(transaction =>
+    return column.Domain.Execute(transaction =>
     {
       var view = transaction.GetColumn(column);
       if (!view.ContainsKey(k))
@@ -62,7 +62,7 @@ public static class CoordinatedColumnExtensions
     ArgumentNullException.ThrowIfNull(update);
     var k = key;
     var added = valueToAdd;
-    return column.Cluster.Execute(transaction =>
+    return column.Domain.Execute(transaction =>
     {
       var view = transaction.GetColumn(column);
       var value = view.TryGet(k, out var current) ? update(current) : added;
@@ -71,24 +71,24 @@ public static class CoordinatedColumnExtensions
     }, TransactionIsolationLevel.Snapshot);
   }
 
-  /// <summary>Asynchronously reads the key in a new cluster snapshot.</summary>
+  /// <summary>Asynchronously reads the key in a new domain snapshot.</summary>
   public static async ValueTask<ReadResult<TValue>> TryGetAsync<TKey, TValue>(
       this ICoordinatedColumn<TKey, TValue> column,
       TKey key,
       CancellationToken cancellationToken = default)
   {
-    await using var transaction = await column.Cluster.BeginReadOnlyTransactionAsync(
+    await using var transaction = await column.Domain.BeginReadOnlyTransactionAsync(
         cancellationToken).ConfigureAwait(false);
     return await transaction.GetColumn(column).TryGetAsync(key, cancellationToken).ConfigureAwait(false);
   }
 
-  /// <summary>Asynchronously checks the key in a new cluster snapshot.</summary>
+  /// <summary>Asynchronously checks the key in a new domain snapshot.</summary>
   public static async ValueTask<bool> ContainsKeyAsync<TKey, TValue>(
       this ICoordinatedColumn<TKey, TValue> column,
       TKey key,
       CancellationToken cancellationToken = default)
   {
-    await using var transaction = await column.Cluster.BeginReadOnlyTransactionAsync(
+    await using var transaction = await column.Domain.BeginReadOnlyTransactionAsync(
         cancellationToken).ConfigureAwait(false);
     return await transaction.GetColumn(column).ContainsKeyAsync(key, cancellationToken).ConfigureAwait(false);
   }
@@ -102,7 +102,7 @@ public static class CoordinatedColumnExtensions
       TKey key,
       TValue value,
       CancellationToken cancellationToken = default)
-      => column.Cluster.ExecuteAsync((transaction, token) =>
+      => column.Domain.ExecuteAsync((transaction, token) =>
           transaction.GetColumn(column).UpsertAsync(key, value, token),
           TransactionIsolationLevel.Snapshot, cancellationToken: cancellationToken);
 
@@ -111,7 +111,7 @@ public static class CoordinatedColumnExtensions
       this ICoordinatedColumn<TKey, TValue> column,
       TKey key,
       CancellationToken cancellationToken = default)
-      => column.Cluster.ExecuteAsync(async (transaction, token) =>
+      => column.Domain.ExecuteAsync(async (transaction, token) =>
       {
         var view = transaction.GetColumn(column);
         if (!await view.ContainsKeyAsync(key, token).ConfigureAwait(false))
@@ -132,7 +132,7 @@ public static class CoordinatedColumnExtensions
       CancellationToken cancellationToken = default)
   {
     ArgumentNullException.ThrowIfNull(update);
-    return column.Cluster.ExecuteAsync(async (transaction, token) =>
+    return column.Domain.ExecuteAsync(async (transaction, token) =>
     {
       var view = transaction.GetColumn(column);
       var current = await view.TryGetAsync(key, token).ConfigureAwait(false);

@@ -4,7 +4,7 @@ using ZoneTree.Exceptions;
 
 namespace ZoneTree.Cluster;
 
-internal sealed class ClusterTransaction : ClusterReadTransaction, IClusterTransaction
+internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransaction
 {
   bool CommitConflict;
   public long TransactionId { get; }
@@ -28,8 +28,8 @@ internal sealed class ClusterTransaction : ClusterReadTransaction, IClusterTrans
     }
   }
 
-  internal ClusterTransaction(ZoneTreeCluster cluster, long id, long snapshot,
-      TransactionIsolationLevel isolation) : base(cluster, snapshot)
+  internal DomainTransaction(ClusterDomain domain, long id, long snapshot,
+      TransactionIsolationLevel isolation) : base(domain, snapshot)
   {
     TransactionId = id;
     IsolationLevel = isolation;
@@ -162,8 +162,9 @@ internal sealed class ClusterTransaction : ClusterReadTransaction, IClusterTrans
       var results = await Task.WhenAll(commits).ConfigureAwait(false);
       if (startError != null)
         ExceptionDispatchInfo.Capture(startError).Throw();
+      // A column rejected its commit after validation, and other columns may have committed.
       if (Array.Exists(results, static result => !result))
-        throw new InvalidOperationException("A column rejected a commit after validation; some columns may have committed.");
+        throw new TransactionInDoubtException(TransactionId);
       return await CompleteCommit(hasWrites).ConfigureAwait(false);
     }
     catch { FailCommit(); throw; }
@@ -171,7 +172,7 @@ internal sealed class ClusterTransaction : ClusterReadTransaction, IClusterTrans
 
   Task<bool> CompleteCommit(bool hasWrites)
   {
-    CommitTimestamp = hasWrites ? Cluster.TransactionCommitted() : SnapshotTimestamp;
+    CommitTimestamp = hasWrites ? Domain.TransactionCommitted() : SnapshotTimestamp;
     state = TransactionState.Committed;
     Close();
     return Task.FromResult(true);
@@ -187,6 +188,14 @@ internal sealed class ClusterTransaction : ClusterReadTransaction, IClusterTrans
 
   static bool IsCommitted(Task<bool> commit)
       => commit.IsCompletedSuccessfully && commit.GetAwaiter().GetResult();
+
+  protected override void ThrowNotActive() => throw state switch
+  {
+    TransactionState.Committed => (Exception)new TransactionAlreadyCommittedException(TransactionId),
+    TransactionState.Committing => new TransactionCommitInProgressException(TransactionId),
+    TransactionState.InDoubt => new TransactionInDoubtException(TransactionId),
+    _ => new TransactionAbortedException(TransactionId),
+  };
 
   void FailCommit()
   {

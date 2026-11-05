@@ -3,16 +3,14 @@ namespace ZoneTree.Cluster;
 /// <summary>Cluster-wide maintenance; individual storage trees belong to columns.</summary>
 public interface IZoneTreeClusterMaintenance
 {
-  /// <summary>The column names in schema declaration order.</summary>
+  /// <summary>The column names of every kind in schema declaration order.</summary>
   IReadOnlyList<string> ColumnNames { get; }
 
-  /// <summary>The number of active cluster transactions, each counted once.</summary>
-  int ActiveTransactionCount { get; }
+  /// <summary>The domain names in schema declaration order.</summary>
+  IReadOnlyList<string> DomainNames { get; }
 
-  /// <summary>
-  /// The timestamp of the latest committed cluster transaction.
-  /// </summary>
-  long LastCommitTimestamp { get; }
+  /// <summary>The number of active cluster transactions across all domains, each counted once.</summary>
+  int ActiveTransactionCount { get; }
 
   /// <summary>The number of aborted cluster transactions still registered for cleanup.</summary>
   int AbortedTransactionCount { get; }

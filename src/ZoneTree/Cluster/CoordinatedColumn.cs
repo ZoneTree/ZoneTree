@@ -11,6 +11,7 @@ internal sealed class CoordinatedColumn<TKey, TValue> : Column,
       ClusterMvccZoneTree<TKey, TValue> tree) : base(cluster, index, name) => Tree = tree;
 
   IZoneTreeCluster ICoordinatedColumn<TKey, TValue>.Cluster => Cluster;
+  IClusterDomain ICoordinatedColumn<TKey, TValue>.Domain => Domain;
   public ITransactionalZoneTreeMaintenance<TKey, TValue> Maintenance => Tree.Maintenance;
   internal override int AbortedTransactionCount => Tree.AbortedTransactionCount;
   internal override int ConflictIndexCount => Tree.ConflictIndexCount;

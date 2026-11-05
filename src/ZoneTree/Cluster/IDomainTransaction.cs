@@ -2,12 +2,12 @@ using ZoneTree.Transactional;
 
 namespace ZoneTree.Cluster;
 
-/// <summary>An atomic transaction over any number of independently typed columns.</summary>
+/// <summary>An atomic transaction over the columns of one domain.</summary>
 /// <remarks>
 /// Commit and rollback apply to all columns accessed by this transaction.
 /// Disposing an active transaction rolls it back.
 /// </remarks>
-public interface IClusterTransaction : IClusterReadTransaction
+public interface IDomainTransaction : IDomainReadTransaction
 {
   /// <summary>The transaction id.</summary>
   long TransactionId { get; }

@@ -1,12 +1,12 @@
 namespace ZoneTree.Cluster;
 
-/// <summary>A consistent snapshot shared by all columns read by a transaction.</summary>
+/// <summary>A consistent snapshot shared by the domain columns read by a transaction.</summary>
 /// <remarks>
 /// Different column views may be used concurrently; each individual view is sequential.
 /// Finish outstanding operations before ending the transaction. Column views and
 /// iterators cannot be used after the transaction ends.
 /// </remarks>
-public interface IClusterReadTransaction : IDisposable, IAsyncDisposable
+public interface IDomainReadTransaction : IDisposable, IAsyncDisposable
 {
   /// <summary>
   /// The snapshot timestamp shared by all column views.

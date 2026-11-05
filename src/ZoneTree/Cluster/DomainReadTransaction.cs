@@ -2,9 +2,10 @@ using ZoneTree.Transactional;
 
 namespace ZoneTree.Cluster;
 
-internal class ClusterReadTransaction : IClusterReadTransaction
+internal class DomainReadTransaction : IDomainReadTransaction
 {
   protected readonly ZoneTreeCluster Cluster;
+  protected readonly ClusterDomain Domain;
   protected ColumnView FirstView;
   protected List<ColumnView> OtherViews;
   protected volatile TransactionState state = TransactionState.Active;
@@ -14,18 +15,19 @@ internal class ClusterReadTransaction : IClusterReadTransaction
   protected virtual bool IsWriting => false;
   protected virtual TransactionIsolationLevel Isolation => TransactionIsolationLevel.Snapshot;
 
-  internal ClusterReadTransaction(ZoneTreeCluster cluster, long snapshot)
+  internal DomainReadTransaction(ClusterDomain domain, long snapshot)
   {
-    Cluster = cluster;
+    Domain = domain;
+    Cluster = domain.Cluster;
     SnapshotTimestamp = snapshot;
-    cluster.TransactionStarted();
+    Cluster.TransactionStarted(this);
   }
 
   public IReadColumn<TKey, TValue> GetColumn<TKey, TValue>(ICoordinatedColumn<TKey, TValue> column)
   {
     EnsureActive();
-    if (column is not CoordinatedColumn<TKey, TValue> local || local.Cluster != Cluster)
-      throw new ArgumentException("The column belongs to another cluster.", nameof(column));
+    if (column is not CoordinatedColumn<TKey, TValue> local || local.Domain != Domain)
+      throw new ArgumentException("The column belongs to another domain.", nameof(column));
     if (FirstView == null)
       FirstView = local.CreateView(IsWriting, Isolation);
     if (FirstView.Column == local)
@@ -42,9 +44,12 @@ internal class ClusterReadTransaction : IClusterReadTransaction
   protected void EnsureActive()
   {
     if (state != TransactionState.Active)
-      throw new InvalidOperationException($"The cluster transaction is {state}.");
+      ThrowNotActive();
     Cluster.ThrowIfDisposed();
   }
+
+  /// <summary>Throws for a transaction that ended. A read-only transaction ends when it is disposed.</summary>
+  protected virtual void ThrowNotActive() => ObjectDisposedException.ThrowIf(true, this);
 
   protected void Close()
   {
@@ -65,7 +70,7 @@ internal class ClusterReadTransaction : IClusterReadTransaction
           catch (Exception error) { (errors ??= []).Add(error); }
         }
     }
-    finally { Cluster.TransactionEnded(); }
+    finally { Cluster.TransactionEnded(this); }
     if (errors != null)
       throw new AggregateException(errors);
   }
@@ -77,6 +82,12 @@ internal class ClusterReadTransaction : IClusterReadTransaction
     state = TransactionState.Aborted;
     Close();
   }
+
+  /// <summary>
+  /// Rolls the transaction back when the cluster closes. A transaction whose commit
+  /// started is left to finish: closing a column publishes its pending commits.
+  /// </summary>
+  internal void RollbackOnClose() => RollbackCore();
 
   public void Dispose() => RollbackCore();
 

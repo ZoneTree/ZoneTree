@@ -17,6 +17,9 @@ public interface ICoordinatedColumn<TKey, TValue>
   /// <summary>The cluster that owns this column.</summary>
   IZoneTreeCluster Cluster { get; }
 
+  /// <summary>The domain whose transactions include this column.</summary>
+  IClusterDomain Domain { get; }
+
   /// <summary>
   /// Per-column storage maintenance and diagnostics.
   /// </summary>
