@@ -169,6 +169,24 @@ public static class EngineCatalog
         "dist-mvcc-ser-sync", "zonetree", "Cluster MVCC serializable sync",
         "ZoneTreeCluster with one column. " + SerializableIsolation + " Cross-column guarantees are not exercised.",
         options => new ZoneTreeClusterEngine(options, WriteAheadLogMode.Shared)),
+    // The zonetree-mvcc engines behind the cluster API: compare each with its zonetree-mvcc
+    // counterpart to measure the cluster layer.
+    new(
+        "dist-standalone-ser-async", "zonetree", "Cluster standalone serializable async",
+        "ZoneTreeCluster standalone column over the zonetree-mvcc engine. " + SerializableIsolation,
+        options => new ZoneTreeClusterStandaloneEngine(options, TransactionIsolationLevel.Serializable, WriteAheadLogMode.AsyncCompressed)),
+    new(
+        "dist-standalone-snap-async", "zonetree", "Cluster standalone snapshot async",
+        "ZoneTreeCluster standalone column over the zonetree-mvcc engine. " + SnapshotIsolation,
+        options => new ZoneTreeClusterStandaloneEngine(options, TransactionIsolationLevel.Snapshot, WriteAheadLogMode.AsyncCompressed)),
+    new(
+        "dist-standalone-ser-sync", "zonetree", "Cluster standalone serializable sync",
+        "ZoneTreeCluster standalone column over the zonetree-mvcc engine. " + SerializableIsolation,
+        options => new ZoneTreeClusterStandaloneEngine(options, TransactionIsolationLevel.Serializable, WriteAheadLogMode.SyncCompressed)),
+    new(
+        "dist-standalone-snap-sync", "zonetree", "Cluster standalone snapshot sync",
+        "ZoneTreeCluster standalone column over the zonetree-mvcc engine. " + SnapshotIsolation,
+        options => new ZoneTreeClusterStandaloneEngine(options, TransactionIsolationLevel.Snapshot, WriteAheadLogMode.SyncCompressed)),
   ];
 
   public static int ColorSlot(string engineId)
