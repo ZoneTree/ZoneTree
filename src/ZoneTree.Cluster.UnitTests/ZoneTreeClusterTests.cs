@@ -4,7 +4,7 @@ using ZoneTree.Options;
 using ZoneTree.Transactional;
 using ZoneTree.Cluster;
 
-namespace ZoneTree.UnitTests;
+namespace ZoneTree.Cluster.UnitTests;
 
 public sealed class ZoneTreeClusterTests
 {
