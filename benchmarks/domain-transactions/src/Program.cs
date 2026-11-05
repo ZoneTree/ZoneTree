@@ -391,12 +391,12 @@ static class Program
   static void PrintSummary(List<CellResult> results, BenchmarkOptions options)
   {
     var engines = options.Engines;
-    var compared = engines.Contains(EngineCatalog.OneTree)
-        ? engines.Where(engine => engine != EngineCatalog.OneTree).ToArray()
-        : [];
+    // The first engine is the baseline of the ratios.
+    var baseline = engines[0];
+    var compared = engines.Skip(1).ToArray();
     Console.WriteLine();
     Console.WriteLine("Summary: transactions per second" +
-        (compared.Length != 0 ? $"; x = engine / {EngineCatalog.OneTree}" : ""));
+        (compared.Length != 0 ? $"; x = engine / {baseline}" : ""));
     foreach (var workload in options.Workloads)
       foreach (var span in options.Spans)
       {
@@ -411,7 +411,7 @@ static class Program
           var line = $"  {threads,7} " + string.Join(" ", engines.Select(engine => Find(engine) is { } result
               ? string.Create(CultureInfo.InvariantCulture, $"{result.TransactionsPerSecond,20:N0}")
               : $"{"-",20}"));
-          var oneTree = Find(EngineCatalog.OneTree);
+          var oneTree = Find(baseline);
           foreach (var engine in compared)
           {
             var result = Find(engine);
@@ -430,6 +430,7 @@ static class Program
     EngineCatalog.Trees => "trees/tree",
     EngineCatalog.ClusterOneColumn => "1col/tree",
     EngineCatalog.ClusterColumns => "cols/tree",
+    EngineCatalog.ClusterRaw => "cluster/zt",
     _ => engine
   };
 
@@ -458,7 +459,8 @@ static class Program
         --span <list>             columns each transaction touches (default 1,4)
         --threads <list>          worker threads (default 1,2,4,8,16)
         --workload <list>         write, rmw, read, mixed, disjoint (default all)
-        --engine <list>           mvcc-one-tree, cluster-one-column, cluster-columns (default all)
+        --engine <list>           mvcc-one-tree, mvcc-trees, cluster-one-column, cluster-columns
+                                  (default), or zonetree-raw, cluster-raw
         --seconds <n>             measured seconds per cell (default 5)
         --warmup <n>              warmup seconds per cell (default 1)
         --value-size <n>          value bytes (default 100)
@@ -495,7 +497,7 @@ static class Program
         "--span" => options with { Spans = ParseList(Next()).Select(item => (int)ParseCount(item)).ToArray() },
         "--threads" => options with { Threads = ParseList(Next()).Select(item => (int)ParseCount(item)).ToArray() },
         "--workload" => options with { Workloads = ParseNames(Next(), Workload.Names, "workload") },
-        "--engine" => options with { Engines = ParseNames(Next(), EngineCatalog.Names, "engine") },
+        "--engine" => options with { Engines = ParseNames(Next(), EngineCatalog.AllNames, "engine") },
         "--seconds" => options with { Seconds = double.Parse(Next(), CultureInfo.InvariantCulture) },
         "--warmup" => options with { WarmupSeconds = double.Parse(Next(), CultureInfo.InvariantCulture) },
         "--value-size" => options with { ValueSize = (int)ParseCount(Next()) },

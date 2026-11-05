@@ -131,3 +131,22 @@ Measured with `benchmarks/domain-transactions` (keep runs under 3 minutes). Done
 
 - [ ] **Built-in `byte[]` encoding.** It belongs in the engine, so `byte[]` columns no longer
   need a registered serializer.
+- [ ] **Examine moving the commit record out of the MVCC tree's commit lock.**
+  `MvccZoneTree.PrepareCommit` writes each commit record (`Storage.ForceDelete` of the
+  pending status) while holding `CommitLock`, so every committer of the tree waits for that
+  storage write, including a segment rotation's disk syncs. The cluster writes it after
+  releasing its commit gate. That makes one cluster column 10–17% faster on writes than one
+  MVCC tree at 16 threads (see [perf.md](perf.md)), which estimates the gain for plain
+  ZoneTree.
+  - **Why it is not a direct port:** the tree keeps commits in timestamp order by
+    publishing them all under the lock. With the record written outside it, commits can
+    finish out of order, and a new snapshot could include a later commit while an earlier
+    one is missing.
+  - **What it needs:** a commit sequencer that publishes commits in timestamp order, as the
+    cluster's `CommitSequencer` does, plus a short wait before a commit returns, so callers
+    still read their own writes. The sequencer must fit the tree's queue of pending durable
+    commits.
+  - **Measure first:** compare `mvcc-one-tree` before and after in the same run, writes at
+    1 and 16 threads, and check that 1-thread commits do not get slower.
+  - **Already ruled out:** the cluster's fetch-and-add snapshot bucket gave the MVCC tree no
+    measurable read gain at 16 threads (11.66M before and after), so it was not kept.

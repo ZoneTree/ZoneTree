@@ -40,12 +40,21 @@ static class EngineCatalog
   public const string ClusterOneColumn = "cluster-one-column";
   public const string ClusterColumns = "cluster-columns";
 
+  public const string RawTree = "zonetree-raw";
+  public const string ClusterRaw = "cluster-raw";
+
+  /// <summary>The transactional engines, which run by default.</summary>
   public static readonly string[] Names = [OneTree, Trees, ClusterOneColumn, ClusterColumns];
+
+  /// <summary>Every engine, including the raw ones that are compared with each other.</summary>
+  public static readonly string[] AllNames = [.. Names, RawTree, ClusterRaw];
 
   public static string Describe(string name) => name switch
   {
     OneTree => "ZoneTree MVCC tree; the column id is encoded into the key",
     Trees => "one ZoneTree MVCC tree per logical column; a transaction commits in each tree separately, not atomically",
+    RawTree => "a plain ZoneTree, no transactions; the column id is encoded into the key",
+    ClusterRaw => "a cluster raw column, no transactions; the column id is encoded into the key",
     ClusterOneColumn => "cluster domain with one column; the column id is encoded into the key",
     ClusterColumns => "cluster domain with one coordinated column per logical column",
     _ => throw new ArgumentException($"Unknown engine '{name}'.")
@@ -55,6 +64,8 @@ static class EngineCatalog
   {
     OneTree => new OneTreeEngine(directory, options),
     Trees => new TreesEngine(directory, options),
+    RawTree => new RawTreeEngine(directory, options),
+    ClusterRaw => new ClusterRawEngine(directory, options),
     ClusterOneColumn => new ClusterEngine(directory, options, separateColumns: false),
     ClusterColumns => new ClusterEngine(directory, options, separateColumns: true),
     _ => throw new ArgumentException($"Unknown engine '{name}'.")
@@ -427,5 +438,115 @@ sealed class TreesEngine : IEngine
         Reads[column] = null;
       }
     }
+  }
+}
+
+/// <summary>
+/// A plain ZoneTree with every logical column in one key space. A "transaction" is its
+/// operations, each applied at once.
+/// </summary>
+sealed class RawTreeEngine : IEngine
+{
+  readonly IZoneTree<long, byte[]> Tree;
+  readonly IMaintainer Maintainer;
+
+  public RawTreeEngine(string directory, BenchmarkOptions options)
+  {
+    var factory = new ZoneTreeFactory<long, byte[]>()
+        .SetDataDirectory(directory)
+        .SetComparer(new Int64ComparerAscending())
+        .SetKeySerializer(new Int64Serializer())
+        .SetValueSerializer(new EngineCatalog.BytesSerializer());
+    Tree = EngineCatalog.ConfigureStorage(factory, options, trees: 1).OpenOrCreate();
+    Maintainer = Tree.CreateMaintainer();
+  }
+
+  public IEngineWorker CreateWorker() => new Worker(Tree);
+
+  public void Settle()
+  {
+    Maintainer.EvictToDisk();
+    Maintainer.WaitForBackgroundThreadsAsync().GetAwaiter().GetResult();
+  }
+
+  public void Dispose()
+  {
+    Maintainer.WaitForBackgroundThreadsAsync().GetAwaiter().GetResult();
+    Maintainer.Dispose();
+    Tree.Dispose();
+  }
+
+  sealed class Worker(IZoneTree<long, byte[]> tree) : IEngineWorker
+  {
+    public void BeginWrite() { }
+    public bool Get(int column, long key, out byte[] value) => tree.TryGet(EngineCatalog.EncodeKey(column, key), out value);
+    public void Put(int column, long key, byte[] value) => tree.Upsert(EngineCatalog.EncodeKey(column, key), value);
+    public bool Commit() => true;
+    public void BeginRead() { }
+    public bool Read(int column, long key, out byte[] value) => tree.TryGet(EngineCatalog.EncodeKey(column, key), out value);
+    public void EndRead() { }
+  }
+}
+
+/// <summary>
+/// A cluster raw column with every logical column in one key space, configured like
+/// <see cref="RawTreeEngine"/>.
+/// </summary>
+sealed class ClusterRawEngine : IEngine
+{
+  readonly IZoneTreeClusterHost Cluster;
+  readonly IRawColumn<long, byte[]> Column;
+  readonly IMaintainer Maintainer;
+
+  public ClusterRawEngine(string directory, BenchmarkOptions options)
+  {
+    Cluster = new ZoneTreeClusterFactory().CreateInProcess(new ZoneTreeClusterOptions
+    {
+      DataDirectory = directory,
+      Encodings = new ClusterEncodingRegistry()
+          .AddSerializer("benchmark.bytes", 1, new EngineCatalog.BytesSerializer()),
+      Columns =
+      [
+        new RawColumnDefinition<long, byte[]>("raw")
+        {
+          ValueSerializerId = "benchmark.bytes",
+          ConfigureStorage = factory => EngineCatalog.ConfigureStorage(factory, options, trees: 1)
+        }
+      ]
+    });
+    Column = Cluster.GetRawColumn<long, byte[]>("raw");
+    Maintainer = Cluster.CreateMaintainer();
+  }
+
+  public IEngineWorker CreateWorker() => new Worker(Column);
+
+  public void Settle()
+  {
+    Maintainer.EvictToDisk();
+    Maintainer.WaitForBackgroundThreadsAsync().GetAwaiter().GetResult();
+  }
+
+  public void Dispose()
+  {
+    try
+    {
+      Maintainer.WaitForBackgroundThreadsAsync().GetAwaiter().GetResult();
+      Maintainer.Dispose();
+    }
+    finally
+    {
+      Cluster.Dispose();
+    }
+  }
+
+  sealed class Worker(IRawColumn<long, byte[]> column) : IEngineWorker
+  {
+    public void BeginWrite() { }
+    public bool Get(int column1, long key, out byte[] value) => column.TryGet(EngineCatalog.EncodeKey(column1, key), out value);
+    public void Put(int column1, long key, byte[] value) => column.Upsert(EngineCatalog.EncodeKey(column1, key), value);
+    public bool Commit() => true;
+    public void BeginRead() { }
+    public bool Read(int column1, long key, out byte[] value) => column.TryGet(EngineCatalog.EncodeKey(column1, key), out value);
+    public void EndRead() { }
   }
 }
