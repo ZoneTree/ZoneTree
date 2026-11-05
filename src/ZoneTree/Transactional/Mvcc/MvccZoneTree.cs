@@ -555,7 +555,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
       try
       {
         if (CommitFailure != null)
-          throw new InvalidOperationException("A previous commit sync failed. Reopen the tree before committing again.", CommitFailure);
+          throw new TransactionalTreeCommitsStoppedException(CommitFailure);
         // A commit that will wait for the worker needs it before the commit point.
         if (durable || PendingCommits.Count != 0)
           EnsureCommitSyncThread();
@@ -1053,11 +1053,15 @@ public sealed class MvccZoneTree<TKey, TValue> :
       // until its immutable segment set is attached. Do not hold StateLock while
       // taking storage locks: merge filters also acquire StateLock.
       using var snapshot = BeginReadOnlyTransaction();
-      // A prepared durable commit has already deleted its pending marker, but
-      // is still invisible. Restore that marker in the backup's memory overlay.
+      // A prepared durable commit, or one in doubt, has already deleted its pending
+      // marker, but is still invisible. Restore that marker in the backup's memory
+      // overlay. Other entries need none: an active writer and a failed rollback
+      // still have their marker, and a finished rollback deleted it after its
+      // versions, so restoring it would keep the rollback registered for good.
       KeyValuePair<VersionedKey<TKey>, VersionedValue<TValue>>[] pending;
       lock (StateLock)
-        pending = Entries.Values.Where(entry => entry.State != TransactionState.Committed)
+        pending = Entries.Values
+            .Where(entry => entry.State is TransactionState.Committing or TransactionState.InDoubt)
             .Select(entry => new KeyValuePair<VersionedKey<TKey>, VersionedValue<TValue>>(
                 VersionedKey<TKey>.TransactionStatus(entry.Id), VersionedValue<TValue>.FromSystem(PendingStatus)))
             .ToArray();

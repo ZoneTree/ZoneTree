@@ -74,9 +74,9 @@ internal sealed class MvccTransaction<TKey, TValue> :
       case TransactionState.Aborted:
         throw new TransactionAbortedException(TransactionId);
       case TransactionState.Committing:
-        throw new InvalidOperationException("The transaction is waiting for its commit to be published.");
+        throw new TransactionCommitInProgressException(TransactionId);
       case TransactionState.InDoubt:
-        throw new InvalidOperationException("The transaction's commit outcome is uncertain after a sync failure.");
+        throw new TransactionInDoubtException(TransactionId);
     }
   }
 
