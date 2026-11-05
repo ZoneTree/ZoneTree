@@ -314,35 +314,45 @@ public sealed class RawColumnTests
   }
 
   [Test]
-  public async Task RawByteArraysCanUseAnExplicitSerializerAndReopen()
+  public async Task RawByteArraysUseTheBuiltInEncodingAndReopen()
   {
-    // byte[] has no built-in encoding, so the column names a registered one.
-    var options = new ZoneTreeClusterOptions
-    {
-      DataDirectory = DataDirectory,
-      Logger = SilentTestLogger.Instance,
-      Encodings = new ClusterEncodingRegistry().AddSerializer("test.bytes", 1, new BytesSerializer()),
-      Columns = [new RawColumnDefinition<string, byte[]>("cache") { ValueSerializerId = "test.bytes" }]
-    };
+    var options = Options(new RawColumnDefinition<byte[], byte[]>("cache"));
     using (var cluster = Factory.CreateInProcess(options))
     {
-      var cache = cluster.GetRawColumn<string, byte[]>("cache");
-      cache.Upsert("keep", [1, 2, 3]);
-      cache.Upsert("remove", [9]);
-      cache.Delete("remove");
+      var cache = cluster.GetRawColumn<byte[], byte[]>("cache");
+      cache.Upsert([2], [1, 2, 3]);
+      cache.Upsert([1, 5], [4]);
+      cache.Upsert([9], [9]);
+      cache.Delete([9]);
       await cluster.SyncWALAsync();
     }
     using var reopened = Factory.OpenInProcess(options);
-    var restored = reopened.GetRawColumn<string, byte[]>("cache");
-    Assert.That(restored.TryGet("keep", out var value), Is.True);
+    var restored = reopened.GetRawColumn<byte[], byte[]>("cache");
+    Assert.That(restored.TryGet([2], out var value), Is.True);
     Assert.That(value, Is.EqualTo(new byte[] { 1, 2, 3 }));
-    Assert.That(restored.ContainsKey("remove"), Is.False);
+    Assert.That(restored.ContainsKey([9]), Is.False);
+    // Keys keep the lexicographic order of their bytes.
+    Assert.That(restored.Range([0], [255]).Select(entry => entry.Key),
+        Is.EqualTo(new[] { new byte[] { 1, 5 }, new byte[] { 2 } }));
   }
 
-  sealed class BytesSerializer : ISerializer<byte[]>
+  [Test]
+  public async Task AByteMemoryColumnDoesNotOpenWithByteArrays()
   {
-    public byte[] Deserialize(Memory<byte> bytes) => bytes.IsEmpty ? null : bytes.ToArray();
-    public Memory<byte> Serialize(in byte[] value) => value;
+    // Each type has its own built-in encodings, because a tree records its key type.
+    using (var cluster = Factory.CreateInProcess(Options(new RawColumnDefinition<Memory<byte>, Memory<byte>>("cache"))))
+    {
+      cluster.GetRawColumn<Memory<byte>, Memory<byte>>("cache").Upsert(new byte[] { 1 }, new byte[] { 7 });
+      await cluster.SyncWALAsync();
+    }
+    using var reopened = Factory.OpenInProcess(new ZoneTreeClusterOptions
+    {
+      DataDirectory = DataDirectory,
+      Logger = SilentTestLogger.Instance
+    });
+    Assert.Throws<InvalidOperationException>(() => reopened.GetRawColumn<byte[], byte[]>("cache"));
+    var cache = reopened.GetRawColumn<Memory<byte>, Memory<byte>>("cache");
+    Assert.That(cache.TryGet(new byte[] { 1 }, out var value) && value.Span.SequenceEqual(new byte[] { 7 }), Is.True);
   }
 
   [Test]

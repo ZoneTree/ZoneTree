@@ -32,15 +32,11 @@ public sealed class ZoneTreeClusterStandaloneEngine : ITransactionEngine
     Cluster = new ZoneTreeClusterFactory().OpenOrCreateInProcess(new ZoneTreeClusterOptions
     {
       DataDirectory = options.Directory,
-      // byte[] has no built-in cluster encoding, so the column names the benchmark's serializer.
-      // The long comparer and key serializer are the built-in ones ZoneTreeEngine sets too.
-      Encodings = new ClusterEncodingRegistry()
-          .AddSerializer("benchmark.bytes", 1, new ZoneTreeEngine.ValueSerializer()),
+      // The built-in encodings are the comparer and serializers ZoneTreeEngine uses too.
       Columns =
       [
         new StandaloneColumnDefinition<long, byte[]>("records")
         {
-          ValueSerializerId = "benchmark.bytes",
           ConfigureStorage = factory => ZoneTreeEngine.ConfigureStorage(factory, options, walMode)
         }
       ]

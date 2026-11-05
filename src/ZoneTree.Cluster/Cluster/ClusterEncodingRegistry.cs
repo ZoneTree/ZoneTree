@@ -42,6 +42,11 @@ public sealed class ClusterEncodingRegistry
     AddBuiltIn("bytes", new ByteArraySerializer(),
         new ByteArrayLexicographicComparerAscending(), new ByteArrayLexicographicComparerDescending(),
         comparerName: "bytes.lexicographic");
+    // Byte arrays need encodings of their own: a tree records the key type it was created
+    // with, so a column of byte memory cannot open with byte arrays anyway.
+    AddBuiltIn("bytes.array", new BytesSerializer(),
+        new BytesLexicographicComparerAscending(), new BytesLexicographicComparerDescending(),
+        comparerName: "bytes.array.lexicographic");
     AddBuiltIn("string.utf8", new Utf8StringSerializer(),
         new StringOrdinalComparerAscending(), new StringOrdinalComparerDescending(),
         comparerName: "string.ordinal");

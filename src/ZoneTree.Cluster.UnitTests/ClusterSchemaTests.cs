@@ -190,7 +190,7 @@ public sealed class ClusterSchemaTests
     {
       DataDirectory = DataDirectory,
       Logger = SilentTestLogger.Instance,
-      Columns = [new RawColumnDefinition<int, byte[]>("blobs")]
+      Columns = [new RawColumnDefinition<int, float>("blobs")]
     }));
     Assert.That(error.Message, Does.Contain("blobs"));
     Assert.That(Directory.Exists(DataDirectory), Is.False);

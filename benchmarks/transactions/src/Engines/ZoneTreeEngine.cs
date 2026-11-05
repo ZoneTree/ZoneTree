@@ -56,8 +56,7 @@ public sealed class ZoneTreeEngine : ITransactionEngine
       ZoneTreeFactory<long, byte[]> factory, EngineOpenOptions options, WriteAheadLogMode walMode)
       => ConfigureStorage(factory
           .SetComparer(new Int64ComparerAscending())
-          .SetKeySerializer(new Int64Serializer())
-          .SetValueSerializer(new ValueSerializer()), options, walMode);
+          .SetKeySerializer(new Int64Serializer()), options, walMode);
 
   /// <summary>The storage tuning without the comparer and serializers.</summary>
   internal static ZoneTreeFactory<long, byte[]> ConfigureStorage(
@@ -158,10 +157,4 @@ public sealed class ZoneTreeEngine : ITransactionEngine
     public void Dispose() => transaction.Dispose();
   }
 
-  internal sealed class ValueSerializer : ISerializer<byte[]>
-  {
-    public byte[] Deserialize(Memory<byte> bytes) => bytes.ToArray();
-
-    public Memory<byte> Serialize(in byte[] entry) => entry;
-  }
 }

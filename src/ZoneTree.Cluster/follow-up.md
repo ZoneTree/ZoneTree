@@ -124,8 +124,6 @@ Measured with `benchmarks/domain-transactions` (keep runs under 3 minutes).
 
 ## ZoneTree engine
 
-- [ ] **Built-in `byte[]` encoding.** It belongs in the engine, so `byte[]` columns no longer
-  need a registered serializer.
 - [ ] **Examine moving the commit record out of the MVCC tree's commit lock.**
   `MvccZoneTree.PrepareCommit` writes each commit record (`Storage.ForceDelete` of the
   pending status) while holding `CommitLock`, so every committer of the tree waits for that

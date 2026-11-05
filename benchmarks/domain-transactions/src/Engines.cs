@@ -106,11 +106,6 @@ static class EngineCatalog
             wal.CompressionBlockSize = 1024 * 256;
           });
 
-  public sealed class BytesSerializer : ISerializer<byte[]>
-  {
-    public byte[] Deserialize(Memory<byte> bytes) => bytes.ToArray();
-    public Memory<byte> Serialize(in byte[] entry) => entry;
-  }
 }
 
 /// <summary>The engine's MVCC tree, with every logical column in one key space.</summary>
@@ -126,8 +121,7 @@ sealed class OneTreeEngine : IEngine
     var factory = new ZoneTreeFactory<long, byte[]>()
         .SetDataDirectory(directory)
         .SetComparer(new Int64ComparerAscending())
-        .SetKeySerializer(new Int64Serializer())
-        .SetValueSerializer(new EngineCatalog.BytesSerializer());
+        .SetKeySerializer(new Int64Serializer());
     Tree = EngineCatalog.ConfigureStorage(factory, options, trees: 1).OpenOrCreateTransactional();
     Maintainer = Tree.CreateMaintainer();
   }
@@ -212,9 +206,6 @@ sealed class ClusterEngine : IEngine
     Cluster = new ZoneTreeClusterFactory().CreateInProcess(new ZoneTreeClusterOptions
     {
       DataDirectory = directory,
-      // byte[] has no built-in cluster encoding, so the columns name a registered serializer.
-      Encodings = new ClusterEncodingRegistry()
-          .AddSerializer("benchmark.bytes", 1, new EngineCatalog.BytesSerializer()),
       Domains =
       [
         new DomainDefinition("bench")
@@ -222,7 +213,6 @@ sealed class ClusterEngine : IEngine
           Columns = names
               .Select(name => (CoordinatedColumnDefinition)new CoordinatedColumnDefinition<long, byte[]>(name)
               {
-                ValueSerializerId = "benchmark.bytes",
                 ConfigureStorage = factory => EngineCatalog.ConfigureStorage(factory, options, count)
               })
               .ToArray()
@@ -344,8 +334,7 @@ sealed class TreesEngine : IEngine
       var factory = new ZoneTreeFactory<long, byte[]>()
           .SetDataDirectory(Path.Combine(directory, $"c{column}"))
           .SetComparer(new Int64ComparerAscending())
-          .SetKeySerializer(new Int64Serializer())
-          .SetValueSerializer(new EngineCatalog.BytesSerializer());
+          .SetKeySerializer(new Int64Serializer());
       Trees[column] = EngineCatalog.ConfigureStorage(factory, options, options.Columns).OpenOrCreateTransactional();
       Maintainers[column] = Trees[column].CreateMaintainer();
     }
@@ -458,8 +447,7 @@ sealed class RawTreeEngine : IEngine
     var factory = new ZoneTreeFactory<long, byte[]>()
         .SetDataDirectory(directory)
         .SetComparer(new Int64ComparerAscending())
-        .SetKeySerializer(new Int64Serializer())
-        .SetValueSerializer(new EngineCatalog.BytesSerializer());
+        .SetKeySerializer(new Int64Serializer());
     Tree = EngineCatalog.ConfigureStorage(factory, options, trees: 1).OpenOrCreate();
     Maintainer = Tree.CreateMaintainer();
   }
@@ -506,13 +494,10 @@ sealed class ClusterRawEngine : IEngine
     Cluster = new ZoneTreeClusterFactory().CreateInProcess(new ZoneTreeClusterOptions
     {
       DataDirectory = directory,
-      Encodings = new ClusterEncodingRegistry()
-          .AddSerializer("benchmark.bytes", 1, new EngineCatalog.BytesSerializer()),
       Columns =
       [
         new RawColumnDefinition<long, byte[]>("raw")
         {
-          ValueSerializerId = "benchmark.bytes",
           ConfigureStorage = factory => EngineCatalog.ConfigureStorage(factory, options, trees: 1)
         }
       ]
@@ -573,13 +558,10 @@ sealed class ClusterStandaloneEngine : IEngine
     Cluster = new ZoneTreeClusterFactory().CreateInProcess(new ZoneTreeClusterOptions
     {
       DataDirectory = directory,
-      Encodings = new ClusterEncodingRegistry()
-          .AddSerializer("benchmark.bytes", 1, new EngineCatalog.BytesSerializer()),
       Columns =
       [
         new StandaloneColumnDefinition<long, byte[]>("standalone")
         {
-          ValueSerializerId = "benchmark.bytes",
           ConfigureStorage = factory => EngineCatalog.ConfigureStorage(factory, options, trees: 1)
         }
       ]
