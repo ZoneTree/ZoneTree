@@ -50,7 +50,9 @@ internal sealed class ClusterMaintainer : IMaintainer
   public void TryCancelBackgroundThreads() { foreach (var maintainer in Maintainers) maintainer.TryCancelBackgroundThreads(); }
   public void WaitForBackgroundThreads() { foreach (var maintainer in Maintainers) maintainer.WaitForBackgroundThreads(); }
   public Task WaitForBackgroundThreadsAsync() => Task.WhenAll(Maintainers.Select(maintainer => maintainer.WaitForBackgroundThreadsAsync()));
-  public void EvictToDisk() { foreach (var maintainer in Maintainers) maintainer.EvictToDisk(); }
+  // Moving a column's mutable segment forward syncs that column's meta WAL file
+  // several times. Evicting the columns at once overlaps those disk syncs.
+  public void EvictToDisk() => Parallel.ForEach(Maintainers, static maintainer => maintainer.EvictToDisk());
   public void StartMerge() { foreach (var maintainer in Maintainers) maintainer.StartMerge(); }
   public void StartBottomSegmentsMerge(int fromIndex = 0, int toIndex = int.MaxValue)
   {
@@ -59,6 +61,8 @@ internal sealed class ClusterMaintainer : IMaintainer
   }
   public void Dispose()
   {
+    // Disposal mostly waits for merge threads, and the merges of all columns already
+    // run at once. Waiting for one maintainer after another takes no longer.
     List<Exception> errors = null;
     foreach (var maintainer in Maintainers)
     {
