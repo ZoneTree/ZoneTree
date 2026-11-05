@@ -11,7 +11,8 @@ namespace Transactions.Benchmark.Engines;
 /// <summary>Runs the existing single-keyspace scenarios through the ZoneTreeCluster API.</summary>
 public sealed class ZoneTreeClusterEngine : ITransactionEngine
 {
-  readonly IZoneTreeCluster Cluster;
+  readonly IZoneTreeClusterHost Cluster;
+  readonly IClusterDomain Domain;
   readonly ICoordinatedColumn<long, byte[]> Column;
   readonly IMaintainer Maintainer;
   readonly IZoneTreeMaintenance<VersionedKey<long>, VersionedValue<byte[]>> Storage;
@@ -26,19 +27,26 @@ public sealed class ZoneTreeClusterEngine : ITransactionEngine
     Cluster = new ZoneTreeClusterFactory().OpenOrCreateInProcess(new ZoneTreeClusterOptions
     {
       DataDirectory = options.Directory,
-      Columns =
+      Domains =
       [
-        new CoordinatedColumnDefinition<long, byte[]>("records")
+        new DomainDefinition("records")
         {
-          ConfigureStorage = factory => ZoneTreeEngine.ConfigureFactory(factory, options, walMode)
+          Columns =
+          [
+            new CoordinatedColumnDefinition<long, byte[]>("records")
+            {
+              ConfigureStorage = factory => ZoneTreeEngine.ConfigureFactory(factory, options, walMode)
+            }
+          ]
         }
       ]
     });
-    Column = Cluster.GetCoordinatedColumn<long, byte[]>("records");
-    Maintainer = Column.CreateMaintainer();
+    Domain = Cluster.GetDomain("records");
+    Column = Domain.GetColumn<long, byte[]>("records");
+    Maintainer = Cluster.CreateColumnMaintainer("records");
     Maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(1);
     Maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(30);
-    Storage = Column.Maintenance.ZoneTree.Maintenance;
+    Storage = Cluster.GetCoordinatedColumnMaintenance<long, byte[]>("records").ZoneTree.Maintenance;
     Storage.OnDiskSegmentActivated += StartBottomMerge;
     Settings =
     [
@@ -87,14 +95,14 @@ public sealed class ZoneTreeClusterEngine : ITransactionEngine
   {
     public IEngineReadTransaction BeginRead()
     {
-      var transaction = engine.Cluster.BeginReadOnlyTransaction();
+      var transaction = engine.Domain.BeginReadOnlyTransaction();
       try { return new ReadTransaction(transaction, transaction.GetColumn(engine.Column)); }
       catch { transaction.Dispose(); throw; }
     }
 
     public IEngineTransaction BeginWrite()
     {
-      var transaction = engine.Cluster.BeginTransaction(TransactionIsolationLevel.Serializable);
+      var transaction = engine.Domain.BeginTransaction(TransactionIsolationLevel.Serializable);
       try { return new WriteTransaction(transaction, transaction.GetColumn(engine.Column), engine.Durable); }
       catch { transaction.Dispose(); throw; }
     }
@@ -102,7 +110,7 @@ public sealed class ZoneTreeClusterEngine : ITransactionEngine
     public void Dispose() { }
   }
 
-  sealed class ReadTransaction(IClusterReadTransaction transaction, IReadColumn<long, byte[]> column)
+  sealed class ReadTransaction(IDomainReadTransaction transaction, IReadColumn<long, byte[]> column)
       : IEngineReadTransaction
   {
     public bool TryGet(long key, out byte[] value) => column.TryGet(key, out value);
@@ -110,7 +118,7 @@ public sealed class ZoneTreeClusterEngine : ITransactionEngine
     public void Dispose() => transaction.Dispose();
   }
 
-  sealed class WriteTransaction(IClusterTransaction transaction,
+  sealed class WriteTransaction(IDomainTransaction transaction,
       IWriteColumn<long, byte[]> column, bool durable) : IEngineTransaction
   {
     public bool HasConflict => transaction.HasConflict;

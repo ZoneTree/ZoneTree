@@ -1,14 +1,16 @@
+using ZoneTree.Transactional;
+
 namespace ZoneTree.Cluster;
 
 /// <summary>A non-transactional column with direct reads and writes.</summary>
-/// <remarks>Writes are independent of cluster transactions. The cluster owns the column's lifetime.</remarks>
+/// <remarks>
+/// Writes are independent of cluster transactions. The cluster owns the column's lifetime.
+/// In a remote cluster the synchronous methods block the calling thread for a network round trip.
+/// </remarks>
 public interface IRawColumn<TKey, TValue>
 {
   string Name { get; }
   IZoneTreeCluster Cluster { get; }
-  IZoneTreeMaintenance<TKey, TValue> Maintenance { get; }
-  IMaintainer CreateMaintainer();
-
   bool ContainsKey(in TKey key);
   ValueTask<bool> ContainsKeyAsync(TKey key, CancellationToken cancellationToken = default);
   bool TryGet(in TKey key, out TValue value);
@@ -22,10 +24,10 @@ public interface IRawColumn<TKey, TValue>
   IEnumerable<KeyValuePair<TKey, TValue>> Range(in TKey from, in TKey to, bool reverse = false);
   IAsyncEnumerable<KeyValuePair<TKey, TValue>> RangeAsync(
       TKey from, TKey to, bool reverse = false, CancellationToken cancellationToken = default);
-  IZoneTreeIterator<TKey, TValue> CreateIterator(IteratorOptions options = null);
-  IZoneTreeIterator<TKey, TValue> CreateReverseIterator(IteratorOptions options = null);
-  IAsyncIterator<TKey, TValue> CreateAsyncIterator(IteratorOptions options = null);
-  IAsyncIterator<TKey, TValue> CreateAsyncReverseIterator(IteratorOptions options = null);
+  ITransactionIterator<TKey, TValue> CreateIterator(TransactionIteratorOptions options = null);
+  ITransactionIterator<TKey, TValue> CreateReverseIterator(TransactionIteratorOptions options = null);
+  IAsyncTransactionIterator<TKey, TValue> CreateAsyncIterator(TransactionIteratorOptions options = null);
+  IAsyncTransactionIterator<TKey, TValue> CreateAsyncReverseIterator(TransactionIteratorOptions options = null);
 
   /// <summary>Makes writes completed before this call durable across power loss or an OS crash.</summary>
   Task SyncWALAsync(CancellationToken cancellationToken = default);

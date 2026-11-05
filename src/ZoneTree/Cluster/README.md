@@ -21,6 +21,18 @@ outside domains. Column names are unique across the cluster.
 The goals are high performance, feature parity with single-tree MVCC, and one
 algorithm across in-process, cross-process and cross-machine distribution.
 
+## Clients and hosts
+
+Applications use `IZoneTreeCluster`: domains, columns, transactions and sync. The
+same client API works for a cluster in this process and for one hosted by other
+processes or machines, which `ZoneTreeClusterFactory.ConnectAsync` connects to.
+The process that owns the storage holds an `IZoneTreeClusterHost`, which the
+in-process factory methods return. The host is also a client, and adds storage
+maintenance, read-only, automatic syncing, backups and drop.
+
+A column definition's `Comparer`, `KeySerializer` and `ValueSerializer` are the
+schema that hosts and clients share. `ConfigureStorage` tunes the storage on the host.
+
 The cluster supports typed columns, reads and writes, rollback, conflict
 preflight, ordinary and durable commits, iteration, reopening and maintenance.
 A detected conflict is rejected before any column commits. Durability follows
@@ -37,9 +49,9 @@ each column's WAL configuration; new columns default to their own Shared WAL.
 - Cluster-wide backup and restore throw `NotSupportedException`.
 - Columns and domains cannot be added after the cluster is created.
 
-The async data methods of coordinated column views and raw columns run on the thread
-pool, so operations on different columns run in parallel. The operations of one
-coordinated column view run one at a time, in call order.
+The async data methods of coordinated column views and raw columns run on the thread pool,
+so operations on different columns run in parallel. The operations of one coordinated
+column view run one at a time, in call order.
 
 ## Usage
 
@@ -84,6 +96,7 @@ static async Task Example()
     ]
   };
 
+  // The in-process factory returns the host, which owns the storage.
   using var cluster = factory.OpenOrCreateInProcess(options);
   using var maintainer = cluster.CreateMaintainer();
 
@@ -95,7 +108,7 @@ static async Task Example()
   var visits = cluster.GetStandaloneColumn<long, long>("visits");
   var cache = cluster.GetRawColumn<string, Memory<byte>>("cache");
 
-  // A standalone column is a transactional ZoneTree, with its own transactions and helpers.
+  // A standalone column has its own transactions, which are also its column view.
   visits.Execute(transaction =>
   {
     transaction.TryGet(1L, out var count);
@@ -212,5 +225,9 @@ Coordinated column convenience methods include `TryGet`, `ContainsKey`, `Upsert`
 `TryDelete` and `AddOrUpdate`, plus async versions. Each convenience call uses its
 own transaction. Raw column operations do not create transactions.
 
-Cluster and column maintenance are available. The backup and restore API is
-defined, but its methods throw `NotSupportedException` until they are implemented.
+`Execute`, `ExecuteAsync` and `ExecuteDurableAsync` work for domains and standalone
+columns alike. A transaction whose commit ends in doubt can be looked up later with
+`GetTransactionOutcomeAsync`.
+
+Cluster and column maintenance are available on the host. The backup, restore and
+connect APIs are defined, but they throw `NotSupportedException` until they are implemented.

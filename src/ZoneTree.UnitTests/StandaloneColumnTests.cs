@@ -1,5 +1,6 @@
 using ZoneTree.Exceptions;
 using ZoneTree.Cluster;
+using ZoneTree.Transactional;
 
 namespace ZoneTree.UnitTests;
 
@@ -89,19 +90,6 @@ public sealed class StandaloneColumnTests
   }
 
   [Test]
-  public void DisposingAHandleDoesNotCloseTheColumn()
-  {
-    using var cluster = Factory.CreateInProcess(Options());
-    var visits = cluster.GetStandaloneColumn<int, int>("visits");
-    using (visits)
-    {
-    }
-    visits.Execute(transaction => transaction.Upsert(1, 1));
-    using var read = cluster.GetStandaloneColumn<int, int>("visits").BeginReadOnlyTransaction();
-    Assert.That(read.ContainsKey(1), Is.True);
-  }
-
-  [Test]
   public async Task ClusterSettingsAndSyncsIncludeStandaloneColumns()
   {
     using var cluster = Factory.CreateInProcess(Options());
@@ -109,10 +97,66 @@ public sealed class StandaloneColumnTests
     visits.Execute(transaction => transaction.Upsert(1, 1));
     await cluster.SyncWALAsync();
     cluster.IsReadOnly = true;
-    Assert.That(visits.IsReadOnly, Is.True);
+    Assert.That(cluster.GetStandaloneColumnStorage<int, int>("visits").IsReadOnly, Is.True);
     Assert.Throws<ZoneTreeIsReadOnlyException>(() => visits.BeginTransaction());
     cluster.IsReadOnly = false;
     visits.Execute(transaction => transaction.Upsert(2, 2));
     Assert.That(cluster.Maintenance.AbortedTransactionCount, Is.Zero);
+  }
+
+  [Test]
+  public async Task StandaloneTransactionsHaveTheClientTransactionApi()
+  {
+    using var cluster = Factory.CreateInProcess(Options());
+    var visits = cluster.GetStandaloneColumn<int, int>("visits");
+    await using (var transaction = await visits.BeginTransactionAsync())
+    {
+      // The async operations of a transaction run in call order.
+      var writes = Enumerable.Range(1, 50).Select(i => transaction.UpsertAsync(1, i).AsTask()).ToArray();
+      await Task.WhenAll(writes);
+      var own = await transaction.TryGetAsync(1);
+      Assert.That(own.Found && own.Value == 50, Is.True);
+      await transaction.CommitAsync();
+      Assert.That(transaction.State, Is.EqualTo(TransactionState.Committed));
+    }
+    await visits.ExecuteDurableAsync(async (transaction, token) =>
+    {
+      var count = await transaction.TryGetForUpdateAsync(1, token);
+      await transaction.UpsertAsync(1, count.Value + 1, token);
+    });
+    using (var rolledBack = visits.BeginTransaction())
+    {
+      rolledBack.Upsert(2, 2);
+      await rolledBack.RollbackAsync();
+      Assert.That(rolledBack.State, Is.EqualTo(TransactionState.Aborted));
+    }
+    await using (var read = await visits.BeginReadOnlyTransactionAsync())
+    {
+      Assert.That(read.TryGet(1, out var value) && value == 51, Is.True);
+      Assert.That(await read.ContainsKeyAsync(2), Is.False);
+      Assert.That(read.Range(0, 10).Select(x => x.Key), Is.EqualTo(new[] { 1 }));
+    }
+    Assert.That(await visits.GetTransactionOutcomeAsync(1), Is.EqualTo(TransactionOutcome.Unknown));
+    Assert.That(cluster.Maintenance.ActiveTransactionCount, Is.Zero);
+  }
+
+  [Test]
+  public void DisposingTheClusterRollsBackOpenStandaloneTransactions()
+  {
+    var cluster = Factory.CreateInProcess(Options());
+    var visits = cluster.GetStandaloneColumn<int, int>("visits");
+    visits.Execute(transaction => transaction.Upsert(1, 1));
+    var writer = visits.BeginTransaction();
+    writer.Upsert(1, 42);
+    var reader = visits.BeginReadOnlyTransaction();
+    Assert.That(cluster.Maintenance.ActiveTransactionCount, Is.EqualTo(2));
+    cluster.Dispose();
+    Assert.That(writer.State, Is.EqualTo(TransactionState.Aborted));
+    writer.Dispose();
+    reader.Dispose();
+
+    using var reopened = Factory.OpenInProcess(Options());
+    using var read = reopened.GetStandaloneColumn<int, int>("visits").BeginReadOnlyTransaction();
+    Assert.That(read.TryGet(1, out var value) && value == 1, Is.True);
   }
 }

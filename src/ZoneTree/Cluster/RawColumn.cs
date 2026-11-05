@@ -82,7 +82,7 @@ internal sealed class RawColumn<TKey, TValue> : Column,
     var comparer = Tree.Comparer;
     if (comparer.Compare(in from, in to) > 0)
       yield break;
-    using var iterator = reverse ? CreateReverseIterator() : CreateIterator();
+    using var iterator = reverse ? Tree.CreateReverseIterator() : Tree.CreateIterator();
     iterator.Seek(reverse ? to : from);
     while (iterator.Next())
     {
@@ -97,23 +97,35 @@ internal sealed class RawColumn<TKey, TValue> : Column,
       bool reverse = false, CancellationToken cancellationToken = default)
       => new AsyncRange<TKey, TValue>(Range(in from, in to, reverse), cancellationToken);
 
-  public IZoneTreeIterator<TKey, TValue> CreateIterator(IteratorOptions options = null)
+  public ITransactionIterator<TKey, TValue> CreateIterator(TransactionIteratorOptions options = null)
   {
     EnsureOpen();
-    return options == null ? Tree.CreateIterator() : Tree.CreateIterator(options);
+    return new RawColumnIterator<TKey, TValue>(
+        options == null ? Tree.CreateIterator() : Tree.CreateIterator(ToStorageOptions(options)));
   }
 
-  public IZoneTreeIterator<TKey, TValue> CreateReverseIterator(IteratorOptions options = null)
+  public ITransactionIterator<TKey, TValue> CreateReverseIterator(TransactionIteratorOptions options = null)
   {
     EnsureOpen();
-    return options == null ? Tree.CreateReverseIterator() : Tree.CreateReverseIterator(options);
+    return new RawColumnIterator<TKey, TValue>(
+        options == null ? Tree.CreateReverseIterator() : Tree.CreateReverseIterator(ToStorageOptions(options)));
   }
 
-  public IAsyncIterator<TKey, TValue> CreateAsyncIterator(IteratorOptions options = null)
-      => new AsyncRawIterator<TKey, TValue>(CreateIterator(options));
+  [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
+      Justification = "The async iterator owns the iterator and disposes it.")]
+  public IAsyncTransactionIterator<TKey, TValue> CreateAsyncIterator(TransactionIteratorOptions options = null)
+      => new AsyncTransactionIterator<TKey, TValue>(CreateIterator(options));
 
-  public IAsyncIterator<TKey, TValue> CreateAsyncReverseIterator(IteratorOptions options = null)
-      => new AsyncRawIterator<TKey, TValue>(CreateReverseIterator(options));
+  [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
+      Justification = "The async iterator owns the iterator and disposes it.")]
+  public IAsyncTransactionIterator<TKey, TValue> CreateAsyncReverseIterator(TransactionIteratorOptions options = null)
+      => new AsyncTransactionIterator<TKey, TValue>(CreateReverseIterator(options));
+
+  static IteratorOptions ToStorageOptions(TransactionIteratorOptions options) => new()
+  {
+    ContributeToTheBlockCache = options.ContributeToTheBlockCache,
+    DiskSegmentPrefetchSize = options.DiskSegmentPrefetchSize
+  };
 
   public Task SyncWALAsync(CancellationToken cancellationToken = default)
   {

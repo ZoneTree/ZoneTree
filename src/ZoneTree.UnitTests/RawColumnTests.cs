@@ -78,12 +78,12 @@ public sealed class RawColumnTests
       ]
     };
 
-    static void Verify(IZoneTreeCluster cluster)
+    static void Verify(IZoneTreeClusterHost cluster)
     {
-      var balances = cluster.GetDomain(Domain).GetColumn<int, int>("balances").Maintenance.ZoneTree.Maintenance.CloneOptions();
-      var names = cluster.GetDomain(Domain).GetColumn<long, string>("names").Maintenance.ZoneTree.Maintenance.CloneOptions();
-      var cache = cluster.GetRawColumn<int, string>("cache").Maintenance.CloneOptions();
-      var counters = cluster.GetRawColumn<long, long>("counters").Maintenance.CloneOptions();
+      var balances = cluster.GetCoordinatedColumnMaintenance<int, int>("balances").ZoneTree.Maintenance.CloneOptions();
+      var names = cluster.GetCoordinatedColumnMaintenance<long, string>("names").ZoneTree.Maintenance.CloneOptions();
+      var cache = cluster.GetRawColumnMaintenance<int, string>("cache").CloneOptions();
+      var counters = cluster.GetRawColumnMaintenance<long, long>("counters").CloneOptions();
       Assert.That(balances.MutableSegmentMaxItemCount, Is.EqualTo(20_000));
       Assert.That(balances.WriteAheadLogOptions.WriteAheadLogMode, Is.EqualTo(WriteAheadLogMode.Shared));
       Assert.That(names.MutableSegmentMaxItemCount, Is.EqualTo(10_000));
@@ -188,6 +188,13 @@ public sealed class RawColumnTests
     keys.Clear();
     while (await iterator.NextAsync()) keys.Add(iterator.CurrentKey);
     Assert.That(keys, Is.EqualTo(new[] { 4, 2, 1 }));
+    using (var forward = cache.CreateIterator(new() { DiskSegmentPrefetchSize = 16, ContributeToTheBlockCache = false }))
+    {
+      forward.Seek(2);
+      keys.Clear();
+      while (forward.Next()) keys.Add(forward.CurrentKey);
+      Assert.That(keys, Is.EqualTo(new[] { 2, 4, 5 }));
+    }
     await cache.SyncWALAsync();
   }
 

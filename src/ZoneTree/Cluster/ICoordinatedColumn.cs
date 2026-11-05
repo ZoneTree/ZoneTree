@@ -1,4 +1,3 @@
-using ZoneTree.Transactional;
 
 namespace ZoneTree.Cluster;
 
@@ -19,12 +18,4 @@ public interface ICoordinatedColumn<TKey, TValue>
 
   /// <summary>The domain whose transactions include this column.</summary>
   IClusterDomain Domain { get; }
-
-  /// <summary>
-  /// Per-column storage maintenance and diagnostics.
-  /// </summary>
-  ITransactionalZoneTreeMaintenance<TKey, TValue> Maintenance { get; }
-
-  /// <summary>Creates a maintainer for this column only.</summary>
-  IMaintainer CreateMaintainer();
 }

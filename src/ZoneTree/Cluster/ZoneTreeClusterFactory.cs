@@ -6,9 +6,9 @@ namespace ZoneTree.Cluster;
 /// <summary>Creates and opens clusters whose columns run in this process.</summary>
 public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
 {
-  public IZoneTreeCluster CreateInProcess(ZoneTreeClusterOptions options) => Open(options, true, false);
-  public IZoneTreeCluster OpenInProcess(ZoneTreeClusterOptions options) => Open(options, false, true);
-  public IZoneTreeCluster OpenOrCreateInProcess(ZoneTreeClusterOptions options) => Open(options, true, true);
+  public IZoneTreeClusterHost CreateInProcess(ZoneTreeClusterOptions options) => Open(options, true, false);
+  public IZoneTreeClusterHost OpenInProcess(ZoneTreeClusterOptions options) => Open(options, false, true);
+  public IZoneTreeClusterHost OpenOrCreateInProcess(ZoneTreeClusterOptions options) => Open(options, true, true);
 
   static ZoneTreeCluster Open(ZoneTreeClusterOptions options, bool canCreate, bool canOpen)
   {
@@ -144,12 +144,16 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
       throw new InvalidDataException("Unexpected data in the cluster schema.");
   }
 
-  public ValueTask<IZoneTreeCluster> RestoreInProcessAsync(ZoneTreeClusterOptions options,
+  public ValueTask<IZoneTreeClusterHost> RestoreInProcessAsync(ZoneTreeClusterOptions options,
       LocalLiveBackupOptions backup, long? generationId = null, CancellationToken cancellationToken = default)
       => throw new NotSupportedException("Cluster-wide backup and restore are not supported yet.");
 
-  public ValueTask<IZoneTreeCluster> RestoreInProcessAsync(ZoneTreeClusterOptions options,
+  public ValueTask<IZoneTreeClusterHost> RestoreInProcessAsync(ZoneTreeClusterOptions options,
       IBackupObjectStorage storage, ObjectStorageLiveBackupOptions backupOptions = null,
       long? generationId = null, CancellationToken cancellationToken = default)
       => throw new NotSupportedException("Cluster-wide backup and restore are not supported yet.");
+
+  public ValueTask<IZoneTreeCluster> ConnectAsync(ZoneTreeClusterConnectionOptions options,
+      CancellationToken cancellationToken = default)
+      => throw new NotSupportedException("Connecting to clusters hosted in other processes is not supported yet.");
 }

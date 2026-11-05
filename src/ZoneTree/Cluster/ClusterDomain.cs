@@ -77,6 +77,16 @@ internal sealed class ClusterDomain : IClusterDomain
     return new(BeginReadOnlyTransaction());
   }
 
+  // A transaction's outcome is decided by its commit, and an in-doubt outcome only by
+  // recovery. Until the commit protocol records outcomes, this process does not know them.
+  public ValueTask<TransactionOutcome> GetTransactionOutcomeAsync(
+      long transactionId, CancellationToken cancellationToken = default)
+  {
+    Cluster.ThrowIfDisposed();
+    cancellationToken.ThrowIfCancellationRequested();
+    return new(TransactionOutcome.Unknown);
+  }
+
   public Task SyncWALAsync(CancellationToken cancellationToken = default)
   {
     Cluster.ThrowIfDisposed();

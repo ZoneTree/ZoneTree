@@ -9,7 +9,7 @@ namespace ZoneTree.Cluster;
 
 /// <summary>An in-process cluster with coordinated, standalone and raw columns.</summary>
 /// <remarks>Snapshots, visibility and crash recovery across the columns of a domain are not atomic yet.</remarks>
-public sealed class ZoneTreeCluster : IZoneTreeCluster, IZoneTreeClusterMaintenance
+internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMaintenance
 {
   readonly Dictionary<string, Column> ColumnsByName = new(StringComparer.Ordinal);
   readonly Dictionary<string, ClusterDomain> DomainsByName = new(StringComparer.Ordinal);
@@ -18,7 +18,7 @@ public sealed class ZoneTreeCluster : IZoneTreeCluster, IZoneTreeClusterMaintena
   IReadOnlyList<string> ColumnNames = Array.Empty<string>();
   IReadOnlyList<string> DomainNames = Array.Empty<string>();
   // The transactions that disposal rolls back if they are still active.
-  readonly ConcurrentDictionary<DomainReadTransaction, byte> OpenTransactions = new();
+  readonly ConcurrentDictionary<IClusterOpenTransaction, byte> OpenTransactions = new();
   int Disposed;
   bool readOnly;
   TimeSpan autoSyncInterval;
@@ -136,8 +136,8 @@ public sealed class ZoneTreeCluster : IZoneTreeCluster, IZoneTreeClusterMaintena
   public int AbortedTransactionCount => Columns.Sum(column => column.AbortedTransactionCount);
   public int ConflictIndexCount => Columns.Sum(column => column.ConflictIndexCount);
 
-  internal void TransactionStarted(DomainReadTransaction transaction) => OpenTransactions.TryAdd(transaction, 0);
-  internal void TransactionEnded(DomainReadTransaction transaction) => OpenTransactions.TryRemove(transaction, out _);
+  internal void TransactionStarted(IClusterOpenTransaction transaction) => OpenTransactions.TryAdd(transaction, 0);
+  internal void TransactionEnded(IClusterOpenTransaction transaction) => OpenTransactions.TryRemove(transaction, out _);
 
   void RollBackOpenTransactions(ref List<Exception> errors)
   {
@@ -152,6 +152,28 @@ public sealed class ZoneTreeCluster : IZoneTreeCluster, IZoneTreeClusterMaintena
   {
     ThrowIfDisposed();
     return new ClusterMaintainer(Columns);
+  }
+
+  public IMaintainer CreateColumnMaintainer(string name) => FindColumn(name).CreateMaintainer();
+
+  public ITransactionalZoneTreeMaintenance<TKey, TValue> GetCoordinatedColumnMaintenance<TKey, TValue>(string name)
+      => (FindColumn(name) as CoordinatedColumn<TKey, TValue>
+          ?? throw new InvalidOperationException($"Column '{name}' has a different kind, key type or value type.")).Maintenance;
+
+  public IZoneTreeMaintenance<TKey, TValue> GetRawColumnMaintenance<TKey, TValue>(string name)
+      => (FindColumn(name) as RawColumn<TKey, TValue>
+          ?? throw new InvalidOperationException($"Column '{name}' has a different kind, key type or value type.")).Maintenance;
+
+  public ITransactionalZoneTree<TKey, TValue> GetStandaloneColumnStorage<TKey, TValue>(string name)
+      => (FindColumn(name) as StandaloneColumn<TKey, TValue>
+          ?? throw new InvalidOperationException($"Column '{name}' has a different kind, key type or value type.")).Tree;
+
+  Column FindColumn(string name)
+  {
+    ThrowIfDisposed();
+    return ColumnsByName.TryGetValue(name, out var column)
+        ? column
+        : throw new KeyNotFoundException($"Column '{name}' does not exist.");
   }
 
   public void SaveMetaData()

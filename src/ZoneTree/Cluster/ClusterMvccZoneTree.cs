@@ -54,7 +54,7 @@ namespace ZoneTree.Cluster;
 /// </remarks>
 /// <typeparam name="TKey">The key type.</typeparam>
 /// <typeparam name="TValue">The value type.</typeparam>
-public sealed class ClusterMvccZoneTree<TKey, TValue> :
+internal sealed class ClusterMvccZoneTree<TKey, TValue> :
     ITransactionalZoneTree<TKey, TValue>,
     ITransactionalZoneTreeMaintenance<TKey, TValue>
 {

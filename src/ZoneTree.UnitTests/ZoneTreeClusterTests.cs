@@ -276,13 +276,13 @@ public sealed class ZoneTreeClusterTests
     var numbers = cluster.GetDomain(Domain).GetColumn<int, int>("numbers");
     var names = cluster.GetDomain(Domain).GetColumn<long, string>("names");
     using var transaction = cluster.GetDomain(Domain).BeginTransaction();
-    Assert.That(numbers.Maintenance.ActiveTransactionCount, Is.Zero);
-    Assert.That(names.Maintenance.ActiveTransactionCount, Is.Zero);
+    Assert.That(cluster.GetCoordinatedColumnMaintenance<int, int>("numbers").ActiveTransactionCount, Is.Zero);
+    Assert.That(cluster.GetCoordinatedColumnMaintenance<long, string>("names").ActiveTransactionCount, Is.Zero);
     var view = transaction.GetColumn(numbers);
     Assert.That(transaction.GetColumn(numbers), Is.SameAs(view));
     Assert.That(((IDomainReadTransaction)transaction).GetColumn(numbers), Is.SameAs(view));
-    Assert.That(numbers.Maintenance.ActiveTransactionCount, Is.EqualTo(1));
-    Assert.That(names.Maintenance.ActiveTransactionCount, Is.Zero);
+    Assert.That(cluster.GetCoordinatedColumnMaintenance<int, int>("numbers").ActiveTransactionCount, Is.EqualTo(1));
+    Assert.That(cluster.GetCoordinatedColumnMaintenance<long, string>("names").ActiveTransactionCount, Is.Zero);
     transaction.Rollback();
     Assert.That(cluster.Maintenance.ActiveTransactionCount, Is.Zero);
     Assert.Throws<TransactionAbortedException>(() => transaction.GetColumn(numbers));
@@ -396,7 +396,7 @@ public sealed class ZoneTreeClusterTests
     using var transaction = cluster.GetDomain(Domain).BeginTransaction();
     transaction.GetColumn(numbers).Upsert(1, 42);
     transaction.GetColumn(names).Upsert(1L, "Alice");
-    names.Maintenance.ZoneTree.IsReadOnly = true;
+    cluster.GetCoordinatedColumnMaintenance<long, string>("names").ZoneTree.IsReadOnly = true;
     Assert.Throws<ZoneTreeIsReadOnlyException>(() => transaction.TryCommit());
     Assert.That(transaction.State, Is.EqualTo(TransactionState.InDoubt));
     Assert.Throws<TransactionInDoubtException>(() => transaction.GetColumn(numbers));

@@ -1,8 +1,8 @@
 namespace ZoneTree.Cluster;
 
-/// <summary>An asynchronous column iterator borrowing a cluster transaction's snapshot.</summary>
+/// <summary>An asynchronous column iterator. The iterator of a transaction view reads its transaction's snapshot.</summary>
 /// <remarks>
-/// Use the iterator sequentially and dispose it before its transaction ends.
+/// Use the iterator sequentially, and dispose the iterator of a transaction view before its transaction ends.
 /// </remarks>
 public interface IAsyncTransactionIterator<TKey, TValue> : IAsyncDisposable
 {

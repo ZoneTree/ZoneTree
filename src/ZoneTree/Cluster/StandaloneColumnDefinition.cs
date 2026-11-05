@@ -1,4 +1,6 @@
+using ZoneTree.Comparers;
 using ZoneTree.Options;
+using ZoneTree.Serializers;
 
 namespace ZoneTree.Cluster;
 
@@ -14,7 +16,19 @@ public sealed class StandaloneColumnDefinition<TKey, TValue> : ColumnDefinition
 
   public StandaloneColumnDefinition(string name) : base(name) { }
 
-  /// <summary>Configures the column's transactional ZoneTree storage after the cluster's StorageDefaults hook.</summary>
+  /// <summary>The key comparer. Null uses the default comparer of the key type.</summary>
+  public IRefComparer<TKey> Comparer { get; init; }
+
+  /// <summary>The key serializer. Null uses the default serializer of the key type.</summary>
+  public ISerializer<TKey> KeySerializer { get; init; }
+
+  /// <summary>The value serializer. Null uses the default serializer of the value type.</summary>
+  public ISerializer<TValue> ValueSerializer { get; init; }
+
+  /// <summary>
+  /// Configures the column storage on the host, such as segment, cache, compression and
+  /// WAL tuning. Runs after the cluster's StorageDefaults hook. Clients do not use it.
+  /// </summary>
   public Action<ZoneTreeFactory<TKey, TValue>> ConfigureStorage { get; init; }
 
   internal override Column Open(
@@ -23,8 +37,10 @@ public sealed class StandaloneColumnDefinition<TKey, TValue> : ColumnDefinition
     var factory = new ZoneTreeFactory<TKey, TValue>()
         .SetLogger(cluster.Logger)
         .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.Shared);
+    ColumnSchema.Apply(factory, Comparer, KeySerializer, ValueSerializer);
     storageDefaults?.Configure(this, factory);
     ConfigureStorage?.Invoke(factory);
+    ColumnSchema.Verify(factory, Name, Comparer, KeySerializer, ValueSerializer);
     factory.SetDataDirectory(Path.Combine(cluster.DataDirectory, $"column-{index:D6}"));
     var tree = create ? factory.CreateTransactional() : factory.OpenTransactional();
     return new StandaloneColumn<TKey, TValue>(cluster, index, Name, tree);

@@ -2,7 +2,7 @@ using ZoneTree.Transactional;
 
 namespace ZoneTree.Cluster;
 
-internal class DomainReadTransaction : IDomainReadTransaction
+internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTransaction
 {
   protected readonly ZoneTreeCluster Cluster;
   protected readonly ClusterDomain Domain;
@@ -83,11 +83,7 @@ internal class DomainReadTransaction : IDomainReadTransaction
     Close();
   }
 
-  /// <summary>
-  /// Rolls the transaction back when the cluster closes. A transaction whose commit
-  /// started is left to finish: closing a column publishes its pending commits.
-  /// </summary>
-  internal void RollbackOnClose() => RollbackCore();
+  public void RollbackOnClose() => RollbackCore();
 
   public void Dispose() => RollbackCore();
 

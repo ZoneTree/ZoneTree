@@ -7,7 +7,7 @@ namespace ZoneTree.Cluster;
 /// Cluster transactions span the columns of a single domain.
 /// </summary>
 /// <remarks>The domain and its column handles are thread-safe.</remarks>
-public interface IClusterDomain
+public interface IClusterDomain : IClusterTransactionSource<IDomainTransaction>
 {
   /// <summary>The persisted, case-sensitive domain name.</summary>
   string Name { get; }
@@ -22,18 +22,6 @@ public interface IClusterDomain
   /// <exception cref="KeyNotFoundException">The domain has no such column.</exception>
   /// <exception cref="InvalidOperationException">The column has different types.</exception>
   ICoordinatedColumn<TKey, TValue> GetColumn<TKey, TValue>(string name);
-
-  /// <summary>
-  /// Begins a read/write transaction with the requested isolation level across the domain's columns.
-  /// </summary>
-  /// <exception cref="Exceptions.ZoneTreeIsReadOnlyException">The cluster is read-only.</exception>
-  IDomainTransaction BeginTransaction(
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable);
-
-  /// <summary>Asynchronously begins a read/write transaction.</summary>
-  ValueTask<IDomainTransaction> BeginTransactionAsync(
-      TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
-      CancellationToken cancellationToken = default);
 
   /// <summary>Begins a read-only transaction across the domain's columns.</summary>
   IDomainReadTransaction BeginReadOnlyTransaction();
