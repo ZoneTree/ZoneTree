@@ -7,8 +7,8 @@ internal sealed class CoordinatedColumn<TKey, TValue> : Column,
 {
   internal readonly ClusterMvccZoneTree<TKey, TValue> Tree;
 
-  internal CoordinatedColumn(ZoneTreeCluster cluster, int index, string name,
-      ClusterMvccZoneTree<TKey, TValue> tree) : base(cluster, index, name) => Tree = tree;
+  internal CoordinatedColumn(ZoneTreeCluster cluster, long id, string name,
+      ClusterMvccZoneTree<TKey, TValue> tree) : base(cluster, id, name) => Tree = tree;
 
   IZoneTreeCluster ICoordinatedColumn<TKey, TValue>.Cluster => Cluster;
   IClusterDomain ICoordinatedColumn<TKey, TValue>.Domain => Domain;

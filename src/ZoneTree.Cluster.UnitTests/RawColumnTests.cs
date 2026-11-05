@@ -273,7 +273,7 @@ public sealed class RawColumnTests
         : new CoordinatedColumnDefinition<int, string>("data");
     var original = Options(Definition(originallyRaw));
     using (Factory.CreateInProcess(original)) { }
-    Assert.Throws<InvalidDataException>(() => Factory.OpenOrCreateInProcess(Options(Definition(!originallyRaw))));
+    Assert.Throws<SchemaConflictException>(() => Factory.OpenOrCreateInProcess(Options(Definition(!originallyRaw))));
     using var reopened = Factory.OpenInProcess(original);
     Assert.That(reopened.Maintenance.ColumnNames, Is.EqualTo(new[] { "data" }));
   }
@@ -316,10 +316,14 @@ public sealed class RawColumnTests
   [Test]
   public async Task RawByteArraysCanUseAnExplicitSerializerAndReopen()
   {
-    var options = Options(new RawColumnDefinition<string, byte[]>("cache")
+    // byte[] has no built-in encoding, so the column names a registered one.
+    var options = new ZoneTreeClusterOptions
     {
-      ConfigureStorage = factory => factory.SetValueSerializer(new BytesSerializer())
-    });
+      DataDirectory = DataDirectory,
+      Logger = SilentTestLogger.Instance,
+      Encodings = new ClusterEncodingRegistry().AddSerializer("test.bytes", 1, new BytesSerializer()),
+      Columns = [new RawColumnDefinition<string, byte[]>("cache") { ValueSerializerId = "test.bytes" }]
+    };
     using (var cluster = Factory.CreateInProcess(options))
     {
       var cache = cluster.GetRawColumn<string, byte[]>("cache");

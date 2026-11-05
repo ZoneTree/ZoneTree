@@ -1,11 +1,12 @@
 namespace ZoneTree.Cluster;
 
 /// <summary>
-/// The kind of a column. The values are stored in the cluster schema.
+/// The kind of a cluster column, fixed when the column is created. The values are stored in
+/// the cluster catalog.
 /// </summary>
-internal enum ColumnKind : byte
+public enum ColumnKind : byte
 {
-  /// <summary>A cluster MVCC tree that takes part in cluster transactions.</summary>
+  /// <summary>A column of a domain that takes part in the domain's cluster transactions.</summary>
   Coordinated = 0,
 
   /// <summary>A plain, non-transactional ZoneTree.</summary>

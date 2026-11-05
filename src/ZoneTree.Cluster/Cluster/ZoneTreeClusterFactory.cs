@@ -4,6 +4,10 @@ using ZoneTree.Exceptions;
 namespace ZoneTree.Cluster;
 
 /// <summary>Creates and opens clusters whose columns run in this process.</summary>
+/// <remarks>
+/// A cluster exists once its catalog exists. Creating a cluster creates the catalog; opening
+/// one applies the declared schema to the catalog it finds.
+/// </remarks>
 public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
 {
   public IZoneTreeClusterHost CreateInProcess(ZoneTreeClusterOptions options) => Open(options, true, false);
@@ -14,134 +18,76 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
   {
     ArgumentNullException.ThrowIfNull(options);
     ArgumentNullException.ThrowIfNull(options.Logger);
+    ArgumentNullException.ThrowIfNull(options.Encodings);
     if (string.IsNullOrWhiteSpace(options.DataDirectory))
       throw new ArgumentException("A data directory is required.", nameof(options));
     ZoneTreeCluster.ValidateSyncInterval(options.AutoSyncInterval);
-    var (definitions, domainNames) = GetColumnDefinitions(options);
+    var columns = ValidateDeclarations(options);
     var directory = Path.GetFullPath(options.DataDirectory);
     if (!canCreate && !Directory.Exists(directory))
       throw new DatabaseNotFoundException();
     Directory.CreateDirectory(directory);
     var lease = new FileStream(Path.Combine(directory, "database.lock"),
         FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-    var columns = new Column[definitions.Length];
-    var opened = 0;
+    ClusterCatalog catalog = null;
+    ZoneTreeCluster cluster = null;
     try
     {
-      var manifest = Path.Combine(directory, "database.schema");
-      var exists = File.Exists(manifest);
-      if (exists && !canOpen)
-        throw new DatabaseAlreadyExistsException();
-      if (!exists && !canCreate)
-        throw new DatabaseNotFoundException();
-      if (exists)
-        ReadSchema(manifest, definitions, domainNames);
-      var cluster = new ZoneTreeCluster(directory, options.Logger, lease);
-      for (; opened < columns.Length; ++opened)
-        columns[opened] = definitions[opened].Open(cluster, opened, create: !exists, options.StorageDefaults);
-      if (!exists)
-        WriteSchema(manifest, definitions, domainNames);
-      var domains = options.Domains
-          .Select(domain => (domain.Name, columns.Where((_, index) => domainNames[index] == domain.Name).ToArray()))
-          .ToArray();
-      cluster.Initialize(columns, domains, options);
+      catalog = ClusterCatalog.Open(directory, options.Logger, canCreate, canOpen);
+      cluster = new ZoneTreeCluster(directory, options, lease, catalog);
+      cluster.ApplyDeclarations(options, columns);
       return cluster;
     }
     catch
     {
-      for (var index = opened - 1; index >= 0; --index)
+      try
       {
-        try { columns[index].Dispose(); }
-        catch (Exception error) { options.Logger.LogError(error); }
+        if (cluster != null)
+          cluster.Dispose();
+        else
+        {
+          catalog?.Dispose();
+          lease.Dispose();
+        }
       }
-      lease.Dispose();
+      catch (Exception error)
+      {
+        options.Logger.LogError(error);
+      }
       throw;
     }
   }
 
-  // TODO: make a better schema for the cluster before first release to avoid frequent migrations and never introduce compatibility or migration until we release. always keep schema version 1 until the first release.
-  const int SchemaVersion = 1;
-
   /// <summary>
-  /// Validates the options and lists every column in schema declaration order: the columns
-  /// of each domain, then the standalone and raw columns. Each column has its domain name,
-  /// which is empty for the columns outside domains.
+  /// Validates the declared schema before anything is created: unique names, coordinated
+  /// columns only in domains, and encodings that resolve for the declared types. Lists every
+  /// declared column with its domain name, which is null outside domains.
   /// </summary>
-  static (ColumnDefinition[] Definitions, string[] DomainNames) GetColumnDefinitions(ZoneTreeClusterOptions options)
+  static List<(ColumnDefinition Column, string Domain)> ValidateDeclarations(ZoneTreeClusterOptions options)
   {
-    var definitions = new List<ColumnDefinition>();
-    var domainNames = new List<string>();
+    var columns = new List<(ColumnDefinition Column, string Domain)>();
     var domains = new HashSet<string>(StringComparer.Ordinal);
     foreach (var domain in options.Domains ?? [])
     {
       if (domain == null || !domains.Add(domain.Name))
         throw new ArgumentException("Domain definitions must be non-null and have unique names.", nameof(options));
-      if (domain.Columns == null || domain.Columns.Count == 0)
-        throw new ArgumentException($"Domain '{domain.Name}' needs at least one column.", nameof(options));
-      foreach (var column in domain.Columns)
-      {
-        definitions.Add(column);
-        domainNames.Add(domain.Name);
-      }
+      foreach (var column in domain.Columns ?? [])
+        columns.Add((column, domain.Name));
     }
     foreach (var column in options.Columns ?? [])
     {
       if (column?.Kind == ColumnKind.Coordinated)
         throw new ArgumentException($"Coordinated column '{column.Name}' must be declared in a domain.", nameof(options));
-      definitions.Add(column);
-      domainNames.Add(string.Empty);
+      columns.Add((column, null));
     }
-    if (definitions.Count == 0)
-      throw new ArgumentException("At least one column is required.", nameof(options));
     var names = new HashSet<string>(StringComparer.Ordinal);
-    foreach (var definition in definitions)
+    foreach (var (column, _) in columns)
     {
-      if (definition == null || !names.Add(definition.Name))
+      if (column == null || !names.Add(column.Name))
         throw new ArgumentException("Column definitions must be non-null and have unique names.", nameof(options));
+      column.ValidateEncodings(options.Encodings);
     }
-    return (definitions.ToArray(), domainNames.ToArray());
-  }
-
-  static void WriteSchema(string path, ColumnDefinition[] definitions, string[] domainNames)
-  {
-    using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-    using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
-    writer.Write(SchemaVersion);
-    writer.Write(definitions.Length);
-    for (var index = 0; index < definitions.Length; ++index)
-    {
-      var column = definitions[index];
-      writer.Write(column.Name);
-      writer.Write(column.KeyType.FullName);
-      writer.Write(column.ValueType.FullName);
-      writer.Write((byte)column.Kind);
-      writer.Write(domainNames[index]);
-    }
-    writer.Flush();
-    stream.Flush(flushToDisk: true);
-  }
-
-  static void ReadSchema(string path, ColumnDefinition[] definitions, string[] domainNames)
-  {
-    using var stream = File.OpenRead(path);
-    using var reader = new BinaryReader(stream);
-    if (reader.ReadInt32() != SchemaVersion || reader.ReadInt32() != definitions.Length)
-      throw new InvalidDataException("The cluster schema does not match the column definitions.");
-    for (var index = 0; index < definitions.Length; ++index)
-    {
-      var column = definitions[index];
-      if (reader.ReadString() != column.Name || reader.ReadString() != column.KeyType.FullName ||
-          reader.ReadString() != column.ValueType.FullName)
-        throw new InvalidDataException("Column names, types and declaration order must match the stored schema.");
-      var kind = (ColumnKind)reader.ReadByte();
-      if (kind != column.Kind)
-        throw new InvalidDataException($"Column '{column.Name}' is stored as a {kind} column, not a {column.Kind} column.");
-      var domain = reader.ReadString();
-      if (domain != domainNames[index])
-        throw new InvalidDataException($"Column '{column.Name}' is stored in another domain.");
-    }
-    if (stream.Position != stream.Length)
-      throw new InvalidDataException("Unexpected data in the cluster schema.");
+    return columns;
   }
 
   public ValueTask<IZoneTreeClusterHost> RestoreInProcessAsync(ZoneTreeClusterOptions options,

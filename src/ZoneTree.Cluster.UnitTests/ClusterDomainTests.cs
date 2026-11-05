@@ -81,7 +81,6 @@ public sealed class ClusterDomainTests
       Logger = SilentTestLogger.Instance,
       Columns = [new CoordinatedColumnDefinition<long, long>("balances")]
     }));
-    Assert.Throws<ArgumentException>(() => Factory.CreateInProcess(Options(new DomainDefinition("empty"))));
     Assert.Throws<ArgumentException>(() => Factory.CreateInProcess(Options(
         new DomainDefinition("same") { Columns = [new CoordinatedColumnDefinition<long, long>("a")] },
         new DomainDefinition("same") { Columns = [new CoordinatedColumnDefinition<long, long>("b")] })));
@@ -112,7 +111,7 @@ public sealed class ClusterDomainTests
     using (Factory.CreateInProcess(Options(Domains("first"))))
     {
     }
-    Assert.Throws<InvalidDataException>(() => Factory.OpenInProcess(Options(Domains("second"))));
+    Assert.Throws<SchemaConflictException>(() => Factory.OpenInProcess(Options(Domains("second"))));
     using var reopened = Factory.OpenInProcess(Options(Domains("first")));
     Assert.That(reopened.GetDomain("first").ColumnNames, Is.EqualTo(new[] { "a", "b" }));
   }

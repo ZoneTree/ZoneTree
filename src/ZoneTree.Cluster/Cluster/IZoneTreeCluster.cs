@@ -14,6 +14,11 @@ namespace ZoneTree.Cluster;
 /// </remarks>
 public interface IZoneTreeCluster : IDisposable, IAsyncDisposable
 {
+  /// <summary>
+  /// The cluster schema, for creating and describing domains and columns at run time.
+  /// </summary>
+  IClusterSchema Schema { get; }
+
   /// <summary>Gets a domain of coordinated columns. Names are case-sensitive.</summary>
   /// <exception cref="KeyNotFoundException">The domain does not exist.</exception>
   IClusterDomain GetDomain(string name);

@@ -448,7 +448,7 @@ public sealed class ZoneTreeClusterTests
       DataDirectory = DataDirectory,
       Domains = [new DomainDefinition(Domain) { Columns = [new CoordinatedColumnDefinition<int, string>("numbers")] }]
     };
-    Assert.Throws<InvalidDataException>(() => Factory.OpenOrCreateInProcess(mismatch));
+    Assert.Throws<SchemaConflictException>(() => Factory.OpenOrCreateInProcess(mismatch));
     using var reopened = Factory.OpenInProcess(options);
     Assert.That(reopened.Maintenance.ActiveTransactionCount, Is.Zero);
   }

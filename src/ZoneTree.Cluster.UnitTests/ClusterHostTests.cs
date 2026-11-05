@@ -38,8 +38,8 @@ public sealed class ClusterHostTests
         [
           new CoordinatedColumnDefinition<long, long>("balances")
           {
-            Comparer = new Int64ComparerDescending(),
-            KeySerializer = new Int64Serializer()
+            ComparerId = "zonetree.int64.descending",
+            KeySerializerId = "zonetree.int64"
           }
         ]
       }
@@ -47,7 +47,7 @@ public sealed class ClusterHostTests
     Columns =
     [
       new StandaloneColumnDefinition<int, int>("visits"),
-      new RawColumnDefinition<int, string>("cache") { ValueSerializer = new Utf8StringSerializer() }
+      new RawColumnDefinition<int, string>("cache") { ValueSerializerId = "zonetree.string.utf8" }
     ]
   };
 
@@ -95,7 +95,7 @@ public sealed class ClusterHostTests
       [
         new StandaloneColumnDefinition<long, long>("visits")
         {
-          Comparer = new Int64ComparerDescending(),
+          ComparerId = "zonetree.int64.descending",
           ConfigureStorage = storage => storage.SetComparer(new Int64ComparerAscending())
         }
       ]

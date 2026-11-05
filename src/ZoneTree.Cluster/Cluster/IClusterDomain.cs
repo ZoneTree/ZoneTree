@@ -15,7 +15,7 @@ public interface IClusterDomain : IClusterTransactionSource<IDomainTransaction>
   /// <summary>The cluster that owns this domain.</summary>
   IZoneTreeCluster Cluster { get; }
 
-  /// <summary>The domain's column names in schema declaration order.</summary>
+  /// <summary>The domain's column names in creation order, including columns created at run time.</summary>
   IReadOnlyList<string> ColumnNames { get; }
 
   /// <summary>Gets a typed handle to a column of this domain. Names are case-sensitive.</summary>

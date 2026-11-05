@@ -8,8 +8,8 @@ internal sealed class StandaloneColumn<TKey, TValue> : Column,
   internal readonly ITransactionalZoneTree<TKey, TValue> Tree;
   volatile bool Disposed;
 
-  internal StandaloneColumn(ZoneTreeCluster cluster, int index, string name,
-      ITransactionalZoneTree<TKey, TValue> tree) : base(cluster, index, name) => Tree = tree;
+  internal StandaloneColumn(ZoneTreeCluster cluster, long id, string name,
+      ITransactionalZoneTree<TKey, TValue> tree) : base(cluster, id, name) => Tree = tree;
 
   IZoneTreeCluster IStandaloneColumn<TKey, TValue>.Cluster => Cluster;
   internal override int AbortedTransactionCount => Tree.Maintenance.AbortedTransactionCount;

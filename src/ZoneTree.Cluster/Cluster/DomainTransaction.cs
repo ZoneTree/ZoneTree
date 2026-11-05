@@ -101,7 +101,7 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
     if (views.Length == 1)
       return BeginSingleCommit(views[0], durable);
 
-    Array.Sort(views, static (left, right) => left.Column.Index.CompareTo(right.Column.Index));
+    Array.Sort(views, static (left, right) => left.Column.Id.CompareTo(right.Column.Id));
     var entered = 0;
     try
     {

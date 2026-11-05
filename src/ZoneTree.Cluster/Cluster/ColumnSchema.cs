@@ -1,45 +1,36 @@
-using ZoneTree.Comparers;
-using ZoneTree.Serializers;
+using ZoneTree.Options;
 
 namespace ZoneTree.Cluster;
 
 /// <summary>
-/// Applies the schema of a column definition: the comparer and serializers that the hosts
-/// and the clients of a cluster share. Storage hooks run afterward.
+/// Prepares the storage factory of a column: its registered encodings, then the host's
+/// storage hooks. Preparing runs before a new column enters the catalog, so a failing hook
+/// leaves no column behind.
 /// </summary>
 internal static class ColumnSchema
 {
-  internal static ZoneTreeFactory<TKey, TValue> Apply<TKey, TValue>(
-      ZoneTreeFactory<TKey, TValue> factory,
-      IRefComparer<TKey> comparer,
-      ISerializer<TKey> keySerializer,
-      ISerializer<TValue> valueSerializer)
+  internal static ZoneTreeFactory<TKey, TValue> Prepare<TKey, TValue>(
+      ZoneTreeCluster cluster,
+      ColumnDefinition column,
+      ColumnEncodings<TKey, TValue> encodings,
+      Action<ZoneTreeFactory<TKey, TValue>> configureStorage)
   {
-    if (comparer != null)
-      factory.SetComparer(comparer);
-    if (keySerializer != null)
-      factory.SetKeySerializer(keySerializer);
-    if (valueSerializer != null)
-      factory.SetValueSerializer(valueSerializer);
-    return factory;
-  }
-
-  /// <summary>
-  /// Checks that the storage hooks kept the schema. Hosts and clients encode and order
-  /// keys with the schema, so a hook that replaced it would make them disagree.
-  /// </summary>
-  internal static void Verify<TKey, TValue>(
-      ZoneTreeFactory<TKey, TValue> factory,
-      string columnName,
-      IRefComparer<TKey> comparer,
-      ISerializer<TKey> keySerializer,
-      ISerializer<TValue> valueSerializer)
-  {
+    var factory = new ZoneTreeFactory<TKey, TValue>()
+        .SetLogger(cluster.Logger)
+        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.Shared)
+        .SetComparer(encodings.Comparer)
+        .SetKeySerializer(encodings.KeySerializer)
+        .SetValueSerializer(encodings.ValueSerializer);
+    cluster.StorageDefaults?.Configure(column, factory);
+    configureStorage?.Invoke(factory);
+    // Every process that opens the column encodes and orders keys with the registered
+    // encodings, so a storage hook that replaced them would make them disagree.
     var options = factory.Options;
-    if ((comparer != null && !ReferenceEquals(options.Comparer, comparer)) ||
-        (keySerializer != null && !ReferenceEquals(options.KeySerializer, keySerializer)) ||
-        (valueSerializer != null && !ReferenceEquals(options.ValueSerializer, valueSerializer)))
+    if (!ReferenceEquals(options.Comparer, encodings.Comparer) ||
+        !ReferenceEquals(options.KeySerializer, encodings.KeySerializer) ||
+        !ReferenceEquals(options.ValueSerializer, encodings.ValueSerializer))
       throw new ArgumentException(
-          $"The storage configuration of column '{columnName}' replaced its comparer or serializers. Set them only in the column definition.");
+          $"The storage configuration of column '{column.Name}' replaced its comparer or serializers. Name them in the column definition instead.");
+    return factory;
   }
 }

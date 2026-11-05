@@ -5,7 +5,8 @@ namespace ZoneTree.Cluster;
 internal abstract class Column : IDisposable
 {
   internal readonly ZoneTreeCluster Cluster;
-  internal readonly int Index;
+  /// <summary>The catalog id of the column, which never changes and is never reused.</summary>
+  internal readonly long Id;
   // TODO: Revisit this extra gate when column validation and preparation can be atomic.
   // It currently keeps another cluster transaction from committing to a column between
   // multi-column conflict preflight and commit startup, which could otherwise cause a
@@ -18,10 +19,10 @@ internal abstract class Column : IDisposable
   /// <summary>The domain of a coordinated column; null for other kinds.</summary>
   internal ClusterDomain Domain;
 
-  protected Column(ZoneTreeCluster cluster, int index, string name)
+  protected Column(ZoneTreeCluster cluster, long id, string name)
   {
     Cluster = cluster;
-    Index = index;
+    Id = id;
     Name = name;
   }
 

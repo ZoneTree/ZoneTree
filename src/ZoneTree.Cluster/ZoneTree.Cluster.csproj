@@ -46,6 +46,10 @@
     <ProjectReference Include="..\ZoneTree\ZoneTree.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="ZoneTree.Cluster.UnitTests" />
+  </ItemGroup>
+
   <!-- The cluster uses ZoneTree internals, so the package depends on the exact ZoneTree version it was built with. -->
   <Target Name="PinZoneTreeVersion" AfterTargets="_GetProjectReferenceVersions">
     <ItemGroup>

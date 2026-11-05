@@ -5,7 +5,7 @@ Distribution is **by column**: each column is a separate ZoneTree with its own
 may share a row-key type, but do not have to; joins are explicit application reads.
 
 `ZoneTreeClusterFactory` opens a cluster whose columns run in this process.
-A column has one of three kinds, fixed when the cluster is created:
+A column has one of three kinds, fixed when the column is created:
 
 | Kind | Engine | Transactions |
 | --- | --- | --- |
@@ -17,6 +17,28 @@ Coordinated columns are declared inside a **domain**. A domain has one timestamp
 source and one commit protocol, and a cluster transaction begins from a domain and
 spans only its columns, wherever they run. Standalone and raw columns are declared
 outside domains. Column names are unique across the cluster.
+
+## Schema
+
+The cluster **catalog** is the single source of truth for the schema: the domains,
+the columns with their kinds and encodings, and stable ids that are never reused. It
+is a transactional ZoneTree in the cluster directory, and every schema change is one
+durable catalog commit with its own schema epoch.
+
+- **Declared schema.** The `Domains` and `Columns` of `ZoneTreeClusterOptions` are
+  created when they are missing and checked when they exist. Declaration order does
+  not matter, nothing is deleted, and the catalog may hold more than is declared.
+- **Schema at run time.** `cluster.Schema` creates domains and columns while the
+  cluster runs: `CreateDomainAsync`, `CreateColumnAsync`, their idempotent
+  `GetOrCreate` forms, and `DescribeAsync`. A column that exists with another kind,
+  domain or encoding fails with `SchemaConflictException`.
+- **Opening columns.** A column opens when it is declared or created in this process,
+  or when it is first requested with its types, such as `GetRawColumn<TKey, TValue>`.
+- **Encodings.** Definitions name their key serializer, value serializer and comparer
+  by id in `ZoneTreeClusterOptions.Encodings`. Built-in ids, such as `zonetree.int64`
+  and `zonetree.string.ordinal.descending`, cover the types ZoneTree supports by
+  default and are used when a definition names none. Custom encodings are registered
+  with an id and a version; a column opens only with the versions it was created with.
 
 The goals are high performance, feature parity with single-tree MVCC, and one
 algorithm across in-process, cross-process and cross-machine distribution.
@@ -30,8 +52,8 @@ The process that owns the storage holds an `IZoneTreeClusterHost`, which the
 in-process factory methods return. The host is also a client, and adds storage
 maintenance, read-only, automatic syncing, backups and drop.
 
-A column definition's `Comparer`, `KeySerializer` and `ValueSerializer` are the
-schema that hosts and clients share. `ConfigureStorage` tunes the storage on the host.
+A column's registered encodings are the schema that hosts and clients share.
+`ConfigureStorage` tunes the storage on the host and cannot replace them.
 
 The cluster supports typed columns, reads and writes, rollback, conflict
 preflight, ordinary and durable commits, iteration, reopening and maintenance.
@@ -45,9 +67,8 @@ each column's WAL configuration; new columns default to their own Shared WAL.
 - Commits across columns are not atomic for visibility or crash recovery. An
   error after column commits start may leave some columns committed; the
   transaction then reports `InDoubt` and throws rather than reporting a conflict.
-- Domain timestamps are kept in memory and start again when the cluster reopens.
 - Cluster-wide backup and restore throw `NotSupportedException`.
-- Columns and domains cannot be added after the cluster is created.
+- Columns and domains cannot be dropped or renamed yet.
 
 The async data methods of column views and raw columns run on the thread pool, so
 operations run in parallel, on one view or on different columns. The caller decides
@@ -55,8 +76,8 @@ the order: await an operation before starting one that depends on it.
 
 ## Usage
 
-`ConfigureStorage` reuses the existing typed
-factory for serializers, comparers, compression, cache and segment tuning.
+`ConfigureStorage` reuses the existing typed factory for compression, cache, WAL and
+segment tuning.
 Optional `StorageDefaults` applies to every column, of every kind, when
 creating or opening it. Each column's `ConfigureStorage` runs afterward, allowing
 overrides. The configurator's generic method works with every column's key/value types.
@@ -162,6 +183,13 @@ static async Task Example()
   // Batch ordinary commits, then make all previously published commits durable.
   await cluster.SyncWALAsync();
 
+  // Create a domain and its columns while the cluster runs. GetOrCreate is idempotent.
+  var orders = await cluster.Schema.GetOrCreateDomainAsync("orders");
+  var lines = await cluster.Schema.GetOrCreateColumnAsync("orders",
+      new CoordinatedColumnDefinition<Guid, string>("lines"));
+  await orders.ExecuteAsync(async (transaction, token) =>
+      await transaction.GetColumn(lines).UpsertAsync(Guid.NewGuid(), "2 x coffee", token));
+
 }
 
 sealed class BankStorageDefaults : IColumnStorageConfigurator
@@ -212,7 +240,8 @@ value/deletion settings. Raw handles are thread-safe; dispose their iterators wh
 `IsReadOnly` prevents raw writes and new writing transactions. Cluster-wide
 `SyncWALAsync`, automatic syncing and maintenance include every kind of column.
 
-Column kind is stored with the schema. Reopening with a different kind fails.
+The catalog stores each column's kind, domain and encodings. Declaring or creating a
+column with others fails with `SchemaConflictException`.
 
 Column views, and the operations of each view, may be used concurrently. A commit or
 rollback waits for the running operations, and one that starts while the transaction

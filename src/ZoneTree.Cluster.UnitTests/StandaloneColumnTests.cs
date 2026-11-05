@@ -85,7 +85,7 @@ public sealed class StandaloneColumnTests
     using (Factory.CreateInProcess(Options(Definition(standalone))))
     {
     }
-    Assert.Throws<InvalidDataException>(() => Factory.OpenInProcess(Options(Definition(!standalone))));
+    Assert.Throws<SchemaConflictException>(() => Factory.OpenInProcess(Options(Definition(!standalone))));
     using var reopened = Factory.OpenInProcess(Options(Definition(standalone)));
   }
 

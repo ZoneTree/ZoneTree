@@ -6,39 +6,29 @@ namespace ZoneTree.Cluster;
 
 internal sealed class ClusterDomain : IClusterDomain
 {
-  readonly Dictionary<string, Column> ColumnsByName = new(StringComparer.Ordinal);
   internal readonly ZoneTreeCluster Cluster;
-  readonly Column[] Columns;
-  long Clock;
-  long LastCommit;
+
+  /// <summary>The catalog id of the domain, which never changes and is never reused.</summary>
+  internal readonly long Id;
+
+  readonly DomainTimestampSource Timestamps;
 
   public string Name { get; }
-  public IReadOnlyList<string> ColumnNames { get; }
+  /// <summary>The domain's column names in creation order, including columns created at run time.</summary>
+  public IReadOnlyList<string> ColumnNames => Cluster.Catalog.State.ColumnNamesOf(Id);
   IZoneTreeCluster IClusterDomain.Cluster => Cluster;
-  public long LastCommitTimestamp => Volatile.Read(ref LastCommit);
+  public long LastCommitTimestamp => Timestamps.LastCommitTimestamp;
 
-  internal ClusterDomain(ZoneTreeCluster cluster, string name, Column[] columns)
+  internal ClusterDomain(ZoneTreeCluster cluster, DomainRecord record, DomainTimestampSource timestamps)
   {
     Cluster = cluster;
-    Name = name;
-    Columns = columns;
-    var names = new string[columns.Length];
-    for (var index = 0; index < columns.Length; ++index)
-    {
-      ColumnsByName.Add(columns[index].Name, columns[index]);
-      names[index] = columns[index].Name;
-    }
-    ColumnNames = Array.AsReadOnly(names);
+    Id = record.Id;
+    Name = record.Name;
+    Timestamps = timestamps;
   }
 
   public ICoordinatedColumn<TKey, TValue> GetColumn<TKey, TValue>(string name)
-  {
-    Cluster.ThrowIfDisposed();
-    if (!ColumnsByName.TryGetValue(name, out var column))
-      throw new KeyNotFoundException($"Domain '{Name}' has no column '{name}'.");
-    return column as ICoordinatedColumn<TKey, TValue>
-        ?? throw new InvalidOperationException($"Column '{name}' has a different key type or value type.");
-  }
+      => Cluster.GetCoordinatedColumn<TKey, TValue>(this, name);
 
   public IDomainTransaction BeginTransaction(
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable)
@@ -55,8 +45,7 @@ internal sealed class ClusterDomain : IClusterDomain
     TransactionExpiry.Validate(options);
     if (Cluster.IsReadOnly)
       throw new ZoneTreeIsReadOnlyException();
-    return new DomainTransaction(this, Interlocked.Increment(ref Clock),
-        Volatile.Read(ref LastCommit), options);
+    return new DomainTransaction(this, Timestamps.Next(), Timestamps.LastCommitTimestamp, options);
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
@@ -81,7 +70,7 @@ internal sealed class ClusterDomain : IClusterDomain
   public IDomainReadTransaction BeginReadOnlyTransaction()
   {
     Cluster.ThrowIfDisposed();
-    return new DomainReadTransaction(this, Volatile.Read(ref LastCommit));
+    return new DomainReadTransaction(this, Timestamps.LastCommitTimestamp);
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
@@ -98,7 +87,7 @@ internal sealed class ClusterDomain : IClusterDomain
     options ??= new();
     Cluster.ThrowIfDisposed();
     TransactionExpiry.Validate(options);
-    return new DomainReadTransaction(this, Volatile.Read(ref LastCommit), options.Timeout);
+    return new DomainReadTransaction(this, Timestamps.LastCommitTimestamp, options.Timeout);
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
@@ -124,24 +113,9 @@ internal sealed class ClusterDomain : IClusterDomain
   {
     Cluster.ThrowIfDisposed();
     cancellationToken.ThrowIfCancellationRequested();
-    var tasks = new Task[Columns.Length];
-    for (var index = 0; index < Columns.Length; ++index)
-      tasks[index] = Columns[index].SyncWALAsync();
-    var sync = Task.WhenAll(tasks);
+    var sync = Task.WhenAll(Cluster.OpenColumnsOf(this).Select(column => column.SyncWALAsync()));
     return cancellationToken.CanBeCanceled ? sync.WaitAsync(cancellationToken) : sync;
   }
 
-  internal long TransactionCommitted()
-  {
-    var timestamp = Interlocked.Increment(ref Clock);
-    var current = Volatile.Read(ref LastCommit);
-    while (current < timestamp)
-    {
-      var observed = Interlocked.CompareExchange(ref LastCommit, timestamp, current);
-      if (observed == current)
-        break;
-      current = observed;
-    }
-    return timestamp;
-  }
+  internal long TransactionCommitted() => Timestamps.Commit();
 }

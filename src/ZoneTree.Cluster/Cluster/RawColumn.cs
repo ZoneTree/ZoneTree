@@ -12,8 +12,8 @@ internal sealed class RawColumn<TKey, TValue> : Column,
   CancellationTokenSource AutoSyncCancellation;
   Task AutoSyncTask;
 
-  internal RawColumn(ZoneTreeCluster cluster, int index, string name,
-      IZoneTree<TKey, TValue> tree) : base(cluster, index, name) => Tree = tree;
+  internal RawColumn(ZoneTreeCluster cluster, long id, string name,
+      IZoneTree<TKey, TValue> tree) : base(cluster, id, name) => Tree = tree;
 
   IZoneTreeCluster IRawColumn<TKey, TValue>.Cluster => Cluster;
   public IZoneTreeMaintenance<TKey, TValue> Maintenance => Tree.Maintenance;
