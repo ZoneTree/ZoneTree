@@ -77,9 +77,9 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
       case TransactionState.Aborted:
         throw new TransactionAbortedException(TransactionId);
       case TransactionState.Committing:
-        throw new InvalidOperationException("The transaction is waiting for its commit to be published.");
+        throw new TransactionCommitInProgressException(TransactionId);
       case TransactionState.InDoubt:
-        throw new InvalidOperationException("The transaction's commit outcome is uncertain after a sync failure.");
+        throw new TransactionInDoubtException(TransactionId);
     }
   }
 
@@ -208,29 +208,51 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
 
   public bool TryCommit()
   {
-    EnsureActive();
-    if (HasConflict)
+    Task<bool> commit;
+    lock (Tree.CommitGate)
     {
-      Rollback();
-      return false;
+      EnsureActive();
+      if (HasConflict)
+      {
+        Rollback();
+        return false;
+      }
+      ReleaseReaders();
+      commit = StartCommit(false);
     }
-    ReleaseReaders();
-    bool isCommitted;
+    // Waiting on the task itself needs no thread pool thread:
+    // the commit sync thread completes a pending commit.
+    return commit.GetAwaiter().GetResult();
+  }
+
+  /// <summary>
+  /// Starts the commit in the tree, and sets the state of a commit that ends at once.
+  /// The tree publishes a pending commit, or marks it in doubt, before it completes its
+  /// task. So callers can wait on the returned task without a continuation.
+  /// </summary>
+  Task<bool> StartCommit(bool durable)
+  {
+    Task<bool> commit;
     try
     {
-      isCommitted = Tree.Commit(this);
+      commit = durable ? Tree.CommitDurableAsync(this) : Tree.CommitAsync(this);
     }
-    catch
+    catch (Exception e)
     {
       // A failure before the commit point rolled the transaction back,
       // and one after it leaves the transaction committed.
       if (state == TransactionState.Active)
         state = TransactionState.Aborted;
-      throw;
+      return Task.FromException<bool>(e);
     }
-    if (!isCommitted)
+    if (commit.IsCompletedSuccessfully)
+    {
+      if (!commit.GetAwaiter().GetResult())
+        state = TransactionState.Aborted;
+    }
+    else if (commit.IsCompleted && state == TransactionState.Active)
       state = TransactionState.Aborted;
-    return isCommitted;
+    return commit;
   }
 
   /// <summary>
@@ -251,74 +273,59 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
       return Task.FromResult(false);
     }
     ReleaseReaders();
+    return StartCommit(durable && HasWrites);
+  }
+
+  public Task CommitDurableAsync(CancellationToken cancellationToken = default)
+  {
+    var commit = TryCommitDurableAsync(cancellationToken);
+    if (commit.IsCompletedSuccessfully)
+      return commit.GetAwaiter().GetResult()
+          ? Task.CompletedTask
+          : Task.FromException(new TransactionConflictException(TransactionId));
+    // A commit that did not end at once never reports a conflict. Returning its
+    // task keeps a blocking caller from waiting for a thread pool continuation.
+    return commit;
+  }
+
+  public Task<bool> TryCommitDurableAsync(CancellationToken cancellationToken = default)
+  {
+    if (cancellationToken.IsCancellationRequested)
+      return ThrowCanceledAsync(cancellationToken);
+    Task<bool> commit;
     try
     {
-      var commit = durable && HasWrites ? Tree.CommitDurableAsync(this) : Tree.CommitAsync(this);
-      if (commit.IsCompletedSuccessfully)
+      lock (Tree.CommitGate)
       {
-        if (!GetCompletedResult(commit))
-          state = TransactionState.Aborted;
-        return commit;
+        EnsureActive();
+        if (HasConflict)
+        {
+          Rollback();
+          return Task.FromResult(false);
+        }
+        ReleaseReaders();
+        commit = StartCommit(true);
       }
-      return CompleteDatabaseCommitAsync(commit);
     }
-    catch
+    catch (Exception e)
     {
-      if (state == TransactionState.Active)
-        state = TransactionState.Aborted;
-      throw;
+      return Task.FromException<bool>(e);
     }
+    // Cancellation stops this wait, not the sync or its eventual publication.
+    return commit.IsCompleted || !cancellationToken.CanBeCanceled
+        ? commit
+        : commit.WaitAsync(cancellationToken);
   }
 
-  static bool GetCompletedResult(Task<bool> commit) => commit.GetAwaiter().GetResult();
-
-  async Task<bool> CompleteDatabaseCommitAsync(Task<bool> commit)
+  /// <summary>
+  /// Fails with <see cref="OperationCanceledException"/> itself, not a
+  /// <see cref="TaskCanceledException"/>, before the commit starts.
+  /// </summary>
+  static async Task<bool> ThrowCanceledAsync(CancellationToken cancellationToken)
   {
-    try
-    {
-      var committed = await commit.ConfigureAwait(false);
-      if (!committed)
-        state = TransactionState.Aborted;
-      return committed;
-    }
-    catch
-    {
-      if (state == TransactionState.Active)
-        state = TransactionState.Aborted;
-      throw;
-    }
-  }
-
-  public async Task CommitDurableAsync(CancellationToken cancellationToken = default)
-  {
-    if (!await TryCommitDurableAsync(cancellationToken).ConfigureAwait(false))
-      throw new TransactionConflictException(TransactionId);
-  }
-
-  public async Task<bool> TryCommitDurableAsync(CancellationToken cancellationToken = default)
-  {
+    await Task.CompletedTask.ConfigureAwait(false);
     cancellationToken.ThrowIfCancellationRequested();
-    EnsureActive();
-    if (HasConflict)
-    {
-      Rollback();
-      return false;
-    }
-    ReleaseReaders();
-    try
-    {
-      // Cancellation stops this wait, not the sync or its eventual publication.
-      var committed = await Tree.CommitDurableAsync(this).WaitAsync(cancellationToken).ConfigureAwait(false);
-      if (!committed)
-        state = TransactionState.Aborted;
-      return committed;
-    }
-    catch
-    {
-      if (state == TransactionState.Active)
-        state = TransactionState.Aborted;
-      throw;
-    }
+    return false;
   }
 
   internal void OnCommitting() => state = TransactionState.Committing;
