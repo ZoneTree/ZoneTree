@@ -1,0 +1,31 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <PropertyGroup>
+    <Copyright>Ahmed Yasin Koculu</Copyright>
+    <Authors>Ahmed Yasin Koculu</Authors>
+    <PackageId>ZoneTree</PackageId>
+    <Title>ZoneTree</Title>
+    <ProductVersion>2.1.3.0</ProductVersion>
+    <Version>2.1.3.0</Version>
+    <AssemblyTitle>ZoneTree</AssemblyTitle>
+    <Description>ZoneTree is a persistent, high-performance, transactional, ACID-compliant ordered key-value database and LSM-tree storage engine for .NET.</Description>
+    <Summary>
+      ZoneTree is a persistent, high-performance, transactional, ACID-compliant ordered key-value database and LSM-tree storage engine for .NET.
+    </Summary>
+    <PackageTags>high-performance, database, consistency, persistence, iterator, binary-tree, durability, isolation, key-value-database, atomicity, lsm-tree, key-value-store, storage-engine, wal, ordered-key-value, dotnet, transactions</PackageTags>
+    <ReleaseNotes></ReleaseNotes>
+    <Company>ZoneTree</Company>
+
+    <PackageProjectUrl>https://zonetree.dev</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+
+    <AnalysisMode>All</AnalysisMode>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <DebugType>portable</DebugType>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>
