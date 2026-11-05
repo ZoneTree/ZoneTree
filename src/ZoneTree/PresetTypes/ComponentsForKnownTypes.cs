@@ -1,5 +1,4 @@
 using ZoneTree.Comparers;
-using ZoneTree.Exceptions;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 using ZoneTree.Hashers;
@@ -45,9 +44,8 @@ public static class ComponentsForKnownTypes
       comparer =
           new ByteArrayLexicographicComparerAscending() as IRefComparer<TKey>;
     else if (typeof(TKey) == typeof(byte[]))
-    {
-      throw new ZoneTreeException("ZoneTree<byte[], ...> is not supported. Use ZoneTree<Memory<byte>, ...> instead.");
-    }
+      comparer =
+          new BytesLexicographicComparerAscending() as IRefComparer<TKey>;
     return comparer;
   }
 
@@ -72,11 +70,7 @@ public static class ComponentsForKnownTypes
       return new ByteArrayKeyHasher() as IKeyHasher<TKey>;
 
     if (typeof(TKey) == typeof(byte[]))
-    {
-      throw new ZoneTreeException(
-          "ZoneTree<byte[], ...> is not supported. " +
-          "Use ZoneTree<Memory<byte>, ...> instead.");
-    }
+      return new BytesKeyHasher() as IKeyHasher<TKey>;
     return null;
   }
 
@@ -116,9 +110,8 @@ public static class ComponentsForKnownTypes
           new ByteArraySerializer() as ISerializer<T>;
     }
     else if (typeof(T) == typeof(byte[]))
-    {
-      throw new ZoneTreeException("ZoneTree<byte[], ...> is not supported. Use ZoneTree<Memory<byte>, ...> instead.");
-    }
+      serializer =
+          new BytesSerializer() as ISerializer<T>;
     return serializer;
   }
 
@@ -136,6 +129,9 @@ public static class ComponentsForKnownTypes
   static bool IsDeletedULong<TKey>(in TKey key, in ulong value) => value == default;
   static bool IsDeletedGuid<TKey>(in TKey key, in Guid value) => value == default;
   static bool IsDeletedMemoryByte<TKey>(in TKey key, in Memory<byte> value) => value.Length == 0;
+  // A byte array, like a byte memory, has no bytes once deleted: a null array is stored as no
+  // bytes and reads back as an empty array, so an empty array is deleted too.
+  static bool IsDeletedByteArray<TKey>(in TKey key, in byte[] value) => value == null || value.Length == 0;
   static bool IsDeletedReferenceType<TKey, TValue>(in TKey key, in TValue value) => ReferenceEquals(value, default(TValue));
   static bool IsDeletedDefault<TKey, TValue>(in TKey key, in TValue value) => EqualityComparer<TValue>.Default.Equals(value, default);
 
@@ -171,6 +167,8 @@ public static class ComponentsForKnownTypes
 
     if (typeof(TValue) == typeof(Memory<byte>))
       result = Cast(new IsDeletedDelegate<TKey, Memory<byte>>(IsDeletedMemoryByte));
+    if (typeof(TValue) == typeof(byte[]))
+      return Cast(new IsDeletedDelegate<TKey, byte[]>(IsDeletedByteArray));
     if (!typeof(TValue).IsValueType)
       return IsDeletedReferenceType;
     return result;
