@@ -79,13 +79,26 @@ public sealed class MvccZoneTree<TKey, TValue> :
 
   readonly Lock CommitLock = new();
 
+  // TODO: Consider making this gate optional after further measurements. It serializes
+  // commit admission and conflict cleanup to reduce retry storms. In the 10K-key,
+  // 16-worker hot-1 benchmark, AsyncShared improved 68.8K -> 121.9K ops/s (+77%),
+  // with conflicts 129,112 -> 22,847; Shared improved 73.9K -> 102.1K ops/s (+38%),
+  // with conflicts 79,404 -> 24,042. Smaller differences may be measurement noise.
+  internal readonly object CommitGate = new();
+
   readonly Queue<PendingCommit> PendingCommits = new();
 
   PendingCommit LastPendingCommit;
 
   bool CommitSyncRunning;
 
-  Task CommitSyncTask;
+  // Syncs and publishes the pending commits. Callers block on pending commits, so the
+  // worker must not need a thread pool thread: it could queue behind the blocked callers.
+  Thread CommitSyncThread;
+
+  readonly AutoResetEvent CommitSyncSignal = new(false);
+
+  bool IsCommitSyncStopping;
 
   long LastPreparedCommitTimestamp;
 
@@ -516,8 +529,8 @@ public sealed class MvccZoneTree<TKey, TValue> :
   /// only after syncing, without holding that lock during disk I/O. Later commits
   /// wait for the preceding publication so snapshots never acquire missing commits.
   /// </remarks>
-  internal bool Commit(MvccTransaction<TKey, TValue> transaction)
-      => PrepareCommit(transaction, false).GetAwaiter().GetResult();
+  internal Task<bool> CommitAsync(MvccTransaction<TKey, TValue> transaction)
+      => PrepareCommit(transaction, false);
 
   internal Task<bool> CommitDurableAsync(MvccTransaction<TKey, TValue> transaction)
       => PrepareCommit(transaction, true);
@@ -543,6 +556,9 @@ public sealed class MvccZoneTree<TKey, TValue> :
       {
         if (CommitFailure != null)
           throw new InvalidOperationException("A previous commit sync failed. Reopen the tree before committing again.", CommitFailure);
+        // A commit that will wait for the worker needs it before the commit point.
+        if (durable || PendingCommits.Count != 0)
+          EnsureCommitSyncThread();
         // Prepared commits reserve their keys too, even while invisible during sync.
         hasConflict =
             LastPreparedCommitTimestamp > transaction.SnapshotTimestamp &&
@@ -585,7 +601,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
           if (!CommitSyncRunning)
           {
             CommitSyncRunning = true;
-            CommitSyncTask = Task.Run(SyncAndPublishAsync);
+            CommitSyncSignal.Set();
           }
         }
       }
@@ -597,6 +613,8 @@ public sealed class MvccZoneTree<TKey, TValue> :
     }
     if (pending == null)
       return Task.FromResult(true);
+    // Completes with true once published, or with the sync failure. A conflict is
+    // only found before the commit point, so it never completes a pending commit.
     return pending.Completion.Task;
   }
 
@@ -623,8 +641,37 @@ public sealed class MvccZoneTree<TKey, TValue> :
     }
   }
 
-  async Task SyncAndPublishAsync()
+  // Called under CommitLock.
+  void EnsureCommitSyncThread()
   {
+    if (IsCommitSyncStopping)
+      throw new ObjectDisposedException(GetType().FullName);
+    if (CommitSyncThread != null)
+      return;
+    var thread = new Thread(RunCommitSync)
+    {
+      IsBackground = true,
+      Name = "ZoneTree commit sync"
+    };
+    thread.Start();
+    CommitSyncThread = thread;
+  }
+
+  void RunCommitSync()
+  {
+    while (true)
+    {
+      CommitSyncSignal.WaitOne();
+      SyncAndPublish();
+      // Stopping signals after it is set, so the commits pending by then are published.
+      if (Volatile.Read(ref IsCommitSyncStopping))
+        return;
+    }
+  }
+
+  void SyncAndPublish()
+  {
+    var published = new List<PendingCommit>();
     try
     {
       while (true)
@@ -642,7 +689,9 @@ public sealed class MvccZoneTree<TKey, TValue> :
         }
         // One worker batches all prepared records preceding this sync. The
         // commit lock is free during I/O, and cancelling a caller cannot stop it.
-        await Storage.SyncWALAsync().ConfigureAwait(false);
+        // Blocking keeps the worker off the thread pool: the WAL completes the sync
+        // on this thread or on its writer thread.
+        Storage.SyncWALAsync().GetAwaiter().GetResult();
         lock (CommitLock)
         {
           foreach (var item in PendingCommits)
@@ -655,9 +704,14 @@ public sealed class MvccZoneTree<TKey, TValue> :
           {
             PublishCommit(next.Transaction, next.Synced);
             PendingCommits.Dequeue();
-            next.Completion.TrySetResult(true);
+            published.Add(next);
           }
         }
+        // Blocked callers wake on this thread. Waking them after the commit lock is
+        // released keeps them from contending for it with the rest of the batch.
+        foreach (var item in published)
+          item.Completion.TrySetResult(true);
+        published.Clear();
       }
     }
     catch (Exception error)
@@ -1043,10 +1097,21 @@ public sealed class MvccZoneTree<TKey, TValue> :
       isDisposed = true;
       StopAutoSync();
     }
-    Task commitSync;
+    Thread commitSync;
     lock (CommitLock)
-      commitSync = CommitSyncTask;
-    commitSync?.GetAwaiter().GetResult();
+    {
+      // Later commits that would wait for the worker throw instead.
+      IsCommitSyncStopping = true;
+      commitSync = CommitSyncThread;
+      CommitSyncThread = null;
+    }
+    if (commitSync != null)
+    {
+      // The worker publishes the pending commits before it stops.
+      CommitSyncSignal.Set();
+      commitSync.Join();
+    }
+    CommitSyncSignal.Dispose();
     StorageMaintenance.OnMergeOperationEnded -= OnMergeOperationEnded;
   }
 
