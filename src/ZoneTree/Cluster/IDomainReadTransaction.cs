@@ -2,9 +2,9 @@ namespace ZoneTree.Cluster;
 
 /// <summary>A consistent snapshot shared by the domain columns read by a transaction.</summary>
 /// <remarks>
-/// Different column views may be used concurrently; each individual view is sequential.
-/// Finish outstanding operations before ending the transaction. Column views and
-/// iterators cannot be used after the transaction ends.
+/// Column views, and the operations of each view, may be used concurrently. A commit or
+/// rollback waits for the running operations, and one that starts while the transaction
+/// ends throws. Column views and iterators cannot be used after the transaction ends.
 /// </remarks>
 public interface IDomainReadTransaction : IDisposable, IAsyncDisposable
 {

@@ -48,28 +48,16 @@ internal sealed class RawColumn<TKey, TValue> : Column,
   // The tree is thread-safe, so the async operations run on the thread pool without
   // an order between them, and the columns of a cluster can be written in parallel.
   public ValueTask<bool> ContainsKeyAsync(TKey key, CancellationToken cancellationToken = default)
-      => RunAsync(() => ContainsKey(in key), cancellationToken);
+      => AsyncOperations.Run(() => ContainsKey(in key), cancellationToken);
 
   public ValueTask<ReadResult<TValue>> TryGetAsync(TKey key, CancellationToken cancellationToken = default)
-      => RunAsync(() => new ReadResult<TValue>(TryGet(in key, out var value), value), cancellationToken);
+      => AsyncOperations.Run(() => new ReadResult<TValue>(TryGet(in key, out var value), value), cancellationToken);
 
   public ValueTask UpsertAsync(TKey key, TValue value, CancellationToken cancellationToken = default)
-      => RunAsync(() => Upsert(in key, in value), cancellationToken);
+      => AsyncOperations.Run(() => Upsert(in key, in value), cancellationToken);
 
   public ValueTask DeleteAsync(TKey key, CancellationToken cancellationToken = default)
-      => RunAsync(() => Delete(in key), cancellationToken);
-
-  static ValueTask<T> RunAsync<T>(Func<T> operation, CancellationToken cancellationToken)
-  {
-    cancellationToken.ThrowIfCancellationRequested();
-    return new(Task.Run(operation, cancellationToken));
-  }
-
-  static ValueTask RunAsync(Action operation, CancellationToken cancellationToken)
-  {
-    cancellationToken.ThrowIfCancellationRequested();
-    return new(Task.Run(operation, cancellationToken));
-  }
+      => AsyncOperations.Run(() => Delete(in key), cancellationToken);
 
   public IEnumerable<KeyValuePair<TKey, TValue>> Range(in TKey from, in TKey to, bool reverse = false)
   {

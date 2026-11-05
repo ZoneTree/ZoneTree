@@ -49,9 +49,9 @@ each column's WAL configuration; new columns default to their own Shared WAL.
 - Cluster-wide backup and restore throw `NotSupportedException`.
 - Columns and domains cannot be added after the cluster is created.
 
-The async data methods of coordinated column views and raw columns run on the thread pool,
-so operations on different columns run in parallel. The operations of one coordinated
-column view run one at a time, in call order.
+The async data methods of column views and raw columns run on the thread pool, so
+operations run in parallel, on one view or on different columns. The caller decides
+the order: await an operation before starting one that depends on it.
 
 ## Usage
 
@@ -204,9 +204,9 @@ value/deletion settings. Raw handles are thread-safe; dispose their iterators wh
 
 Column kind is stored with the schema. Reopening with a different kind fails.
 
-Different coordinated column views may be used concurrently. Use the synchronous methods
-of each view sequentially; its async methods are queued in call order. Await all
-outstanding operations before ending the transaction.
+Column views, and the operations of each view, may be used concurrently. A commit or
+rollback waits for the running operations, and one that starts while the transaction
+ends throws, so await all outstanding operations before ending the transaction.
 The example starts independent column writes together and awaits both before commit.
 
 Async point methods return `ValueTask`. `TryGetAsync` and `TryGetForUpdateAsync`

@@ -8,7 +8,6 @@ internal class StandaloneReadTransaction<TKey, TValue> :
 {
   readonly IReadTransaction<TKey, TValue> Transaction;
   protected readonly ZoneTreeCluster Cluster;
-  protected readonly OrderedOperationQueue Operations = new();
   int Ended;
 
   internal StandaloneReadTransaction(ZoneTreeCluster cluster, IReadTransaction<TKey, TValue> transaction)
@@ -25,10 +24,10 @@ internal class StandaloneReadTransaction<TKey, TValue> :
   public bool TryGet(in TKey key, out TValue value) => Transaction.TryGet(in key, out value);
 
   public ValueTask<bool> ContainsKeyAsync(TKey key, CancellationToken cancellationToken = default)
-      => Operations.RunAsync(() => ContainsKey(in key), cancellationToken);
+      => AsyncOperations.Run(() => ContainsKey(in key), cancellationToken);
 
   public ValueTask<ReadResult<TValue>> TryGetAsync(TKey key, CancellationToken cancellationToken = default)
-      => Operations.RunAsync(() => new ReadResult<TValue>(TryGet(in key, out var value), value), cancellationToken);
+      => AsyncOperations.Run(() => new ReadResult<TValue>(TryGet(in key, out var value), value), cancellationToken);
 
   public IEnumerable<KeyValuePair<TKey, TValue>> Range(in TKey from, in TKey to, bool reverse = false)
       => Transaction.Range(in from, in to, reverse);

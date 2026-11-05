@@ -5,9 +5,10 @@ namespace ZoneTree.Cluster;
 /// <summary>A typed column view borrowing its cluster transaction's snapshot.</summary>
 /// <remarks>
 /// Reads use the parent transaction's snapshot and include its own writes.
-/// Use the synchronous methods of each view sequentially and only while its transaction
-/// is active; its asynchronous methods run in call order. In a remote cluster the
-/// synchronous methods block the calling thread for a network round trip.
+/// Use a view only while its transaction is active. Its methods can be called concurrently;
+/// concurrent operations run in parallel, in no particular order, so await an operation
+/// before starting one that depends on it. Use each iterator from one caller at a time.
+/// In a remote cluster the synchronous methods block the calling thread for a network round trip.
 /// </remarks>
 public interface IReadColumn<TKey, TValue>
 {

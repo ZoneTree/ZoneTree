@@ -1,24 +1,32 @@
 namespace ZoneTree.Cluster;
 
+/// <summary>
+/// The view of one column inside a domain transaction, which the domain transaction uses
+/// to coordinate its views of differently typed columns.
+/// </summary>
 internal abstract class ColumnView : IDisposable
 {
   internal Column Column;
   internal virtual bool ConflictDetected => false;
   internal virtual bool HasWrites => false;
   internal virtual bool CanCommit() => true;
+
+  /// <summary>
+  /// Rejects new operations of the view and waits for the running ones, before the
+  /// domain transaction validates and commits it.
+  /// </summary>
+  internal abstract void StopOperations();
+
   internal abstract Task<bool> BeginCommit(bool durable);
   public abstract void Dispose();
 
-  readonly OrderedOperationQueue Operations = new();
-
   /// <summary>
-  /// Runs an async operation of this view on the thread pool, so a caller can work on
-  /// the views of different columns in parallel. The state of a view is not thread-safe,
-  /// so its own operations run one at a time, in call order.
+  /// Runs an async operation of this view on the thread pool. The view is thread-safe,
+  /// so its operations, and those of other views, run in parallel.
   /// </summary>
-  internal ValueTask<T> RunAsync<T>(Func<T> operation, CancellationToken cancellationToken)
-      => Operations.RunAsync(operation, cancellationToken);
+  internal static ValueTask<T> RunAsync<T>(Func<T> operation, CancellationToken cancellationToken)
+      => AsyncOperations.Run(operation, cancellationToken);
 
-  internal ValueTask RunAsync(Action operation, CancellationToken cancellationToken)
-      => Operations.RunAsync(operation, cancellationToken);
+  internal static ValueTask RunAsync(Action operation, CancellationToken cancellationToken)
+      => AsyncOperations.Run(operation, cancellationToken);
 }

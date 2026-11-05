@@ -111,9 +111,10 @@ public sealed class StandaloneColumnTests
     var visits = cluster.GetStandaloneColumn<int, int>("visits");
     await using (var transaction = await visits.BeginTransactionAsync())
     {
-      // The async operations of a transaction run in call order.
-      var writes = Enumerable.Range(1, 50).Select(i => transaction.UpsertAsync(1, i).AsTask()).ToArray();
+      // The async operations of a transaction run in parallel.
+      var writes = Enumerable.Range(100, 50).Select(i => transaction.UpsertAsync(i, i).AsTask()).ToArray();
       await Task.WhenAll(writes);
+      await transaction.UpsertAsync(1, 50);
       var own = await transaction.TryGetAsync(1);
       Assert.That(own.Found && own.Value == 50, Is.True);
       await transaction.CommitAsync();
@@ -135,6 +136,7 @@ public sealed class StandaloneColumnTests
       Assert.That(read.TryGet(1, out var value) && value == 51, Is.True);
       Assert.That(await read.ContainsKeyAsync(2), Is.False);
       Assert.That(read.Range(0, 10).Select(x => x.Key), Is.EqualTo(new[] { 1 }));
+      Assert.That(read.Range(100, 200).Count(), Is.EqualTo(50));
     }
     Assert.That(await visits.GetTransactionOutcomeAsync(1), Is.EqualTo(TransactionOutcome.Unknown));
     Assert.That(cluster.Maintenance.ActiveTransactionCount, Is.Zero);

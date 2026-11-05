@@ -10,7 +10,7 @@ internal sealed class ClusterMvccReadTransaction<TKey, TValue> : ClusterMvccRead
 {
   readonly SnapshotBucket Bucket;
 
-  bool isDisposed;
+  int isDisposed;
 
   public ClusterMvccReadTransaction(
       ClusterMvccZoneTree<TKey, TValue> tree,
@@ -21,16 +21,20 @@ internal sealed class ClusterMvccReadTransaction<TKey, TValue> : ClusterMvccRead
     Bucket = bucket;
   }
 
+  protected override bool IsActive => Volatile.Read(ref isDisposed) == 0;
+
   internal override void EnsureActive()
   {
-    ObjectDisposedException.ThrowIf(isDisposed, this);
+    ObjectDisposedException.ThrowIf(!IsActive, this);
   }
+
+  protected override void ThrowEnding() => ObjectDisposedException.ThrowIf(true, this);
 
   public override void Dispose()
   {
-    if (isDisposed)
+    if (Interlocked.Exchange(ref isDisposed, 1) != 0)
       return;
-    isDisposed = true;
+    StopOperations();
     ReleaseReaders();
     // Leaves without the state lock; a later writer or merge
     // prunes what the snapshot kept.

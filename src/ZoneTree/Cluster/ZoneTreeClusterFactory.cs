@@ -59,7 +59,7 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
     }
   }
 
-  // TODO: make a better schema for the cluster before first release to avoid frequent migrations and never try introduce compatibility until we release. always keep schema version 1 until the first release.
+  // TODO: make a better schema for the cluster before first release to avoid frequent migrations and never introduce compatibility or migration until we release. always keep schema version 1 until the first release.
   const int SchemaVersion = 1;
 
   /// <summary>

@@ -6,8 +6,22 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
 {
   protected readonly ZoneTreeCluster Cluster;
   protected readonly ClusterDomain Domain;
+
+  /// <summary>
+  /// Guards the views and the claim on the end of the transaction, so a view is
+  /// never added or left out while a commit or rollback takes the views.
+  /// </summary>
+  protected readonly Lock ViewLock = new();
+
   protected ColumnView FirstView;
   protected List<ColumnView> OtherViews;
+
+  /// <summary>
+  /// True once a commit or rollback claimed the end of the transaction. No view is added
+  /// after it. Guarded by the view lock.
+  /// </summary>
+  bool EndClaimed;
+
   protected volatile TransactionState state = TransactionState.Active;
   int Ended;
 
@@ -28,17 +42,25 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
     EnsureActive();
     if (column is not CoordinatedColumn<TKey, TValue> local || local.Domain != Domain)
       throw new ArgumentException("The column belongs to another domain.", nameof(column));
-    if (FirstView == null)
-      FirstView = local.CreateView(IsWriting, Isolation);
-    if (FirstView.Column == local)
-      return (IReadColumn<TKey, TValue>)FirstView;
-    if (OtherViews != null)
-      foreach (var view in OtherViews)
-        if (view.Column == local)
-          return (IReadColumn<TKey, TValue>)view;
-    var created = local.CreateView(IsWriting, Isolation);
-    (OtherViews ??= []).Add(created);
-    return (IReadColumn<TKey, TValue>)created;
+    lock (ViewLock)
+    {
+      if (EndClaimed)
+      {
+        EnsureActive();
+        ThrowEnding();
+      }
+      if (FirstView == null)
+        FirstView = local.CreateView(IsWriting, Isolation);
+      if (FirstView.Column == local)
+        return (IReadColumn<TKey, TValue>)FirstView;
+      if (OtherViews != null)
+        foreach (var view in OtherViews)
+          if (view.Column == local)
+            return (IReadColumn<TKey, TValue>)view;
+      var created = local.CreateView(IsWriting, Isolation);
+      (OtherViews ??= []).Add(created);
+      return (IReadColumn<TKey, TValue>)created;
+    }
   }
 
   protected void EnsureActive()
@@ -51,6 +73,33 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
   /// <summary>Throws for a transaction that ended. A read-only transaction ends when it is disposed.</summary>
   protected virtual void ThrowNotActive() => ObjectDisposedException.ThrowIf(true, this);
 
+  /// <summary>Throws for a call that starts while a commit of an active transaction runs.</summary>
+  protected virtual void ThrowEnding() => ObjectDisposedException.ThrowIf(true, this);
+
+  /// <summary>
+  /// Claims the end of the transaction for a commit or a rollback and returns its views.
+  /// Returns null if another commit or rollback claimed it. A rollback leaves the
+  /// transaction aborted at once.
+  /// </summary>
+  protected ColumnView[] TryClaimEnd(bool rollback)
+  {
+    lock (ViewLock)
+    {
+      if (EndClaimed || state != TransactionState.Active)
+        return null;
+      EndClaimed = true;
+      if (rollback)
+        state = TransactionState.Aborted;
+      if (FirstView == null)
+        return [];
+      var views = new ColumnView[(OtherViews?.Count ?? 0) + 1];
+      views[0] = FirstView;
+      OtherViews?.CopyTo(views, 1);
+      return views;
+    }
+  }
+
+  /// <summary>Disposes the views. Called after a commit or rollback claimed the end.</summary>
   protected void Close()
   {
     if (Interlocked.Exchange(ref Ended, 1) != 0)
@@ -77,8 +126,13 @@ internal class DomainReadTransaction : IDomainReadTransaction, IClusterOpenTrans
 
   protected void RollbackCore()
   {
-    if (state != TransactionState.Active)
-      return;
+    if (TryClaimEnd(rollback: true) != null)
+      Close();
+  }
+
+  /// <summary>Rolls back a transaction whose commit claimed its end and cannot finish.</summary>
+  protected void RollbackClaimed()
+  {
     state = TransactionState.Aborted;
     Close();
   }

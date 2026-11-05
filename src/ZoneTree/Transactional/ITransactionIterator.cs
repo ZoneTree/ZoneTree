@@ -1,7 +1,7 @@
 namespace ZoneTree.Transactional;
 
 /// <summary>
-/// Iterates the snapshot of a transaction.
+/// Iterates the snapshot of a transaction. Use an iterator from one caller at a time.
 /// </summary>
 /// <typeparam name="TKey">The key type.</typeparam>
 /// <typeparam name="TValue">The value type.</typeparam>

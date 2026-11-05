@@ -24,13 +24,13 @@ internal sealed class StandaloneTransaction<TKey, TValue> :
   public void Delete(in TKey key) => Writer.Delete(in key);
 
   public ValueTask<ReadResult<TValue>> TryGetForUpdateAsync(TKey key, CancellationToken cancellationToken = default)
-      => Operations.RunAsync(() => new ReadResult<TValue>(TryGetForUpdate(in key, out var value), value), cancellationToken);
+      => AsyncOperations.Run(() => new ReadResult<TValue>(TryGetForUpdate(in key, out var value), value), cancellationToken);
 
   public ValueTask UpsertAsync(TKey key, TValue value, CancellationToken cancellationToken = default)
-      => Operations.RunAsync(() => Upsert(in key, in value), cancellationToken);
+      => AsyncOperations.Run(() => Upsert(in key, in value), cancellationToken);
 
   public ValueTask DeleteAsync(TKey key, CancellationToken cancellationToken = default)
-      => Operations.RunAsync(() => Delete(in key), cancellationToken);
+      => AsyncOperations.Run(() => Delete(in key), cancellationToken);
 
   public void Commit()
   {

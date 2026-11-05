@@ -49,30 +49,62 @@ public sealed class ZoneTreeClusterTests
   };
 
   [Test]
-  public async Task AsyncColumnOperationsKeepTheirCallOrderInEachColumn()
+  public async Task AsyncOperationsOfOneViewRunConcurrently()
   {
     using var cluster = Factory.CreateInProcess(Options());
     var numbers = cluster.GetDomain(Domain).GetColumn<int, int>("numbers");
     var names = cluster.GetDomain(Domain).GetColumn<long, string>("names");
     using (var transaction = cluster.GetDomain(Domain).BeginTransaction())
     {
-      var numberView = transaction.GetColumn(numbers);
-      var nameView = transaction.GetColumn(names);
-      // The columns run in parallel, the operations of each column in call order.
-      var writes = new List<Task>();
-      for (var i = 1; i <= 100; ++i)
+      // Operations on one view and across views run in parallel; none depends on another.
+      var operations = new List<Task>();
+      for (var i = 1; i <= 500; ++i)
       {
-        writes.Add(numberView.UpsertAsync(1, i).AsTask());
-        writes.Add(nameView.UpsertAsync(i, $"name {i}").AsTask());
+        var key = i;
+        operations.Add(Task.Run(() => transaction.GetColumn(numbers).UpsertAsync(key, key).AsTask()));
+        operations.Add(transaction.GetColumn(names).UpsertAsync(key, $"name {key}").AsTask());
+        operations.Add(transaction.GetColumn(numbers).TryGetAsync(-key).AsTask());
       }
-      await Task.WhenAll(writes);
-      var own = await numberView.TryGetAsync(1);
-      Assert.That(own.Found && own.Value == 100, Is.True);
+      await Task.WhenAll(operations);
       transaction.Commit();
     }
-    Assert.That(numbers.TryGet(1, out var value) && value == 100, Is.True);
-    for (var i = 1L; i <= 100; ++i)
-      Assert.That(names.TryGet(i, out var name) && name == $"name {i}", Is.True, $"key {i}");
+    for (var i = 1; i <= 500; ++i)
+    {
+      Assert.That(numbers.TryGet(i, out var value) && value == i, Is.True, $"number {i}");
+      Assert.That(names.TryGet(i, out var name) && name == $"name {i}", Is.True, $"name {i}");
+    }
+  }
+
+  [Test]
+  public async Task CommitWaitsForRunningOperationsOfItsViews()
+  {
+    using var cluster = Factory.CreateInProcess(Options());
+    var numbers = cluster.GetDomain(Domain).GetColumn<int, int>("numbers");
+    var transaction = cluster.GetDomain(Domain).BeginTransaction();
+    var view = transaction.GetColumn(numbers);
+    var written = new System.Collections.Concurrent.ConcurrentBag<int>();
+    using var started = new CountdownEvent(4);
+    // Writers keep writing until the commit stops them; every write that returned commits.
+    var writers = Enumerable.Range(0, 4).Select(writer => Task.Run(() =>
+    {
+      started.Signal();
+      for (var key = writer * 1_000_000; ; ++key)
+      {
+        try { view.Upsert(key, key); }
+        catch (TransactionCommitInProgressException) { return; }
+        catch (TransactionAlreadyCommittedException) { return; }
+        written.Add(key);
+      }
+    })).ToArray();
+    started.Wait();
+    while (written.Count < 1000)
+      Thread.Yield();
+    transaction.Commit();
+    await Task.WhenAll(writers);
+    transaction.Dispose();
+    using var read = cluster.GetDomain(Domain).BeginReadOnlyTransaction();
+    var committed = read.GetColumn(numbers).Range(int.MinValue, int.MaxValue).Select(x => x.Key).ToHashSet();
+    Assert.That(committed.SetEquals(written), Is.True);
   }
 
   [Test]

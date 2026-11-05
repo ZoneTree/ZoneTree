@@ -2,7 +2,8 @@ namespace ZoneTree.Cluster;
 
 /// <summary>A snapshot of a standalone column, readable through the column view it implements.</summary>
 /// <remarks>
-/// Finish outstanding operations before ending the transaction. Iterators cannot be
+/// Its operations may run concurrently. Ending the transaction waits for the running
+/// operations, and one that starts while the transaction ends throws. Iterators cannot be
 /// used after the transaction ends.
 /// </remarks>
 public interface IStandaloneReadTransaction<TKey, TValue> :

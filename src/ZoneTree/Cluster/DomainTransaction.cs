@@ -18,12 +18,17 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
   {
     get
     {
-      if (CommitConflict || FirstView?.ConflictDetected == true)
+      if (CommitConflict)
         return true;
-      if (OtherViews != null)
-        foreach (var view in OtherViews)
-          if (view.ConflictDetected)
-            return true;
+      lock (ViewLock)
+      {
+        if (FirstView?.ConflictDetected == true)
+          return true;
+        if (OtherViews != null)
+          foreach (var view in OtherViews)
+            if (view.ConflictDetected)
+              return true;
+      }
       return false;
     }
   }
@@ -75,14 +80,20 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
   Task<bool> BeginCommit(bool durable)
   {
     EnsureActive();
-    if (FirstView == null)
+    var views = TryClaimEnd(rollback: false);
+    if (views == null)
+    {
+      EnsureActive();
+      ThrowEnding();
+    }
+    // The running operations of the views end before the views are validated.
+    foreach (var view in views)
+      view.StopOperations();
+    if (views.Length == 0)
       return CompleteCommit(false);
-    if (OtherViews == null)
-      return BeginSingleCommit(durable);
+    if (views.Length == 1)
+      return BeginSingleCommit(views[0], durable);
 
-    var views = new ColumnView[OtherViews.Count + 1];
-    views[0] = FirstView;
-    OtherViews.CopyTo(views, 1);
     Array.Sort(views, static (left, right) => left.Column.Index.CompareTo(right.Column.Index));
     var entered = 0;
     try
@@ -110,7 +121,7 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
     catch
     {
       if (state == TransactionState.Active)
-        RollbackCore();
+        RollbackClaimed();
       throw;
     }
     finally
@@ -120,15 +131,15 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
     }
   }
 
-  Task<bool> BeginSingleCommit(bool durable)
+  Task<bool> BeginSingleCommit(ColumnView view, bool durable)
   {
-    lock (FirstView.Column.CommitGate)
+    lock (view.Column.CommitGate)
     {
       try
       {
         state = TransactionState.Committing;
-        var hasWrites = FirstView.HasWrites;
-        var commit = FirstView.BeginCommit(durable);
+        var hasWrites = view.HasWrites;
+        var commit = view.BeginCommit(durable);
         if (commit.IsCompletedSuccessfully)
           return IsCommitted(commit) ? CompleteCommit(hasWrites) : AbortConflict();
         return FinishSingleCommitAsync(commit, hasWrites);
@@ -136,7 +147,7 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
       catch
       {
         if (state == TransactionState.Active)
-          RollbackCore();
+          RollbackClaimed();
         else if (state == TransactionState.Committing)
           FailCommit();
         throw;
@@ -181,13 +192,14 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
   Task<bool> AbortConflict()
   {
     CommitConflict = true;
-    state = TransactionState.Active;
-    RollbackCore();
+    RollbackClaimed();
     return Task.FromResult(false);
   }
 
   static bool IsCommitted(Task<bool> commit)
       => commit.IsCompletedSuccessfully && commit.GetAwaiter().GetResult();
+
+  protected override void ThrowEnding() => throw new TransactionCommitInProgressException(TransactionId);
 
   protected override void ThrowNotActive() => throw state switch
   {
