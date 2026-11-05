@@ -237,6 +237,9 @@ internal sealed partial class SharedWalStore<TKey, TValue>
   void DrainQueue(bool background)
   {
     List<TaskCompletionSource> requests = null;
+    // The requests cover the writes queued before them. The writes drained after
+    // them need no sync, so a background sync may already cover the requests.
+    long requestedSequence = 0;
     var remaining = -1;
     while (remaining != 0 && Queue.TryDequeue(out var item))
     {
@@ -257,6 +260,7 @@ internal sealed partial class SharedWalStore<TKey, TValue>
           break;
         case TaskCompletionSource sync:
           if (remaining < 0) remaining = Queue.Count;
+          requestedSequence = WrittenSequence;
           (requests ??= new()).Add(sync);
           break;
       }
@@ -264,7 +268,7 @@ internal sealed partial class SharedWalStore<TKey, TValue>
     if (requests != null || (background && HasNewWrites && WrittenSequence > SyncGroup.SyncedCount && Queue.IsEmpty))
     {
       Exception error = null;
-      try { SyncCore(WrittenSequence); }
+      try { SyncCore(requests != null ? requestedSequence : WrittenSequence); }
       catch (Exception e) { error = e; }
       if (requests != null)
         foreach (var request in requests)

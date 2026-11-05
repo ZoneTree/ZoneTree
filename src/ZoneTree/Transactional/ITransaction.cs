@@ -69,18 +69,34 @@ public interface ITransaction<TKey, TValue> : IReadTransaction<TKey, TValue>
   void Delete(in TKey key);
 
   /// <summary>
-  /// Commits the transaction. The commit is visible at once and becomes durable with
-  /// the next write ahead log sync.
+  /// Commits the transaction. The commit becomes durable with the next write ahead log sync.
   /// </summary>
+  /// <remarks>
+  /// The commit is visible when this returns. While a durable commit waits for its sync,
+  /// later commits wait for its publication too, so readers see commits in commit order.
+  /// If that sync fails, this call throws the failure and the transaction stays
+  /// <see cref="TransactionState.InDoubt"/>: recovery may find its commit record.
+  /// </remarks>
   /// <exception cref="Exceptions.TransactionConflictException">
   /// The transaction conflicts with a transaction that committed or prepared a commit after its snapshot.
   /// The transaction is rolled back.</exception>
+  /// <exception cref="Exceptions.TransactionalTreeCommitsStoppedException">
+  /// A previous commit sync of the tree failed. The transaction is rolled back.</exception>
+  /// <exception cref="Exceptions.WriteAheadLogSyncFailedException">
+  /// The sync of a durable commit this commit waited for failed. The transaction is in doubt.</exception>
   void Commit();
 
   /// <summary>
   /// Commits the transaction unless it conflicts.
   /// </summary>
+  /// <remarks>
+  /// Waits like <see cref="Commit"/> when a durable commit is waiting for its sync.
+  /// </remarks>
   /// <returns>true if committed; false if the transaction conflicted and was rolled back.</returns>
+  /// <exception cref="Exceptions.TransactionalTreeCommitsStoppedException">
+  /// A previous commit sync of the tree failed. The transaction is rolled back.</exception>
+  /// <exception cref="Exceptions.WriteAheadLogSyncFailedException">
+  /// The sync of a durable commit this commit waited for failed. The transaction is in doubt.</exception>
   bool TryCommit();
 
   /// <summary>
@@ -93,6 +109,8 @@ public interface ITransaction<TKey, TValue> : IReadTransaction<TKey, TValue>
   /// <exception cref="Exceptions.TransactionConflictException">
   /// The transaction conflicts with a transaction that committed or prepared a commit after its snapshot.
   /// The transaction is rolled back.</exception>
+  /// <exception cref="Exceptions.TransactionalTreeCommitsStoppedException">
+  /// A previous commit sync of the tree failed. The transaction is rolled back.</exception>
   Task CommitDurableAsync(CancellationToken cancellationToken = default);
 
   /// <summary>
@@ -103,6 +121,8 @@ public interface ITransaction<TKey, TValue> : IReadTransaction<TKey, TValue>
   /// <param name="cancellationToken">Cancels before starting, or stops waiting after the
   /// commit record is appended. A started commit continues and publishes after sync.</param>
   /// <returns>true if committed; false if the transaction conflicted and was rolled back.</returns>
+  /// <exception cref="Exceptions.TransactionalTreeCommitsStoppedException">
+  /// A previous commit sync of the tree failed. The transaction is rolled back.</exception>
   Task<bool> TryCommitDurableAsync(CancellationToken cancellationToken = default);
 
   /// <summary>

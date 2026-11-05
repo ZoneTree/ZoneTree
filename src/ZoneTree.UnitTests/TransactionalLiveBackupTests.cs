@@ -107,6 +107,27 @@ public sealed class TransactionalLiveBackupTests
     await committing;
   }
 
+  [TestCase(WriteAheadLogMode.Shared)]
+  [TestCase(WriteAheadLogMode.AsyncShared)]
+  public async Task RestoreDoesNotRegisterFinishedRollbacksOrTransactionsWithoutWrites(WriteAheadLogMode wal)
+  {
+    using var fixture = new Fixture(wal, DiskSegmentMode.SingleDiskSegment);
+    using var tree = fixture.Factory("source").CreateTransactional();
+    using (var tx = tree.BeginTransaction()) { tx.Upsert(1, 10); tx.Commit(); }
+    // An older transaction without writes keeps the finished rollback registered.
+    using var older = tree.BeginTransaction();
+    using (var rollback = tree.BeginTransaction()) { rollback.Upsert(2, 20); rollback.Rollback(); }
+    Assert.That(tree.Maintenance.AbortedTransactionCount, Is.EqualTo(1));
+    using (var backup = tree.CreateLiveBackup(fixture.BackupPath))
+      await backup.CreateGenerationAsync();
+
+    using var restored = await fixture.Factory("restored").RestoreTransactionalFromLatestLiveBackup(fixture.BackupPath);
+    Assert.That(restored.Maintenance.AbortedTransactionCount, Is.Zero);
+    using var read = restored.BeginReadOnlyTransaction();
+    Assert.That(read.TryGet(1, out var value) && value == 10, Is.True);
+    Assert.That(read.ContainsKey(2), Is.False);
+  }
+
   [Test]
   public void TransactionalBackupRejectsExcludingMemoryRecords()
   {

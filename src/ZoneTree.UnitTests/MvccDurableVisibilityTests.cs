@@ -189,6 +189,7 @@ public sealed class MvccDurableVisibilityTests
       cancellation.Cancel();
       Assert.ThrowsAsync<TaskCanceledException>(async () => await commit.WaitAsync(TimeSpan.FromSeconds(5)));
       Assert.That(tx.State, Is.EqualTo(TransactionState.Committing));
+      Assert.Throws<TransactionCommitInProgressException>(() => tx.Upsert(2, 2));
       tx.Dispose();
       Assert.That(Read(tree, 1), Is.EqualTo(10));
     }
@@ -214,12 +215,18 @@ public sealed class MvccDurableVisibilityTests
       await tree.ExecuteDurableAsync(tx => tx.Upsert(1, 10));
       using var tx = tree.BeginTransaction();
       tx.Upsert(1, 20);
+      // The journal rejects writes after the failed sync, so this one writes first.
+      using var later = tree.BeginTransaction();
+      later.Upsert(3, 30);
       files.FailDiskSync = IsJournal;
       Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tx.CommitDurableAsync());
       Assert.That(tx.State, Is.EqualTo(TransactionState.InDoubt));
+      Assert.Throws<TransactionInDoubtException>(() => tx.Upsert(2, 2));
       Assert.That(Read(tree, 1), Is.EqualTo(10));
       tx.Rollback();
       Assert.That(tx.State, Is.EqualTo(TransactionState.InDoubt));
+      Assert.Throws<TransactionalTreeCommitsStoppedException>(later.Commit);
+      Assert.That(later.State, Is.EqualTo(TransactionState.Aborted));
       Assert.That(tree.Maintenance.ActiveTransactionCount, Is.Zero);
       using var recovered = Factory(files.SimulatePowerLoss(), mode).OpenTransactional();
       Assert.That(Read(recovered, 1), Is.EqualTo(10));
