@@ -21,10 +21,10 @@ internal class ClusterReadTransaction : IClusterReadTransaction
     cluster.TransactionStarted();
   }
 
-  public IReadColumn<TKey, TValue> GetColumn<TKey, TValue>(IColumn<TKey, TValue> column)
+  public IReadColumn<TKey, TValue> GetColumn<TKey, TValue>(ICoordinatedColumn<TKey, TValue> column)
   {
     EnsureActive();
-    if (column is not Column<TKey, TValue> local || local.Cluster != Cluster)
+    if (column is not CoordinatedColumn<TKey, TValue> local || local.Cluster != Cluster)
       throw new ArgumentException("The column belongs to another cluster.", nameof(column));
     if (FirstView == null)
       FirstView = local.CreateView(IsWriting, Isolation);

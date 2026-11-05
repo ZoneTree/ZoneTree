@@ -6,11 +6,11 @@ namespace ZoneTree.Cluster;
 /// Single-column convenience operations, each using its own cluster transaction.
 /// Use explicit cluster transactions to batch work or change several columns atomically.
 /// </summary>
-public static class ColumnExtensions
+public static class CoordinatedColumnExtensions
 {
   /// <summary>Reads the key in a new cluster snapshot.</summary>
   public static bool TryGet<TKey, TValue>(
-      this IColumn<TKey, TValue> column, in TKey key, out TValue value)
+      this ICoordinatedColumn<TKey, TValue> column, in TKey key, out TValue value)
   {
     using var transaction = column.Cluster.BeginReadOnlyTransaction();
     return transaction.GetColumn(column).TryGet(in key, out value);
@@ -18,7 +18,7 @@ public static class ColumnExtensions
 
   /// <summary>Checks the key in a new cluster snapshot.</summary>
   public static bool ContainsKey<TKey, TValue>(
-      this IColumn<TKey, TValue> column, in TKey key)
+      this ICoordinatedColumn<TKey, TValue> column, in TKey key)
   {
     using var transaction = column.Cluster.BeginReadOnlyTransaction();
     return transaction.GetColumn(column).ContainsKey(in key);
@@ -26,7 +26,7 @@ public static class ColumnExtensions
 
   /// <summary>Writes the key in its own transaction, retrying on conflicts.</summary>
   public static void Upsert<TKey, TValue>(
-      this IColumn<TKey, TValue> column, in TKey key, in TValue value)
+      this ICoordinatedColumn<TKey, TValue> column, in TKey key, in TValue value)
   {
     var k = key;
     var v = value;
@@ -36,7 +36,7 @@ public static class ColumnExtensions
 
   /// <summary>Deletes the key in its own transaction; returns whether it existed.</summary>
   public static bool TryDelete<TKey, TValue>(
-      this IColumn<TKey, TValue> column, in TKey key)
+      this ICoordinatedColumn<TKey, TValue> column, in TKey key)
   {
     var k = key;
     return column.Cluster.Execute(transaction =>
@@ -54,7 +54,7 @@ public static class ColumnExtensions
   /// delegate, which must not have external side effects. Returns the written value.
   /// </summary>
   public static TValue AddOrUpdate<TKey, TValue>(
-      this IColumn<TKey, TValue> column,
+      this ICoordinatedColumn<TKey, TValue> column,
       in TKey key,
       in TValue valueToAdd,
       Func<TValue, TValue> update)
@@ -73,7 +73,7 @@ public static class ColumnExtensions
 
   /// <summary>Asynchronously reads the key in a new cluster snapshot.</summary>
   public static async ValueTask<ReadResult<TValue>> TryGetAsync<TKey, TValue>(
-      this IColumn<TKey, TValue> column,
+      this ICoordinatedColumn<TKey, TValue> column,
       TKey key,
       CancellationToken cancellationToken = default)
   {
@@ -84,7 +84,7 @@ public static class ColumnExtensions
 
   /// <summary>Asynchronously checks the key in a new cluster snapshot.</summary>
   public static async ValueTask<bool> ContainsKeyAsync<TKey, TValue>(
-      this IColumn<TKey, TValue> column,
+      this ICoordinatedColumn<TKey, TValue> column,
       TKey key,
       CancellationToken cancellationToken = default)
   {
@@ -98,7 +98,7 @@ public static class ColumnExtensions
   /// retrying only on conflicts. Use a cluster transaction for power-loss durability.
   /// </summary>
   public static ValueTask UpsertAsync<TKey, TValue>(
-      this IColumn<TKey, TValue> column,
+      this ICoordinatedColumn<TKey, TValue> column,
       TKey key,
       TValue value,
       CancellationToken cancellationToken = default)
@@ -108,7 +108,7 @@ public static class ColumnExtensions
 
   /// <summary>Asynchronously deletes and commits the key; returns whether it existed.</summary>
   public static ValueTask<bool> TryDeleteAsync<TKey, TValue>(
-      this IColumn<TKey, TValue> column,
+      this ICoordinatedColumn<TKey, TValue> column,
       TKey key,
       CancellationToken cancellationToken = default)
       => column.Cluster.ExecuteAsync(async (transaction, token) =>
@@ -125,7 +125,7 @@ public static class ColumnExtensions
   /// update delegate, which must have no external side effects. Returns the written value.
   /// </summary>
   public static ValueTask<TValue> AddOrUpdateAsync<TKey, TValue>(
-      this IColumn<TKey, TValue> column,
+      this ICoordinatedColumn<TKey, TValue> column,
       TKey key,
       TValue valueToAdd,
       Func<TValue, TValue> update,

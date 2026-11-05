@@ -3,12 +3,13 @@ using ZoneTree.Transactional;
 namespace ZoneTree.Cluster;
 
 /// <summary>
-/// A reusable, typed handle to a cluster column with its own key and value types.
+/// A reusable, typed handle to a cluster column that takes part in cluster transactions,
+/// with its own key and value types.
 /// </summary>
 /// <remarks>
 /// Access values through a cluster transaction. The cluster owns the column's lifetime.
 /// </remarks>
-public interface IColumn<TKey, TValue>
+public interface ICoordinatedColumn<TKey, TValue>
 {
   /// <summary>The persisted, case-sensitive column name.</summary>
   string Name { get; }

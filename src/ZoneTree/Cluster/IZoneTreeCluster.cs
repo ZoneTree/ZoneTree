@@ -5,27 +5,32 @@ using ZoneTree.Logger;
 namespace ZoneTree.Cluster;
 
 /// <summary>
-/// A cluster with independently typed transactional and raw columns.
+/// A cluster with independently typed coordinated, standalone and raw columns.
 /// </summary>
 /// <remarks>
-/// Transactions share one snapshot and commit atomically across accessed transactional columns.
-/// Raw columns are accessed independently.
+/// Transactions share one snapshot and commit atomically across accessed coordinated columns.
+/// Standalone columns have their own transactions, and raw columns are accessed directly.
 /// The cluster and its column handles are thread-safe.
 /// </remarks>
 public interface IZoneTreeCluster : IDisposable, IAsyncDisposable
 {
   /// <summary>
-  /// Gets a typed handle to an existing column. Names are case-sensitive.
+  /// Gets a typed handle to a column that takes part in cluster transactions. Names are case-sensitive.
   /// </summary>
   /// <exception cref="KeyNotFoundException">The column does not exist.</exception>
-  /// <exception cref="InvalidOperationException">The column has different types.</exception>
-  IColumn<TKey, TValue> GetColumn<TKey, TValue>(string name);
+  /// <exception cref="InvalidOperationException">The column has a different kind or types.</exception>
+  ICoordinatedColumn<TKey, TValue> GetCoordinatedColumn<TKey, TValue>(string name);
+
+  /// <summary>Gets a typed handle to a column with its own transactions. Names are case-sensitive.</summary>
+  /// <exception cref="KeyNotFoundException">The column does not exist.</exception>
+  /// <exception cref="InvalidOperationException">The column has a different kind or types.</exception>
+  IStandaloneColumn<TKey, TValue> GetStandaloneColumn<TKey, TValue>(string name);
 
   /// <summary>Gets a typed handle to a non-transactional column. Names are case-sensitive.</summary>
   IRawColumn<TKey, TValue> GetRawColumn<TKey, TValue>(string name);
 
   /// <summary>
-  /// Begins a read/write transaction with the requested isolation level across transactional columns.
+  /// Begins a read/write transaction with the requested isolation level across coordinated columns.
   /// </summary>
   /// <exception cref="Exceptions.ZoneTreeIsReadOnlyException">The cluster is read-only.</exception>
   IClusterTransaction BeginTransaction(
@@ -39,7 +44,7 @@ public interface IZoneTreeCluster : IDisposable, IAsyncDisposable
       CancellationToken cancellationToken = default);
 
   /// <summary>
-  /// Begins a consistent read-only snapshot across transactional columns.
+  /// Begins a consistent read-only snapshot across coordinated columns.
   /// </summary>
   IClusterReadTransaction BeginReadOnlyTransaction();
 

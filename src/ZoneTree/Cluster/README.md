@@ -5,7 +5,13 @@ Distribution is **by column**: each column is a separate ZoneTree with its own
 may share a row-key type, but do not have to; joins are explicit application reads.
 
 `ZoneTreeClusterFactory` opens the first working in-process implementation.
-Transactional columns use the copied MVCC engine; raw columns use plain ZoneTree.
+A column has one of three kinds, fixed when the cluster is created:
+
+| Kind | Engine | Transactions |
+| --- | --- | --- |
+| Coordinated | The cluster's copy of the MVCC engine | Cluster transactions across coordinated columns |
+| Standalone | The MVCC engine of a transactional ZoneTree | Its own transactions, covering only this column |
+| Raw | Plain ZoneTree | None: direct reads and writes |
 
 The goals are high performance, feature parity with single-tree MVCC, and one
 algorithm across in-process, cross-process and cross-machine distribution. The
@@ -24,14 +30,15 @@ commits start may leave some columns committed; the cluster transaction reports
 backup/restore currently throws `NotSupportedException`. Durability follows each
 column's WAL configuration; new columns default to their own Shared WAL.
 
-The local async data methods currently complete inline over the synchronous MVCC
-engine. For actual thread parallelism, run batches on separate column workers.
+The async data methods of coordinated column views and raw columns run on the thread
+pool, so operations on different columns run in parallel. The operations of one
+coordinated column view run one at a time, in call order.
 
 ## Usage
 
 `ConfigureStorage` reuses the existing typed
 factory for serializers, comparers, compression, cache and segment tuning.
-Optional `StorageDefaults` applies to every transactional and raw column when
+Optional `StorageDefaults` applies to every column, of every kind, when
 creating or opening it. Each column's `ConfigureStorage` runs afterward, allowing
 overrides. The configurator's generic method works with every column's key/value types.
 
@@ -49,12 +56,13 @@ static async Task Example()
     StorageDefaults = new BankStorageDefaults(),
     Columns =
     [
-      new ColumnDefinition<long, long>("balances")
+      new CoordinatedColumnDefinition<long, long>("balances")
       {
         ConfigureStorage = storage => storage.SetMutableSegmentMaxItemCount(1_000_000)
       },
-      new ColumnDefinition<long, string>("names"),
-      new ColumnDefinition<Guid, string>("audit"),
+      new CoordinatedColumnDefinition<long, string>("names"),
+      new CoordinatedColumnDefinition<Guid, string>("audit"),
+      new StandaloneColumnDefinition<long, long>("visits"),
       new RawColumnDefinition<string, Memory<byte>>("cache")
     ]
   };
@@ -63,10 +71,18 @@ static async Task Example()
   using var maintainer = cluster.CreateMaintainer();
 
   // Resolve and type-check handles once; reuse them across transactions/threads.
-  var balances = cluster.GetColumn<long, long>("balances");
-  var names = cluster.GetColumn<long, string>("names");
-  var audit = cluster.GetColumn<Guid, string>("audit");
+  var balances = cluster.GetCoordinatedColumn<long, long>("balances");
+  var names = cluster.GetCoordinatedColumn<long, string>("names");
+  var audit = cluster.GetCoordinatedColumn<Guid, string>("audit");
+  var visits = cluster.GetStandaloneColumn<long, long>("visits");
   var cache = cluster.GetRawColumn<string, Memory<byte>>("cache");
+
+  // A standalone column is a transactional ZoneTree, with its own transactions and helpers.
+  visits.Execute(transaction =>
+  {
+    transaction.TryGet(1L, out var count);
+    transaction.Upsert(1L, count + 1);
+  });
 
   // Raw writes take effect immediately, independently of transaction commit/rollback.
   await cache.UpsertAsync("welcome", new byte[] { 1, 2, 3 });
@@ -145,20 +161,20 @@ this first implementation are listed above.
 | `SyncWALAsync()` | Makes completed raw writes and transactions committed before the call durable across power loss or an OS crash. |
 
 Transactions accept `Serializable` and `Snapshot` isolation. In this slice these
-apply within each transactional column; full cluster isolation remains future work.
+apply within each coordinated column; full cluster isolation remains future work.
 
 Raw columns expose direct sync/async reads, writes, deletes, ranges and iterators.
-Their handles cannot be passed to `transaction.GetColumn(...)`. Raw writes are
+Raw and standalone handles cannot be passed to `transaction.GetColumn(...)`. Raw writes are
 independent of transaction snapshots, commit and rollback, and use plain ZoneTree's
 value/deletion settings. Raw handles are thread-safe; dispose their iterators when done.
 `IsReadOnly` prevents raw writes and new writing transactions. Cluster-wide
-`SyncWALAsync`, automatic syncing and maintenance include both kinds of columns.
+`SyncWALAsync`, automatic syncing and maintenance include every kind of column.
 
-Column kind is stored with the schema. Reopening with a different raw/transactional
-kind fails; existing transactional-only schemas remain supported.
+Column kind is stored with the schema. Reopening with a different kind fails.
 
-Different transactional column views may be used concurrently; use each individual view
-sequentially. Await all outstanding operations before ending the transaction.
+Different coordinated column views may be used concurrently. Use the synchronous methods
+of each view sequentially; its async methods are queued in call order. Await all
+outstanding operations before ending the transaction.
 The example starts independent column writes together and awaits both before commit.
 
 Async point methods return `ValueTask`. `TryGetAsync` and `TryGetForUpdateAsync`
@@ -173,7 +189,7 @@ while (await iterator.NextAsync()) { /* Descending records. */ }
 ```
 
 `Execute`, `ExecuteAsync` and `ExecuteDurableAsync` provide conflict retries.
-Transactional column convenience methods include `TryGet`, `ContainsKey`, `Upsert`,
+Coordinated column convenience methods include `TryGet`, `ContainsKey`, `Upsert`,
 `TryDelete` and `AddOrUpdate`, plus async versions. Each convenience call uses its
 own transaction. Raw column operations do not create transactions.
 

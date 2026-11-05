@@ -35,7 +35,7 @@ public sealed class RawColumnTests
     Logger = SilentTestLogger.Instance,
     Columns = columns.Length != 0 ? columns :
     [
-      new ColumnDefinition<int, int>("balances"),
+      new CoordinatedColumnDefinition<int, int>("balances"),
       new RawColumnDefinition<int, string>("cache")
     ]
   };
@@ -51,12 +51,12 @@ public sealed class RawColumnTests
       StorageDefaults = defaults,
       Columns =
       [
-        new ColumnDefinition<int, int>("balances")
+        new CoordinatedColumnDefinition<int, int>("balances")
         {
           ConfigureStorage = storage => storage.SetMutableSegmentMaxItemCount(20_000)
               .ConfigureWriteAheadLogOptions(wal => wal.WriteAheadLogMode = WriteAheadLogMode.Shared)
         },
-        new ColumnDefinition<long, string>("names"),
+        new CoordinatedColumnDefinition<long, string>("names"),
         new RawColumnDefinition<int, string>("cache")
         {
           ConfigureStorage = storage => storage.ConfigureDiskSegmentOptions(disk => disk.KeyCacheSize = 256)
@@ -67,8 +67,8 @@ public sealed class RawColumnTests
 
     static void Verify(IZoneTreeCluster cluster)
     {
-      var balances = cluster.GetColumn<int, int>("balances").Maintenance.ZoneTree.Maintenance.CloneOptions();
-      var names = cluster.GetColumn<long, string>("names").Maintenance.ZoneTree.Maintenance.CloneOptions();
+      var balances = cluster.GetCoordinatedColumn<int, int>("balances").Maintenance.ZoneTree.Maintenance.CloneOptions();
+      var names = cluster.GetCoordinatedColumn<long, string>("names").Maintenance.ZoneTree.Maintenance.CloneOptions();
       var cache = cluster.GetRawColumn<int, string>("cache").Maintenance.CloneOptions();
       var counters = cluster.GetRawColumn<long, long>("counters").Maintenance.CloneOptions();
       Assert.That(balances.MutableSegmentMaxItemCount, Is.EqualTo(20_000));
@@ -86,17 +86,17 @@ public sealed class RawColumnTests
     using (var cluster = Factory.CreateInProcess(options))
     {
       Verify(cluster);
-      cluster.GetColumn<int, int>("balances").Upsert(1, 100);
-      cluster.GetColumn<long, string>("names").Upsert(1, "Alice");
+      cluster.GetCoordinatedColumn<int, int>("balances").Upsert(1, 100);
+      cluster.GetCoordinatedColumn<long, string>("names").Upsert(1, "Alice");
       cluster.GetRawColumn<int, string>("cache").Upsert(1, "cached");
       cluster.GetRawColumn<long, long>("counters").Upsert(1, 7);
     }
 
     using var reopened = Factory.OpenInProcess(options);
     Verify(reopened);
-    Assert.That(reopened.GetColumn<int, int>("balances").TryGet(1, out var balance), Is.True);
+    Assert.That(reopened.GetCoordinatedColumn<int, int>("balances").TryGet(1, out var balance), Is.True);
     Assert.That(balance, Is.EqualTo(100));
-    Assert.That(reopened.GetColumn<long, string>("names").TryGet(1, out var name), Is.True);
+    Assert.That(reopened.GetCoordinatedColumn<long, string>("names").TryGet(1, out var name), Is.True);
     Assert.That(name, Is.EqualTo("Alice"));
     Assert.That(reopened.GetRawColumn<int, string>("cache").TryGet(1, out var cached), Is.True);
     Assert.That(cached, Is.EqualTo("cached"));
@@ -128,10 +128,10 @@ public sealed class RawColumnTests
   public void RawWritesAreImmediateAndIndependentOfTransactionRollback()
   {
     using var cluster = Factory.CreateInProcess(Options());
-    var balances = cluster.GetColumn<int, int>("balances");
+    var balances = cluster.GetCoordinatedColumn<int, int>("balances");
     var cache = cluster.GetRawColumn<int, string>("cache");
     Assert.That(cache.Cluster, Is.SameAs(cluster));
-    Assert.That(cache, Is.Not.InstanceOf<IColumn<int, string>>());
+    Assert.That(cache, Is.Not.InstanceOf<ICoordinatedColumn<int, string>>());
     using (var transaction = cluster.BeginTransaction())
     {
       transaction.GetColumn(balances).Upsert(1, 100);
@@ -148,7 +148,7 @@ public sealed class RawColumnTests
     Assert.That(cluster.Maintenance.ActiveTransactionCount, Is.Zero);
     Assert.That(cluster.Maintenance.LastCommitTimestamp, Is.Zero);
     Assert.That(cluster.Maintenance.ConflictIndexCount, Is.Zero);
-    Assert.Throws<InvalidOperationException>(() => cluster.GetColumn<int, string>("cache"));
+    Assert.Throws<InvalidOperationException>(() => cluster.GetCoordinatedColumn<int, string>("cache"));
     Assert.Throws<InvalidOperationException>(() => cluster.GetRawColumn<int, int>("balances"));
   }
 
@@ -210,7 +210,7 @@ public sealed class RawColumnTests
       Assert.Throws<ZoneTreeIsReadOnlyException>(() => cache.Delete(1));
       Assert.Throws<ZoneTreeIsReadOnlyException>(() => cluster.BeginTransaction());
       Assert.That(cache.ContainsKey(1), Is.True);
-      existing.GetColumn(cluster.GetColumn<int, int>("balances")).Upsert(1, 100);
+      existing.GetColumn(cluster.GetCoordinatedColumn<int, int>("balances")).Upsert(1, 100);
       existing.Commit();
       cluster.IsReadOnly = false;
       cache.Delete(1);
@@ -225,19 +225,19 @@ public sealed class RawColumnTests
   [TestCase(WriteAheadLogMode.AsyncShared)]
   public async Task MixedColumnsCanSyncAndReopen(WriteAheadLogMode mode)
   {
-    var options = Options(new ColumnDefinition<int, int>("balances"),
+    var options = Options(new CoordinatedColumnDefinition<int, int>("balances"),
         new RawColumnDefinition<int, string>("cache")
         {
           ConfigureStorage = factory => factory.ConfigureWriteAheadLogOptions(wal => wal.WriteAheadLogMode = mode)
         });
     using (var cluster = Factory.CreateInProcess(options))
     {
-      cluster.GetColumn<int, int>("balances").Upsert(1, 100);
+      cluster.GetCoordinatedColumn<int, int>("balances").Upsert(1, 100);
       cluster.GetRawColumn<int, string>("cache").Upsert(1, "value");
       await cluster.SyncWALAsync();
     }
     using var reopened = Factory.OpenInProcess(options);
-    Assert.That(reopened.GetColumn<int, int>("balances").TryGet(1, out var balance), Is.True);
+    Assert.That(reopened.GetCoordinatedColumn<int, int>("balances").TryGet(1, out var balance), Is.True);
     Assert.That(balance, Is.EqualTo(100));
     Assert.That(reopened.GetRawColumn<int, string>("cache").TryGet(1, out var value), Is.True);
     Assert.That(value, Is.EqualTo("value"));
@@ -250,31 +250,12 @@ public sealed class RawColumnTests
   {
     ColumnDefinition Definition(bool raw) => raw
         ? new RawColumnDefinition<int, string>("data")
-        : new ColumnDefinition<int, string>("data");
+        : new CoordinatedColumnDefinition<int, string>("data");
     var original = Options(Definition(originallyRaw));
     using (Factory.CreateInProcess(original)) { }
     Assert.Throws<InvalidDataException>(() => Factory.OpenOrCreateInProcess(Options(Definition(!originallyRaw))));
     using var reopened = Factory.OpenInProcess(original);
     Assert.That(reopened.Maintenance.ColumnNames, Is.EqualTo(new[] { "data" }));
-  }
-
-  [Test]
-  public void LegacyTransactionalSchemaStillOpens()
-  {
-    var options = Options(new ColumnDefinition<int, int>("balances"));
-    using (var cluster = Factory.CreateInProcess(options))
-      cluster.GetColumn<int, int>("balances").Upsert(1, 100);
-    using (var writer = new BinaryWriter(File.Create(Path.Combine(DataDirectory, "database.schema"))))
-    {
-      writer.Write(1);
-      writer.Write(1);
-      writer.Write("balances");
-      writer.Write(typeof(int).FullName);
-      writer.Write(typeof(int).FullName);
-    }
-    using var reopened = Factory.OpenInProcess(options);
-    Assert.That(reopened.GetColumn<int, int>("balances").TryGet(1, out var balance), Is.True);
-    Assert.That(balance, Is.EqualTo(100));
   }
 
   [Test]
@@ -289,7 +270,7 @@ public sealed class RawColumnTests
               options.Logger, files, Path.Combine(DataDirectory, name)));
     }
     using var cluster = Factory.CreateInProcess(Options(
-        new ColumnDefinition<int, int>("balances")
+        new CoordinatedColumnDefinition<int, int>("balances")
         {
           ConfigureStorage = factory => Configure(factory, transactionalFiles, "tx-wal")
         },
@@ -298,7 +279,7 @@ public sealed class RawColumnTests
           ConfigureStorage = factory => Configure(factory, rawFiles, "raw-wal")
         }));
     var cache = cluster.GetRawColumn<int, string>("cache");
-    cluster.GetColumn<int, int>("balances").Upsert(1, 100);
+    cluster.GetCoordinatedColumn<int, int>("balances").Upsert(1, 100);
     cache.Upsert(1, "first");
     var beforeTransactional = transactionalFiles.DiskSyncCount;
     var beforeRaw = rawFiles.DiskSyncCount;

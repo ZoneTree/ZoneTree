@@ -6,7 +6,7 @@ using ArgumentOutOfRangeException = System.ArgumentOutOfRangeException;
 
 namespace ZoneTree.Cluster;
 
-/// <summary>An experimental in-process cluster with transactional and raw columns.</summary>
+/// <summary>An experimental in-process cluster with coordinated, standalone and raw columns.</summary>
 /// <remarks>Cross-column snapshots, atomic visibility and crash recovery are not provided by this first slice.</remarks>
 public sealed class ZoneTreeCluster : IZoneTreeCluster, IZoneTreeClusterMaintenance
 {
@@ -45,12 +45,12 @@ public sealed class ZoneTreeCluster : IZoneTreeCluster, IZoneTreeClusterMaintena
     AutoSyncInterval = options.AutoSyncInterval;
   }
 
-  public IColumn<TKey, TValue> GetColumn<TKey, TValue>(string name)
+  public ICoordinatedColumn<TKey, TValue> GetCoordinatedColumn<TKey, TValue>(string name)
   {
     ThrowIfDisposed();
     if (!ColumnsByName.TryGetValue(name, out var column))
       throw new KeyNotFoundException($"Column '{name}' does not exist.");
-    return column as IColumn<TKey, TValue>
+    return column as ICoordinatedColumn<TKey, TValue>
         ?? throw new InvalidOperationException($"Column '{name}' has a different kind, key type or value type.");
   }
 
@@ -60,6 +60,15 @@ public sealed class ZoneTreeCluster : IZoneTreeCluster, IZoneTreeClusterMaintena
     if (!ColumnsByName.TryGetValue(name, out var column))
       throw new KeyNotFoundException($"Column '{name}' does not exist.");
     return column as IRawColumn<TKey, TValue>
+        ?? throw new InvalidOperationException($"Column '{name}' has a different kind, key type or value type.");
+  }
+
+  public IStandaloneColumn<TKey, TValue> GetStandaloneColumn<TKey, TValue>(string name)
+  {
+    ThrowIfDisposed();
+    if (!ColumnsByName.TryGetValue(name, out var column))
+      throw new KeyNotFoundException($"Column '{name}' does not exist.");
+    return column as IStandaloneColumn<TKey, TValue>
         ?? throw new InvalidOperationException($"Column '{name}' has a different kind, key type or value type.");
   }
 

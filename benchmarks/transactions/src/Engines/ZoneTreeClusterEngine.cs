@@ -12,7 +12,7 @@ namespace Transactions.Benchmark.Engines;
 public sealed class ZoneTreeClusterEngine : ITransactionEngine
 {
   readonly IZoneTreeCluster Cluster;
-  readonly IColumn<long, byte[]> Column;
+  readonly ICoordinatedColumn<long, byte[]> Column;
   readonly IMaintainer Maintainer;
   readonly IZoneTreeMaintenance<VersionedKey<long>, VersionedValue<byte[]>> Storage;
   readonly bool Durable;
@@ -28,13 +28,13 @@ public sealed class ZoneTreeClusterEngine : ITransactionEngine
       DataDirectory = options.Directory,
       Columns =
       [
-        new ColumnDefinition<long, byte[]>("records")
+        new CoordinatedColumnDefinition<long, byte[]>("records")
         {
           ConfigureStorage = factory => ZoneTreeEngine.ConfigureFactory(factory, options, walMode)
         }
       ]
     });
-    Column = Cluster.GetColumn<long, byte[]>("records");
+    Column = Cluster.GetCoordinatedColumn<long, byte[]>("records");
     Maintainer = Column.CreateMaintainer();
     Maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(1);
     Maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(30);

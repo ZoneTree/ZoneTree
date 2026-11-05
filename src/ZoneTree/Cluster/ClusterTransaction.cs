@@ -35,7 +35,7 @@ internal sealed class ClusterTransaction : ClusterReadTransaction, IClusterTrans
     IsolationLevel = isolation;
   }
 
-  public new IWriteColumn<TKey, TValue> GetColumn<TKey, TValue>(IColumn<TKey, TValue> column)
+  public new IWriteColumn<TKey, TValue> GetColumn<TKey, TValue>(ICoordinatedColumn<TKey, TValue> column)
       => (IWriteColumn<TKey, TValue>)base.GetColumn(column);
 
   public void Commit()

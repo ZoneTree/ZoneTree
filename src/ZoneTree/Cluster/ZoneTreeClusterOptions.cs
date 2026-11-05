@@ -17,7 +17,7 @@ public sealed class ZoneTreeClusterOptions
       = Array.Empty<ColumnDefinition>();
 
   /// <summary>
-  /// Optional storage defaults for all transactional and raw columns.
+  /// Optional storage defaults for all columns of every kind.
   /// Each column's ConfigureStorage hook runs afterward and can override them.
   /// </summary>
   public IColumnStorageConfigurator StorageDefaults { get; init; }

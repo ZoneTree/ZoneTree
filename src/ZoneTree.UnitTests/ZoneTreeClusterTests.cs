@@ -34,9 +34,9 @@ public sealed class ZoneTreeClusterTests
     Logger = new ConsoleLogger(LogLevel.Error),
     Columns =
     [
-      new ColumnDefinition<int, int>("numbers"),
-      new ColumnDefinition<long, string>("names"),
-      new ColumnDefinition<Guid, string>("events")
+      new CoordinatedColumnDefinition<int, int>("numbers"),
+      new CoordinatedColumnDefinition<long, string>("names"),
+      new CoordinatedColumnDefinition<Guid, string>("events")
     ]
   };
 
@@ -44,8 +44,8 @@ public sealed class ZoneTreeClusterTests
   public async Task AsyncColumnOperationsKeepTheirCallOrderInEachColumn()
   {
     using var cluster = Factory.CreateInProcess(Options());
-    var numbers = cluster.GetColumn<int, int>("numbers");
-    var names = cluster.GetColumn<long, string>("names");
+    var numbers = cluster.GetCoordinatedColumn<int, int>("numbers");
+    var names = cluster.GetCoordinatedColumn<long, string>("names");
     using (var transaction = cluster.BeginTransaction())
     {
       var numberView = transaction.GetColumn(numbers);
@@ -71,8 +71,8 @@ public sealed class ZoneTreeClusterTests
   public void CommitsTypedColumnsAndPreservesEachColumnSnapshot()
   {
     using var cluster = Factory.CreateInProcess(Options());
-    var numbers = cluster.GetColumn<int, int>("numbers");
-    var names = cluster.GetColumn<long, string>("names");
+    var numbers = cluster.GetCoordinatedColumn<int, int>("numbers");
+    var names = cluster.GetCoordinatedColumn<long, string>("names");
     using var old = cluster.BeginReadOnlyTransaction();
     var oldNumbers = old.GetColumn(numbers);
     Assert.That(oldNumbers.ContainsKey(1), Is.False);
@@ -98,8 +98,8 @@ public sealed class ZoneTreeClusterTests
   public void DisposingAnActiveTransactionRollsBackEveryAccessedColumn()
   {
     using var cluster = Factory.CreateInProcess(Options());
-    var numbers = cluster.GetColumn<int, int>("numbers");
-    var names = cluster.GetColumn<long, string>("names");
+    var numbers = cluster.GetCoordinatedColumn<int, int>("numbers");
+    var names = cluster.GetCoordinatedColumn<long, string>("names");
     using (var transaction = cluster.BeginTransaction())
     {
       transaction.GetColumn(numbers).Upsert(1, 42);
@@ -115,8 +115,8 @@ public sealed class ZoneTreeClusterTests
   public void AConflictRollsBackAllColumnsBeforeAnyCommit(bool reverseEnlistment)
   {
     using var cluster = Factory.CreateInProcess(Options());
-    var numbers = cluster.GetColumn<int, int>("numbers");
-    var names = cluster.GetColumn<long, string>("names");
+    var numbers = cluster.GetCoordinatedColumn<int, int>("numbers");
+    var names = cluster.GetCoordinatedColumn<long, string>("names");
     using var loser = cluster.BeginTransaction();
     if (reverseEnlistment)
     {
@@ -141,7 +141,7 @@ public sealed class ZoneTreeClusterTests
   public void SingleColumnConflictRemainsRetryable()
   {
     using var cluster = Factory.CreateInProcess(Options());
-    var column = cluster.GetColumn<int, int>("numbers");
+    var column = cluster.GetCoordinatedColumn<int, int>("numbers");
     using var loser = cluster.BeginTransaction();
     loser.GetColumn(column).Upsert(1, 10);
     column.Upsert(1, 20);
@@ -156,8 +156,8 @@ public sealed class ZoneTreeClusterTests
   public async Task ConflictingConcurrentCommitsDoNotDeadlockOrPartiallyCommit()
   {
     using var cluster = Factory.CreateInProcess(Options());
-    var numbers = cluster.GetColumn<int, int>("numbers");
-    var names = cluster.GetColumn<long, string>("names");
+    var numbers = cluster.GetCoordinatedColumn<int, int>("numbers");
+    var names = cluster.GetCoordinatedColumn<long, string>("names");
     using var ready = new Barrier(2);
     Task<bool> Write(int value, bool reverse) => Task.Run(() =>
     {
@@ -187,8 +187,8 @@ public sealed class ZoneTreeClusterTests
   public async Task SeparateColumnViewsCanBeWrittenOnDifferentThreads()
   {
     using var cluster = Factory.CreateInProcess(Options());
-    var numbers = cluster.GetColumn<int, int>("numbers");
-    var names = cluster.GetColumn<long, string>("names");
+    var numbers = cluster.GetCoordinatedColumn<int, int>("numbers");
+    var names = cluster.GetCoordinatedColumn<long, string>("names");
     using var transaction = cluster.BeginTransaction();
     var amounts = transaction.GetColumn(numbers);
     var labels = transaction.GetColumn(names);
@@ -213,7 +213,7 @@ public sealed class ZoneTreeClusterTests
   public async Task AsyncConvenienceMethodsCommitAndReturnTypedResults()
   {
     using var cluster = Factory.CreateInProcess(Options());
-    var numbers = cluster.GetColumn<int, int>("numbers");
+    var numbers = cluster.GetCoordinatedColumn<int, int>("numbers");
     await numbers.UpsertAsync(1, 0);
     var found = await numbers.TryGetAsync(1);
     Assert.That(found.Found, Is.True);
@@ -236,7 +236,7 @@ public sealed class ZoneTreeClusterTests
   public async Task AsyncRangesAndIteratorsPreserveOrderingAndCancellation()
   {
     using var cluster = Factory.CreateInProcess(Options());
-    var numbers = cluster.GetColumn<int, int>("numbers");
+    var numbers = cluster.GetCoordinatedColumn<int, int>("numbers");
     cluster.Execute(transaction =>
     {
       var view = transaction.GetColumn(numbers);
@@ -264,8 +264,8 @@ public sealed class ZoneTreeClusterTests
   public void CreatesLocalTransactionsOnlyForAccessedColumnsAndCachesViews()
   {
     using var cluster = Factory.CreateInProcess(Options());
-    var numbers = cluster.GetColumn<int, int>("numbers");
-    var names = cluster.GetColumn<long, string>("names");
+    var numbers = cluster.GetCoordinatedColumn<int, int>("numbers");
+    var names = cluster.GetCoordinatedColumn<long, string>("names");
     using var transaction = cluster.BeginTransaction();
     Assert.That(numbers.Maintenance.ActiveTransactionCount, Is.Zero);
     Assert.That(names.Maintenance.ActiveTransactionCount, Is.Zero);
@@ -287,15 +287,15 @@ public sealed class ZoneTreeClusterTests
     using (var cluster = Factory.CreateInProcess(options))
     {
       using var transaction = cluster.BeginTransaction();
-      transaction.GetColumn(cluster.GetColumn<int, int>("numbers")).Upsert(1, 42);
-      transaction.GetColumn(cluster.GetColumn<long, string>("names")).Upsert(1L, "Alice");
+      transaction.GetColumn(cluster.GetCoordinatedColumn<int, int>("numbers")).Upsert(1, 42);
+      transaction.GetColumn(cluster.GetCoordinatedColumn<long, string>("names")).Upsert(1L, "Alice");
       if (durable) await transaction.CommitDurableAsync();
       else transaction.Commit();
     }
     using var reopened = Factory.OpenInProcess(options);
-    Assert.That(reopened.GetColumn<int, int>("numbers").TryGet(1, out var value), Is.True);
+    Assert.That(reopened.GetCoordinatedColumn<int, int>("numbers").TryGet(1, out var value), Is.True);
     Assert.That(value, Is.EqualTo(42));
-    Assert.That(reopened.GetColumn<long, string>("names").TryGet(1L, out var name), Is.True);
+    Assert.That(reopened.GetCoordinatedColumn<long, string>("names").TryGet(1L, out var name), Is.True);
     Assert.That(name, Is.EqualTo("Alice"));
     Assert.That(reopened.Maintenance.ColumnNames, Is.EqualTo(new[] { "numbers", "names", "events" }));
   }
@@ -308,17 +308,17 @@ public sealed class ZoneTreeClusterTests
     using (var cluster = Factory.CreateInProcess(options))
     {
       Assert.Throws<IOException>(() => Factory.OpenInProcess(options));
-      Assert.Throws<KeyNotFoundException>(() => cluster.GetColumn<int, int>("missing"));
-      Assert.Throws<InvalidOperationException>(() => cluster.GetColumn<int, string>("numbers"));
+      Assert.Throws<KeyNotFoundException>(() => cluster.GetCoordinatedColumn<int, int>("missing"));
+      Assert.Throws<InvalidOperationException>(() => cluster.GetCoordinatedColumn<int, string>("numbers"));
       using var other = Factory.CreateInProcess(Options(Path.Combine(DataDirectory, "other")));
       using var transaction = cluster.BeginTransaction();
-      Assert.Throws<ArgumentException>(() => transaction.GetColumn(other.GetColumn<int, int>("numbers")));
+      Assert.Throws<ArgumentException>(() => transaction.GetColumn(other.GetCoordinatedColumn<int, int>("numbers")));
     }
     Assert.Throws<DatabaseAlreadyExistsException>(() => Factory.CreateInProcess(options));
     var mismatch = new ZoneTreeClusterOptions
     {
       DataDirectory = DataDirectory,
-      Columns = [new ColumnDefinition<int, string>("numbers")]
+      Columns = [new CoordinatedColumnDefinition<int, string>("numbers")]
     };
     Assert.Throws<InvalidDataException>(() => Factory.OpenOrCreateInProcess(mismatch));
     using var reopened = Factory.OpenInProcess(options);
@@ -334,7 +334,7 @@ public sealed class ZoneTreeClusterTests
       using var active = cluster.BeginTransaction();
       cluster.IsReadOnly = true;
       Assert.Throws<ZoneTreeIsReadOnlyException>(() => cluster.BeginTransaction());
-      active.GetColumn(cluster.GetColumn<int, int>("numbers")).Upsert(1, 42);
+      active.GetColumn(cluster.GetCoordinatedColumn<int, int>("numbers")).Upsert(1, 42);
       active.Commit();
       using var cancelled = new CancellationTokenSource();
       cancelled.Cancel();
@@ -351,8 +351,8 @@ public sealed class ZoneTreeClusterTests
   public void AColumnFailureAfterCommitStartsIsNotReportedAsARetryableConflict()
   {
     using var cluster = Factory.CreateInProcess(Options());
-    var numbers = cluster.GetColumn<int, int>("numbers");
-    var names = cluster.GetColumn<long, string>("names");
+    var numbers = cluster.GetCoordinatedColumn<int, int>("numbers");
+    var names = cluster.GetCoordinatedColumn<long, string>("names");
     using var transaction = cluster.BeginTransaction();
     transaction.GetColumn(numbers).Upsert(1, 42);
     transaction.GetColumn(names).Upsert(1L, "Alice");
@@ -370,7 +370,7 @@ public sealed class ZoneTreeClusterTests
   {
     var options = Options();
     using var cluster = Factory.CreateInProcess(options);
-    var numbers = cluster.GetColumn<int, int>("numbers");
+    var numbers = cluster.GetCoordinatedColumn<int, int>("numbers");
     numbers.Upsert(1, 42);
     using (var maintainer = cluster.CreateMaintainer())
     {
@@ -384,6 +384,6 @@ public sealed class ZoneTreeClusterTests
     cluster.Maintenance.Drop();
     Assert.Throws<DatabaseNotFoundException>(() => Factory.OpenInProcess(options));
     using var recreated = Factory.CreateInProcess(options);
-    Assert.That(recreated.GetColumn<int, int>("numbers").ContainsKey(1), Is.False);
+    Assert.That(recreated.GetCoordinatedColumn<int, int>("numbers").ContainsKey(1), Is.False);
   }
 }

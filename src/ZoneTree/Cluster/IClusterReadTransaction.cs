@@ -19,5 +19,5 @@ public interface IClusterReadTransaction : IDisposable, IAsyncDisposable
   /// <exception cref="ArgumentException">The handle belongs to another cluster.</exception>
   /// <remarks>Acquiring a view after the transaction ends is rejected.</remarks>
   IReadColumn<TKey, TValue> GetColumn<TKey, TValue>(
-      IColumn<TKey, TValue> column);
+      ICoordinatedColumn<TKey, TValue> column);
 }

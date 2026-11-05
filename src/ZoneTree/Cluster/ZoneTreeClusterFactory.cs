@@ -64,18 +64,21 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
     }
   }
 
+  // TODO: make a better schema for the cluster before first release to avoid frequent migrations and never try introduce compatibility until we release. always keep schema version 1 until the first release.
+  const int SchemaVersion = 1;
+
   static void WriteSchema(string path, ColumnDefinition[] definitions)
   {
     using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
     using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
-    writer.Write(2);
+    writer.Write(SchemaVersion);
     writer.Write(definitions.Length);
     foreach (var column in definitions)
     {
       writer.Write(column.Name);
       writer.Write(column.KeyType.FullName);
       writer.Write(column.ValueType.FullName);
-      writer.Write(column.IsRaw);
+      writer.Write((byte)column.Kind);
     }
     writer.Flush();
     stream.Flush(flushToDisk: true);
@@ -85,17 +88,16 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
   {
     using var stream = File.OpenRead(path);
     using var reader = new BinaryReader(stream);
-    var version = reader.ReadInt32();
-    if (version is not 1 and not 2 || reader.ReadInt32() != definitions.Length)
+    if (reader.ReadInt32() != SchemaVersion || reader.ReadInt32() != definitions.Length)
       throw new InvalidDataException("The cluster schema does not match the column definitions.");
     foreach (var column in definitions)
     {
       if (reader.ReadString() != column.Name || reader.ReadString() != column.KeyType.FullName ||
           reader.ReadString() != column.ValueType.FullName)
         throw new InvalidDataException("Column names, types and declaration order must match the stored schema.");
-      var isRaw = version >= 2 && reader.ReadBoolean();
-      if (isRaw != column.IsRaw)
-        throw new InvalidDataException($"Column '{column.Name}' has a different transactional/raw kind.");
+      var kind = (ColumnKind)reader.ReadByte();
+      if (kind != column.Kind)
+        throw new InvalidDataException($"Column '{column.Name}' is stored as a {kind} column, not a {column.Kind} column.");
     }
     if (stream.Position != stream.Length)
       throw new InvalidDataException("Unexpected data in the cluster schema.");

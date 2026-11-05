@@ -7,7 +7,7 @@ public sealed class RawColumnDefinition<TKey, TValue> : ColumnDefinition
 {
   internal override Type KeyType => typeof(TKey);
   internal override Type ValueType => typeof(TValue);
-  internal override bool IsRaw => true;
+  internal override ColumnKind Kind => ColumnKind.Raw;
 
   public RawColumnDefinition(string name) : base(name) { }
 

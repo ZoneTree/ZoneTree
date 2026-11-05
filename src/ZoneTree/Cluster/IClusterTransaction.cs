@@ -30,7 +30,7 @@ public interface IClusterTransaction : IClusterReadTransaction
   /// Gets a writable column view within this transaction.
   /// </summary>
   new IWriteColumn<TKey, TValue> GetColumn<TKey, TValue>(
-      IColumn<TKey, TValue> column);
+      ICoordinatedColumn<TKey, TValue> column);
 
   /// <summary>
   /// Atomically commits the transaction with process-crash durability.
