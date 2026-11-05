@@ -54,13 +54,18 @@ public sealed class ZoneTreeEngine : ITransactionEngine
 
   internal static ZoneTreeFactory<long, byte[]> ConfigureFactory(
       ZoneTreeFactory<long, byte[]> factory, EngineOpenOptions options, WriteAheadLogMode walMode)
+      => ConfigureStorage(factory
+          .SetComparer(new Int64ComparerAscending())
+          .SetKeySerializer(new Int64Serializer())
+          .SetValueSerializer(new ValueSerializer()), options, walMode);
+
+  /// <summary>The storage tuning without the comparer and serializers.</summary>
+  internal static ZoneTreeFactory<long, byte[]> ConfigureStorage(
+      ZoneTreeFactory<long, byte[]> factory, EngineOpenOptions options, WriteAheadLogMode walMode)
   {
     var tuning = options.Tuning;
     return factory
         .SetMutableSegmentMaxItemCount(tuning.ZoneTreeMutableSegmentMaxItemCount)
-        .SetComparer(new Int64ComparerAscending())
-        .SetKeySerializer(new Int64Serializer())
-        .SetValueSerializer(new ValueSerializer())
         .ConfigureDiskSegmentOptions(disk =>
         {
           disk.DefaultSparseArrayStepSize = tuning.ZoneTreeSparseArrayStepSize;
@@ -153,7 +158,7 @@ public sealed class ZoneTreeEngine : ITransactionEngine
     public void Dispose() => transaction.Dispose();
   }
 
-  sealed class ValueSerializer : ISerializer<byte[]>
+  internal sealed class ValueSerializer : ISerializer<byte[]>
   {
     public byte[] Deserialize(Memory<byte> bytes) => bytes.ToArray();
 

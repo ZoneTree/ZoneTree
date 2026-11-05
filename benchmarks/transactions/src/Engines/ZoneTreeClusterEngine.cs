@@ -27,6 +27,9 @@ public sealed class ZoneTreeClusterEngine : ITransactionEngine
     Cluster = new ZoneTreeClusterFactory().OpenOrCreateInProcess(new ZoneTreeClusterOptions
     {
       DataDirectory = options.Directory,
+      // byte[] has no built-in cluster encoding, so the column names the benchmark's serializer.
+      Encodings = new ClusterEncodingRegistry()
+          .AddSerializer("benchmark.bytes", 1, new ZoneTreeEngine.ValueSerializer()),
       Domains =
       [
         new DomainDefinition("records")
@@ -35,7 +38,8 @@ public sealed class ZoneTreeClusterEngine : ITransactionEngine
           [
             new CoordinatedColumnDefinition<long, byte[]>("records")
             {
-              ConfigureStorage = factory => ZoneTreeEngine.ConfigureFactory(factory, options, walMode)
+              ValueSerializerId = "benchmark.bytes",
+              ConfigureStorage = factory => ZoneTreeEngine.ConfigureStorage(factory, options, walMode)
             }
           ]
         }

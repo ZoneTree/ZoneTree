@@ -53,6 +53,12 @@ internal sealed class ClusterCatalog : IDisposable
     try
     {
       // A catalog without its cluster record was never created: a crash interrupted it.
+      // TODO: Known edge case. Our writes never leave domain or column records without the
+      // cluster record, but storage damage or an incomplete restore can. Such a catalog is
+      // treated as new here, so its ids restart and reuse existing columns' ids and
+      // directories, and a failed declaration would then drop the existing data. A new
+      // catalog next to an existing columns directory has the same effect. The fix is to
+      // refuse both, and to refuse creating a column whose directory already exists.
       var loaded = Load(tree);
       var created = loaded == null;
       if (created)
