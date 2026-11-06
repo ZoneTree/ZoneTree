@@ -27,14 +27,14 @@ public interface IClusterDomain : IClusterTransactionSource<IDomainTransaction>
   IDomainReadTransaction BeginReadOnlyTransaction();
 
   /// <summary>Asynchronously begins a read-only transaction.</summary>
-  ValueTask<IDomainReadTransaction> BeginReadOnlyTransactionAsync(
+  Task<IDomainReadTransaction> BeginReadOnlyTransactionAsync(
       CancellationToken cancellationToken = default);
 
   /// <summary>Begins a read-only transaction with the given options; null uses the defaults.</summary>
   IDomainReadTransaction BeginReadOnlyTransaction(ClusterReadTransactionOptions options);
 
   /// <summary>Asynchronously begins a read-only transaction with the given options.</summary>
-  ValueTask<IDomainReadTransaction> BeginReadOnlyTransactionAsync(
+  Task<IDomainReadTransaction> BeginReadOnlyTransactionAsync(
       ClusterReadTransactionOptions options, CancellationToken cancellationToken = default);
 
   /// <summary>

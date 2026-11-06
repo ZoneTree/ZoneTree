@@ -13,13 +13,13 @@ public interface IRawColumn<TKey, TValue>
   string Name { get; }
   IZoneTreeCluster Cluster { get; }
   bool ContainsKey(in TKey key);
-  ValueTask<bool> ContainsKeyAsync(TKey key, CancellationToken cancellationToken = default);
+  Task<bool> ContainsKeyAsync(TKey key, CancellationToken cancellationToken = default);
   bool TryGet(in TKey key, out TValue value);
-  ValueTask<ReadResult<TValue>> TryGetAsync(TKey key, CancellationToken cancellationToken = default);
+  Task<ReadResult<TValue>> TryGetAsync(TKey key, CancellationToken cancellationToken = default);
   void Upsert(in TKey key, in TValue value);
-  ValueTask UpsertAsync(TKey key, TValue value, CancellationToken cancellationToken = default);
+  Task UpsertAsync(TKey key, TValue value, CancellationToken cancellationToken = default);
   void Delete(in TKey key);
-  ValueTask DeleteAsync(TKey key, CancellationToken cancellationToken = default);
+  Task DeleteAsync(TKey key, CancellationToken cancellationToken = default);
 
   /// <summary>Reads an inclusive, comparer-ordered range.</summary>
   IEnumerable<KeyValuePair<TKey, TValue>> Range(in TKey from, in TKey to, bool reverse = false);

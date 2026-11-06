@@ -58,13 +58,13 @@ internal sealed class StandaloneTransaction<TKey, TValue> :
 
   public void Delete(in TKey key) => ActiveWriter.Delete(in key);
 
-  public ValueTask<ReadResult<TValue>> TryGetForUpdateAsync(TKey key, CancellationToken cancellationToken = default)
+  public Task<ReadResult<TValue>> TryGetForUpdateAsync(TKey key, CancellationToken cancellationToken = default)
       => AsyncOperations.Run(() => new ReadResult<TValue>(TryGetForUpdate(in key, out var value), value), cancellationToken);
 
-  public ValueTask UpsertAsync(TKey key, TValue value, CancellationToken cancellationToken = default)
+  public Task UpsertAsync(TKey key, TValue value, CancellationToken cancellationToken = default)
       => AsyncOperations.Run(() => Upsert(in key, in value), cancellationToken);
 
-  public ValueTask DeleteAsync(TKey key, CancellationToken cancellationToken = default)
+  public Task DeleteAsync(TKey key, CancellationToken cancellationToken = default)
       => AsyncOperations.Run(() => Delete(in key), cancellationToken);
 
   public void Commit()
@@ -79,30 +79,30 @@ internal sealed class StandaloneTransaction<TKey, TValue> :
     finally { EndIfFinished(); }
   }
 
-  public ValueTask CommitAsync(CancellationToken cancellationToken = default)
+  public Task CommitAsync(CancellationToken cancellationToken = default)
   {
     cancellationToken.ThrowIfCancellationRequested();
     try
     {
       Commit();
-      return ValueTask.CompletedTask;
+      return Task.CompletedTask;
     }
     catch (Exception error)
     {
-      return ValueTask.FromException(error);
+      return Task.FromException(error);
     }
   }
 
-  public ValueTask<bool> TryCommitAsync(CancellationToken cancellationToken = default)
+  public Task<bool> TryCommitAsync(CancellationToken cancellationToken = default)
   {
     cancellationToken.ThrowIfCancellationRequested();
     try
     {
-      return ValueTask.FromResult(TryCommit());
+      return Task.FromResult(TryCommit());
     }
     catch (Exception error)
     {
-      return ValueTask.FromException<bool>(error);
+      return Task.FromException<bool>(error);
     }
   }
 
@@ -126,10 +126,10 @@ internal sealed class StandaloneTransaction<TKey, TValue> :
     finally { EndIfFinished(); }
   }
 
-  public ValueTask RollbackAsync()
+  public Task RollbackAsync()
   {
     Rollback();
-    return ValueTask.CompletedTask;
+    return Task.CompletedTask;
   }
 
   void EndIfFinished()

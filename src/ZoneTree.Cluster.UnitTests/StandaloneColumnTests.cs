@@ -142,7 +142,7 @@ public sealed class StandaloneColumnTests
     await using (var transaction = await visits.BeginTransactionAsync())
     {
       // The async operations of a transaction run in parallel.
-      var writes = Enumerable.Range(100, 50).Select(i => transaction.UpsertAsync(i, i).AsTask()).ToArray();
+      var writes = Enumerable.Range(100, 50).Select(i => transaction.UpsertAsync(i, i)).ToArray();
       await Task.WhenAll(writes);
       await transaction.UpsertAsync(1, 50);
       var own = await transaction.TryGetAsync(1);

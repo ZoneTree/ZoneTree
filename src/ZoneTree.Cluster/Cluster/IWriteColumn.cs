@@ -9,7 +9,7 @@ public interface IWriteColumn<TKey, TValue> : IReadColumn<TKey, TValue>
   bool TryGetForUpdate(in TKey key, out TValue value);
 
   /// <summary>Asynchronously reads and protects the key against concurrent changes.</summary>
-  ValueTask<ReadResult<TValue>> TryGetForUpdateAsync(
+  Task<ReadResult<TValue>> TryGetForUpdateAsync(
       TKey key, CancellationToken cancellationToken = default);
 
   /// <summary>
@@ -20,11 +20,11 @@ public interface IWriteColumn<TKey, TValue> : IReadColumn<TKey, TValue>
   /// <summary>
   /// Asynchronously inserts or updates the key within the transaction.
   /// </summary>
-  ValueTask UpsertAsync(TKey key, TValue value, CancellationToken cancellationToken = default);
+  Task UpsertAsync(TKey key, TValue value, CancellationToken cancellationToken = default);
 
   /// <summary>Deletes the key within the transaction.</summary>
   void Delete(in TKey key);
 
   /// <summary>Asynchronously deletes the key within the transaction.</summary>
-  ValueTask DeleteAsync(TKey key, CancellationToken cancellationToken = default);
+  Task DeleteAsync(TKey key, CancellationToken cancellationToken = default);
 }

@@ -17,43 +17,43 @@ public interface IClusterSchema
 {
   /// <summary>Creates a domain.</summary>
   /// <exception cref="SchemaObjectAlreadyExistsException">The domain exists.</exception>
-  ValueTask<IClusterDomain> CreateDomainAsync(string name, CancellationToken cancellationToken = default);
+  Task<IClusterDomain> CreateDomainAsync(string name, CancellationToken cancellationToken = default);
 
   /// <summary>Gets a domain, creating it if it does not exist.</summary>
-  ValueTask<IClusterDomain> GetOrCreateDomainAsync(string name, CancellationToken cancellationToken = default);
+  Task<IClusterDomain> GetOrCreateDomainAsync(string name, CancellationToken cancellationToken = default);
 
   /// <summary>Creates a coordinated column in a domain.</summary>
   /// <exception cref="SchemaObjectAlreadyExistsException">A column with the name exists.</exception>
   /// <exception cref="SchemaObjectNotFoundException">The domain does not exist.</exception>
   /// <exception cref="ColumnEncodingException">An encoding of the definition is not registered for its types.</exception>
-  ValueTask<ICoordinatedColumn<TKey, TValue>> CreateColumnAsync<TKey, TValue>(
+  Task<ICoordinatedColumn<TKey, TValue>> CreateColumnAsync<TKey, TValue>(
       string domain, CoordinatedColumnDefinition<TKey, TValue> definition,
       CancellationToken cancellationToken = default);
 
   /// <summary>Gets a coordinated column of a domain, creating it if it does not exist.</summary>
   /// <exception cref="SchemaConflictException">The column exists with another definition.</exception>
-  ValueTask<ICoordinatedColumn<TKey, TValue>> GetOrCreateColumnAsync<TKey, TValue>(
+  Task<ICoordinatedColumn<TKey, TValue>> GetOrCreateColumnAsync<TKey, TValue>(
       string domain, CoordinatedColumnDefinition<TKey, TValue> definition,
       CancellationToken cancellationToken = default);
 
   /// <summary>Creates a standalone column.</summary>
   /// <exception cref="SchemaObjectAlreadyExistsException">A column with the name exists.</exception>
-  ValueTask<IStandaloneColumn<TKey, TValue>> CreateColumnAsync<TKey, TValue>(
+  Task<IStandaloneColumn<TKey, TValue>> CreateColumnAsync<TKey, TValue>(
       StandaloneColumnDefinition<TKey, TValue> definition, CancellationToken cancellationToken = default);
 
   /// <summary>Gets a standalone column, creating it if it does not exist.</summary>
   /// <exception cref="SchemaConflictException">The column exists with another definition.</exception>
-  ValueTask<IStandaloneColumn<TKey, TValue>> GetOrCreateColumnAsync<TKey, TValue>(
+  Task<IStandaloneColumn<TKey, TValue>> GetOrCreateColumnAsync<TKey, TValue>(
       StandaloneColumnDefinition<TKey, TValue> definition, CancellationToken cancellationToken = default);
 
   /// <summary>Creates a raw column.</summary>
   /// <exception cref="SchemaObjectAlreadyExistsException">A column with the name exists.</exception>
-  ValueTask<IRawColumn<TKey, TValue>> CreateColumnAsync<TKey, TValue>(
+  Task<IRawColumn<TKey, TValue>> CreateColumnAsync<TKey, TValue>(
       RawColumnDefinition<TKey, TValue> definition, CancellationToken cancellationToken = default);
 
   /// <summary>Gets a raw column, creating it if it does not exist.</summary>
   /// <exception cref="SchemaConflictException">The column exists with another definition.</exception>
-  ValueTask<IRawColumn<TKey, TValue>> GetOrCreateColumnAsync<TKey, TValue>(
+  Task<IRawColumn<TKey, TValue>> GetOrCreateColumnAsync<TKey, TValue>(
       RawColumnDefinition<TKey, TValue> definition, CancellationToken cancellationToken = default);
 
   /// <summary>
@@ -65,7 +65,7 @@ public interface IClusterSchema
   /// durable sync. A declared column is created again, empty, the next time the cluster opens.
   /// </summary>
   /// <returns>True if the column was dropped; false if no column has the name.</returns>
-  ValueTask<bool> DropColumnAsync(string name, CancellationToken cancellationToken = default);
+  Task<bool> DropColumnAsync(string name, CancellationToken cancellationToken = default);
 
   /// <summary>
   /// Renames a column. Its handles, transactions and data are not affected; a declaration of
@@ -73,7 +73,7 @@ public interface IClusterSchema
   /// </summary>
   /// <exception cref="SchemaObjectNotFoundException">No column has the name.</exception>
   /// <exception cref="SchemaObjectAlreadyExistsException">A column with the new name exists.</exception>
-  ValueTask RenameColumnAsync(string name, string newName, CancellationToken cancellationToken = default);
+  Task RenameColumnAsync(string name, string newName, CancellationToken cancellationToken = default);
 
   /// <summary>
   /// Drops a domain without columns. Its handle throws <see cref="SchemaObjectDroppedException"/>
@@ -81,13 +81,13 @@ public interface IClusterSchema
   /// </summary>
   /// <returns>True if the domain was dropped; false if no domain has the name.</returns>
   /// <exception cref="SchemaConflictException">The domain has columns. Drop them first.</exception>
-  ValueTask<bool> DropDomainAsync(string name, CancellationToken cancellationToken = default);
+  Task<bool> DropDomainAsync(string name, CancellationToken cancellationToken = default);
 
   /// <summary>Renames a domain. Its handle, columns and transactions are not affected.</summary>
   /// <exception cref="SchemaObjectNotFoundException">No domain has the name.</exception>
   /// <exception cref="SchemaObjectAlreadyExistsException">A domain with the new name exists.</exception>
-  ValueTask RenameDomainAsync(string name, string newName, CancellationToken cancellationToken = default);
+  Task RenameDomainAsync(string name, string newName, CancellationToken cancellationToken = default);
 
   /// <summary>Describes the current schema.</summary>
-  ValueTask<ClusterSchemaDescription> DescribeAsync(CancellationToken cancellationToken = default);
+  Task<ClusterSchemaDescription> DescribeAsync(CancellationToken cancellationToken = default);
 }

@@ -132,7 +132,7 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
     }
   }
 
-  public ValueTask<ReadResult<TValue>> TryGetForUpdateAsync(TKey key,
+  public Task<ReadResult<TValue>> TryGetForUpdateAsync(TKey key,
       CancellationToken cancellationToken = default)
       => RunAsync(() => new ReadResult<TValue>(TryGetForUpdate(in key, out var value), value), cancellationToken);
 
@@ -152,10 +152,10 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
     Write(in key, VersionedValue<TValue>.Tombstone);
   }
 
-  public ValueTask UpsertAsync(TKey key, TValue value, CancellationToken cancellationToken = default)
+  public Task UpsertAsync(TKey key, TValue value, CancellationToken cancellationToken = default)
       => RunAsync(() => Upsert(in key, in value), cancellationToken);
 
-  public ValueTask DeleteAsync(TKey key, CancellationToken cancellationToken = default)
+  public Task DeleteAsync(TKey key, CancellationToken cancellationToken = default)
       => RunAsync(() => Delete(in key), cancellationToken);
 
   void Write(in TKey key, in VersionedValue<TValue> value)

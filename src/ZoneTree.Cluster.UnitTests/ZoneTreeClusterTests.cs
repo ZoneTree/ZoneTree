@@ -61,9 +61,9 @@ public sealed class ZoneTreeClusterTests
       for (var i = 1; i <= 500; ++i)
       {
         var key = i;
-        operations.Add(Task.Run(() => transaction.GetColumn(numbers).UpsertAsync(key, key).AsTask()));
-        operations.Add(transaction.GetColumn(names).UpsertAsync(key, $"name {key}").AsTask());
-        operations.Add(transaction.GetColumn(numbers).TryGetAsync(-key).AsTask());
+        operations.Add(Task.Run(() => transaction.GetColumn(numbers).UpsertAsync(key, key)));
+        operations.Add(transaction.GetColumn(names).UpsertAsync(key, $"name {key}"));
+        operations.Add(transaction.GetColumn(numbers).TryGetAsync(-key));
       }
       await Task.WhenAll(operations);
       transaction.Commit();
@@ -366,7 +366,6 @@ public sealed class ZoneTreeClusterTests
     using var cluster = Factory.CreateInProcess(Options());
     var domain = cluster.GetDomain(Domain);
     var numbers = domain.GetColumn<int, int>("numbers");
-    async Task Write(IDomainTransaction transaction) => await transaction.GetColumn(numbers).UpsertAsync(1, 10);
     // The upsert would run on the thread pool after the commit.
     Assert.Throws<ArgumentException>(() => domain.Execute(transaction => transaction.GetColumn(numbers).UpsertAsync(1, 10)));
     Assert.Throws<ArgumentException>(() => domain.Execute(async transaction =>
@@ -374,8 +373,6 @@ public sealed class ZoneTreeClusterTests
       await transaction.GetColumn(numbers).UpsertAsync(1, 10);
       return 1;
     }));
-    // A lambda that returns the task without async binds to the synchronous body overload.
-    Assert.ThrowsAsync<ArgumentException>(() => domain.ExecuteDurableAsync(transaction => Write(transaction)));
     Assert.That(numbers.TryGet(1, out _), Is.False);
     Assert.That(cluster.Maintenance.ActiveTransactionCount, Is.Zero);
   }
@@ -400,7 +397,9 @@ public sealed class ZoneTreeClusterTests
       return 7;
     });
     Assert.That(result, Is.EqualTo(7));
-    for (var key = 1; key <= 6; ++key)
+    // A lambda that returns the task without async binds to the asynchronous body overload too.
+    await domain.ExecuteDurableAsync(transaction => WriteTwo(transaction, 7));
+    for (var key = 1; key <= 8; ++key)
       Assert.That(numbers.TryGet(key, out var value) && value == key, Is.True, $"key {key}");
   }
 

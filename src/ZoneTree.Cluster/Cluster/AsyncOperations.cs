@@ -6,15 +6,15 @@ namespace ZoneTree.Cluster;
 /// </summary>
 internal static class AsyncOperations
 {
-  internal static ValueTask<T> Run<T>(Func<T> operation, CancellationToken cancellationToken)
+  internal static Task<T> Run<T>(Func<T> operation, CancellationToken cancellationToken)
   {
     cancellationToken.ThrowIfCancellationRequested();
-    return new(Task.Run(operation, cancellationToken));
+    return Task.Run(operation, cancellationToken);
   }
 
-  internal static ValueTask Run(Action operation, CancellationToken cancellationToken)
+  internal static Task Run(Action operation, CancellationToken cancellationToken)
   {
     cancellationToken.ThrowIfCancellationRequested();
-    return new(Task.Run(operation, cancellationToken));
+    return Task.Run(operation, cancellationToken);
   }
 }

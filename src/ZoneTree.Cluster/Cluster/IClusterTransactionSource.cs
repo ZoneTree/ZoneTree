@@ -15,7 +15,7 @@ public interface IClusterTransactionSource<TTransaction>
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable);
 
   /// <summary>Asynchronously begins a read/write transaction.</summary>
-  ValueTask<TTransaction> BeginTransactionAsync(
+  Task<TTransaction> BeginTransactionAsync(
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       CancellationToken cancellationToken = default);
 
@@ -24,7 +24,7 @@ public interface IClusterTransactionSource<TTransaction>
   TTransaction BeginTransaction(ClusterTransactionOptions options);
 
   /// <summary>Asynchronously begins a read/write transaction with the given options.</summary>
-  ValueTask<TTransaction> BeginTransactionAsync(
+  Task<TTransaction> BeginTransactionAsync(
       ClusterTransactionOptions options, CancellationToken cancellationToken = default);
 
   /// <summary>
@@ -38,6 +38,6 @@ public interface IClusterTransactionSource<TTransaction>
   /// columns this process has not opened yet reports <see cref="TransactionOutcome.Unknown"/>;
   /// open them first, with <c>GetColumn</c>, to find its outcome.
   /// </remarks>
-  ValueTask<TransactionOutcome> GetTransactionOutcomeAsync(
+  Task<TransactionOutcome> GetTransactionOutcomeAsync(
       long transactionId, CancellationToken cancellationToken = default);
 }

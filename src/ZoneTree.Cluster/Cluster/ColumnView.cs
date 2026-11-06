@@ -77,9 +77,9 @@ internal abstract class ColumnView : IDisposable
   /// Runs an async operation of this view on the thread pool. The view is thread-safe,
   /// so its operations, and those of other views, run in parallel.
   /// </summary>
-  internal static ValueTask<T> RunAsync<T>(Func<T> operation, CancellationToken cancellationToken)
+  internal static Task<T> RunAsync<T>(Func<T> operation, CancellationToken cancellationToken)
       => AsyncOperations.Run(operation, cancellationToken);
 
-  internal static ValueTask RunAsync(Action operation, CancellationToken cancellationToken)
+  internal static Task RunAsync(Action operation, CancellationToken cancellationToken)
       => AsyncOperations.Run(operation, cancellationToken);
 }

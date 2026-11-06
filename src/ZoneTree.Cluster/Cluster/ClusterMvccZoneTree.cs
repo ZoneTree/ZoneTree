@@ -172,7 +172,7 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   /// Restores a backup generation of the storage tree of a coordinated column, which the
   /// column opens afterward.
   /// </summary>
-  internal static async ValueTask RestoreStorageAsync(ZoneTreeOptions<TKey, TValue> options,
+  internal static async Task RestoreStorageAsync(ZoneTreeOptions<TKey, TValue> options,
       Backup.ILiveBackupSource source, long generationId)
   {
     RejectUnsupportedOptions(options);

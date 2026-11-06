@@ -10,24 +10,29 @@ internal sealed class AsyncTransactionIterator<TKey, TValue>(ITransactionIterato
   public bool HasCurrent => iterator.HasCurrent;
   public KeyValuePair<TKey, TValue> Current => iterator.Current;
 
-  public ValueTask<bool> NextAsync(CancellationToken cancellationToken = default)
+  // The iterator completes each step synchronously, so the steps share two completed tasks.
+  static readonly Task<bool> HasNext = Task.FromResult(true);
+
+  static readonly Task<bool> Ended = Task.FromResult(false);
+
+  public Task<bool> NextAsync(CancellationToken cancellationToken = default)
   {
     cancellationToken.ThrowIfCancellationRequested();
-    return new(iterator.Next());
+    return iterator.Next() ? HasNext : Ended;
   }
 
-  public ValueTask SeekAsync(TKey key, CancellationToken cancellationToken = default)
+  public Task SeekAsync(TKey key, CancellationToken cancellationToken = default)
   {
     cancellationToken.ThrowIfCancellationRequested();
     iterator.Seek(in key);
-    return ValueTask.CompletedTask;
+    return Task.CompletedTask;
   }
 
-  public ValueTask SeekFirstAsync(CancellationToken cancellationToken = default)
+  public Task SeekFirstAsync(CancellationToken cancellationToken = default)
   {
     cancellationToken.ThrowIfCancellationRequested();
     iterator.SeekFirst();
-    return ValueTask.CompletedTask;
+    return Task.CompletedTask;
   }
 
   public ValueTask DisposeAsync()

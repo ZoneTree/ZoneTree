@@ -19,14 +19,14 @@ public interface IAsyncTransactionIterator<TKey, TValue> : IAsyncDisposable
   KeyValuePair<TKey, TValue> Current { get; }
 
   /// <summary>Moves to the next record; the first call starts at the beginning unless positioned.</summary>
-  ValueTask<bool> NextAsync(CancellationToken cancellationToken = default);
+  Task<bool> NextAsync(CancellationToken cancellationToken = default);
 
   /// <summary>
   /// Positions before the first key greater than or equal to the given key, or less
   /// than or equal to it in reverse order. Call NextAsync to read it.
   /// </summary>
-  ValueTask SeekAsync(TKey key, CancellationToken cancellationToken = default);
+  Task SeekAsync(TKey key, CancellationToken cancellationToken = default);
 
   /// <summary>Positions before the first record. Call NextAsync to read it.</summary>
-  ValueTask SeekFirstAsync(CancellationToken cancellationToken = default);
+  Task SeekFirstAsync(CancellationToken cancellationToken = default);
 }

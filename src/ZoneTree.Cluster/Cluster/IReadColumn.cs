@@ -16,13 +16,13 @@ public interface IReadColumn<TKey, TValue>
   bool ContainsKey(in TKey key);
 
   /// <summary>Asynchronously checks whether the key exists.</summary>
-  ValueTask<bool> ContainsKeyAsync(TKey key, CancellationToken cancellationToken = default);
+  Task<bool> ContainsKeyAsync(TKey key, CancellationToken cancellationToken = default);
 
   /// <summary>Reads the snapshot plus this transaction's own writes to this column.</summary>
   bool TryGet(in TKey key, out TValue value);
 
   /// <summary>Asynchronously reads the same snapshot and own writes; Found distinguishes a missing key.</summary>
-  ValueTask<ReadResult<TValue>> TryGetAsync(
+  Task<ReadResult<TValue>> TryGetAsync(
       TKey key, CancellationToken cancellationToken = default);
 
   /// <summary>

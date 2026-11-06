@@ -48,7 +48,7 @@ public abstract class ColumnDefinition
   /// Restores a backup generation of the column's storage into its directory, with the
   /// column's types and encodings. The column opens afterward, with the cluster.
   /// </summary>
-  internal abstract ValueTask RestoreStorageAsync(ColumnStorageSettings settings, ClusterEncodingRegistry encodings,
+  internal abstract Task RestoreStorageAsync(ColumnStorageSettings settings, ClusterEncodingRegistry encodings,
       ColumnRecord record, string directory, Backup.ILiveBackupSource source, long generationId);
 
   /// <summary>Prepares the storage factory of a restored column, with the encodings it was created with.</summary>

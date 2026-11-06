@@ -55,16 +55,16 @@ internal sealed class RawColumn<TKey, TValue> : Column,
 
   // The tree is thread-safe, so the async operations run on the thread pool without
   // an order between them, and the columns of a cluster can be written in parallel.
-  public ValueTask<bool> ContainsKeyAsync(TKey key, CancellationToken cancellationToken = default)
+  public Task<bool> ContainsKeyAsync(TKey key, CancellationToken cancellationToken = default)
       => AsyncOperations.Run(() => ContainsKey(in key), cancellationToken);
 
-  public ValueTask<ReadResult<TValue>> TryGetAsync(TKey key, CancellationToken cancellationToken = default)
+  public Task<ReadResult<TValue>> TryGetAsync(TKey key, CancellationToken cancellationToken = default)
       => AsyncOperations.Run(() => new ReadResult<TValue>(TryGet(in key, out var value), value), cancellationToken);
 
-  public ValueTask UpsertAsync(TKey key, TValue value, CancellationToken cancellationToken = default)
+  public Task UpsertAsync(TKey key, TValue value, CancellationToken cancellationToken = default)
       => AsyncOperations.Run(() => Upsert(in key, in value), cancellationToken);
 
-  public ValueTask DeleteAsync(TKey key, CancellationToken cancellationToken = default)
+  public Task DeleteAsync(TKey key, CancellationToken cancellationToken = default)
       => AsyncOperations.Run(() => Delete(in key), cancellationToken);
 
   public IEnumerable<KeyValuePair<TKey, TValue>> Range(in TKey from, in TKey to, bool reverse = false)

@@ -81,17 +81,17 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
   // The commit waits on this thread, so a blocked caller never needs a thread pool thread.
   public bool TryCommit() => BeginCommit(false, synchronous: true).GetAwaiter().GetResult();
 
-  public async ValueTask CommitAsync(CancellationToken cancellationToken = default)
+  public async Task CommitAsync(CancellationToken cancellationToken = default)
   {
     if (!await TryCommitAsync(cancellationToken).ConfigureAwait(false))
       throw new TransactionConflictException(TransactionId);
   }
 
-  public ValueTask<bool> TryCommitAsync(CancellationToken cancellationToken = default)
+  public Task<bool> TryCommitAsync(CancellationToken cancellationToken = default)
   {
     cancellationToken.ThrowIfCancellationRequested();
     var commit = BeginCommit(false, synchronous: false);
-    return new(cancellationToken.CanBeCanceled ? commit.WaitAsync(cancellationToken) : commit);
+    return cancellationToken.CanBeCanceled ? commit.WaitAsync(cancellationToken) : commit;
   }
 
   public async Task CommitDurableAsync(CancellationToken cancellationToken = default)
@@ -448,5 +448,5 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
   };
 
   public void Rollback() => Dispose();
-  public ValueTask RollbackAsync() => DisposeAsync();
+  public Task RollbackAsync() => DisposeAsync().AsTask();
 }

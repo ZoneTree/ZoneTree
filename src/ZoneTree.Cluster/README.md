@@ -208,8 +208,8 @@ static async Task Example()
     // Issue independent column operations before awaiting their completion.
     // WhenAll also drains both operations if one fails.
     await Task.WhenAll(
-        amounts.UpsertAsync(1L, 10_000L).AsTask(),
-        labels.UpsertAsync(1L, "Alice").AsTask());
+        amounts.UpsertAsync(1L, 10_000L),
+        labels.UpsertAsync(1L, "Alice"));
     await transaction.CommitAsync(); // Both columns commit together; survives process crash.
   }
 
@@ -224,7 +224,7 @@ static async Task Example()
     // The balance read must finish first; these independent column writes can overlap.
     var balanceWrite = amounts.UpsertAsync(1L, balance.Value - 500L, token);
     var auditWrite = events.UpsertAsync(Guid.NewGuid(), "Withdrawal: 500", token);
-    await Task.WhenAll(balanceWrite.AsTask(), auditWrite.AsTask());
+    await Task.WhenAll(balanceWrite, auditWrite);
   }, maxAttempts: 10); // Survives power loss / OS crash.
 
   using (var snapshot = accounts.BeginReadOnlyTransaction())
@@ -310,7 +310,7 @@ rollback waits for the running operations, and one that starts while the transac
 ends throws, so await all outstanding operations before ending the transaction.
 The example starts independent column writes together and awaits both before commit.
 
-Async point methods return `ValueTask`. `TryGetAsync` and `TryGetForUpdateAsync`
+Async methods return `Task`. `TryGetAsync` and `TryGetForUpdateAsync`
 return `ReadResult<TValue>` with `Found` and `Value` properties.
 Ranges and iterators also have asynchronous APIs:
 

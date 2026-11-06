@@ -221,13 +221,13 @@ public static class CrashWorkload
     while (true)
     {
       var scratch = cluster.Schema.GetOrCreateColumnAsync(Domain, new CoordinatedColumnDefinition<long, long>("scratch"))
-          .AsTask().GetAwaiter().GetResult();
+          .GetAwaiter().GetResult();
       using (var transaction = domain.BeginTransaction())
       {
         transaction.GetColumn(scratch).Upsert(1, 1);
         transaction.Commit();
       }
-      cluster.Schema.DropColumnAsync("scratch").AsTask().GetAwaiter().GetResult();
+      cluster.Schema.DropColumnAsync("scratch").GetAwaiter().GetResult();
       Thread.Sleep(20);
     }
   }
@@ -375,7 +375,7 @@ public static class CrashWorkload
     }
 
     // A crash during the scratch column's create or drop leaves it whole or gone.
-    var schema = cluster.Schema.DescribeAsync().AsTask().GetAwaiter().GetResult();
+    var schema = cluster.Schema.DescribeAsync().GetAwaiter().GetResult();
     if (schema.Domains.Single(item => item.Name == Domain).ColumnNames.Contains("scratch"))
     {
       using var read = domain.BeginReadOnlyTransaction();

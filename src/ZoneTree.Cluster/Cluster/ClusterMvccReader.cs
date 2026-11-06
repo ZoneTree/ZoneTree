@@ -117,10 +117,10 @@ internal abstract class ClusterMvccReader<TKey, TValue> : ColumnView,
     }
   }
 
-  public ValueTask<bool> ContainsKeyAsync(TKey key, CancellationToken cancellationToken = default)
+  public Task<bool> ContainsKeyAsync(TKey key, CancellationToken cancellationToken = default)
       => RunAsync(() => ContainsKey(in key), cancellationToken);
 
-  public ValueTask<ReadResult<TValue>> TryGetAsync(TKey key,
+  public Task<ReadResult<TValue>> TryGetAsync(TKey key,
       CancellationToken cancellationToken = default)
       => RunAsync(() => new ReadResult<TValue>(TryGet(in key, out var value), value), cancellationToken);
 

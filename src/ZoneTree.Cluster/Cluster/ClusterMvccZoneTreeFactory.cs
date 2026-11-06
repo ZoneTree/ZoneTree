@@ -21,7 +21,7 @@ internal static class ClusterMvccZoneTreeFactory
   }
 
   /// <summary>Restores a backup generation of the storage of a coordinated column.</summary>
-  internal static ValueTask RestoreAsync<TKey, TValue>(ZoneTreeFactory<TKey, TValue> factory,
+  internal static Task RestoreAsync<TKey, TValue>(ZoneTreeFactory<TKey, TValue> factory,
       Backup.ILiveBackupSource source, long generationId)
   {
     factory.FillMissingOptionsForKnownTypes();

@@ -33,7 +33,7 @@ public interface IZoneTreeClusterFactory
   /// </remarks>
   /// <exception cref="LiveBackupRestoreTargetAlreadyExistsException">The data directory holds a cluster.</exception>
   /// <exception cref="ArgumentException">A backed-up column is not declared.</exception>
-  ValueTask<IZoneTreeClusterHost> RestoreInProcessAsync(
+  Task<IZoneTreeClusterHost> RestoreInProcessAsync(
       ZoneTreeClusterOptions options,
       LocalLiveBackupOptions backup,
       long? generationId = null,
@@ -41,7 +41,7 @@ public interface IZoneTreeClusterFactory
 
   /// <summary>Restores a complete cluster generation from custom object storage.</summary>
   /// <inheritdoc cref="RestoreInProcessAsync(ZoneTreeClusterOptions, LocalLiveBackupOptions, long?, CancellationToken)"/>
-  ValueTask<IZoneTreeClusterHost> RestoreInProcessAsync(
+  Task<IZoneTreeClusterHost> RestoreInProcessAsync(
       ZoneTreeClusterOptions options,
       IBackupObjectStorage storage,
       ObjectStorageLiveBackupOptions backupOptions = null,
@@ -52,7 +52,7 @@ public interface IZoneTreeClusterFactory
   /// Connects to a cluster hosted by other processes or machines. The client has the
   /// same API as a cluster in this process; storage administration stays with the hosts.
   /// </summary>
-  ValueTask<IZoneTreeCluster> ConnectAsync(
+  Task<IZoneTreeCluster> ConnectAsync(
       ZoneTreeClusterConnectionOptions options,
       CancellationToken cancellationToken = default);
 }

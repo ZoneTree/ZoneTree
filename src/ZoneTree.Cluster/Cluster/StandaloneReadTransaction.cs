@@ -60,10 +60,10 @@ internal class StandaloneReadTransaction<TKey, TValue> : IStandaloneReadTransact
 
   public bool TryGet(in TKey key, out TValue value) => Transaction.TryGet(in key, out value);
 
-  public ValueTask<bool> ContainsKeyAsync(TKey key, CancellationToken cancellationToken = default)
+  public Task<bool> ContainsKeyAsync(TKey key, CancellationToken cancellationToken = default)
       => AsyncOperations.Run(() => ContainsKey(in key), cancellationToken);
 
-  public ValueTask<ReadResult<TValue>> TryGetAsync(TKey key, CancellationToken cancellationToken = default)
+  public Task<ReadResult<TValue>> TryGetAsync(TKey key, CancellationToken cancellationToken = default)
       => AsyncOperations.Run(() => new ReadResult<TValue>(TryGet(in key, out var value), value), cancellationToken);
 
   public IEnumerable<KeyValuePair<TKey, TValue>> Range(in TKey from, in TKey to, bool reverse = false)

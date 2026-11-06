@@ -276,7 +276,7 @@ public sealed class ClusterSchemaLifecycleTests
     using var cluster = Factory.CreateInProcess(Options());
     await cluster.Schema.CreateColumnAsync(new RawColumnDefinition<int, int>("cache"));
     var results = await Task.WhenAll(Enumerable.Range(0, 8)
-        .Select(_ => cluster.Schema.DropColumnAsync("cache").AsTask()));
+        .Select(_ => cluster.Schema.DropColumnAsync("cache")));
     Assert.That(results.Count(dropped => dropped), Is.EqualTo(1));
   }
 
@@ -289,8 +289,8 @@ public sealed class ClusterSchemaLifecycleTests
     {
       await cluster.Schema.GetOrCreateColumnAsync(definition);
       await Task.WhenAll(
-          cluster.Schema.DropColumnAsync("cache").AsTask(),
-          cluster.Schema.GetOrCreateColumnAsync(definition).AsTask());
+          cluster.Schema.DropColumnAsync("cache"),
+          cluster.Schema.GetOrCreateColumnAsync(definition));
       var columns = (await cluster.Schema.DescribeAsync()).Columns;
       Assert.That(columns, Has.Count.LessThanOrEqualTo(1));
       if (columns.Count == 1)

@@ -43,12 +43,12 @@ public interface IClusterWriteTransaction : IDisposable, IAsyncDisposable
   /// <summary>
   /// Asynchronously commits with the same process-crash durability as Commit.
   /// </summary>
-  ValueTask CommitAsync(CancellationToken cancellationToken = default);
+  Task CommitAsync(CancellationToken cancellationToken = default);
 
   /// <summary>
   /// Asynchronously attempts a process-crash durable commit. Returns false on a conflict.
   /// </summary>
-  ValueTask<bool> TryCommitAsync(CancellationToken cancellationToken = default);
+  Task<bool> TryCommitAsync(CancellationToken cancellationToken = default);
 
   /// <summary>
   /// Atomically commits the transaction with power-loss and OS-crash durability.
@@ -70,5 +70,5 @@ public interface IClusterWriteTransaction : IDisposable, IAsyncDisposable
   /// <summary>
   /// Asynchronously rolls back the active transaction across all of its columns.
   /// </summary>
-  ValueTask RollbackAsync();
+  Task RollbackAsync();
 }

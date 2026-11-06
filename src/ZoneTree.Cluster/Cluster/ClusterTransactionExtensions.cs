@@ -95,7 +95,7 @@ public static class ClusterTransactionExtensions
   }
 
   /// <summary>Runs a body and durably commits it, retrying only on a conflict.</summary>
-  public static Task ExecuteDurableAsync<TTransaction>(
+  public static async Task ExecuteDurableAsync<TTransaction>(
       this IClusterTransactionSource<TTransaction> source,
       Action<TTransaction> body,
       ClusterTransactionOptions options = null,
@@ -104,11 +104,11 @@ public static class ClusterTransactionExtensions
       where TTransaction : IClusterWriteTransaction
   {
     ArgumentNullException.ThrowIfNull(body);
-    return source.ExecuteDurableAsync(transaction =>
+    await source.ExecuteDurableAsync(transaction =>
     {
       body(transaction);
       return true;
-    }, options, maxAttempts, cancellationToken);
+    }, options, maxAttempts, cancellationToken).ConfigureAwait(false);
   }
 
   /// <summary>
@@ -116,9 +116,9 @@ public static class ClusterTransactionExtensions
   /// only on conflicts. The body must await all issued operations, including on
   /// failure, and must not end the transaction or perform external side effects.
   /// </summary>
-  public static ValueTask<TResult> ExecuteAsync<TTransaction, TResult>(
+  public static Task<TResult> ExecuteAsync<TTransaction, TResult>(
       this IClusterTransactionSource<TTransaction> source,
-      Func<TTransaction, CancellationToken, ValueTask<TResult>> body,
+      Func<TTransaction, CancellationToken, Task<TResult>> body,
       ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
@@ -126,9 +126,9 @@ public static class ClusterTransactionExtensions
       => ExecuteAsyncCore(source, body, false, options, maxAttempts, cancellationToken);
 
   /// <summary>Runs an asynchronous body without a token parameter and commits for process-crash durability.</summary>
-  public static ValueTask<TResult> ExecuteAsync<TTransaction, TResult>(
+  public static Task<TResult> ExecuteAsync<TTransaction, TResult>(
       this IClusterTransactionSource<TTransaction> source,
-      Func<TTransaction, ValueTask<TResult>> body,
+      Func<TTransaction, Task<TResult>> body,
       ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
@@ -140,9 +140,9 @@ public static class ClusterTransactionExtensions
   }
 
   /// <summary>Runs an asynchronous body and commits for process-crash durability.</summary>
-  public static async ValueTask ExecuteAsync<TTransaction>(
+  public static async Task ExecuteAsync<TTransaction>(
       this IClusterTransactionSource<TTransaction> source,
-      Func<TTransaction, CancellationToken, ValueTask> body,
+      Func<TTransaction, CancellationToken, Task> body,
       ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
@@ -157,9 +157,9 @@ public static class ClusterTransactionExtensions
   }
 
   /// <summary>Runs an asynchronous body without a token parameter and commits for process-crash durability.</summary>
-  public static ValueTask ExecuteAsync<TTransaction>(
+  public static Task ExecuteAsync<TTransaction>(
       this IClusterTransactionSource<TTransaction> source,
-      Func<TTransaction, ValueTask> body,
+      Func<TTransaction, Task> body,
       ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
@@ -175,9 +175,9 @@ public static class ClusterTransactionExtensions
   /// on conflicts. The body must await all issued operations, including on failure.
   /// Cancellation and storage failures propagate without retrying the transaction.
   /// </summary>
-  public static ValueTask<TResult> ExecuteDurableAsync<TTransaction, TResult>(
+  public static Task<TResult> ExecuteDurableAsync<TTransaction, TResult>(
       this IClusterTransactionSource<TTransaction> source,
-      Func<TTransaction, CancellationToken, ValueTask<TResult>> body,
+      Func<TTransaction, CancellationToken, Task<TResult>> body,
       ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
@@ -185,9 +185,9 @@ public static class ClusterTransactionExtensions
       => ExecuteAsyncCore(source, body, true, options, maxAttempts, cancellationToken);
 
   /// <summary>Awaits an asynchronous body without a token parameter before a power-loss durable commit.</summary>
-  public static ValueTask<TResult> ExecuteDurableAsync<TTransaction, TResult>(
+  public static Task<TResult> ExecuteDurableAsync<TTransaction, TResult>(
       this IClusterTransactionSource<TTransaction> source,
-      Func<TTransaction, ValueTask<TResult>> body,
+      Func<TTransaction, Task<TResult>> body,
       ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
@@ -199,9 +199,9 @@ public static class ClusterTransactionExtensions
   }
 
   /// <summary>Runs an asynchronous body and commits for power-loss durability.</summary>
-  public static async ValueTask ExecuteDurableAsync<TTransaction>(
+  public static async Task ExecuteDurableAsync<TTransaction>(
       this IClusterTransactionSource<TTransaction> source,
-      Func<TTransaction, CancellationToken, ValueTask> body,
+      Func<TTransaction, CancellationToken, Task> body,
       ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
@@ -216,9 +216,9 @@ public static class ClusterTransactionExtensions
   }
 
   /// <summary>Awaits an asynchronous body without a token parameter before a power-loss durable commit.</summary>
-  public static ValueTask ExecuteDurableAsync<TTransaction>(
+  public static Task ExecuteDurableAsync<TTransaction>(
       this IClusterTransactionSource<TTransaction> source,
-      Func<TTransaction, ValueTask> body,
+      Func<TTransaction, Task> body,
       ClusterTransactionOptions options = null,
       int maxAttempts = int.MaxValue,
       CancellationToken cancellationToken = default)
@@ -236,17 +236,17 @@ public static class ClusterTransactionExtensions
   static void RejectAsynchronousBody<TResult>()
   {
     var type = typeof(TResult);
-    if (typeof(Task).IsAssignableFrom(type) || type == typeof(ValueTask) ||
-        (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(ValueTask<>)))
+    if (typeof(Task).IsAssignableFrom(type) || type == typeof(Task) ||
+        (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Task<>)))
       throw new ArgumentException(
           "The transaction body returns a task, which would run after the commit. " +
           "Use ExecuteAsync, or ExecuteDurableAsync with an asynchronous body, which await it before committing.",
           "body");
   }
 
-  static async ValueTask<TResult> ExecuteAsyncCore<TTransaction, TResult>(
+  static async Task<TResult> ExecuteAsyncCore<TTransaction, TResult>(
       IClusterTransactionSource<TTransaction> source,
-      Func<TTransaction, CancellationToken, ValueTask<TResult>> body,
+      Func<TTransaction, CancellationToken, Task<TResult>> body,
       bool durable,
       ClusterTransactionOptions options,
       int maxAttempts,

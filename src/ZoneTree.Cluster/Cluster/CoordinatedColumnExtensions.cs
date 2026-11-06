@@ -76,7 +76,7 @@ public static class CoordinatedColumnExtensions
   }
 
   /// <summary>Asynchronously reads the key in a new domain snapshot.</summary>
-  public static async ValueTask<ReadResult<TValue>> TryGetAsync<TKey, TValue>(
+  public static async Task<ReadResult<TValue>> TryGetAsync<TKey, TValue>(
       this ICoordinatedColumn<TKey, TValue> column,
       TKey key,
       CancellationToken cancellationToken = default)
@@ -87,7 +87,7 @@ public static class CoordinatedColumnExtensions
   }
 
   /// <summary>Asynchronously checks the key in a new domain snapshot.</summary>
-  public static async ValueTask<bool> ContainsKeyAsync<TKey, TValue>(
+  public static async Task<bool> ContainsKeyAsync<TKey, TValue>(
       this ICoordinatedColumn<TKey, TValue> column,
       TKey key,
       CancellationToken cancellationToken = default)
@@ -101,7 +101,7 @@ public static class CoordinatedColumnExtensions
   /// Asynchronously writes and commits the key for process-crash durability,
   /// retrying only on conflicts. Use a cluster transaction for power-loss durability.
   /// </summary>
-  public static ValueTask UpsertAsync<TKey, TValue>(
+  public static Task UpsertAsync<TKey, TValue>(
       this ICoordinatedColumn<TKey, TValue> column,
       TKey key,
       TValue value,
@@ -111,7 +111,7 @@ public static class CoordinatedColumnExtensions
           SnapshotWrite, cancellationToken: cancellationToken);
 
   /// <summary>Asynchronously deletes and commits the key; returns whether it existed.</summary>
-  public static ValueTask<bool> TryDeleteAsync<TKey, TValue>(
+  public static Task<bool> TryDeleteAsync<TKey, TValue>(
       this ICoordinatedColumn<TKey, TValue> column,
       TKey key,
       CancellationToken cancellationToken = default)
@@ -128,7 +128,7 @@ public static class CoordinatedColumnExtensions
   /// Asynchronously adds or updates and commits the key. Conflicts rerun the synchronous
   /// update delegate, which must have no external side effects. Returns the written value.
   /// </summary>
-  public static ValueTask<TValue> AddOrUpdateAsync<TKey, TValue>(
+  public static Task<TValue> AddOrUpdateAsync<TKey, TValue>(
       this ICoordinatedColumn<TKey, TValue> column,
       TKey key,
       TValue valueToAdd,

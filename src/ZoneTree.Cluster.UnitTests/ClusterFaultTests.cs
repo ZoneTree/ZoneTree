@@ -125,7 +125,7 @@ public sealed class ClusterFaultTests
       using var waiting = domain.BeginTransaction();
       waiting.GetColumn(domain.GetColumn<long, long>("left")).Upsert(2, 3);
       waiting.GetColumn(domain.GetColumn<long, long>("right")).Upsert(2, 3);
-      var commit = waiting.TryCommitAsync().AsTask();
+      var commit = waiting.TryCommitAsync();
       Assert.That(commit.IsCompleted, Is.False);
       coordinator.StopCommits(new IOException("Simulated commit record failure."), failed);
       Assert.ThrowsAsync<TransactionInDoubtException>(async () => await commit);

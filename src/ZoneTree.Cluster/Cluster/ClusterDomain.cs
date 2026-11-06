@@ -80,22 +80,22 @@ internal sealed class ClusterDomain : IClusterDomain
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
-      Justification = "The returned ValueTask transfers transaction ownership to the caller.")]
-  public ValueTask<IDomainTransaction> BeginTransactionAsync(
+      Justification = "The returned Task transfers transaction ownership to the caller.")]
+  public Task<IDomainTransaction> BeginTransactionAsync(
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       CancellationToken cancellationToken = default)
   {
     cancellationToken.ThrowIfCancellationRequested();
-    return new(BeginTransaction(isolationLevel));
+    return Task.FromResult(BeginTransaction(isolationLevel));
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
-      Justification = "The returned ValueTask transfers transaction ownership to the caller.")]
-  public ValueTask<IDomainTransaction> BeginTransactionAsync(
+      Justification = "The returned Task transfers transaction ownership to the caller.")]
+  public Task<IDomainTransaction> BeginTransactionAsync(
       ClusterTransactionOptions options, CancellationToken cancellationToken = default)
   {
     cancellationToken.ThrowIfCancellationRequested();
-    return new(BeginTransaction(options));
+    return Task.FromResult(BeginTransaction(options));
   }
 
   public IDomainReadTransaction BeginReadOnlyTransaction()
@@ -105,12 +105,12 @@ internal sealed class ClusterDomain : IClusterDomain
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
-      Justification = "The returned ValueTask transfers transaction ownership to the caller.")]
-  public ValueTask<IDomainReadTransaction> BeginReadOnlyTransactionAsync(
+      Justification = "The returned Task transfers transaction ownership to the caller.")]
+  public Task<IDomainReadTransaction> BeginReadOnlyTransactionAsync(
       CancellationToken cancellationToken = default)
   {
     cancellationToken.ThrowIfCancellationRequested();
-    return new(BeginReadOnlyTransaction());
+    return Task.FromResult(BeginReadOnlyTransaction());
   }
 
   public IDomainReadTransaction BeginReadOnlyTransaction(ClusterReadTransactionOptions options)
@@ -131,17 +131,17 @@ internal sealed class ClusterDomain : IClusterDomain
   }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
-      Justification = "The returned ValueTask transfers transaction ownership to the caller.")]
-  public ValueTask<IDomainReadTransaction> BeginReadOnlyTransactionAsync(
+      Justification = "The returned Task transfers transaction ownership to the caller.")]
+  public Task<IDomainReadTransaction> BeginReadOnlyTransactionAsync(
       ClusterReadTransactionOptions options, CancellationToken cancellationToken = default)
   {
     cancellationToken.ThrowIfCancellationRequested();
-    return new(BeginReadOnlyTransaction(options));
+    return Task.FromResult(BeginReadOnlyTransaction(options));
   }
 
   // Outcomes come from the columns open in this process: their transaction entries, then
   // their commit records, until merges drop the records of durable commits.
-  public ValueTask<TransactionOutcome> GetTransactionOutcomeAsync(
+  public Task<TransactionOutcome> GetTransactionOutcomeAsync(
       long transactionId, CancellationToken cancellationToken = default)
   {
     EnsureUsable();

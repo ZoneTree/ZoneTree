@@ -16,7 +16,7 @@ namespace ZoneTree.Cluster;
 /// </remarks>
 internal static class ClusterRestore
 {
-  internal static async ValueTask<IZoneTreeClusterHost> RunAsync(ZoneTreeClusterFactory factory,
+  internal static async Task<IZoneTreeClusterHost> RunAsync(ZoneTreeClusterFactory factory,
       ZoneTreeClusterOptions options, ClusterBackupLocation location, long? generationId,
       CancellationToken cancellationToken)
   {

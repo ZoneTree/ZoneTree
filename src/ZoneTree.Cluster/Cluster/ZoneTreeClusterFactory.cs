@@ -131,17 +131,17 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
     return columns;
   }
 
-  public ValueTask<IZoneTreeClusterHost> RestoreInProcessAsync(ZoneTreeClusterOptions options,
+  public Task<IZoneTreeClusterHost> RestoreInProcessAsync(ZoneTreeClusterOptions options,
       LocalLiveBackupOptions backup, long? generationId = null, CancellationToken cancellationToken = default)
       => ClusterRestore.RunAsync(this, options, ClusterBackupLocation.Local(backup), generationId, cancellationToken);
 
-  public ValueTask<IZoneTreeClusterHost> RestoreInProcessAsync(ZoneTreeClusterOptions options,
+  public Task<IZoneTreeClusterHost> RestoreInProcessAsync(ZoneTreeClusterOptions options,
       IBackupObjectStorage storage, ObjectStorageLiveBackupOptions backupOptions = null,
       long? generationId = null, CancellationToken cancellationToken = default)
       => ClusterRestore.RunAsync(this, options, ClusterBackupLocation.ObjectStorage(storage, backupOptions),
           generationId, cancellationToken);
 
-  public ValueTask<IZoneTreeCluster> ConnectAsync(ZoneTreeClusterConnectionOptions options,
+  public Task<IZoneTreeCluster> ConnectAsync(ZoneTreeClusterConnectionOptions options,
       CancellationToken cancellationToken = default)
       => throw new NotSupportedException("Connecting to clusters hosted in other processes is not supported yet.");
 }

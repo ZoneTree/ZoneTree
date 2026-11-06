@@ -108,7 +108,7 @@ public sealed class ClusterSchemaTests
     using var cluster = Factory.CreateInProcess(Options());
     await cluster.Schema.CreateDomainAsync("accounts");
     var columns = await Task.WhenAll(Enumerable.Range(0, 16).Select(_ => cluster.Schema
-        .GetOrCreateColumnAsync("accounts", new CoordinatedColumnDefinition<long, long>("balances")).AsTask()));
+        .GetOrCreateColumnAsync("accounts", new CoordinatedColumnDefinition<long, long>("balances"))));
     Assert.That(columns.Distinct().Count(), Is.EqualTo(1));
     Assert.That((await cluster.Schema.DescribeAsync()).Columns, Has.Count.EqualTo(1));
   }
