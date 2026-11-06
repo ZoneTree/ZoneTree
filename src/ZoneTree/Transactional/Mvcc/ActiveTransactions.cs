@@ -111,6 +111,12 @@ internal sealed class ActiveTransactions<TKey, TValue>
   }
 
   /// <summary>
+  /// The id of the oldest active transaction that can write. Writers register in id order.
+  /// </summary>
+  public long OldestWriterId(long defaultValue)
+      => Writers.TryPeek(out var writer) ? writer.TransactionId : defaultValue;
+
+  /// <summary>
   /// The snapshot timestamp of the oldest active transaction that can write.
   /// </summary>
   public long OldestWriterSnapshot(long defaultValue)

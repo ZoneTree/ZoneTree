@@ -31,7 +31,8 @@ public sealed class LiveBackupOptions
 
   /// <summary>
   /// Controls how in-memory records are collected for each backup generation.
-  /// Transactional backups always capture a frozen snapshot, regardless of this setting.
+  /// Transactional backups read the in-memory segments in place, regardless of this setting,
+  /// and keep the records of the transactions that had committed when the capture began.
   /// </summary>
   public LiveBackupInMemoryMode InMemoryMode { get; set; }
       = LiveBackupInMemoryMode.Live;

@@ -12,6 +12,9 @@ internal static class DirectorySync
   /// <summary>Persists a directory and the ancestor links recursive creation may have added.</summary>
   internal static void FlushTree(string path, Action<string> syncDirectory)
   {
+    // Recursive creation resolves "..", so the walk must too: the folder before
+    // a ".." may not exist.
+    path = Path.IsPathRooted(path) ? Path.GetFullPath(path) : Path.GetRelativePath(".", path);
     for (var directory = path; !string.IsNullOrEmpty(directory);
         directory = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(directory)))
       syncDirectory(directory);

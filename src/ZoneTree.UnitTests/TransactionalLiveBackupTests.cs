@@ -190,6 +190,79 @@ public sealed class TransactionalLiveBackupTests
     }
   }
 
+  [TestCase(DiskSegmentMode.SingleDiskSegment)]
+  [TestCase(DiskSegmentMode.MultiPartDiskSegment)]
+  public async Task ACommitDuringTheCopyOfVersionsOnTheDiskStaysOutOfTheBackup(DiskSegmentMode disk)
+  {
+    using var fixture = new Fixture(WriteAheadLogMode.Shared, disk);
+    using var tree = fixture.Factory("source").CreateTransactional();
+    using (var tx = tree.BeginTransaction())
+    { tx.Upsert(1, 1); tx.Commit(); }
+    // A transaction whose pending status and versions a merge moved to the disk.
+    using var open = tree.BeginTransaction();
+    for (var key = 100; key < 140; ++key) open.Upsert(key, key);
+    var maintenance = tree.Maintenance.ZoneTree.Maintenance;
+    maintenance.MoveMutableSegmentForward();
+    maintenance.StartMergeOperation()?.Join();
+
+    var store = new PausedStore(fixture.BackupPath);
+    using var backup = tree.CreateLiveBackup(new LiveBackupOptions { Store = store, BackupAfterMerge = false });
+    var copying = backup.CreateGenerationAsync();
+    await store.Captured.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    try
+    {
+      // The commit deletes the pending status in memory before the backup reads it.
+      open.Commit();
+    }
+    finally { store.Release.TrySetResult(true); }
+    await copying.WaitAsync(TimeSpan.FromSeconds(10));
+
+    using var restored = await fixture.Factory("restored").RestoreTransactionalFromLatestLiveBackup(fixture.BackupPath);
+    using var read = restored.BeginReadOnlyTransaction();
+    Assert.That(read.Range(int.MinValue, int.MaxValue).Select(x => x.Key), Is.EqualTo(new[] { 1 }));
+  }
+
+  [Test]
+  public async Task ABackupGenerationUnderWritesLeavesTheMutableSegmentInPlace()
+  {
+    using var fixture = new Fixture(WriteAheadLogMode.Shared, DiskSegmentMode.SingleDiskSegment);
+    // Default mutable segments, which the throttled writes never fill during the test.
+    using var tree = new ZoneTreeFactory<int, int>()
+        .SetDataDirectory(fixture.DataPath("source"))
+        .OpenOrCreateTransactional();
+    var maintenance = tree.Maintenance.ZoneTree.Maintenance;
+    var rotations = 0;
+    maintenance.OnMutableSegmentMovedForward += _ => Interlocked.Increment(ref rotations);
+    using var backup = tree.CreateLiveBackup(new LiveBackupOptions
+    { Store = new LocalLiveBackupProvider(fixture.BackupPath), BackupAfterMerge = false });
+    using var stop = new CancellationTokenSource();
+    var writer = Task.Run(() =>
+    {
+      for (var key = 0; !stop.IsCancellationRequested; ++key)
+      {
+        using var tx = tree.BeginTransaction();
+        tx.Upsert(key % 1000, key);
+        tx.Commit();
+        if (key % 50 == 49)
+          Thread.Sleep(1);
+      }
+    });
+    try
+    {
+      Assert.That(SpinWait.SpinUntil(() => maintenance.MutableSegmentRecordCount > 0, TimeSpan.FromSeconds(10)), Is.True);
+      // A rotation would start a merge, and a merge the next generation of a backup
+      // that runs after merges.
+      for (var i = 0; i < 3; ++i)
+        await backup.CreateGenerationAsync().WaitAsync(TimeSpan.FromSeconds(10));
+      Assert.That(Volatile.Read(ref rotations), Is.Zero);
+    }
+    finally
+    {
+      stop.Cancel();
+      await writer;
+    }
+  }
+
   [Test]
   public async Task RestoreRejectsWrongTreeKindAndReleasesItsLease()
   {
@@ -221,8 +294,9 @@ public sealed class TransactionalLiveBackupTests
   {
     readonly string Root = Path.Combine(TestContext.CurrentContext.WorkDirectory, nameof(TransactionalLiveBackupTests), Guid.NewGuid().ToString("N"));
     public string BackupPath => Path.Combine(Root, "backup");
+    public string DataPath(string name) => Path.Combine(Root, name);
     public ZoneTreeFactory<int, int> Factory(string name, IFileStreamProvider files = null) => new ZoneTreeFactory<int, int>(files)
-        .SetDataDirectory(Path.Combine(Root, name))
+        .SetDataDirectory(DataPath(name))
         .Configure(o => o.AllowUnsafeOptionValues = true)
         .SetMutableSegmentMaxItemCount(17)
         .ConfigureDiskSegmentOptions(o => { o.DiskSegmentMode = disk; o.MinimumRecordCount = 4; o.MaximumRecordCount = 8; })

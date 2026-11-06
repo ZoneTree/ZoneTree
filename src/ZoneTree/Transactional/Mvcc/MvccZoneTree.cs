@@ -1059,18 +1059,114 @@ public sealed class MvccZoneTree<TKey, TValue> :
       // still have their marker, and a finished rollback deleted it after its
       // versions, so restoring it would keep the rollback registered for good.
       KeyValuePair<VersionedKey<TKey>, VersionedValue<TValue>>[] pending;
+      long oldestWriter;
+      HashSet<long> committed;
+      HashSet<long> finished;
       lock (StateLock)
+      {
         pending = Entries.Values
             .Where(entry => entry.State is TransactionState.Committing or TransactionState.InDoubt)
             .Select(entry => new KeyValuePair<VersionedKey<TKey>, VersionedValue<TValue>>(
                 VersionedKey<TKey>.TransactionStatus(entry.Id), VersionedValue<TValue>.FromSystem(PendingStatus)))
             .ToArray();
+        // Commits reach their commit point under the commit lock, so this is the capture's
+        // set of commits: every one at or above the oldest writer keeps its entry while that
+        // writer is active.
+        oldestWriter = Active.OldestWriterId(Clock + 1);
+        committed = Entries.Values
+            .Where(entry => entry.Id >= oldestWriter && entry.State == TransactionState.Committed)
+            .Select(entry => entry.Id)
+            .ToHashSet();
+        // A rollback that deleted its versions is forgotten only once every transaction that
+        // began before it ended, so the queue holds every one at or above the oldest writer.
+        finished = RolledBackTransactions
+            .Where(entry => entry.Id >= oldestWriter)
+            .Select(entry => entry.Id)
+            .ToHashSet();
+        finished.UnionWith(committed);
+      }
       var core = (ZoneTree<VersionedKey<TKey>, VersionedValue<TValue>>)Storage;
-      var segments = core.CollectBackupSegments(moveMutableSegmentForward: true, includeInMemorySegments: true);
+      // The in-memory segments are read in place, without moving the mutable segment forward,
+      // so a backup makes no merge work. Writers go on meanwhile; the iterator keeps only what
+      // was committed when the capture began.
+      var segments = core.CollectBackupSegments(moveMutableSegmentForward: false, includeInMemorySegments: true);
+      segments.InMemoryIterator = new BackupCaptureIterator(
+          segments.InMemoryIterator, oldestWriter, committed, finished);
       segments.TreeKind = LiveBackupTreeKind.Transactional;
       segments.AdditionalRecords = pending;
       return segments;
     }
+  }
+
+  /// <summary>
+  /// The in-memory records of a backup, read while writers go on, as of the capture.
+  /// </summary>
+  /// <remarks>
+  /// <para>
+  /// Status records sort before the versions, and a commit deletes its pending status. A
+  /// transaction that is not finished at the capture could otherwise leave a version without
+  /// its status record, or a deleted status beside versions that the capture copied from the
+  /// disk, and a restore counts both as committed. Only a transaction at or above the oldest
+  /// writer at the capture can do that: every transaction below it had finished.
+  /// </para>
+  /// <para>
+  /// So at or above that id, a version is kept only if its transaction had committed, and a
+  /// status record only if its transaction had finished; the status of any other one is
+  /// written as pending, so a restore rolls it back. A rollback's deletion of a version is
+  /// always kept.
+  /// </para>
+  /// </remarks>
+  sealed class BackupCaptureIterator(
+      IZoneTreeIterator<VersionedKey<TKey>, VersionedValue<TValue>> inner,
+      long oldestWriter,
+      HashSet<long> committed,
+      HashSet<long> finished) : IZoneTreeIterator<VersionedKey<TKey>, VersionedValue<TValue>>
+  {
+    bool isPending;
+
+    public VersionedKey<TKey> CurrentKey => inner.CurrentKey;
+
+    public VersionedValue<TValue> CurrentValue
+        => isPending ? VersionedValue<TValue>.FromSystem(PendingStatus) : inner.CurrentValue;
+
+    public KeyValuePair<VersionedKey<TKey>, VersionedValue<TValue>> Current
+        => new(CurrentKey, CurrentValue);
+
+    public bool HasCurrent => inner.HasCurrent;
+
+    public bool AutoRefresh => inner.AutoRefresh;
+
+    public bool Next()
+    {
+      isPending = false;
+      while (inner.Next())
+      {
+        var key = inner.CurrentKey;
+        if (key.Version < oldestWriter)
+          return true;
+        switch (key.Kind)
+        {
+          case VersionedKeyKind.Data:
+            if (committed.Contains(key.Version) || inner.CurrentValue.Kind == VersionedValueKind.Deleted)
+              return true;
+            continue;
+          case VersionedKeyKind.TransactionStatus:
+            isPending = !finished.Contains(key.Version);
+            return true;
+          default:
+            return true;
+        }
+      }
+      return false;
+    }
+
+    public void Seek(in VersionedKey<TKey> key) => inner.Seek(in key);
+
+    public void SeekFirst() => inner.SeekFirst();
+
+    public void Refresh() => inner.Refresh();
+
+    public void Dispose() => inner.Dispose();
   }
 
   internal static async ValueTask<ITransactionalZoneTree<TKey, TValue>> RestoreLiveBackup(

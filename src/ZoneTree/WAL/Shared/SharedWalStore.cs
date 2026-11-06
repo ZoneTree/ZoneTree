@@ -316,14 +316,7 @@ internal sealed partial class SharedWalStore<TKey, TValue> : ISharedWalStore, ID
     Files.SyncDirectory(DirectoryPath);
   }
 
-  void SyncDirectoryTree(string path)
-  {
-    for (var directory = path; !string.IsNullOrEmpty(directory);
-        directory = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(directory)))
-      Files.SyncDirectory(directory);
-    if (!Path.IsPathRooted(path))
-      Files.SyncDirectory(".");
-  }
+  void SyncDirectoryTree(string path) => DirectorySync.FlushTree(path, Files.SyncDirectory);
 
   public void WaitForClose() => FinalSync.Task.GetAwaiter().GetResult();
 
