@@ -55,10 +55,6 @@ Measured with `benchmarks/domain-transactions` (keep runs under 3 minutes).
   domain snapshot reaches it, as in the engine. A durable commit in flight therefore
   delays the ordinary commits after it by its sync.
 
-## Tests
-
-- [ ] **Crash (process kill) tests.** These come as the final step, and only on request.
-
 ## Postponed features
 
 - [ ] **Remote and distributed.** The domain coordinator is the remote boundary, and

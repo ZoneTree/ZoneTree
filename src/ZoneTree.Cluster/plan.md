@@ -36,11 +36,6 @@ is not a phase lives in [follow-up.md](follow-up.md).
 - Any number of coordinators per domain, holding no state.
 - The transaction record moves to the shard of the transaction's primary key (Percolator).
 
-## Release blockers
-
-- **Kill-process crash tests,** as the final step. See [acid.md](acid.md) and
-  [follow-up.md](follow-up.md).
-
 ## How we work
 
 - **Before each phase:** a plan check-in.

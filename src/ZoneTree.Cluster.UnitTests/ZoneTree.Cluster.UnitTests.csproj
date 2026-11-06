@@ -28,6 +28,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ZoneTree.Cluster\ZoneTree.Cluster.csproj" />
+    <ProjectReference Include="..\..\tools\cluster-crash-worker\ClusterCrashWorker.csproj" />
   </ItemGroup>
 
 </Project>

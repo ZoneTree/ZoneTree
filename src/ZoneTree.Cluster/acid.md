@@ -1,8 +1,7 @@
 # ZoneTree.Cluster: cross-column ACID status
 
-Cross-column atomicity, consistency, isolation and durability work and are tested with
-simulated crashes, torn power losses and injected failures. The crash behaviour has not been
-verified with real process kills, so cross-column ACID is not release-complete.
+Cross-column atomicity, consistency, isolation and durability work and are tested with real
+process kills, simulated crashes, torn power losses and injected failures.
 
 ## Done and tested
 
@@ -46,18 +45,27 @@ verified with real process kills, so cross-column ACID is not release-complete.
     in both columns after a process crash, or in neither after a power loss;
   - a failed catalog write during a drop, after which the column stays for recovery;
   - a failed catalog write at close, which leaves the domain to recovery.
+- **Process kills:** `ClusterCrashTests` kills a worker process 12 times on the same data,
+  with the `Shared` and the `AsyncShared` journal. Some kills land during recovery. The
+  worker runs a bank workload with only the public API:
+  - four threads commit transfers across four coordinated columns, and every 32nd commit
+    of each thread is durable;
+  - small mutable segments keep rotations and merges running;
+  - a coordinated column is created and dropped in a loop;
+  - a raw and a standalone column take writes.
 
-## Missing for full ACID as promised
-
-1. **Not verified with real crashes.** The recovery tests simulate unclean shutdowns and
-   power losses inside the process. Kill-process tests come as the final step.
+  Each commit that returns appends an acknowledgement to a file. After every kill, the next
+  process checks the data right after its recovery, and the test checks it again at the end:
+  - every acknowledged commit survives with `Shared`, and every durable one with either
+    journal;
+  - each transfer is whole in all four columns, and the balances match the ledger;
+  - a commit survives only with every commit that returned before it began;
+  - what an earlier recovery found stays;
+  - the created and dropped column is whole or gone, and the standalone column keeps its
+    transactions whole.
 
 ## Maintenance
 
 Crash bookkeeping, the aborted entries and rolled-back ranges each unclean shutdown leaves,
 is never purged. It is small and does not affect ACID, so it is maintenance work for when
 users need it. The details are in [follow-up.md](follow-up.md).
-
-## To complete it
-
-1. Kill-process crash tests.
