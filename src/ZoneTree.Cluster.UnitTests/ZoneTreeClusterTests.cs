@@ -528,13 +528,12 @@ public sealed class ZoneTreeClusterTests
     namesTree.IsReadOnly = false;
     Assert.That(names.ContainsKey(1L), Is.False);
 
-    // The rejected write stored nothing, so the domain keeps committing.
+    // The commit failed after it took its sequence number, so the domain's commits stop
+    // until the cluster reopens; recovery cuts at that number.
     using var next = domain.BeginTransaction();
     next.GetColumn(numbers).Upsert(2, 2);
-    next.GetColumn(names).Upsert(2L, "Bob");
-    next.Commit();
-    Assert.That(numbers.TryGet(2, out var number) && number == 2, Is.True);
-    Assert.That(names.TryGet(2L, out var name) && name == "Bob", Is.True);
+    Assert.Throws<TransactionalTreeCommitsStoppedException>(() => next.Commit());
+    Assert.That(numbers.ContainsKey(2), Is.False);
   }
 
   [Test]

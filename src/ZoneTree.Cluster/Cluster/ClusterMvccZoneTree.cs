@@ -51,7 +51,7 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
     ITransactionalZoneTreeMaintenance<TKey, TValue>
 {
   /// <summary>The status of a transaction that wrote and did not commit yet.</summary>
-  const long PendingStatus = 0;
+  const long PendingStatus = CommitRecord.Pending;
 
   /// <summary>
   /// The committed transactions that wait for the domain to make them durable. Beyond it,
@@ -258,7 +258,7 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
         var transactionId = key.Version;
         if (value.Meta == PendingStatus)
           Entries[transactionId] = new TransactionEntry(transactionId, TransactionState.Aborted);
-        else if (isRolledBack(value.Meta))
+        else if (isRolledBack(CommitRecord.Sequence(value.Meta)))
           rolledBack.Add(transactionId);
       }
     }
@@ -400,19 +400,13 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
 
   /// <summary>
   /// Checks whether a status record can leave the tree in a merge that includes the oldest
-  /// records: a commit record of a commit that is durable in the domain and visible to every
-  /// snapshot, whose entry is gone. Without the record, its versions count as committed.
+  /// records: a commit record whose entry is gone. An entry of this process goes only once
+  /// its commit is durable in the domain and visible to every snapshot, and a commit that
+  /// recovery kept has no entry. Without the record, its versions count as committed.
   /// </summary>
-  internal bool CanDropStatus(long transactionId, in VersionedValue<TValue> value,
-      long horizon, long durableCommitTimestamp)
-  {
-    if (value.Kind != VersionedValueKind.System || value.Meta == PendingStatus)
-      return false;
-    var commitTimestamp = value.Meta;
-    return commitTimestamp <= durableCommitTimestamp &&
-        commitTimestamp <= horizon &&
-        !Entries.ContainsKey(transactionId);
-  }
+  internal bool CanDropStatus(long transactionId, in VersionedValue<TValue> value)
+      => value.Kind == VersionedValueKind.System && value.Meta != PendingStatus &&
+          !Entries.ContainsKey(transactionId);
 
   /// <summary>
   /// Called by the coordinator after the domain made more commits durable.
@@ -508,7 +502,7 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
     {
       Storage.Upsert(
           VersionedKey<TKey>.TransactionStatus(transaction.TransactionId),
-          VersionedValue<TValue>.FromSystem(transaction.Entry.CommitTimestamp));
+          VersionedValue<TValue>.FromSystem(transaction.CommitMeta));
     }
     catch (ZoneTreeIsReadOnlyException)
     {
@@ -759,6 +753,11 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   internal IMergeFilter<VersionedKey<TKey>, VersionedValue<TValue>> CreateMergeFilter(
       MergeFilterContext context)
   {
+    // A merge of in-memory segments takes their commit records out of the journal, which is
+    // all that recovery reads. The column first makes every commit they can hold durable,
+    // and records that in its journal, so recovery counts those commits as complete.
+    if (context.NewestMergedSegmentId > 0)
+      WriteDurableWatermark();
     // The domain's snapshots, then its durable timestamp: a commit that becomes durable in
     // between only makes the filter keep more.
     var snapshots = Coordinator.Snapshots.GetSnapshots();
@@ -769,6 +768,21 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
         context.IncludesOldestRecords,
         snapshots,
         durableCommitTimestamp);
+  }
+
+  /// <summary>
+  /// Makes every commit issued so far durable in the domain, then stores the durable sequence
+  /// number as the column's watermark, durably, in the current mutable segment. The segments a merge
+  /// writes to the disk froze earlier, so their commit records are at or below it, and the
+  /// newest watermark always stays in a segment no merge has taken yet.
+  /// </summary>
+  void WriteDurableWatermark()
+  {
+    var durable = Coordinator.MakeIssuedCommitsDurable();
+    Storage.Upsert(
+        new VersionedKey<TKey>(VersionedKeyKind.Clock, default, CommitRecord.DurableWatermarkVersion),
+        VersionedValue<TValue>.FromSystem(durable));
+    Storage.SyncWALAsync().GetAwaiter().GetResult();
   }
 
   /// <summary>

@@ -113,7 +113,7 @@ internal sealed class ClusterCatalog : IDisposable
       if (current.FindDomain(name) != null)
         throw new SchemaObjectAlreadyExistsException($"Domain '{name}' already exists.");
       var domain = new DomainRecord(current.Cluster.NextDomainId, name, TimestampBatch,
-          DurableTimestamp: 0, IsClean: false, RolledBackRanges: []);
+          DurableSequence: 0, IsClean: false, RolledBackRanges: []);
       var cluster = current.Cluster with
       {
         SchemaEpoch = current.Cluster.SchemaEpoch + 1,
@@ -316,14 +316,17 @@ internal sealed class ClusterCatalog : IDisposable
   }
 
   /// <summary>
-  /// Prepares every domain for this process in one durable commit. A domain that was not
-  /// closed cleanly rolls back the commits above its durable timestamp: the range up to its
-  /// timestamp bound joins its rolled back ranges, so every column applies it when it opens,
-  /// whenever that is. Each domain reserves the next batch above its bound, and is marked as
-  /// not closed cleanly until it closes again.
+  /// Prepares every domain for this process in one durable commit. Each domain reserves the
+  /// next batch above its bound, and is marked as not closed cleanly until it closes again.
+  /// A clean domain's commits are all durable, so its durable sequence number moves to the
+  /// start of this process. A domain that was not closed cleanly needs recovery: see
+  /// <see cref="RecordRecovery"/>.
   /// </summary>
-  /// <returns>The domains, each with the start of its clock in this process.</returns>
-  internal IReadOnlyList<(DomainRecord Domain, long ClockStart)> OpenDomains()
+  /// <returns>
+  /// The domains, each with the start of its clock in this process and whether it closed
+  /// cleanly before.
+  /// </returns>
+  internal IReadOnlyList<(DomainRecord Domain, long ClockStart, bool WasClean)> OpenDomains()
   {
     lock (WriteLock)
     {
@@ -334,15 +337,13 @@ internal sealed class ClusterCatalog : IDisposable
           .Select(domain => (Domain: domain with
           {
             TimestampBound = domain.TimestampBound + TimestampBatch,
-            IsClean = false,
-            RolledBackRanges = domain.IsClean || domain.DurableTimestamp >= domain.TimestampBound
-                ? domain.RolledBackRanges
-                : [.. domain.RolledBackRanges, new TimestampRange(domain.DurableTimestamp, domain.TimestampBound)]
-          }, ClockStart: domain.TimestampBound))
+            DurableSequence = domain.IsClean ? domain.TimestampBound : domain.DurableSequence,
+            IsClean = false
+          }, ClockStart: domain.TimestampBound, WasClean: domain.IsClean))
           .ToArray();
       Commit(Tree, transaction =>
       {
-        foreach (var (domain, _) in opened)
+        foreach (var (domain, _, _) in opened)
           transaction.Upsert(CatalogRecords.DomainKey(domain.Id), CatalogRecords.Encode(domain));
       });
       state = current.With(opened.Select(item => item.Domain).ToArray());
@@ -351,10 +352,37 @@ internal sealed class ClusterCatalog : IDisposable
   }
 
   /// <summary>
-  /// Records that every commit of a domain at or below a timestamp is complete and synced,
-  /// and whether the domain is closing cleanly. The durable timestamp never decreases.
+  /// Records the recovery of a domain that was not closed cleanly, in one durable commit. Every
+  /// commit at or below the cut is complete and durable. The sequence numbers above it, up to
+  /// the start of this process, join the rolled back ranges, so every column applies them when
+  /// it opens, whenever that is. The durable sequence number moves to the start of this process.
   /// </summary>
-  internal void SetDomainDurable(long id, long durableTimestamp, bool isClean)
+  /// <returns>The updated domain.</returns>
+  internal DomainRecord RecordRecovery(long id, long cut, long clockStart)
+  {
+    lock (WriteLock)
+    {
+      var current = state;
+      var domain = current.FindDomain(id);
+      var recovered = domain with
+      {
+        DurableSequence = clockStart,
+        RolledBackRanges = cut < clockStart
+            ? [.. domain.RolledBackRanges, new SequenceRange(cut, clockStart)]
+            : domain.RolledBackRanges
+      };
+      Commit(Tree, transaction => transaction.Upsert(CatalogRecords.DomainKey(id), CatalogRecords.Encode(recovered)));
+      state = current.With([recovered]);
+      return recovered;
+    }
+  }
+
+  /// <summary>
+  /// Records that every commit of a domain at or below a sequence number is complete and
+  /// synced, and whether the domain is closing cleanly. The durable sequence number never
+  /// decreases.
+  /// </summary>
+  internal void SetDomainDurable(long id, long durableSequence, bool isClean)
   {
     lock (WriteLock)
     {
@@ -364,7 +392,7 @@ internal sealed class ClusterCatalog : IDisposable
         return;
       var durable = domain with
       {
-        DurableTimestamp = Math.Max(domain.DurableTimestamp, durableTimestamp),
+        DurableSequence = Math.Max(domain.DurableSequence, durableSequence),
         IsClean = isClean
       };
       if (durable == domain)

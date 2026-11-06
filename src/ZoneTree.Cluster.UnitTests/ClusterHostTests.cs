@@ -1,6 +1,9 @@
+using ZoneTree.AbstractFileStream;
 using ZoneTree.Cluster;
 using ZoneTree.Comparers;
+using ZoneTree.Options;
 using ZoneTree.Serializers;
+using ZoneTree.WAL;
 
 namespace ZoneTree.Cluster.UnitTests;
 
@@ -111,6 +114,39 @@ public sealed class ClusterHostTests
       Columns = [new StandaloneColumnDefinition<long, long>("visits") { ComparerId = "zonetree.int64.descending" }]
     });
     Assert.That(created.Maintenance.ColumnNames, Is.EqualTo(new[] { "visits" }));
+  }
+
+  [Test]
+  public void AStorageHookCannotChangeTheJournalOfACoordinatedColumn()
+  {
+    ZoneTreeClusterOptions Options(Action<ZoneTreeFactory<long, long>> configureStorage) => new()
+    {
+      DataDirectory = DataDirectory,
+      Logger = SilentTestLogger.Instance,
+      Domains =
+      [
+        new DomainDefinition("accounts")
+        {
+          Columns = [new CoordinatedColumnDefinition<long, long>("balances") { ConfigureStorage = configureStorage }]
+        }
+      ]
+    };
+    var changes = new Action<ZoneTreeFactory<long, long>>[]
+    {
+      storage => storage.ConfigureWriteAheadLogOptions(wal => wal.WriteAheadLogMode = WriteAheadLogMode.AsyncShared),
+      storage => storage.ConfigureWriteAheadLogOptions(wal => wal.CompressionLevel = 5),
+      storage => storage.SetWriteAheadLogProvider(options => new WriteAheadLogProvider(options.Logger,
+          new LocalFileStreamProvider(), Path.Combine(DataDirectory, "elsewhere")))
+    };
+    foreach (var change in changes)
+    {
+      var error = Assert.Throws<ArgumentException>(() => Factory.CreateInProcess(Options(change)));
+      Assert.That(error.Message, Does.Contain("balances").And.Contain(nameof(ZoneTreeClusterOptions.CoordinatedWriteAheadLog)));
+      Assert.That(Directory.Exists(DataDirectory), Is.False);
+    }
+    // A hook that keeps the journal is fine.
+    using var created = Factory.CreateInProcess(Options(storage => storage.SetMutableSegmentMaxItemCount(1_000)));
+    Assert.That(created.Maintenance.ColumnNames, Is.EqualTo(new[] { "balances" }));
   }
 
   [Test]

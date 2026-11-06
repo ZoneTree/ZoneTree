@@ -1,4 +1,6 @@
+using ZoneTree.AbstractFileStream;
 using ZoneTree.Logger;
+using ZoneTree.Options;
 
 namespace ZoneTree.Cluster;
 
@@ -39,6 +41,24 @@ public sealed class ZoneTreeClusterOptions
   /// run time. Each column's ConfigureStorage hook runs afterward and can override them.
   /// </summary>
   public IColumnStorageConfigurator StorageDefaults { get; init; }
+
+  /// <summary>
+  /// The file streams of every column's storage. The local file system when not set.
+  /// </summary>
+  public IFileStreamProvider FileStreamProvider { get; init; }
+
+  /// <summary>
+  /// The write ahead log of every coordinated column: the <see cref="WriteAheadLogMode.Shared"/>
+  /// or <see cref="WriteAheadLogMode.AsyncShared"/> journal, with its compression and chunk
+  /// size. Recovery reads the journals of columns that are not open to keep every complete
+  /// transaction, so a coordinated column's storage hooks cannot change them.
+  /// </summary>
+  /// <remarks>
+  /// With <see cref="WriteAheadLogMode.AsyncShared"/>, a process crash can lose the records
+  /// still queued in memory, and with them the commits that wrote them. Transactions stay atomic.
+  /// </remarks>
+  public WriteAheadLogOptions CoordinatedWriteAheadLog { get; init; }
+      = new() { WriteAheadLogMode = WriteAheadLogMode.Shared };
 
   /// <summary>The logger shared by the cluster and its columns.</summary>
   public ILogger Logger { get; init; } = new ConsoleLogger();

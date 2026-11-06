@@ -33,6 +33,12 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   bool HasCustomWriteAheadLogProviderFactory;
 
   /// <summary>
+  /// True if the factory was given a write ahead log provider instead of creating its own.
+  /// </summary>
+  internal bool HasCustomWriteAheadLogProvider
+      => HasCustomWriteAheadLogProviderFactory || Options.WriteAheadLogProvider != null;
+
+  /// <summary>
   /// The options to be configured by this factory.
   /// </summary>
   public ZoneTreeOptions<TKey, TValue> Options { get; private set; } = new();

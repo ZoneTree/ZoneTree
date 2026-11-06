@@ -5,6 +5,8 @@ using ZoneTree.Backup;
 using ZoneTree.Core;
 using ZoneTree.Exceptions;
 using ZoneTree.Logger;
+using ZoneTree.AbstractFileStream;
+using ZoneTree.Options;
 using ArgumentOutOfRangeException = System.ArgumentOutOfRangeException;
 
 namespace ZoneTree.Cluster;
@@ -35,6 +37,12 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
   readonly TimestampReservationWorker Reservations;
   internal ClusterEncodingRegistry Encodings { get; }
   internal IColumnStorageConfigurator StorageDefaults { get; }
+
+  /// <summary>The file streams of every column's storage.</summary>
+  internal IFileStreamProvider FileStreamProvider { get; }
+
+  /// <summary>The write ahead log settings every coordinated column uses.</summary>
+  internal WriteAheadLogOptions CoordinatedWriteAheadLog { get; }
   internal string DataDirectory { get; }
   public ILogger Logger { get; }
   public IClusterSchema Schema { get; }
@@ -48,6 +56,8 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     Reservations = new TimestampReservationWorker(catalog, Logger);
     Encodings = options.Encodings;
     StorageDefaults = options.StorageDefaults;
+    FileStreamProvider = options.FileStreamProvider ?? new LocalFileStreamProvider();
+    CoordinatedWriteAheadLog = CopyOf(options.CoordinatedWriteAheadLog);
     Schema = new ClusterSchema(this);
     autoSyncInterval = options.AutoSyncInterval;
     StartDomains();
@@ -69,19 +79,24 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
 
   /// <summary>
   /// Starts every domain's clock after the bound it reserved before, in one durable catalog
-  /// commit that reserves the next batches and records the commits recovery rolls back: after
-  /// an unclean shutdown, those above the domain's durable timestamp.
+  /// commit that reserves the next batches. A domain that was not closed cleanly recovers
+  /// first, before any of its columns opens: see <see cref="DomainRecovery"/>.
   /// </summary>
   void StartDomains()
   {
-    foreach (var (domain, clockStart) in Catalog.OpenDomains())
-      Domains[domain.Id] = CreateDomain(domain, clockStart);
+    foreach (var (domain, clockStart, wasClean) in Catalog.OpenDomains())
+    {
+      var record = domain;
+      if (!wasClean)
+        record = Catalog.RecordRecovery(domain.Id, DomainRecovery.FindCut(this, domain, clockStart), clockStart);
+      Domains[domain.Id] = CreateDomain(record, clockStart);
+    }
   }
 
   ClusterDomain CreateDomain(DomainRecord record, long clockStart)
   {
     var clock = new DomainTimestampSource(Reservations, record.Id, clockStart, record.TimestampBound);
-    var coordinator = new DomainCoordinator(this, record.Id, clock, clockStart, record.DurableTimestamp);
+    var coordinator = new DomainCoordinator(this, record.Id, clock, clockStart);
     return new ClusterDomain(this, record, coordinator);
   }
 
@@ -102,6 +117,24 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     // Read-only applies after the declarations, so a read-only cluster can still be created.
     IsReadOnly = options.IsReadOnly;
   }
+
+  /// <summary>A copy of the settings, so later changes to the caller's instance do not apply.</summary>
+  internal static WriteAheadLogOptions CopyOf(WriteAheadLogOptions options) => new()
+  {
+    WriteAheadLogMode = options.WriteAheadLogMode,
+    CompressionBlockSize = options.CompressionBlockSize,
+    CompressionMethod = options.CompressionMethod,
+    CompressionLevel = options.CompressionLevel,
+    SharedModeOptions = new() { MaximumChunkSize = options.SharedModeOptions.MaximumChunkSize }
+  };
+
+  /// <summary>Whether two write ahead log settings read and write the same journal.</summary>
+  internal static bool SameJournal(WriteAheadLogOptions left, WriteAheadLogOptions right)
+      => left.WriteAheadLogMode == right.WriteAheadLogMode &&
+         left.CompressionBlockSize == right.CompressionBlockSize &&
+         left.CompressionMethod == right.CompressionMethod &&
+         left.CompressionLevel == right.CompressionLevel &&
+         left.SharedModeOptions.MaximumChunkSize == right.SharedModeOptions.MaximumChunkSize;
 
   internal string ColumnDirectory(long id)
       => Path.Combine(DataDirectory, "columns", id.ToString(CultureInfo.InvariantCulture));
@@ -172,11 +205,42 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
         try { maintainer.Remove(column); }
         catch (Exception error) { Logger.LogError(error); }
       }
+      if (!MakeDurableBeforeDeleting(record))
+      {
+        // The next open recovers with the column's commit records, then purges it.
+        column.Dispose();
+        return true;
+      }
       column.DropStorage(Logger);
     }
+    else if (!MakeDurableBeforeDeleting(record))
+      return true;
     DeleteDirectory(ColumnDirectory(record.Id));
     Catalog.PurgeColumn(record.Id);
     return true;
+  }
+
+  /// <summary>
+  /// Recovery cannot read the commit records of a deleted coordinated column, so before its
+  /// storage goes, every commit it can be part of becomes durable and the domain records that
+  /// in the catalog: recovery counts those commits as complete. Returns false if that failed;
+  /// the column then stays until the next open.
+  /// </summary>
+  bool MakeDurableBeforeDeleting(ColumnRecord record)
+  {
+    if (record.Kind != ColumnKind.Coordinated || !Domains.TryGetValue(record.DomainId, out var domain))
+      return true;
+    try
+    {
+      var durable = domain.Coordinator.MakeIssuedCommitsDurable();
+      Catalog.SetDomainDurable(record.DomainId, durable, isClean: false);
+      return true;
+    }
+    catch (Exception error)
+    {
+      Logger.LogError(error);
+      return false;
+    }
   }
 
   /// <summary>Renames a column. Its handles, views and transactions are not affected.</summary>

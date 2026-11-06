@@ -50,7 +50,9 @@ internal abstract class ColumnView : IDisposable
   /// Registers the view's written keys at the commit timestamp. Called under the column's
   /// commit gate, for views that wrote; it does no I/O.
   /// </summary>
-  internal abstract void Prepare(long commitTimestamp);
+  /// <param name="commitTimestamp">The commit timestamp.</param>
+  /// <param name="commitMeta">The meta of the commit record: its sequence number and participants.</param>
+  internal abstract void Prepare(long commitTimestamp, long commitMeta);
 
   /// <summary>
   /// Writes the commit record of a prepared view, after the commit gates are released.

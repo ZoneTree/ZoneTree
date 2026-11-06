@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
+using ZoneTree.AbstractFileStream;
 using ZoneTree.Cluster;
+using ZoneTree.Exceptions;
 using ZoneTree.Transactional;
 using ZoneTree.Transactional.Versioning;
 
@@ -15,9 +17,13 @@ public sealed class ClusterAtomicCommitTests
   string DataDirectory;
   readonly ZoneTreeClusterFactory Factory = new();
 
+  /// <summary>The file streams of the columns; the local file system when not set.</summary>
+  IFileStreamProvider Files;
+
   [SetUp]
   public void SetUp()
   {
+    Files = null;
     var root = new DirectoryInfo(AppContext.BaseDirectory);
     while (root != null && !File.Exists(Path.Combine(root.FullName, "src", "ZoneTree.sln")))
       root = root.Parent;
@@ -36,6 +42,7 @@ public sealed class ClusterAtomicCommitTests
   {
     DataDirectory = DataDirectory,
     Logger = SilentTestLogger.Instance,
+    FileStreamProvider = Files,
     Domains =
     [
       new DomainDefinition(Domain)
@@ -177,9 +184,12 @@ public sealed class ClusterAtomicCommitTests
   }
 
   [Test]
-  public async Task RecoveryRollsBackEveryCommitAboveTheDurableTimestampInEveryColumn()
+  public async Task RecoveryKeepsEveryCompleteCommitUpToTheFirstIncompleteOne()
   {
-    long durableId, ordinaryId, durableTimestamp;
+    var files = new PowerLossFileStreamProvider();
+    Files = files;
+    long durableId, ordinaryId, incompleteId, laterId;
+    PowerLossFileStreamProvider afterPowerLoss;
     using (var cluster = Factory.CreateInProcess(Options()))
     {
       var domain = cluster.GetDomain(Domain);
@@ -191,9 +201,7 @@ public sealed class ClusterAtomicCommitTests
         durable.GetColumn(right).Upsert(1, 1);
         await durable.CommitDurableAsync();
         durableId = durable.TransactionId;
-        durableTimestamp = durable.CommitTimestamp;
       }
-      Assert.That(CoordinatorOf(domain).DurableTimestamp, Is.GreaterThanOrEqualTo(durableTimestamp));
       using (var ordinary = domain.BeginTransaction())
       {
         ordinary.GetColumn(left).Upsert(2, 2);
@@ -201,11 +209,138 @@ public sealed class ClusterAtomicCommitTests
         ordinary.Commit();
         ordinaryId = ordinary.TransactionId;
       }
-      // The ordinary commit's records reach the disk, but the domain never recorded them as durable.
+      // The ordinary commit reaches the disk in both columns without a domain sync.
       await Storage(cluster, "left").ZoneTree.SyncWALAsync();
       await Storage(cluster, "right").ZoneTree.SyncWALAsync();
-      Assert.That(left.TryGet(2, out _), Is.True);
+      using (var incomplete = domain.BeginTransaction())
+      {
+        incomplete.GetColumn(left).Upsert(3, 3);
+        incomplete.GetColumn(right).Upsert(3, 3);
+        incomplete.Commit();
+        incompleteId = incomplete.TransactionId;
+      }
+      using (var later = domain.BeginTransaction())
+      {
+        later.GetColumn(right).Upsert(4, 4);
+        later.Commit();
+        laterId = later.TransactionId;
+      }
+      // Only the right column reaches the disk: the later commit is complete there, but it
+      // follows a commit the left column lost.
+      await Storage(cluster, "right").ZoneTree.SyncWALAsync();
+      afterPowerLoss = files.SimulatePowerLoss();
       StopCommits(domain);
+    }
+
+    Files = afterPowerLoss;
+    using (var reopened = Factory.OpenInProcess(Options()))
+    {
+      var domain = reopened.GetDomain(Domain);
+      var left = domain.GetColumn<long, long>("left");
+      var right = domain.GetColumn<long, long>("right");
+      foreach (var key in new long[] { 1, 2 })
+      {
+        Assert.That(left.TryGet(key, out var value) && value == key, Is.True, $"left {key}");
+        Assert.That(right.TryGet(key, out value) && value == key, Is.True, $"right {key}");
+      }
+      Assert.That(left.ContainsKey(3), Is.False);
+      Assert.That(right.ContainsKey(3), Is.False);
+      Assert.That(right.ContainsKey(4), Is.False);
+      Assert.That(await domain.GetTransactionOutcomeAsync(durableId), Is.EqualTo(TransactionOutcome.Committed));
+      Assert.That(await domain.GetTransactionOutcomeAsync(ordinaryId), Is.EqualTo(TransactionOutcome.Committed));
+      Assert.That(await domain.GetTransactionOutcomeAsync(incompleteId), Is.Not.EqualTo(TransactionOutcome.Committed));
+      Assert.That(await domain.GetTransactionOutcomeAsync(laterId), Is.Not.EqualTo(TransactionOutcome.Committed));
+
+      // The domain commits again, and a clean close keeps the commits.
+      using var next = domain.BeginTransaction();
+      next.GetColumn(left).Upsert(5, 5);
+      next.GetColumn(right).Upsert(5, 5);
+      next.Commit();
+    }
+
+    using var clean = Factory.OpenInProcess(Options());
+    var cleanDomain = clean.GetDomain(Domain);
+    Assert.That(cleanDomain.GetColumn<long, long>("left").ContainsKey(5), Is.True);
+    Assert.That(cleanDomain.GetColumn<long, long>("right").ContainsKey(5), Is.True);
+    Assert.That(cleanDomain.GetColumn<long, long>("right").ContainsKey(3), Is.False);
+    Assert.That(cleanDomain.GetColumn<long, long>("right").ContainsKey(4), Is.False);
+  }
+
+  [Test]
+  public async Task RecoveryRollsBackACommitThatFollowsOneLostFromEveryColumn()
+  {
+    var files = new PowerLossFileStreamProvider();
+    Files = files;
+    long lostId, laterId;
+    PowerLossFileStreamProvider afterPowerLoss;
+    using (var cluster = Factory.CreateInProcess(Options()))
+    {
+      var domain = cluster.GetDomain(Domain);
+      var left = domain.GetColumn<long, long>("left");
+      var right = domain.GetColumn<long, long>("right");
+      using (var durable = domain.BeginTransaction())
+      {
+        durable.GetColumn(left).Upsert(1, 1);
+        durable.GetColumn(right).Upsert(1, 1);
+        await durable.CommitDurableAsync();
+      }
+      // A deposit in the left column, which never reaches the disk.
+      using (var lost = domain.BeginTransaction())
+      {
+        lost.GetColumn(left).Upsert(2, 100);
+        lost.Commit();
+        lostId = lost.TransactionId;
+      }
+      // A transfer that read the deposit and wrote only the right column, which does.
+      using (var later = domain.BeginTransaction())
+      {
+        Assert.That(later.GetColumn(left).TryGet(2, out var amount), Is.True);
+        later.GetColumn(right).Upsert(2, amount);
+        later.Commit();
+        laterId = later.TransactionId;
+      }
+      await Storage(cluster, "right").ZoneTree.SyncWALAsync();
+      afterPowerLoss = files.SimulatePowerLoss();
+      StopCommits(domain);
+    }
+
+    Files = afterPowerLoss;
+    using var reopened = Factory.OpenInProcess(Options());
+    var reopenedDomain = reopened.GetDomain(Domain);
+    var reopenedLeft = reopenedDomain.GetColumn<long, long>("left");
+    var reopenedRight = reopenedDomain.GetColumn<long, long>("right");
+    Assert.That(reopenedLeft.ContainsKey(1) && reopenedRight.ContainsKey(1), Is.True);
+    Assert.That(reopenedLeft.ContainsKey(2), Is.False);
+    Assert.That(reopenedRight.ContainsKey(2), Is.False);
+    Assert.That(await reopenedDomain.GetTransactionOutcomeAsync(lostId), Is.Not.EqualTo(TransactionOutcome.Committed));
+    Assert.That(await reopenedDomain.GetTransactionOutcomeAsync(laterId), Is.Not.EqualTo(TransactionOutcome.Committed));
+  }
+
+  [Test]
+  public void ACommitThatFailsAfterTakingItsNumberStopsTheDomainsCommits()
+  {
+    using (var cluster = Factory.CreateInProcess(Options()))
+    {
+      var domain = cluster.GetDomain(Domain);
+      var left = domain.GetColumn<long, long>("left");
+      var right = domain.GetColumn<long, long>("right");
+      using (var first = domain.BeginTransaction())
+      {
+        first.GetColumn(left).Upsert(1, 1);
+        first.GetColumn(right).Upsert(1, 1);
+        first.Commit();
+      }
+      using var failing = domain.BeginTransaction();
+      failing.GetColumn(left).Upsert(2, 2);
+      failing.GetColumn(right).Upsert(2, 2);
+      // The left column refuses the commit record, after the commit took its number.
+      var storage = Storage(cluster, "left").ZoneTree;
+      storage.IsReadOnly = true;
+      Assert.Throws<ZoneTreeIsReadOnlyException>(() => failing.Commit());
+      storage.IsReadOnly = false;
+      using var next = domain.BeginTransaction();
+      next.GetColumn(right).Upsert(3, 3);
+      Assert.Throws<TransactionalTreeCommitsStoppedException>(() => next.Commit());
     }
 
     using (var reopened = Factory.OpenInProcess(Options()))
@@ -213,41 +348,40 @@ public sealed class ClusterAtomicCommitTests
       var domain = reopened.GetDomain(Domain);
       var left = domain.GetColumn<long, long>("left");
       var right = domain.GetColumn<long, long>("right");
-      Assert.That(left.TryGet(1, out var value) && value == 1, Is.True);
-      Assert.That(right.TryGet(1, out value) && value == 1, Is.True);
-      Assert.That(left.ContainsKey(2), Is.False);
-      Assert.That(right.ContainsKey(2), Is.False);
-      Assert.That(await domain.GetTransactionOutcomeAsync(durableId), Is.EqualTo(TransactionOutcome.Committed));
-      Assert.That(await domain.GetTransactionOutcomeAsync(ordinaryId), Is.EqualTo(TransactionOutcome.Aborted));
-
-      // The domain commits again, and a clean close keeps the commits.
-      using var next = domain.BeginTransaction();
-      next.GetColumn(left).Upsert(3, 3);
-      next.GetColumn(right).Upsert(3, 3);
-      next.Commit();
+      Assert.That(left.ContainsKey(1) && right.ContainsKey(1), Is.True);
+      Assert.That(left.ContainsKey(2) || right.ContainsKey(2) || right.ContainsKey(3), Is.False);
+      // The domain commits again after the reopen.
+      using var again = domain.BeginTransaction();
+      again.GetColumn(left).Upsert(4, 4);
+      again.GetColumn(right).Upsert(4, 4);
+      again.Commit();
     }
-
     using var clean = Factory.OpenInProcess(Options());
-    var cleanDomain = clean.GetDomain(Domain);
-    Assert.That(cleanDomain.GetColumn<long, long>("left").ContainsKey(3), Is.True);
-    Assert.That(cleanDomain.GetColumn<long, long>("right").ContainsKey(3), Is.True);
-    Assert.That(cleanDomain.GetColumn<long, long>("left").ContainsKey(2), Is.False);
+    Assert.That(clean.GetDomain(Domain).GetColumn<long, long>("right").ContainsKey(4), Is.True);
   }
 
   [Test]
-  public async Task AColumnOpenedSessionsAfterAnUncleanShutdownStillRollsBackItsCommits()
+  public async Task AColumnOpenedSessionsAfterAnUncleanShutdownStillRollsBackItsIncompleteCommits()
   {
+    var files = new PowerLossFileStreamProvider();
+    Files = files;
+    PowerLossFileStreamProvider afterPowerLoss;
     using (var cluster = Factory.CreateInProcess(Options()))
     {
       var domain = cluster.GetDomain(Domain);
-      using var transaction = domain.BeginTransaction();
-      transaction.GetColumn(domain.GetColumn<long, long>("left")).Upsert(1, 1);
-      transaction.GetColumn(domain.GetColumn<long, long>("right")).Upsert(1, 1);
-      transaction.Commit();
+      using (var transaction = domain.BeginTransaction())
+      {
+        transaction.GetColumn(domain.GetColumn<long, long>("left")).Upsert(1, 1);
+        transaction.GetColumn(domain.GetColumn<long, long>("right")).Upsert(1, 1);
+        transaction.Commit();
+      }
+      // The commit reaches the disk only in the right column.
       await Storage(cluster, "right").ZoneTree.SyncWALAsync();
+      afterPowerLoss = files.SimulatePowerLoss();
       StopCommits(domain);
     }
-    // A session that never opens the right column moves the durable timestamp past the commit.
+    // A session that never opens the right column still finds the commit incomplete.
+    Files = afterPowerLoss;
     using (var cluster = Factory.OpenInProcess(Options("left")))
     {
       var domain = cluster.GetDomain(Domain);
@@ -261,6 +395,92 @@ public sealed class ClusterAtomicCommitTests
     var right = reopened.GetDomain(Domain).GetColumn<long, long>("right");
     Assert.That(right.ContainsKey(1), Is.False);
     Assert.That(reopened.GetDomain(Domain).GetColumn<long, long>("left").ContainsKey(2), Is.True);
+  }
+
+  [Test]
+  public async Task CompleteCommitsSurviveAnUncleanShutdownAfterAColumnMergedTheirRecords()
+  {
+    using (var cluster = Factory.CreateInProcess(Options()))
+    {
+      var domain = cluster.GetDomain(Domain);
+      var left = domain.GetColumn<long, long>("left");
+      var right = domain.GetColumn<long, long>("right");
+      for (var key = 0L; key < 10; ++key)
+      {
+        using var transaction = domain.BeginTransaction();
+        transaction.GetColumn(left).Upsert(key, key);
+        transaction.GetColumn(right).Upsert(key, key);
+        transaction.Commit();
+      }
+      // The merge moves the left column's commit records out of its journal, while the
+      // right column's journal still holds theirs.
+      var storage = Storage(cluster, "left").ZoneTree;
+      storage.Maintenance.MoveMutableSegmentForward();
+      storage.Maintenance.StartMergeOperation()?.Join();
+      using (var transaction = domain.BeginTransaction())
+      {
+        transaction.GetColumn(left).Upsert(10, 10);
+        transaction.GetColumn(right).Upsert(10, 10);
+        transaction.Commit();
+      }
+      await Storage(cluster, "left").ZoneTree.SyncWALAsync();
+      await Storage(cluster, "right").ZoneTree.SyncWALAsync();
+      StopCommits(domain);
+    }
+
+    using var reopened = Factory.OpenInProcess(Options());
+    var reopenedDomain = reopened.GetDomain(Domain);
+    for (var key = 0L; key <= 10; ++key)
+    {
+      Assert.That(reopenedDomain.GetColumn<long, long>("left").TryGet(key, out var value) && value == key, Is.True, $"left {key}");
+      Assert.That(reopenedDomain.GetColumn<long, long>("right").TryGet(key, out value) && value == key, Is.True, $"right {key}");
+    }
+  }
+
+  [Test]
+  public async Task CommitsWithADroppedColumnSurviveAnUncleanShutdown()
+  {
+    using (var cluster = Factory.CreateInProcess(Options()))
+    {
+      var domain = cluster.GetDomain(Domain);
+      var left = domain.GetColumn<long, long>("left");
+      var right = domain.GetColumn<long, long>("right");
+      for (var key = 0L; key < 3; ++key)
+      {
+        using var transaction = domain.BeginTransaction();
+        transaction.GetColumn(left).Upsert(key, key);
+        transaction.GetColumn(right).Upsert(key, key);
+        transaction.Commit();
+      }
+      // The left column keeps commit records whose other half leaves with the right column.
+      Assert.That(await cluster.Schema.DropColumnAsync("right"), Is.True);
+      StopCommits(domain);
+    }
+
+    using var reopened = Factory.OpenInProcess(Options("left"));
+    var reopenedLeft = reopened.GetDomain(Domain).GetColumn<long, long>("left");
+    for (var key = 0L; key < 3; ++key)
+      Assert.That(reopenedLeft.TryGet(key, out var value) && value == key, Is.True, $"key {key}");
+  }
+
+  [Test]
+  public async Task ADurableCommitSyncsEachColumnOnce()
+  {
+    var files = new PowerLossFileStreamProvider();
+    Files = files;
+    using var cluster = Factory.CreateInProcess(Options());
+    var domain = cluster.GetDomain(Domain);
+    var left = domain.GetColumn<long, long>("left");
+    var right = domain.GetColumn<long, long>("right");
+    for (var key = 0L; key < 3; ++key)
+    {
+      using var transaction = domain.BeginTransaction();
+      transaction.GetColumn(left).Upsert(key, key);
+      transaction.GetColumn(right).Upsert(key, key);
+      var before = files.DiskSyncCount;
+      await transaction.CommitDurableAsync();
+      Assert.That(files.DiskSyncCount - before, Is.EqualTo(2));
+    }
   }
 
   [Test]
@@ -307,18 +527,19 @@ public sealed class ClusterAtomicCommitTests
   }
 
   [Test]
-  public async Task MergesDropCommitRecordsOnlyOnceTheDomainMadeThemDurable()
+  public void AMergeMakesTheCommitsDurableBeforeDroppingTheirRecords()
   {
     using var cluster = Factory.CreateInProcess(Options());
     var domain = cluster.GetDomain(Domain);
     var left = domain.GetColumn<long, long>("left");
     var right = domain.GetColumn<long, long>("right");
-    void Commit(long key)
+    long Commit(long key)
     {
       using var transaction = domain.BeginTransaction();
       transaction.GetColumn(left).Upsert(key, key);
       transaction.GetColumn(right).Upsert(key, key);
       transaction.Commit();
+      return transaction.CommitTimestamp;
     }
     var storage = Storage(cluster, "left").ZoneTree;
     void Merge()
@@ -336,15 +557,19 @@ public sealed class ClusterAtomicCommitTests
       return count;
     }
 
+    var coordinator = CoordinatorOf(domain);
+    long last = 0;
     for (var key = 0L; key < 10; ++key)
-      Commit(key);
+      last = Commit(key);
+    Assert.That(coordinator.DurableTimestamp, Is.LessThan(last));
     Merge();
-    Assert.That(CountCommitRecords(), Is.EqualTo(10));
+    Assert.That(coordinator.DurableTimestamp, Is.GreaterThanOrEqualTo(last));
+    Assert.That(CountCommitRecords(), Is.Zero);
 
-    await cluster.SyncWALAsync();
-    Commit(10);
+    last = Commit(10);
     Merge();
-    Assert.That(CountCommitRecords(), Is.EqualTo(1));
+    Assert.That(coordinator.DurableTimestamp, Is.GreaterThanOrEqualTo(last));
+    Assert.That(CountCommitRecords(), Is.Zero);
     for (var key = 0L; key <= 10; ++key)
       Assert.That(left.TryGet(key, out var value) && value == key, Is.True, $"key {key}");
   }

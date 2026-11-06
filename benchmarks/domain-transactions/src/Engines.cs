@@ -87,24 +87,41 @@ static class EngineCatalog
   /// </summary>
   public static ZoneTreeFactory<long, byte[]> ConfigureStorage(
       ZoneTreeFactory<long, byte[]> factory, BenchmarkOptions options, int trees)
-      => ConfigureShare(factory, options, options.PerTreeBudget ? 1 : trees);
+      => ConfigureSegments(factory, options, trees)
+          .ConfigureWriteAheadLogOptions(wal => ConfigureJournal(wal, options));
 
-  static ZoneTreeFactory<long, byte[]> ConfigureShare(
+  /// <summary>
+  /// The settings of a coordinated cluster column, which takes its journal from
+  /// <see cref="Journal"/> at the cluster level.
+  /// </summary>
+  public static ZoneTreeFactory<long, byte[]> ConfigureSegments(
       ZoneTreeFactory<long, byte[]> factory, BenchmarkOptions options, int trees)
-      => factory
-          .SetMutableSegmentMaxItemCount(Math.Max(1_000, options.MutableSegmentMaxItemCount / trees))
-          .ConfigureDiskSegmentOptions(disk =>
-          {
-            disk.DefaultSparseArrayStepSize = 16;
-            disk.KeyCacheSize = Math.Max(64, CacheSize / trees);
-            disk.ValueCacheSize = Math.Max(64, CacheSize / trees);
-          })
-          .ConfigureWriteAheadLogOptions(wal =>
-          {
-            wal.CompressionMethod = CompressionMethod.None;
-            wal.WriteAheadLogMode = options.WalMode;
-            wal.CompressionBlockSize = 1024 * 256;
-          });
+  {
+    var share = options.PerTreeBudget ? 1 : trees;
+    return factory
+        .SetMutableSegmentMaxItemCount(Math.Max(1_000, options.MutableSegmentMaxItemCount / share))
+        .ConfigureDiskSegmentOptions(disk =>
+        {
+          disk.DefaultSparseArrayStepSize = 16;
+          disk.KeyCacheSize = Math.Max(64, CacheSize / share);
+          disk.ValueCacheSize = Math.Max(64, CacheSize / share);
+        });
+  }
+
+  /// <summary>The journal of every engine's trees.</summary>
+  public static WriteAheadLogOptions Journal(BenchmarkOptions options)
+  {
+    var wal = new WriteAheadLogOptions();
+    ConfigureJournal(wal, options);
+    return wal;
+  }
+
+  static void ConfigureJournal(WriteAheadLogOptions wal, BenchmarkOptions options)
+  {
+    wal.CompressionMethod = CompressionMethod.None;
+    wal.WriteAheadLogMode = options.WalMode;
+    wal.CompressionBlockSize = 1024 * 256;
+  }
 
 }
 
@@ -206,6 +223,7 @@ sealed class ClusterEngine : IEngine
     Cluster = new ZoneTreeClusterFactory().CreateInProcess(new ZoneTreeClusterOptions
     {
       DataDirectory = directory,
+      CoordinatedWriteAheadLog = EngineCatalog.Journal(options),
       Domains =
       [
         new DomainDefinition("bench")
@@ -213,7 +231,7 @@ sealed class ClusterEngine : IEngine
           Columns = names
               .Select(name => (CoordinatedColumnDefinition)new CoordinatedColumnDefinition<long, byte[]>(name)
               {
-                ConfigureStorage = factory => EngineCatalog.ConfigureStorage(factory, options, count)
+                ConfigureStorage = factory => EngineCatalog.ConfigureSegments(factory, options, count)
               })
               .ToArray()
         }

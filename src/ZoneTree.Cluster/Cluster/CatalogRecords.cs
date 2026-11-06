@@ -21,33 +21,44 @@ internal enum ColumnState : byte
 internal sealed record ClusterRecord(
     Guid ClusterId, long SchemaEpoch, long NextDomainId, long NextColumnId);
 
-/// <summary>A range of commit timestamps, from <see cref="From"/> exclusive to <see cref="To"/> inclusive.</summary>
-internal readonly record struct TimestampRange(long From, long To)
+/// <summary>
+/// A range of commit sequence numbers, from <see cref="From"/> exclusive to <see cref="To"/>
+/// inclusive.
+/// </summary>
+internal readonly record struct SequenceRange(long From, long To)
 {
-  internal bool Contains(long timestamp) => timestamp > From && timestamp <= To;
+  internal bool Contains(long sequence) => sequence > From && sequence <= To;
 }
 
 /// <summary>The catalog record of a domain.</summary>
+/// <remarks>
+/// A process numbers the domain's commits from the timestamp bound it opened with. A commit
+/// takes at least one timestamp, so its sequence number is at or below its timestamp, and
+/// every number of a process is below the numbers of the next one.
+/// </remarks>
 /// <param name="TimestampBound">
 /// The highest transaction id and commit timestamp the domain may issue before it reserves more.
 /// </param>
-/// <param name="DurableTimestamp">
-/// Every commit at or below it is complete and synced in every column of the domain.
+/// <param name="DurableSequence">
+/// Every commit at or below this sequence number is complete and synced in every column of
+/// the domain, or rolled back. Set to the starting point of each process once the commits
+/// before it are settled, and when a column of the domain is dropped; the domain's syncs do
+/// not write the catalog.
 /// </param>
 /// <param name="IsClean">True if the domain was closed cleanly after its last open.</param>
 /// <param name="RolledBackRanges">
-/// The commit timestamps that recoveries rolled back: each unclean shutdown rolls back the
-/// commits between the durable timestamp and the timestamp bound of the closed process.
-/// A column that opens later rolls back its commits in these ranges too.
+/// The commit sequence numbers that recoveries rolled back: after an unclean shutdown, the
+/// commits from the first one the crash left missing or incomplete up to the timestamp bound
+/// of the closed process. A column that opens later rolls back its commits in these ranges too.
 /// </param>
 internal sealed record DomainRecord(long Id, string Name, long TimestampBound,
-    long DurableTimestamp, bool IsClean, IReadOnlyList<TimestampRange> RolledBackRanges)
+    long DurableSequence, bool IsClean, IReadOnlyList<SequenceRange> RolledBackRanges)
 {
-  internal bool IsRolledBack(long commitTimestamp)
+  internal bool IsRolledBack(long sequence)
   {
     foreach (var range in RolledBackRanges)
     {
-      if (range.Contains(commitTimestamp))
+      if (range.Contains(sequence))
         return true;
     }
     return false;
@@ -104,7 +115,7 @@ internal static class CatalogRecords
     writer.Write(record.Id);
     writer.Write(record.Name);
     writer.Write(record.TimestampBound);
-    writer.Write(record.DurableTimestamp);
+    writer.Write(record.DurableSequence);
     writer.Write(record.IsClean);
     writer.Write(record.RolledBackRanges.Count);
     foreach (var range in record.RolledBackRanges)
@@ -121,9 +132,9 @@ internal static class CatalogRecords
     var bound = reader.ReadInt64();
     var durable = reader.ReadInt64();
     var clean = reader.ReadBoolean();
-    var ranges = new TimestampRange[reader.ReadInt32()];
+    var ranges = new SequenceRange[reader.ReadInt32()];
     for (var index = 0; index < ranges.Length; ++index)
-      ranges[index] = new TimestampRange(reader.ReadInt64(), reader.ReadInt64());
+      ranges[index] = new SequenceRange(reader.ReadInt64(), reader.ReadInt64());
     return new DomainRecord(id, name, bound, durable, clean, ranges);
   });
 

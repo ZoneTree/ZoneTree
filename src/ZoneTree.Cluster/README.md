@@ -69,18 +69,37 @@ The cluster supports typed columns, reads and writes, rollback, conflict
 preflight, ordinary and durable commits, iteration, reopening and maintenance.
 A domain transaction commits atomically across its columns: it takes one commit
 timestamp, readers see it in every column at once, and recovery keeps it whole. A
-conflict or a failure before the commit completes rolls back every column. New
-columns default to their own Shared WAL; a domain syncs its columns together.
+conflict or a failure before the commit completes rolls back every column.
+
+Every column has its own WAL. The WAL of every coordinated column is set once, by
+`ZoneTreeClusterOptions.CoordinatedWriteAheadLog`: the `Shared` journal (the default)
+or `AsyncShared`, with its compression and chunk size. A coordinated column's
+`ConfigureStorage` cannot change it or replace its WAL provider. A domain syncs its
+columns together, in one parallel round of WAL syncs; concurrent durable commits share
+a round. A domain also syncs on its own after 4096 commits.
+`ZoneTreeClusterOptions.FileStreamProvider` sets the file streams of every column.
+
+A domain numbers its commits without gaps. Each commit record in a column holds the
+commit's number and the number of columns the transaction wrote. After an unclean
+shutdown, before any column opens, recovery reads the commit records in every
+coordinated column's WAL. It keeps the commits before the first number it cannot find
+complete, in every column of the domain, so a prefix of the commits survives, as in one
+tree. A commit that reached none of its columns leaves its number missing, so no later
+commit survives without it. Recovery also applies to columns opened lazily sessions
+later. Before a merge moves a column's commit records out of its WAL, the domain syncs
+and the column records how far the commits are durable, so recovery reads only the WALs.
+
+- With the `Shared` journal, every commit that returned survives a process crash.
+- After a power loss, durable commits survive, and so does every commit before the first
+  one that did not reach the disk.
+- With `AsyncShared`, a process crash can lose commits whose records were still queued,
+  and every later commit.
+- A commit that fails after it took its number, such as on a WAL write error, stops the
+  domain's commits until the cluster reopens. The commits behind it end in doubt, and
+  recovery rolls them back.
 
 ## Current limitations
 
-- An ordinary commit survives a process crash only once its domain synced. After an
-  unclean shutdown, recovery rolls back every commit the domain had not synced, in
-  every column, so a prefix of the commits survives with every transaction whole.
-  Durable commits, `SyncWALAsync` and automatic syncing are not affected. A domain
-  also syncs on its own after 4096 commits.
-- A durable commit waits for a sync of each column the domain wrote since its last
-  sync, then for a catalog commit. Concurrent durable commits share both.
 - Cluster-wide backup and restore throw `NotSupportedException`.
 
 The async data methods of column views and raw columns run on the thread pool, so
@@ -90,7 +109,7 @@ the order: await an operation before starting one that depends on it.
 ## Usage
 
 `ConfigureStorage` reuses the existing typed factory for compression, cache, WAL and
-segment tuning.
+segment tuning. Coordinated columns take their WAL from the cluster options.
 Optional `StorageDefaults` applies to every column, of every kind, when
 creating or opening it. Each column's `ConfigureStorage` runs afterward, allowing
 overrides. The configurator's generic method works with every column's key/value types.

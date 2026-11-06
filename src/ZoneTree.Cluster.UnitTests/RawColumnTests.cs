@@ -1,3 +1,4 @@
+using ZoneTree.AbstractFileStream;
 using ZoneTree.Exceptions;
 using ZoneTree.Logger;
 using ZoneTree.Options;
@@ -31,7 +32,10 @@ public sealed class RawColumnTests
 
   const string Domain = ClusterTestDomains.Name;
 
-  ZoneTreeClusterOptions Options(params ColumnDefinition[] columns)
+  ZoneTreeClusterOptions Options(params ColumnDefinition[] columns) => Options(null, null, columns);
+
+  ZoneTreeClusterOptions Options(
+      IFileStreamProvider files, WriteAheadLogOptions coordinatedWal, params ColumnDefinition[] columns)
   {
     if (columns.Length == 0)
       columns = [new CoordinatedColumnDefinition<int, int>("balances"), new RawColumnDefinition<int, string>("cache")];
@@ -39,6 +43,8 @@ public sealed class RawColumnTests
     {
       DataDirectory = DataDirectory,
       Logger = SilentTestLogger.Instance,
+      FileStreamProvider = files,
+      CoordinatedWriteAheadLog = coordinatedWal ?? new() { WriteAheadLogMode = WriteAheadLogMode.Shared },
       Domains = ClusterTestDomains.Domains(columns),
       Columns = ClusterTestDomains.Others(columns)
     };
@@ -53,6 +59,7 @@ public sealed class RawColumnTests
       DataDirectory = DataDirectory,
       Logger = SilentTestLogger.Instance,
       StorageDefaults = defaults,
+      CoordinatedWriteAheadLog = new() { WriteAheadLogMode = WriteAheadLogMode.AsyncShared },
       Domains =
       [
         new DomainDefinition(Domain)
@@ -62,7 +69,6 @@ public sealed class RawColumnTests
             new CoordinatedColumnDefinition<int, int>("balances")
             {
               ConfigureStorage = storage => storage.SetMutableSegmentMaxItemCount(20_000)
-                  .ConfigureWriteAheadLogOptions(wal => wal.WriteAheadLogMode = WriteAheadLogMode.Shared)
             },
             new CoordinatedColumnDefinition<long, string>("names")
           ]
@@ -85,7 +91,7 @@ public sealed class RawColumnTests
       var cache = cluster.GetRawColumnMaintenance<int, string>("cache").CloneOptions();
       var counters = cluster.GetRawColumnMaintenance<long, long>("counters").CloneOptions();
       Assert.That(balances.MutableSegmentMaxItemCount, Is.EqualTo(20_000));
-      Assert.That(balances.WriteAheadLogOptions.WriteAheadLogMode, Is.EqualTo(WriteAheadLogMode.Shared));
+      Assert.That(balances.WriteAheadLogOptions.WriteAheadLogMode, Is.EqualTo(WriteAheadLogMode.AsyncShared));
       Assert.That(names.MutableSegmentMaxItemCount, Is.EqualTo(10_000));
       Assert.That(names.WriteAheadLogOptions.WriteAheadLogMode, Is.EqualTo(WriteAheadLogMode.AsyncShared));
       Assert.That(cache.MutableSegmentMaxItemCount, Is.EqualTo(10_000));
@@ -132,8 +138,10 @@ public sealed class RawColumnTests
     {
       Columns.Add((column.Name, typeof(TKey), typeof(TValue)));
       storage.SetMutableSegmentMaxItemCount(10_000)
-          .ConfigureWriteAheadLogOptions(wal => wal.WriteAheadLogMode = WriteAheadLogMode.AsyncShared)
           .ConfigureDiskSegmentOptions(disk => disk.KeyCacheSize = 128);
+      // The cluster sets the journal of coordinated columns.
+      if (column.Kind != ColumnKind.Coordinated)
+        storage.ConfigureWriteAheadLogOptions(wal => wal.WriteAheadLogMode = WriteAheadLogMode.AsyncShared);
     }
   }
 
@@ -281,22 +289,18 @@ public sealed class RawColumnTests
   [Test]
   public async Task DatabaseSyncIncludesBothKindsAndAutomaticSyncIncludesRawWrites()
   {
+    // The coordinated journals use the cluster's file streams; the raw column has its own log.
     var transactionalFiles = new PowerLossFileStreamProvider();
     var rawFiles = new PowerLossFileStreamProvider();
-    void Configure<TKey, TValue>(ZoneTreeFactory<TKey, TValue> factory, PowerLossFileStreamProvider files, string name)
-    {
-      factory.ConfigureWriteAheadLogOptions(wal => wal.SyncCompressedModeOptions.EnableTailWriterJob = false)
-          .SetWriteAheadLogProvider(options => new WriteAheadLogProvider(
-              options.Logger, files, Path.Combine(DataDirectory, name)));
-    }
-    using var cluster = Factory.CreateInProcess(Options(
-        new CoordinatedColumnDefinition<int, int>("balances")
-        {
-          ConfigureStorage = factory => Configure(factory, transactionalFiles, "tx-wal")
-        },
+    var coordinatedWal = new WriteAheadLogOptions { WriteAheadLogMode = WriteAheadLogMode.Shared };
+    using var cluster = Factory.CreateInProcess(Options(transactionalFiles, coordinatedWal,
+        new CoordinatedColumnDefinition<int, int>("balances"),
         new RawColumnDefinition<int, string>("cache")
         {
-          ConfigureStorage = factory => Configure(factory, rawFiles, "raw-wal")
+          ConfigureStorage = factory => factory
+              .ConfigureWriteAheadLogOptions(wal => wal.SyncCompressedModeOptions.EnableTailWriterJob = false)
+              .SetWriteAheadLogProvider(options => new WriteAheadLogProvider(
+                  options.Logger, rawFiles, Path.Combine(DataDirectory, "raw-wal")))
         }));
     var cache = cluster.GetRawColumn<int, string>("cache");
     cluster.GetDomain(Domain).GetColumn<int, int>("balances").Upsert(1, 100);

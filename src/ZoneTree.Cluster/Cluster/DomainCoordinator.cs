@@ -32,14 +32,16 @@ internal interface ICoordinatedStorage
 /// </summary>
 /// <remarks>
 /// <para>
-/// A domain sync syncs every column that wrote commit records since its last sync, then
-/// records in the catalog that every commit at or below the written timestamp it started with
-/// is durable. Recovery after an unclean shutdown rolls back the commits above that timestamp
-/// in every column, so what survives is a prefix of the commits, with every transaction whole.
+/// A domain sync syncs every column that wrote commit records since its last sync, in parallel,
+/// and nothing else: every commit at or below the written timestamp it started with is then
+/// durable, which only this process needs to know. A commit is complete when every column it
+/// wrote holds its commit record, and the commits are numbered without gaps, so recovery
+/// finds what survived in the columns themselves: the commits before the first number it
+/// cannot find complete.
 /// </para>
 /// <para>
-/// Syncs run on a dedicated thread, which syncs the columns in parallel, records the durable
-/// timestamp in the catalog, and publishes the durable commits it made durable. Callers that
+/// Syncs run on a dedicated thread, which syncs the columns in parallel and publishes the
+/// durable commits it made durable. Callers that
 /// block on a durable commit then never wait for a thread pool thread.
 /// A failed sync stops the domain's commits until the cluster reopens, and recovery decides
 /// the outcome of the commits it left in doubt.
@@ -59,6 +61,7 @@ internal sealed class DomainCoordinator
   readonly List<DurableWaiter> Waiters = [];
   readonly Lock AutoSyncLock = new();
   long durableTimestamp;
+  long durableSequence;
   Thread SyncThread;
   bool Stopping;
   Exception CommitFailure;
@@ -78,18 +81,24 @@ internal sealed class DomainCoordinator
   internal DomainSnapshots Snapshots { get; }
 
   internal DomainCoordinator(ZoneTreeCluster cluster, long domainId, ITimestampOracle clock,
-      long clockStart, long durableTimestamp)
+      long clockStart)
   {
     Cluster = cluster;
     DomainId = domainId;
     Clock = clock;
     Sequencer = new CommitSequencer(clockStart);
     Snapshots = new DomainSnapshots(Sequencer, clock);
-    this.durableTimestamp = durableTimestamp;
+    // Recovery left every earlier commit durable or rolled back.
+    durableTimestamp = durableSequence = clockStart;
   }
 
   /// <summary>Every commit at or below it is complete and synced in every column.</summary>
   internal long DurableTimestamp => Volatile.Read(ref durableTimestamp);
+
+  /// <summary>
+  /// Every commit at or below this sequence number is complete and synced in every column.
+  /// </summary>
+  internal long DurableSequence => Volatile.Read(ref durableSequence);
 
   internal void ThrowIfCommitsStopped()
   {
@@ -106,7 +115,26 @@ internal sealed class DomainCoordinator
   }
 
   /// <summary>Makes every commit that wrote its records before the call durable.</summary>
-  internal Task SyncAsync() => WaitDurable(Sequencer.WrittenTimestamp, null);
+  internal Task SyncAsync() => WaitDurable(Sequencer.Written.Timestamp, null);
+
+  /// <summary>
+  /// Makes every commit that took its timestamp before the call durable, after waiting for
+  /// the ones still writing their records. Returns the durable sequence number, which covers
+  /// them.
+  /// Blocks; for merges and drops, which are rare and run off the commit path.
+  /// </summary>
+  internal long MakeIssuedCommitsDurable()
+  {
+    var issued = Clock.Current;
+    var wait = new SpinWait();
+    while (!Sequencer.IsWrittenThrough(issued))
+    {
+      ThrowIfCommitsStopped();
+      wait.SpinOnce();
+    }
+    SyncAsync().GetAwaiter().GetResult();
+    return DurableSequence;
+  }
 
   /// <summary>
   /// Waits until every commit at or below the timestamp is durable. The sync thread runs the
@@ -152,7 +180,7 @@ internal sealed class DomainCoordinator
       }
       // The written timestamp is read before the syncs, so they cover every commit at or
       // below it. Commits that write later wait for the next pass.
-      var target = Sequencer.WrittenTimestamp;
+      var target = Sequencer.Written;
       var advanced = false;
       try
       {
@@ -160,10 +188,11 @@ internal sealed class DomainCoordinator
         // A commit that stopped the commits did so before its timestamp was written, so
         // a target that covers it sees the failure here, and the durable timestamp stays.
         ThrowIfCommitsStopped();
-        if (target > durableTimestamp)
+        if (target.Timestamp > durableTimestamp)
         {
-          Cluster.Catalog.SetDomainDurable(DomainId, target, isClean: false);
-          Volatile.Write(ref durableTimestamp, target);
+          // The sequence first, so a reader never sees it ahead of the timestamp.
+          Volatile.Write(ref durableSequence, target.Sequence);
+          Volatile.Write(ref durableTimestamp, target.Timestamp);
           NotifyDurable();
           advanced = true;
         }
@@ -253,11 +282,16 @@ internal sealed class DomainCoordinator
   }
 
   /// <summary>
-  /// Stops the domain's commits after a commit whose records could not be rolled back.
-  /// Called before the commit's timestamp is completed, so the durable timestamp never
-  /// reaches it, and recovery rolls the commit back.
+  /// Stops the domain's commits until the cluster reopens. A commit that failed after it took
+  /// its sequence number passes its slot: the slot never completes, so no later commit becomes
+  /// visible or durable, and recovery cuts at that number.
   /// </summary>
-  internal void StopCommits(Exception error) => FailWaiters(error);
+  internal void StopCommits(Exception error, CommitSequencer.Slot slot = null)
+  {
+    FailWaiters(error);
+    if (slot != null)
+      Sequencer.Stop(slot, error);
+  }
 
   /// <summary>
   /// Stops the domain's commits after a failed sync. The waiting durable commits stay in
@@ -353,7 +387,7 @@ internal sealed class DomainCoordinator
       // The progress is read before the syncs, so they cover it.
       var (written, isIdle) = Sequencer.GetProgress();
       SyncColumns();
-      Cluster.Catalog.SetDomainDurable(DomainId, written, isClean: isIdle);
+      Cluster.Catalog.SetDomainDurable(DomainId, written.Sequence, isClean: isIdle);
     }
     catch (Exception error)
     {

@@ -95,7 +95,7 @@ internal sealed class VersionGarbageFilter<TKey, TValue> :
   {
     if (key.Kind == VersionedKeyKind.TransactionStatus)
       return !(IncludesOldestRecords &&
-          Tree.CanDropStatus(key.Version, in value, Horizon, DurableCommitTimestamp));
+          Tree.CanDropStatus(key.Version, in value));
     if (key.Kind != VersionedKeyKind.Data)
       return true;
     if (!HasCurrentKey || Comparer.Compare(in CurrentKey, in key.Key) != 0)

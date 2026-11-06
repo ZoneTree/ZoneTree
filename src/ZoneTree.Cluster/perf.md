@@ -20,47 +20,46 @@ of warmup, then counts transactions for 2 seconds.
 
 | Workload | Threads | One MVCC tree | Independent trees | Cluster, one column | Cluster, 8 columns |
 | --- | --- | --- | --- | --- | --- |
-| write, span 1 | 1 | 604K | 609K | 550K | 504K |
-| write, span 1 | 16 | 580K | 1,326K | 639K | 959K |
-| write, span 4 | 1 | 271K | 170K | 219K | 146K |
-| write, span 4 | 16 | 313K | 287K | 356K | 288K |
-| read, span 1 | 1 | 1,891K | 1,860K | 1,258K | 1,598K |
-| read, span 1 | 16 | 9,798K | 21,692K | 12,389K | 11,968K |
-| read, span 4 | 1 | 567K | 506K | 380K | 442K |
-| read, span 4 | 16 | 5,549K | 5,486K | 4,324K | 5,522K |
-| rmw, span 1 | 1 | 471K | 450K | 430K | 413K |
-| rmw, span 1 | 16 | 547K | 1,495K | 641K | 1,027K |
-| rmw, span 4 | 1 | 185K | 121K | 171K | 114K |
-| rmw, span 4 | 16 | 296K | 374K | 348K | 271K |
+| write, span 1 | 1 | 666K | 707K | 651K | 580K |
+| write, span 1 | 16 | 605K | 1,543K | 665K | 1,058K |
+| write, span 4 | 1 | 295K | 187K | 260K | 170K |
+| write, span 4 | 16 | 340K | 396K | 371K | 317K |
+| read, span 1 | 1 | 2,461K | 2,388K | 2,084K | 1,938K |
+| read, span 1 | 16 | 9,730K | 25,101K | 12,893K | 12,851K |
+| read, span 4 | 1 | 733K | 661K | 670K | 553K |
+| read, span 4 | 16 | 5,785K | 6,160K | 5,805K | 6,220K |
+| rmw, span 1 | 1 | 527K | 533K | 516K | 492K |
+| rmw, span 1 | 16 | 571K | 1,586K | 638K | 1,138K |
+| rmw, span 4 | 1 | 209K | 144K | 203K | 132K |
+| rmw, span 4 | 16 | 302K | 375K | 356K | 289K |
 
 **How far to trust a gap:** the engines run one after another within a run, and gaps of up
-to about 20% can be noise. For example, this run shows 16-thread reads at 9.8M for one MVCC
-tree and 12.4M for the cluster with one column. A direct comparison of just those two,
-three times with alternating order, gave 11.6M to 12.3M for both: reads are the same.
+to about 20% can be noise. For example, this run shows 16-thread reads at 9.7M for one MVCC
+tree and 12.9M for the cluster with one column. A direct comparison of just those two,
+three times with alternating order, gave 11.6M to 12.3M for both: reads are the same. Repeated
+runs of one cell on one build vary by up to about 7%.
 
 What holds up beyond the noise:
 
 - **Writes on one cluster column are faster than on one MVCC tree at 16 threads,** by about
-  10–17% (also seen in direct comparisons). The cluster writes a commit record after
-  releasing its commit gate; one MVCC tree writes it under its commit lock.
-- **At 1 thread, one MVCC tree is faster.** The cluster does more work per transaction: it
-  registers with the domain and its commit order, and creates a view per column.
-- **Separate columns scale writes:** at 16 threads, 959K against 580K for one tree. Each column
-  is its own tree, so writes to different columns run in parallel.
+  10% (665K against 605K, and 638K against 571K for rmw). The cluster writes a commit record
+  after releasing its commit gate; one MVCC tree writes it under its commit lock.
+- **At 1 thread, one MVCC tree is faster,** most at span 4 (295K against 260K). The cluster
+  does more work per transaction: it registers with the domain and its commit order, and
+  creates a view per column.
+- **Separate columns scale writes:** at 16 threads, 1,058K against 605K for one tree. Each
+  column is its own tree, so writes to different columns run in parallel.
 - **Atomicity across columns has a price.** Independent trees, which give no atomicity,
-  write single columns faster (1,326K against 959K): every cluster commit takes a place in
+  write single columns faster (1,543K against 1,058K): every cluster commit takes a place in
   the domain's commit order and becomes visible in that order.
 - **Transactions that touch many columns pay per column.** Each column a transaction writes
   adds a pending and a commit record. At 1 thread, span-4 writes on 8 cluster columns run at
-  146K against 271K on one tree.
+  170K against 295K on one tree.
 - **Independent trees read fastest at 16 threads** because each tree registers its readers
   separately, so the threads do not share one counter.
 
 Measured separately:
 
-- **Durable commits are about half as fast** as on one MVCC tree at 1 thread (about 390
-  against 800 per second): a durable cluster commit waits for two disk syncs in a row, the
-  columns and then the catalog.
 - **Memory per column matters.** With a small budget split across many columns, each column
   rotates its segment often, and a rotation stalls that column's writers on disk syncs. This
   is an engine issue; see [follow-up.md](follow-up.md).
@@ -71,6 +70,40 @@ Measured separately:
 
 ```
 dotnet run -c Release -- --keys 100K --mutable-segment 2M --workload write,read,rmw --span 1,4 --threads 1,16 --seconds 2 --warmup 0.5
+```
+
+## Durable commits
+
+A durable commit returns once it survives a power loss. On one column, the cluster commits
+durably as fast as one MVCC tree, and faster at 16 threads. Across 8 columns it is slower,
+because each column is its own WAL file on the disk.
+
+**Setup:** the data and storage of the table above, with every commit durable
+(`TryCommitDurableAsync` in both), blind writes only. Each measurement runs 0.5 seconds of warmup, then counts transactions for 2 seconds.
+One run.
+
+**Results**, transactions per second:
+
+| Workload | Threads | One MVCC tree | Cluster, one column | Cluster, 8 columns |
+| --- | --- | --- | --- | --- |
+| write, span 1 | 1 | 815 | 791 | 795 |
+| write, span 1 | 16 | 5,166 | 6,172 | 2,067 |
+| write, span 4 | 1 | 814 | 796 | 373 |
+| write, span 4 | 16 | 4,629 | 5,848 | 1,719 |
+
+**Why:**
+- **One column:** a durable commit waits for one sync round, which syncs the column's WAL
+  once, as the tree syncs its own. Concurrent durable commits share a round, so at 16
+  threads one round covers many commits.
+- **8 columns:** a round syncs every column the domain wrote since the last round, in
+  parallel, but the files share one disk, which handles the syncs about one after another. A
+  span-4 commit at 1 thread waits for about 4 syncs: 373 against 795 for span 1. At 16
+  threads a round covers up to 8 column files.
+
+**To rerun** (about 40 seconds), from `benchmarks/domain-transactions/src`:
+
+```
+dotnet run -c Release -- --keys 100K --mutable-segment 2M --engine mvcc-one-tree,cluster-one-column,cluster-columns --durable --workload write --span 1,4 --threads 1,16 --seconds 2 --warmup 0.5
 ```
 
 ## Standalone columns against a plain MVCC tree

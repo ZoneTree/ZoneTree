@@ -1,5 +1,6 @@
 using ZoneTree.Backup;
 using ZoneTree.Exceptions;
+using ZoneTree.Options;
 
 namespace ZoneTree.Cluster;
 
@@ -22,6 +23,10 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
     if (string.IsNullOrWhiteSpace(options.DataDirectory))
       throw new ArgumentException("A data directory is required.", nameof(options));
     ZoneTreeCluster.ValidateSyncInterval(options.AutoSyncInterval);
+    ArgumentNullException.ThrowIfNull(options.CoordinatedWriteAheadLog);
+    if (options.CoordinatedWriteAheadLog.WriteAheadLogMode is not (WriteAheadLogMode.Shared or WriteAheadLogMode.AsyncShared))
+      throw new ArgumentException(
+          "Coordinated columns need the Shared or AsyncShared write ahead log mode.", nameof(options));
     var columns = ValidateDeclarations(options);
     var directory = Path.GetFullPath(options.DataDirectory);
     var directoryExisted = Directory.Exists(directory);

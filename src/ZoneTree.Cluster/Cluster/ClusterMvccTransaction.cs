@@ -270,7 +270,14 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
 
   internal override bool Validate() => Tree.Validate(this);
 
-  internal override void Prepare(long commitTimestamp) => Tree.Prepare(this, commitTimestamp);
+  internal override void Prepare(long commitTimestamp, long commitMeta)
+  {
+    CommitMeta = commitMeta;
+    Tree.Prepare(this, commitTimestamp);
+  }
+
+  /// <summary>The meta of the commit record: the commit's sequence number and participants.</summary>
+  internal long CommitMeta { get; private set; }
 
   internal override void WriteCommitRecord() => Tree.WriteCommitRecord(this);
 

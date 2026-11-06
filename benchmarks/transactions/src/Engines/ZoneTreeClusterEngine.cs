@@ -27,6 +27,7 @@ public sealed class ZoneTreeClusterEngine : ITransactionEngine
     Cluster = new ZoneTreeClusterFactory().OpenOrCreateInProcess(new ZoneTreeClusterOptions
     {
       DataDirectory = options.Directory,
+      CoordinatedWriteAheadLog = ZoneTreeEngine.Journal(walMode),
       Domains =
       [
         new DomainDefinition("records")
@@ -35,7 +36,7 @@ public sealed class ZoneTreeClusterEngine : ITransactionEngine
           [
             new CoordinatedColumnDefinition<long, byte[]>("records")
             {
-              ConfigureStorage = factory => ZoneTreeEngine.ConfigureStorage(factory, options, walMode)
+              ConfigureStorage = factory => ZoneTreeEngine.ConfigureSegments(factory, options)
             }
           ]
         }

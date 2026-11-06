@@ -6,36 +6,27 @@ only with full ACID guarantees.
 
 ## Recovery
 
-- [ ] **Release blocker: better recovery than the Option C cut.** After an unclean
-  shutdown, recovery currently rolls back every commit above the domain's durable
-  timestamp, in every column. So ordinary commits since the last domain sync are lost
-  after a process crash, while the target guarantee says `Commit()` survives one.
-  Recovery should keep every commit whose records reached the WAL of every column it
-  wrote. Lazily opened columns make this hard: the outcome needs the participants, and
-  a column cannot see the others' records when it opens.
 - [ ] **Purge crash-aborted transactions.** Recovery turns each rolled-back commit into
   a pending status record plus an aborted entry, and neither is ever purged. Their
   versions merge away, but the entries stay in memory and the records stay on disk,
-  across restarts. One unclean shutdown can add thousands per column. This is the
-  existing crash-aborted purge gap, made much larger by Option C.
+  across restarts.
+- [ ] **Recovery reads every coordinated column's WAL.** At the open after an unclean
+  shutdown, recovery reads the live WAL segments of every coordinated column of the
+  domain, including dropped columns whose storage remains. Merges keep that bounded by the
+  mutable segment sizes. Columns of other domains are not read.
 - [ ] **Compact the rolled-back ranges.** `DomainRecord.RolledBackRanges` gains one range
   per unclean shutdown and is never compacted. A range can be dropped once every column
   of the domain has recovered it, and adjacent ranges can be merged.
 - [ ] **Resolve in-doubt commits.** A failed domain sync stops the domain's commits until
-  the cluster reopens, and recovery decides the outcome. The same happens when the rollback
-  of a prepared view cannot delete its commit record. Consider a path that resumes
+  the cluster reopens, and recovery decides the outcome. The same happens when a commit
+  fails after it took its sequence number, such as on a WAL write error: the commits behind
+  it end in doubt. Consider a path that resumes
   commits without a reopen.
 
 ## Durability and performance
 
 Measured with `benchmarks/domain-transactions` (keep runs under 3 minutes).
 
-- [ ] **Durable commits pay two fsyncs in sequence:** the written columns' WALs, then the
-  catalog commit of the durable timestamp. That is about half of one tree's throughput,
-  at every thread count. Pipelining the two stages does not help: the fsyncs compete for
-  the disk and the batches shrink. Removing the second fsync needs the better
-  recovery above, because the catalog's durable timestamp is what keeps commits atomic
-  across columns after a crash.
 - [ ] **Engine: segment rotation stalls writers.** `MoveMutableSegmentForward` appends to
   the meta WAL with an fsync on the writing thread, while the tree's other writers spin on
   the frozen segment. Columns with small mutable segments rotate often, so this dominates
@@ -74,7 +65,7 @@ Measured with `benchmarks/domain-transactions` (keep runs under 3 minutes).
   4-column transaction writes 8 against 2. That is most of the single-thread cost of
   multi-column transactions. Fewer writes need a recovery rule for versions without a
   status record, plus pending records that the sync writes lazily for transactions the
-  durable timestamp passes.
+  durable sequence number passes.
 - [ ] **One total order per domain.** Every commit takes a timestamp and completes in
   order through the sequencer, and a commit returns only once it is visible. At 16
   threads, span-1 writes reach about 65% of independent trees that give no atomicity,
@@ -106,12 +97,12 @@ Measured with `benchmarks/domain-transactions` (keep runs under 3 minutes).
 ## Tests
 
 - [ ] **Fault injection:**
-  - a prepare failure after another column prepared;
-  - a rollback that cannot delete a prepared view's records (commits must stop);
+  - a commit record write that fails in the second column, after the first wrote its own;
+  - commits in flight behind a failed commit (they must end `InDoubt`);
   - a failed domain sync (durable commits end `InDoubt`);
-  - a failed catalog write of the durable timestamp.
-- [ ] **Power-loss tests of domain syncs** with `PowerLossFileStreamProvider`: a commit
-  reported durable survives, and every column keeps the same prefix of commits.
+  - a failed catalog write of the durable sequence number.
+- [ ] **Torn power-loss tests** with `PowerLossFileStreamProvider.SimulateTornPowerLoss`:
+  a commit reported durable survives, and recovery keeps a prefix of complete commits.
 - [ ] **Crash (process kill) tests.** These come as the final step, and only on request.
 
 ## Postponed features

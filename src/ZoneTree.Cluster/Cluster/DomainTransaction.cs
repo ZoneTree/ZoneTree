@@ -162,8 +162,21 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
       RollbackClaimed();
       throw;
     }
-    if (!Array.Exists(views, static view => view.HasWrites))
+    var participants = 0;
+    foreach (var view in views)
+      if (view.HasWrites)
+        ++participants;
+    if (participants == 0)
       return CommitUnwritten(views, durable);
+    // Each commit record holds the number of columns the transaction writes, so recovery
+    // can tell a complete transaction from one a crash interrupted.
+    if (participants > CommitRecord.MaximumParticipants)
+    {
+      RollbackViews(views, views.Length);
+      RollbackClaimed();
+      throw new InvalidOperationException(
+          $"Transaction {TransactionId} wrote {participants} columns; a transaction writes at most {CommitRecord.MaximumParticipants}.");
+    }
     // Only the views that wrote or have reads to validate take their column's commit gate.
     // The others cannot conflict, so they do not wait for the commits of their columns.
     var gated = Array.TrueForAll(views, static view => view.NeedsValidation)
@@ -187,9 +200,10 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
       {
         state = TransactionState.Committing;
         slot = coordinator.BeginCommit();
+        var commitMeta = CommitRecord.Encode(slot.Sequence, participants);
         foreach (var view in gated)
           if (view.HasWrites)
-            view.Prepare(slot.Timestamp);
+            view.Prepare(slot.Timestamp, commitMeta);
       }
     }
     catch (Exception error)
@@ -218,12 +232,11 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
     }
     if (failure != null)
     {
-      // Commits stop before the timestamp completes, so the durable timestamp never
-      // reaches records the rollback could not delete.
-      if (!RollbackViews(views, views.Length) && slot != null)
-        coordinator.StopCommits(failure);
+      // Recovery cuts at the first sequence number it cannot find complete, so a commit that
+      // took one and failed stops the domain's commits: no later commit becomes visible.
       if (slot != null)
-        _ = coordinator.Sequencer.Complete(slot);
+        coordinator.StopCommits(failure, slot);
+      RollbackViews(views, views.Length);
       RollbackClaimed();
       ExceptionDispatchInfo.Throw(failure);
     }
@@ -254,11 +267,32 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
       var spin = new SpinWait();
       while (!visible.IsCompleted && spin.Count < VisibilitySpinCount)
         spin.SpinOnce(sleep1Threshold: -1);
+    }
+    if (!visible.IsCompletedSuccessfully)
+    {
+      try
+      {
 #pragma warning disable CA1849
-      visible.GetAwaiter().GetResult();
+        visible.GetAwaiter().GetResult();
 #pragma warning restore CA1849
+      }
+      catch (Exception error)
+      {
+        throw LeaveInDoubt(error);
+      }
     }
     return CompleteCommit(slot.Timestamp);
+  }
+
+  /// <summary>
+  /// Ends a commit that wrote its records but cannot become visible, because an earlier one
+  /// stopped the domain's commits. Recovery rolls it back.
+  /// </summary>
+  TransactionInDoubtException LeaveInDoubt(Exception error)
+  {
+    state = TransactionState.InDoubt;
+    Close();
+    return new TransactionInDoubtException(TransactionId, error);
   }
 
   /// <summary>
@@ -354,7 +388,14 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
   {
     // An earlier commit of the domain is still in flight; the snapshot reaches this one
     // after it, and the commit returns only then, so a later transaction reads it.
-    await visible.ConfigureAwait(false);
+    try
+    {
+      await visible.ConfigureAwait(false);
+    }
+    catch (Exception error)
+    {
+      throw LeaveInDoubt(error);
+    }
     return await CompleteCommit(commitTimestamp).ConfigureAwait(false);
   }
 
