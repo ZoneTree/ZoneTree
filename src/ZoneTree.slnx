@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="ZoneTree/ZoneTree.csproj" />
+  <Project Path="ZoneTree.UnitTests/ZoneTree.UnitTests.csproj" />
+  <Project Path="ZoneTree.Cluster/ZoneTree.Cluster.csproj" />
+  <Project Path="ZoneTree.Cluster.UnitTests/ZoneTree.Cluster.UnitTests.csproj" />
+  <Project Path="../tools/cluster-crash-worker/ClusterCrashWorker.csproj" />
+  <Project Path="Playground/Playground.csproj" />
+</Solution>

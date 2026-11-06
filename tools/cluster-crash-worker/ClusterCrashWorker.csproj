@@ -7,7 +7,6 @@
     <Nullable>disable</Nullable>
     <LangVersion>14.0</LangVersion>
     <RootNamespace>ZoneTree.ClusterCrashWorker</RootNamespace>
-    <Configurations>Debug;Release;ReleaseWithDoc</Configurations>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/ZoneTree.Cluster/ZoneTree.Cluster.csproj" />

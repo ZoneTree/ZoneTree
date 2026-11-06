@@ -19,7 +19,7 @@ public sealed class ClusterFaultTests
   public void SetUp()
   {
     var root = new DirectoryInfo(AppContext.BaseDirectory);
-    while (root != null && !File.Exists(Path.Combine(root.FullName, "src", "ZoneTree.sln")))
+    while (root != null && !File.Exists(Path.Combine(root.FullName, "src", "ZoneTree.slnx")))
       root = root.Parent;
     Assert.That(root, Is.Not.Null);
     DataDirectory = Path.Combine(root.FullName, ".tmp", "cluster-faults", "tests", Guid.NewGuid().ToString("N"));

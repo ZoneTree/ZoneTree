@@ -1,43 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Deterministic>true</Deterministic>
-    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
-    <NeutralLanguage>en-US</NeutralLanguage>
-    <TargetFrameworks>net10.0;net9.0;net8.0;net7.0;net6.0</TargetFrameworks>
-    <LangVersion>14.0</LangVersion>
-    <RepositoryUrl>https://github.com/ZoneTree/ZoneTree</RepositoryUrl>
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <IncludeSymbols>true</IncludeSymbols>
-    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
-    <Nullable>disable</Nullable>
     <PackageId>ZoneTree.Cluster</PackageId>
-    <RepositoryType>git</RepositoryType>
-    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
-    <EmbedUntrackedSources>true</EmbedUntrackedSources>
-    <RootNamespace>ZoneTree</RootNamespace>
-    <Configurations>Debug;Release;ReleaseWithDoc</Configurations>
-    <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
-    <RunAnalyzersDuringLiveAnalysis>False</RunAnalyzersDuringLiveAnalysis>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(TargetFramework)' != 'net6.0'">
-    <IsAotCompatible>true</IsAotCompatible>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)' == 'ReleaseWithDoc'">
-    <GenerateDocumentationFile>True</GenerateDocumentationFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RootNamespace>ZoneTree.Cluster</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
     <None Include="README.md">
-      <Pack>True</Pack>
-      <PackagePath>\</PackagePath>
-    </None>
-    <None Include="..\..\LICENSE">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>

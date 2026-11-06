@@ -1,6 +1,6 @@
 <Project>
 
-  <!-- The cluster ships with the ZoneTree version it is built with, so it shares its version and metadata. -->
+  <!-- The cluster ships with the ZoneTree version it is built with, so it shares its version, metadata and build settings. -->
   <Import Project="..\ZoneTree\Directory.Build.props" />
 
   <PropertyGroup>
