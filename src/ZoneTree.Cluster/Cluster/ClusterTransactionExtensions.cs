@@ -13,6 +13,7 @@ public static class ClusterTransactionExtensions
   /// Each attempt begins a transaction with the options, so a timeout applies to each
   /// attempt; an attempt that times out throws and is not retried.
   /// </summary>
+  /// <exception cref="ArgumentException">The body returns a task. Use ExecuteAsync.</exception>
   public static TResult Execute<TTransaction, TResult>(
       this IClusterTransactionSource<TTransaction> source,
       Func<TTransaction, TResult> body,
@@ -22,6 +23,7 @@ public static class ClusterTransactionExtensions
   {
     ArgumentNullException.ThrowIfNull(source);
     ArgumentNullException.ThrowIfNull(body);
+    RejectAsynchronousBody<TResult>();
     if (maxAttempts < 1)
       throw new ArgumentOutOfRangeException(
           nameof(maxAttempts), maxAttempts, "A transaction needs at least one attempt.");
@@ -60,6 +62,9 @@ public static class ClusterTransactionExtensions
   /// Cancellation stops waiting for a started commit; the commit may still succeed.
   /// The body must not perform external side effects or end the transaction.
   /// </summary>
+  /// <exception cref="ArgumentException">
+  /// The body returns a task. Pass an asynchronous body, which is awaited before the commit.
+  /// </exception>
   public static async Task<TResult> ExecuteDurableAsync<TTransaction, TResult>(
       this IClusterTransactionSource<TTransaction> source,
       Func<TTransaction, TResult> body,
@@ -70,6 +75,7 @@ public static class ClusterTransactionExtensions
   {
     ArgumentNullException.ThrowIfNull(source);
     ArgumentNullException.ThrowIfNull(body);
+    RejectAsynchronousBody<TResult>();
     if (maxAttempts < 1)
       throw new ArgumentOutOfRangeException(
           nameof(maxAttempts), maxAttempts, "A transaction needs at least one attempt.");
@@ -221,6 +227,21 @@ public static class ClusterTransactionExtensions
     ArgumentNullException.ThrowIfNull(body);
     return source.ExecuteDurableAsync((transaction, _) => body(transaction),
         options, maxAttempts, cancellationToken);
+  }
+
+  /// <summary>
+  /// Rejects a body that returns a task: a synchronous helper would commit before the
+  /// task's operations run, so the transaction would commit without them.
+  /// </summary>
+  static void RejectAsynchronousBody<TResult>()
+  {
+    var type = typeof(TResult);
+    if (typeof(Task).IsAssignableFrom(type) || type == typeof(ValueTask) ||
+        (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(ValueTask<>)))
+      throw new ArgumentException(
+          "The transaction body returns a task, which would run after the commit. " +
+          "Use ExecuteAsync, or ExecuteDurableAsync with an asynchronous body, which await it before committing.",
+          "body");
   }
 
   static async ValueTask<TResult> ExecuteAsyncCore<TTransaction, TResult>(

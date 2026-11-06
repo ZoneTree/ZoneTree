@@ -361,6 +361,50 @@ public sealed class ZoneTreeClusterTests
   }
 
   [Test]
+  public void ASynchronousHelperRejectsABodyThatReturnsATask()
+  {
+    using var cluster = Factory.CreateInProcess(Options());
+    var domain = cluster.GetDomain(Domain);
+    var numbers = domain.GetColumn<int, int>("numbers");
+    async Task Write(IDomainTransaction transaction) => await transaction.GetColumn(numbers).UpsertAsync(1, 10);
+    // The upsert would run on the thread pool after the commit.
+    Assert.Throws<ArgumentException>(() => domain.Execute(transaction => transaction.GetColumn(numbers).UpsertAsync(1, 10)));
+    Assert.Throws<ArgumentException>(() => domain.Execute(async transaction =>
+    {
+      await transaction.GetColumn(numbers).UpsertAsync(1, 10);
+      return 1;
+    }));
+    // A lambda that returns the task without async binds to the synchronous body overload.
+    Assert.ThrowsAsync<ArgumentException>(() => domain.ExecuteDurableAsync(transaction => Write(transaction)));
+    Assert.That(numbers.TryGet(1, out _), Is.False);
+    Assert.That(cluster.Maintenance.ActiveTransactionCount, Is.Zero);
+  }
+
+  [Test]
+  public async Task AsynchronousHelpersAwaitTheBodyBeforeTheCommit()
+  {
+    using var cluster = Factory.CreateInProcess(Options());
+    var domain = cluster.GetDomain(Domain);
+    var numbers = domain.GetColumn<int, int>("numbers");
+    async Task WriteTwo(IDomainTransaction transaction, int first)
+    {
+      var column = transaction.GetColumn(numbers);
+      await column.UpsertAsync(first, first);
+      await column.UpsertAsync(first + 1, first + 1);
+    }
+    await domain.ExecuteAsync(async transaction => await WriteTwo(transaction, 1));
+    await domain.ExecuteDurableAsync(async transaction => await WriteTwo(transaction, 3));
+    var result = await domain.ExecuteDurableAsync(async transaction =>
+    {
+      await WriteTwo(transaction, 5);
+      return 7;
+    });
+    Assert.That(result, Is.EqualTo(7));
+    for (var key = 1; key <= 6; ++key)
+      Assert.That(numbers.TryGet(key, out var value) && value == key, Is.True, $"key {key}");
+  }
+
+  [Test]
   public async Task AsyncRangesAndIteratorsPreserveOrderingAndCancellation()
   {
     using var cluster = Factory.CreateInProcess(Options());
@@ -436,8 +480,8 @@ public sealed class ZoneTreeClusterTests
     using (var cluster = Factory.CreateInProcess(options))
     {
       Assert.Throws<IOException>(() => Factory.OpenInProcess(options));
-      Assert.Throws<KeyNotFoundException>(() => cluster.GetDomain(Domain).GetColumn<int, int>("missing"));
-      Assert.Throws<InvalidOperationException>(() => cluster.GetDomain(Domain).GetColumn<int, string>("numbers"));
+      Assert.Throws<SchemaObjectNotFoundException>(() => cluster.GetDomain(Domain).GetColumn<int, int>("missing"));
+      Assert.Throws<SchemaConflictException>(() => cluster.GetDomain(Domain).GetColumn<int, string>("numbers"));
       using var other = Factory.CreateInProcess(Options(Path.Combine(DataDirectory, "other")));
       using var transaction = cluster.GetDomain(Domain).BeginTransaction();
       Assert.Throws<ArgumentException>(() => transaction.GetColumn(other.GetDomain(Domain).GetColumn<int, int>("numbers")));

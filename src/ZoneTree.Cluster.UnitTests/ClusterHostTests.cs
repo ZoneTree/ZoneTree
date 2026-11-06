@@ -66,10 +66,10 @@ public sealed class ClusterHostTests
     using (var maintainer = host.CreateColumnMaintainer("visits"))
       maintainer.EnableJobForCleaningInactiveCaches = false;
 
-    Assert.Throws<InvalidOperationException>(() => host.GetRawColumnMaintenance<int, string>("visits"));
-    Assert.Throws<InvalidOperationException>(() => host.GetStandaloneColumnStorage<long, long>("balances"));
-    Assert.Throws<KeyNotFoundException>(() => host.GetCoordinatedColumnMaintenance<long, long>("missing"));
-    Assert.Throws<KeyNotFoundException>(() => host.CreateColumnMaintainer("missing"));
+    Assert.Throws<SchemaConflictException>(() => host.GetRawColumnMaintenance<int, string>("visits"));
+    Assert.Throws<SchemaConflictException>(() => host.GetStandaloneColumnStorage<long, long>("balances"));
+    Assert.Throws<SchemaObjectNotFoundException>(() => host.GetCoordinatedColumnMaintenance<long, long>("missing"));
+    Assert.Throws<SchemaObjectNotFoundException>(() => host.CreateColumnMaintainer("missing"));
   }
 
   [Test]

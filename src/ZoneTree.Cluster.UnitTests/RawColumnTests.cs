@@ -169,8 +169,8 @@ public sealed class RawColumnTests
     Assert.That(cluster.Maintenance.ActiveTransactionCount, Is.Zero);
     Assert.That(cluster.GetDomain(Domain).SnapshotTimestamp, Is.Zero);
     Assert.That(cluster.Maintenance.ConflictIndexCount, Is.Zero);
-    Assert.Throws<KeyNotFoundException>(() => cluster.GetDomain(Domain).GetColumn<int, string>("cache"));
-    Assert.Throws<InvalidOperationException>(() => cluster.GetRawColumn<int, int>("balances"));
+    Assert.Throws<SchemaObjectNotFoundException>(() => cluster.GetDomain(Domain).GetColumn<int, string>("cache"));
+    Assert.Throws<SchemaConflictException>(() => cluster.GetRawColumn<int, int>("balances"));
   }
 
   [Test]
@@ -354,7 +354,7 @@ public sealed class RawColumnTests
       DataDirectory = DataDirectory,
       Logger = SilentTestLogger.Instance
     });
-    Assert.Throws<InvalidOperationException>(() => reopened.GetRawColumn<byte[], byte[]>("cache"));
+    Assert.Throws<SchemaConflictException>(() => reopened.GetRawColumn<byte[], byte[]>("cache"));
     var cache = reopened.GetRawColumn<Memory<byte>, Memory<byte>>("cache");
     Assert.That(cache.TryGet(new byte[] { 1 }, out var value) && value.Span.SequenceEqual(new byte[] { 7 }), Is.True);
   }

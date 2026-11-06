@@ -25,8 +25,9 @@ is not a phase lives in [follow-up.md](follow-up.md).
   timeout), cache and prefetch settings, and outcome lookups.
 - **The domain coordinator is the remote boundary.** The clock is behind
   `ITimestampOracle`.
-- **Decision needed before this phase:** whether remote storage nodes store the user's types,
-  which the host registers, or bytes in an order-preserving encoding.
+- **Remote storage nodes store the user's types.** The host registers the comparers and
+  serializers by id and version, as an in-process cluster does, so columns keep their typed
+  keys, values and custom comparers.
 
 ## Phase 6: distribution (later)
 

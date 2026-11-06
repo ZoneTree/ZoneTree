@@ -95,7 +95,7 @@ public sealed class ClusterSchemaTests
         "accounts", new CoordinatedColumnDefinition<long, long>("balances") { ComparerId = "zonetree.int64.descending" }));
     Assert.ThrowsAsync<SchemaConflictException>(async () =>
         await cluster.Schema.GetOrCreateColumnAsync(new RawColumnDefinition<long, long>("balances")));
-    Assert.ThrowsAsync<KeyNotFoundException>(async () =>
+    Assert.ThrowsAsync<SchemaObjectNotFoundException>(async () =>
         await cluster.Schema.CreateColumnAsync("missing", new CoordinatedColumnDefinition<long, long>("other")));
     Assert.ThrowsAsync<ColumnEncodingException>(async () => await cluster.Schema.CreateColumnAsync(
         new RawColumnDefinition<long, long>("unregistered") { ValueSerializerId = "missing.encoding" }));
@@ -172,7 +172,7 @@ public sealed class ClusterSchemaTests
     {
       Assert.That(reopened.GetRawColumn<int, string>("cache").TryGet(1, out var value) && value == "abc", Is.True);
       // The registered encodings decide the types a handle can have.
-      Assert.Throws<InvalidOperationException>(() => reopened.GetRawColumn<int, int>("cache"));
+      Assert.Throws<SchemaConflictException>(() => reopened.GetRawColumn<int, int>("cache"));
     }
     using (var changed = Factory.OpenInProcess(Options(
         new ClusterEncodingRegistry().AddSerializer("test.reversed", 2, new ReversedStringSerializer()))))

@@ -153,7 +153,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
   public IClusterDomain GetDomain(string name)
   {
     ThrowIfDisposed();
-    return FindDomain(name) ?? throw new KeyNotFoundException($"Domain '{name}' does not exist.");
+    return FindDomain(name) ?? throw new SchemaObjectNotFoundException($"Domain '{name}' does not exist.");
   }
 
   ClusterDomain FindDomain(string name)
@@ -263,7 +263,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     {
       ThrowIfDisposed();
       var record = Catalog.State.FindColumn(name)
-          ?? throw new KeyNotFoundException($"Column '{name}' does not exist.");
+          ?? throw new SchemaObjectNotFoundException($"Column '{name}' does not exist.");
       ThrowIfReadOnly();
       Catalog.RenameColumn(record.Id, newName);
       if (OpenColumns.TryGetValue(record.Id, out var column))
@@ -302,7 +302,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     {
       ThrowIfDisposed();
       var record = Catalog.State.FindDomain(name)
-          ?? throw new KeyNotFoundException($"Domain '{name}' does not exist.");
+          ?? throw new SchemaObjectNotFoundException($"Domain '{name}' does not exist.");
       ThrowIfReadOnly();
       Catalog.RenameDomain(record.Id, newName);
       if (Domains.TryGetValue(record.Id, out var domain))
@@ -322,7 +322,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
       => GetColumn<TKey, TValue>(name, ColumnKind.Coordinated, domain) as ICoordinatedColumn<TKey, TValue>
           ?? throw TypeMismatch(name);
 
-  static InvalidOperationException TypeMismatch(string name)
+  static SchemaConflictException TypeMismatch(string name)
       => new($"Column '{name}' has a different kind, key type or value type.");
 
   /// <summary>
@@ -334,7 +334,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     ThrowIfDisposed();
     var record = Catalog.State.FindColumn(name);
     if (record == null || (domain != null && record.DomainId != domain.Id))
-      throw new KeyNotFoundException(domain == null
+      throw new SchemaObjectNotFoundException(domain == null
           ? $"Column '{name}' does not exist."
           : $"Domain '{domain.Name}' has no column '{name}'.");
     if (record.Kind != kind || !Encodings.CanEncode<TKey, TValue>(record))
@@ -392,7 +392,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
         if (domainName == null)
           throw new ArgumentException($"Coordinated column '{definition.Name}' needs a domain.", nameof(domainName));
         domainId = (FindDomain(domainName)
-            ?? throw new KeyNotFoundException($"Domain '{domainName}' does not exist.")).Id;
+            ?? throw new SchemaObjectNotFoundException($"Domain '{domainName}' does not exist.")).Id;
       }
       else if (domainName != null)
         throw new ArgumentException(
@@ -589,7 +589,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
   {
     ThrowIfDisposed();
     var record = Catalog.State.FindColumn(name)
-        ?? throw new KeyNotFoundException($"Column '{name}' does not exist.");
+        ?? throw new SchemaObjectNotFoundException($"Column '{name}' does not exist.");
     lock (SchemaLock)
     {
       ThrowIfDisposed();

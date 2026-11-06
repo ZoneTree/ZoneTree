@@ -68,10 +68,10 @@ public sealed class StandaloneColumnTests
   public void HandlesAreTypedByColumnKind()
   {
     using var cluster = Factory.CreateInProcess(Options());
-    Assert.Throws<KeyNotFoundException>(() => cluster.GetDomain(Domain).GetColumn<int, int>("visits"));
-    Assert.Throws<InvalidOperationException>(() => cluster.GetRawColumn<int, int>("visits"));
-    Assert.Throws<InvalidOperationException>(() => cluster.GetStandaloneColumn<int, int>("balances"));
-    Assert.Throws<InvalidOperationException>(() => cluster.GetStandaloneColumn<long, int>("visits"));
+    Assert.Throws<SchemaObjectNotFoundException>(() => cluster.GetDomain(Domain).GetColumn<int, int>("visits"));
+    Assert.Throws<SchemaConflictException>(() => cluster.GetRawColumn<int, int>("visits"));
+    Assert.Throws<SchemaConflictException>(() => cluster.GetStandaloneColumn<int, int>("balances"));
+    Assert.Throws<SchemaConflictException>(() => cluster.GetStandaloneColumn<long, int>("visits"));
     Assert.That(cluster.GetStandaloneColumn<int, int>("visits").Name, Is.EqualTo("visits"));
   }
 

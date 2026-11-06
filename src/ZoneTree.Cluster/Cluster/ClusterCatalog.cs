@@ -183,7 +183,7 @@ internal sealed class ClusterCatalog : IDisposable
       if (current.FindColumn(name) != null)
         throw new SchemaObjectAlreadyExistsException($"Column '{name}' already exists.");
       if (domainId != 0 && current.FindDomain(domainId) == null)
-        throw new KeyNotFoundException($"Domain {domainId} does not exist.");
+        throw new SchemaObjectNotFoundException($"Domain {domainId} does not exist.");
       var cluster = current.Cluster with
       {
         SchemaEpoch = current.Cluster.SchemaEpoch + 1,
@@ -229,7 +229,7 @@ internal sealed class ClusterCatalog : IDisposable
       var current = state;
       var column = current.FindColumn(id);
       if (column == null || column.State == ColumnState.Dropped)
-        throw new KeyNotFoundException($"Column {id} does not exist.");
+        throw new SchemaObjectNotFoundException($"Column {id} does not exist.");
       var cluster = current.Cluster with { SchemaEpoch = current.Cluster.SchemaEpoch + 1 };
       var dropped = column with { State = ColumnState.Dropped, DroppedEpoch = cluster.SchemaEpoch };
       Commit(Tree, transaction =>
@@ -267,7 +267,7 @@ internal sealed class ClusterCatalog : IDisposable
       var current = state;
       var column = current.FindColumn(id);
       if (column == null || column.State == ColumnState.Dropped)
-        throw new KeyNotFoundException($"Column {id} does not exist.");
+        throw new SchemaObjectNotFoundException($"Column {id} does not exist.");
       if (current.FindColumn(name) != null)
         throw new SchemaObjectAlreadyExistsException($"Column '{name}' already exists.");
       var cluster = current.Cluster with { SchemaEpoch = current.Cluster.SchemaEpoch + 1 };
@@ -288,7 +288,7 @@ internal sealed class ClusterCatalog : IDisposable
     lock (WriteLock)
     {
       var current = state;
-      var domain = current.FindDomain(id) ?? throw new KeyNotFoundException($"Domain {id} does not exist.");
+      var domain = current.FindDomain(id) ?? throw new SchemaObjectNotFoundException($"Domain {id} does not exist.");
       if (current.ColumnNamesOf(id).Count != 0)
         throw new SchemaConflictException($"Domain '{domain.Name}' has columns. Drop them first.");
       var cluster = current.Cluster with { SchemaEpoch = current.Cluster.SchemaEpoch + 1 };
@@ -309,7 +309,7 @@ internal sealed class ClusterCatalog : IDisposable
     lock (WriteLock)
     {
       var current = state;
-      var domain = current.FindDomain(id) ?? throw new KeyNotFoundException($"Domain {id} does not exist.");
+      var domain = current.FindDomain(id) ?? throw new SchemaObjectNotFoundException($"Domain {id} does not exist.");
       if (current.FindDomain(name) != null)
         throw new SchemaObjectAlreadyExistsException($"Domain '{name}' already exists.");
       var cluster = current.Cluster with { SchemaEpoch = current.Cluster.SchemaEpoch + 1 };

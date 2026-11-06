@@ -19,8 +19,8 @@ public interface IClusterDomain : IClusterTransactionSource<IDomainTransaction>
   IReadOnlyList<string> ColumnNames { get; }
 
   /// <summary>Gets a typed handle to a column of this domain. Names are case-sensitive.</summary>
-  /// <exception cref="KeyNotFoundException">The domain has no such column.</exception>
-  /// <exception cref="InvalidOperationException">The column has different types.</exception>
+  /// <exception cref="SchemaObjectNotFoundException">The domain has no such column.</exception>
+  /// <exception cref="SchemaConflictException">The column has different types.</exception>
   ICoordinatedColumn<TKey, TValue> GetColumn<TKey, TValue>(string name);
 
   /// <summary>Begins a read-only transaction across the domain's columns.</summary>

@@ -67,9 +67,9 @@ public sealed class ClusterDomainTests
     Assert.That(balances.TryGet(1, out var balance) && balance == 100, Is.True);
     Assert.That(audit.TryGet(1, out var entry) && entry == "opened", Is.True);
 
-    Assert.Throws<KeyNotFoundException>(() => cluster.GetDomain("missing"));
-    Assert.Throws<KeyNotFoundException>(() => catalog.GetColumn<long, long>("balances"));
-    Assert.Throws<InvalidOperationException>(() => accounts.GetColumn<long, string>("balances"));
+    Assert.Throws<SchemaObjectNotFoundException>(() => cluster.GetDomain("missing"));
+    Assert.Throws<SchemaObjectNotFoundException>(() => catalog.GetColumn<long, long>("balances"));
+    Assert.Throws<SchemaConflictException>(() => accounts.GetColumn<long, string>("balances"));
   }
 
   [Test]

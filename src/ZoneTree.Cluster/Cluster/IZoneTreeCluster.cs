@@ -20,17 +20,17 @@ public interface IZoneTreeCluster : IDisposable, IAsyncDisposable
   IClusterSchema Schema { get; }
 
   /// <summary>Gets a domain of coordinated columns. Names are case-sensitive.</summary>
-  /// <exception cref="KeyNotFoundException">The domain does not exist.</exception>
+  /// <exception cref="SchemaObjectNotFoundException">The domain does not exist.</exception>
   IClusterDomain GetDomain(string name);
 
   /// <summary>Gets a typed handle to a column with its own transactions. Names are case-sensitive.</summary>
-  /// <exception cref="KeyNotFoundException">The column does not exist.</exception>
-  /// <exception cref="InvalidOperationException">The column has a different kind or types.</exception>
+  /// <exception cref="SchemaObjectNotFoundException">The column does not exist.</exception>
+  /// <exception cref="SchemaConflictException">The column has a different kind or types.</exception>
   IStandaloneColumn<TKey, TValue> GetStandaloneColumn<TKey, TValue>(string name);
 
   /// <summary>Gets a typed handle to a non-transactional column. Names are case-sensitive.</summary>
-  /// <exception cref="KeyNotFoundException">The column does not exist.</exception>
-  /// <exception cref="InvalidOperationException">The column has a different kind or types.</exception>
+  /// <exception cref="SchemaObjectNotFoundException">The column does not exist.</exception>
+  /// <exception cref="SchemaConflictException">The column has a different kind or types.</exception>
   IRawColumn<TKey, TValue> GetRawColumn<TKey, TValue>(string name);
 
   /// <summary>

@@ -72,7 +72,7 @@ public sealed class ClusterSchemaLifecycleTests
       Assert.Throws<SchemaObjectDroppedException>(() => visits.BeginTransaction());
       using (var transaction = accounts.BeginTransaction())
         Assert.Throws<SchemaObjectDroppedException>(() => transaction.GetColumn(balances));
-      Assert.Throws<KeyNotFoundException>(() => cluster.GetRawColumn<int, int>("cache"));
+      Assert.Throws<SchemaObjectNotFoundException>(() => cluster.GetRawColumn<int, int>("cache"));
     }
     using var reopened = Factory.OpenInProcess(Options());
     Assert.That(reopened.Maintenance.ColumnNames, Is.Empty);
@@ -349,10 +349,10 @@ public sealed class ClusterSchemaLifecycleTests
       Assert.That(balances.Name, Is.EqualTo("amounts"));
       Assert.That(accounts.GetColumn<int, int>("amounts"), Is.SameAs(balances));
       Assert.That(cluster.GetRawColumn<int, int>("store"), Is.SameAs(cache));
-      Assert.Throws<KeyNotFoundException>(() => cluster.GetRawColumn<int, int>("cache"));
+      Assert.Throws<SchemaObjectNotFoundException>(() => cluster.GetRawColumn<int, int>("cache"));
       Assert.ThrowsAsync<SchemaObjectAlreadyExistsException>(async () =>
           await cluster.Schema.RenameColumnAsync("store", "amounts"));
-      Assert.ThrowsAsync<KeyNotFoundException>(async () =>
+      Assert.ThrowsAsync<SchemaObjectNotFoundException>(async () =>
           await cluster.Schema.RenameColumnAsync("missing", "other"));
     }
     // A declaration of the old name creates a new column.
@@ -378,7 +378,7 @@ public sealed class ClusterSchemaLifecycleTests
       await cluster.Schema.RenameDomainAsync("accounts", "ledger");
       Assert.That(accounts.Name, Is.EqualTo("ledger"));
       Assert.That(cluster.GetDomain("ledger"), Is.SameAs(accounts));
-      Assert.Throws<KeyNotFoundException>(() => cluster.GetDomain("accounts"));
+      Assert.Throws<SchemaObjectNotFoundException>(() => cluster.GetDomain("accounts"));
       using (var transaction = accounts.BeginTransaction())
       {
         transaction.GetColumn(accounts.GetColumn<int, int>("balances")).Upsert(1, 1);

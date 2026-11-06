@@ -24,7 +24,7 @@ public interface IClusterSchema
 
   /// <summary>Creates a coordinated column in a domain.</summary>
   /// <exception cref="SchemaObjectAlreadyExistsException">A column with the name exists.</exception>
-  /// <exception cref="KeyNotFoundException">The domain does not exist.</exception>
+  /// <exception cref="SchemaObjectNotFoundException">The domain does not exist.</exception>
   /// <exception cref="ColumnEncodingException">An encoding of the definition is not registered for its types.</exception>
   ValueTask<ICoordinatedColumn<TKey, TValue>> CreateColumnAsync<TKey, TValue>(
       string domain, CoordinatedColumnDefinition<TKey, TValue> definition,
@@ -71,7 +71,7 @@ public interface IClusterSchema
   /// Renames a column. Its handles, transactions and data are not affected; a declaration of
   /// the old name creates a new column the next time the cluster opens.
   /// </summary>
-  /// <exception cref="KeyNotFoundException">No column has the name.</exception>
+  /// <exception cref="SchemaObjectNotFoundException">No column has the name.</exception>
   /// <exception cref="SchemaObjectAlreadyExistsException">A column with the new name exists.</exception>
   ValueTask RenameColumnAsync(string name, string newName, CancellationToken cancellationToken = default);
 
@@ -84,7 +84,7 @@ public interface IClusterSchema
   ValueTask<bool> DropDomainAsync(string name, CancellationToken cancellationToken = default);
 
   /// <summary>Renames a domain. Its handle, columns and transactions are not affected.</summary>
-  /// <exception cref="KeyNotFoundException">No domain has the name.</exception>
+  /// <exception cref="SchemaObjectNotFoundException">No domain has the name.</exception>
   /// <exception cref="SchemaObjectAlreadyExistsException">A domain with the new name exists.</exception>
   ValueTask RenameDomainAsync(string name, string newName, CancellationToken cancellationToken = default);
 
