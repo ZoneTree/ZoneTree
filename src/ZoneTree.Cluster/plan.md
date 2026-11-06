@@ -46,8 +46,8 @@ is not a phase lives in [follow-up.md](follow-up.md).
 
 ## Release blockers
 
-- **Crash and fault tests.** Fault-injection and torn power-loss tests, then kill-process
-  crash tests as the final step. See [acid.md](acid.md) and [follow-up.md](follow-up.md).
+- **Kill-process crash tests,** as the final step. See [acid.md](acid.md) and
+  [follow-up.md](follow-up.md).
 
 ## How we work
 

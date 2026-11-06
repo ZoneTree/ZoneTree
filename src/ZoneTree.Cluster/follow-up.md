@@ -96,13 +96,6 @@ Measured with `benchmarks/domain-transactions` (keep runs under 3 minutes).
 
 ## Tests
 
-- [ ] **Fault injection:**
-  - a commit record write that fails in the second column, after the first wrote its own;
-  - commits in flight behind a failed commit (they must end `InDoubt`);
-  - a failed domain sync (durable commits end `InDoubt`);
-  - a failed catalog write of the durable sequence number.
-- [ ] **Torn power-loss tests** with `PowerLossFileStreamProvider.SimulateTornPowerLoss`:
-  a commit reported durable survives, and recovery keeps a prefix of complete commits.
 - [ ] **Crash (process kill) tests.** These come as the final step, and only on request.
 
 ## Postponed features

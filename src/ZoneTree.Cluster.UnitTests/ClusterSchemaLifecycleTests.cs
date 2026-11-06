@@ -1,3 +1,4 @@
+using ZoneTree.AbstractFileStream;
 using System.Collections.Concurrent;
 using System.Globalization;
 using ZoneTree.Exceptions;
@@ -307,7 +308,7 @@ public sealed class ClusterSchemaLifecycleTests
     }
     // The catalog dropped both columns; a crash came before their storage was deleted.
     // The storage of the second one was deleted already.
-    using (var catalog = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, canCreate: false, canOpen: true))
+    using (var catalog = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, new LocalFileStreamProvider(), canCreate: false, canOpen: true))
     {
       catalog.DropColumn(1);
       catalog.DropColumn(2);
@@ -316,7 +317,7 @@ public sealed class ClusterSchemaLifecycleTests
     using (var reopened = Factory.OpenInProcess(Options()))
       Assert.That(reopened.Maintenance.ColumnNames, Is.Empty);
     Assert.That(Directory.Exists(ColumnDirectory(1)), Is.False);
-    using var check = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, canCreate: false, canOpen: true);
+    using var check = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, new LocalFileStreamProvider(), canCreate: false, canOpen: true);
     Assert.That(check.State.FindColumn(1), Is.Null);
     Assert.That(check.State.FindColumn(2), Is.Null);
   }

@@ -1,3 +1,4 @@
+using ZoneTree.AbstractFileStream;
 using ZoneTree.Backup;
 using ZoneTree.Exceptions;
 using ZoneTree.Options;
@@ -37,9 +38,10 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
         FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
     ClusterCatalog catalog = null;
     ZoneTreeCluster cluster = null;
+    var files = options.FileStreamProvider ?? new LocalFileStreamProvider();
     try
     {
-      catalog = ClusterCatalog.Open(directory, options.Logger, canCreate, canOpen);
+      catalog = ClusterCatalog.Open(directory, options.Logger, files, canCreate, canOpen);
       cluster = new ZoneTreeCluster(directory, options, lease, catalog);
       cluster.ApplyDeclarations(options, columns);
       return cluster;
@@ -50,7 +52,7 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
       {
         // Creating a cluster either succeeds or leaves nothing behind, so a retry can create it.
         if (catalog?.Created == true)
-          DropCreated(directory, cluster, catalog, lease, directoryExisted);
+          DropCreated(directory, files, cluster, catalog, lease, directoryExisted);
         else if (cluster != null)
           cluster.Dispose();
         else
@@ -68,8 +70,8 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
   }
 
   /// <summary>Deletes a cluster that this call created and failed to open.</summary>
-  static void DropCreated(string directory, ZoneTreeCluster cluster, ClusterCatalog catalog,
-      FileStream lease, bool directoryExisted)
+  static void DropCreated(string directory, IFileStreamProvider files, ZoneTreeCluster cluster,
+      ClusterCatalog catalog, FileStream lease, bool directoryExisted)
   {
     if (cluster != null)
       cluster.Drop();
@@ -79,8 +81,8 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
       lease.Dispose();
       foreach (var path in new[] { Path.Combine(directory, "catalog"), Path.Combine(directory, "columns") })
       {
-        if (Directory.Exists(path))
-          Directory.Delete(path, recursive: true);
+        if (files.DirectoryExists(path))
+          files.DeleteDirectory(path, recursive: true);
       }
       File.Delete(Path.Combine(directory, "database.lock"));
     }

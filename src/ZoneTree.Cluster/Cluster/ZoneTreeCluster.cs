@@ -636,10 +636,10 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     File.Delete(Path.Combine(DataDirectory, "database.lock"));
   }
 
-  static void DeleteDirectory(string path)
+  void DeleteDirectory(string path)
   {
-    if (Directory.Exists(path))
-      Directory.Delete(path, recursive: true);
+    if (FileStreamProvider.DirectoryExists(path))
+      FileStreamProvider.DeleteDirectory(path, recursive: true);
   }
 
   public void Dispose()

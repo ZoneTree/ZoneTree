@@ -1,3 +1,4 @@
+using ZoneTree.AbstractFileStream;
 using ZoneTree.Exceptions;
 using ZoneTree.Serializers;
 
@@ -255,7 +256,7 @@ public sealed class ClusterSchemaTests
   public void TheTimestampSourceReservesAheadAndNeverPassesItsBound()
   {
     Factory.CreateInProcess(Options()).Dispose();
-    using (var catalog = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, canCreate: false, canOpen: true))
+    using (var catalog = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, new LocalFileStreamProvider(), canCreate: false, canOpen: true))
     {
       var domain = catalog.CreateDomain("accounts");
       using var worker = new TimestampReservationWorker(catalog, SilentTestLogger.Instance);
@@ -276,7 +277,7 @@ public sealed class ClusterSchemaTests
       Assert.That(previous, Is.EqualTo(4 * ClusterCatalog.TimestampBatch + 1000));
       Assert.That(catalog.State.FindDomain(domain.Id).TimestampBound, Is.GreaterThanOrEqualTo(previous));
     }
-    using var reopened = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, canCreate: false, canOpen: true);
+    using var reopened = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, new LocalFileStreamProvider(), canCreate: false, canOpen: true);
     Assert.That(reopened.State.FindDomain("accounts").TimestampBound,
         Is.GreaterThanOrEqualTo(4 * ClusterCatalog.TimestampBatch + 1000));
   }
@@ -285,7 +286,7 @@ public sealed class ClusterSchemaTests
   public void AStoppedReservationWorkerFailsCallersThatNeedANewBatch()
   {
     Factory.CreateInProcess(Options()).Dispose();
-    using var catalog = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, canCreate: false, canOpen: true);
+    using var catalog = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, new LocalFileStreamProvider(), canCreate: false, canOpen: true);
     var domain = catalog.CreateDomain("accounts");
     var worker = new TimestampReservationWorker(catalog, SilentTestLogger.Instance);
     worker.Dispose();
@@ -325,7 +326,7 @@ public sealed class ClusterSchemaTests
   public void AColumnACrashLeftInCreationIsCreatedOnFirstUse()
   {
     Factory.CreateInProcess(Options()).Dispose();
-    using (var catalog = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, canCreate: false, canOpen: true))
+    using (var catalog = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, new LocalFileStreamProvider(), canCreate: false, canOpen: true))
     {
       // The catalog record is durable, and the crash came before the column's storage existed.
       catalog.CreateColumn("cache", ColumnKind.Raw, 0,
@@ -340,7 +341,7 @@ public sealed class ClusterSchemaTests
       cache.Upsert(1, "one");
       Assert.That(cache.TryGet(1, out var value) && value == "one", Is.True);
     }
-    using var reopened = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, canCreate: false, canOpen: true);
+    using var reopened = ClusterCatalog.Open(DataDirectory, SilentTestLogger.Instance, new LocalFileStreamProvider(), canCreate: false, canOpen: true);
     Assert.That(reopened.State.FindColumn("cache").State, Is.EqualTo(ColumnState.Ready));
   }
 

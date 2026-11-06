@@ -1,9 +1,8 @@
 # ZoneTree.Cluster: cross-column ACID status
 
 Cross-column atomicity, consistency, isolation and durability work and are tested with
-simulated crashes and power losses. The crash behaviour has not been verified with real
-process kills, and the failure paths have no fault-injection tests yet. So cross-column ACID
-is not release-complete.
+simulated crashes, torn power losses and injected failures. The crash behaviour has not been
+verified with real process kills, so cross-column ACID is not release-complete.
 
 ## Done and tested
 
@@ -36,16 +35,22 @@ is not release-complete.
   are durable in the catalog. Tests cover both.
 - **Durable commits:** `CommitDurableAsync` survives a power loss. It waits for one parallel
   round of syncs of the columns the domain wrote, which covers every earlier commit.
+- **Torn power losses:** a workload of ordinary and durable commits across two columns, with
+  merges, takes a torn power-loss image at every disk sync, the catalog included. Every
+  image recovers with every durable commit, the same prefix in both columns, and accepts
+  new commits. Tests cover the `Shared` and `AsyncShared` journals.
+- **Injected failures:** tests cover:
+  - a commit record write that fails in the second column after the first wrote its own;
+  - commits waiting behind a failed commit, which end in doubt and roll back;
+  - a failed domain sync, after which the durable commit is in doubt and recovery keeps it
+    in both columns after a process crash, or in neither after a power loss;
+  - a failed catalog write during a drop, after which the column stays for recovery;
+  - a failed catalog write at close, which leaves the domain to recovery.
 
 ## Missing for full ACID as promised
 
 1. **Not verified with real crashes.** The recovery tests simulate unclean shutdowns and
    power losses inside the process. Kill-process tests come as the final step.
-2. **No fault-injection tests** for:
-   - a failed domain sync leaving commits in doubt;
-   - a rollback that cannot delete its records;
-   - a failed catalog write of the durable sequence number.
-3. **No torn power-loss tests**, which keep a random part of each unsynced write.
 
 ## Gaps to close before release
 
@@ -62,5 +67,4 @@ The details are in [follow-up.md](follow-up.md).
 
 ## To complete it
 
-1. Fault-injection and torn power-loss tests.
-2. Kill-process crash tests.
+1. Kill-process crash tests.

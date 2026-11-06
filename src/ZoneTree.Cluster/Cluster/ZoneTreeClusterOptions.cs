@@ -43,9 +43,9 @@ public sealed class ZoneTreeClusterOptions
   public IColumnStorageConfigurator StorageDefaults { get; init; }
 
   /// <summary>
-  /// The file streams of the columns' storage, for tests that simulate a power loss. The local
-  /// file system when not set. The catalog, and the deletion of dropped columns, always use
-  /// the local file system.
+  /// The files of the cluster's storage, the catalog and every column, for tests that
+  /// simulate a power loss. The local file system when not set. The data directory and its
+  /// lease file are always on the local file system.
   /// </summary>
   internal IFileStreamProvider FileStreamProvider { get; init; }
 

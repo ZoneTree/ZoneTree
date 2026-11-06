@@ -1,3 +1,4 @@
+using ZoneTree.AbstractFileStream;
 using ZoneTree.Exceptions;
 using ZoneTree.Logger;
 using ZoneTree.Transactional;
@@ -41,12 +42,13 @@ internal sealed class ClusterCatalog : IDisposable
   /// </summary>
   /// <exception cref="DatabaseNotFoundException">The catalog does not exist and cannot be created.</exception>
   /// <exception cref="DatabaseAlreadyExistsException">The catalog exists and cannot be opened.</exception>
-  internal static ClusterCatalog Open(string clusterDirectory, ILogger logger, bool canCreate, bool canOpen)
+  internal static ClusterCatalog Open(string clusterDirectory, ILogger logger, IFileStreamProvider files,
+      bool canCreate, bool canOpen)
   {
     var path = Path.Combine(clusterDirectory, "catalog");
-    if (!Directory.Exists(path) && !canCreate)
+    if (!files.DirectoryExists(path) && !canCreate)
       throw new DatabaseNotFoundException();
-    var tree = new ZoneTreeFactory<string, Memory<byte>>()
+    var tree = new ZoneTreeFactory<string, Memory<byte>>(files)
         .SetDataDirectory(path)
         .SetLogger(logger)
         .OpenOrCreateTransactional();
