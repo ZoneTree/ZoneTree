@@ -228,7 +228,7 @@ public sealed class TransactionalLiveBackupTests
     using var fixture = new Fixture(WriteAheadLogMode.Shared, DiskSegmentMode.SingleDiskSegment);
     // Default mutable segments, which the throttled writes never fill during the test.
     using var tree = new ZoneTreeFactory<int, int>()
-        .SetDataDirectory(Path.Combine(fixture.BackupPath, "..", "source"))
+        .SetDataDirectory(fixture.DataPath("source"))
         .OpenOrCreateTransactional();
     var maintenance = tree.Maintenance.ZoneTree.Maintenance;
     var rotations = 0;
@@ -294,8 +294,9 @@ public sealed class TransactionalLiveBackupTests
   {
     readonly string Root = Path.Combine(TestContext.CurrentContext.WorkDirectory, nameof(TransactionalLiveBackupTests), Guid.NewGuid().ToString("N"));
     public string BackupPath => Path.Combine(Root, "backup");
+    public string DataPath(string name) => Path.Combine(Root, name);
     public ZoneTreeFactory<int, int> Factory(string name, IFileStreamProvider files = null) => new ZoneTreeFactory<int, int>(files)
-        .SetDataDirectory(Path.Combine(Root, name))
+        .SetDataDirectory(DataPath(name))
         .Configure(o => o.AllowUnsafeOptionValues = true)
         .SetMutableSegmentMaxItemCount(17)
         .ConfigureDiskSegmentOptions(o => { o.DiskSegmentMode = disk; o.MinimumRecordCount = 4; o.MaximumRecordCount = 8; })
