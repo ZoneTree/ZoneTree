@@ -27,6 +27,20 @@ public sealed class CheckpointDirectorySyncTests
             options.SyncCompressedModeOptions.EnableTailWriterJob = false;
           });
 
+  [Test]
+  public void DirectoryTreeSyncSkipsTheFoldersADotDotLeaves()
+  {
+    var relative = new List<string>();
+    DirectorySync.FlushTree(Path.Combine("missing", "..", "data", "seg"), relative.Add);
+    Assert.That(relative, Is.EqualTo(new[] { Path.Combine("data", "seg"), "data", "." }));
+
+    var root = Path.GetFullPath(Path.GetTempPath());
+    var rooted = new List<string>();
+    DirectorySync.FlushTree(Path.Combine(root, "missing", "..", "data"), rooted.Add);
+    Assert.That(rooted[0], Is.EqualTo(Path.Combine(root, "data")));
+    Assert.That(rooted, Has.None.Contains("missing"));
+  }
+
   [TestCase(WriteAheadLogMode.Shared, DiskSegmentMode.SingleDiskSegment)]
   [TestCase(WriteAheadLogMode.Shared, DiskSegmentMode.MultiPartDiskSegment)]
   [TestCase(WriteAheadLogMode.AsyncShared, DiskSegmentMode.SingleDiskSegment)]
