@@ -17,14 +17,14 @@ public interface IStandaloneColumn<TKey, TValue> : IClusterTransactionSource<ISt
   IStandaloneReadTransaction<TKey, TValue> BeginReadOnlyTransaction();
 
   /// <summary>Asynchronously begins a read-only transaction of this column.</summary>
-  Task<IStandaloneReadTransaction<TKey, TValue>> BeginReadOnlyTransactionAsync(
+  ValueTask<IStandaloneReadTransaction<TKey, TValue>> BeginReadOnlyTransactionAsync(
       CancellationToken cancellationToken = default);
 
   /// <summary>Begins a read-only transaction of this column with the given options; null uses the defaults.</summary>
   IStandaloneReadTransaction<TKey, TValue> BeginReadOnlyTransaction(ClusterReadTransactionOptions options);
 
   /// <summary>Asynchronously begins a read-only transaction of this column with the given options.</summary>
-  Task<IStandaloneReadTransaction<TKey, TValue>> BeginReadOnlyTransactionAsync(
+  ValueTask<IStandaloneReadTransaction<TKey, TValue>> BeginReadOnlyTransactionAsync(
       ClusterReadTransactionOptions options, CancellationToken cancellationToken = default);
 
   /// <summary>

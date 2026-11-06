@@ -6,6 +6,11 @@ namespace ZoneTree.Cluster;
 /// Begins writing transactions: a domain, or a standalone column.
 /// The cluster transaction helpers, such as Execute, work with any source.
 /// </summary>
+/// <remarks>
+/// The asynchronous begin methods return a <see cref="ValueTask{TResult}"/>, unlike the
+/// other asynchronous methods of the cluster: a cluster in this process begins every
+/// transaction synchronously, so the begin allocates no task.
+/// </remarks>
 public interface IClusterTransactionSource<TTransaction>
     where TTransaction : IClusterWriteTransaction
 {
@@ -15,7 +20,7 @@ public interface IClusterTransactionSource<TTransaction>
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable);
 
   /// <summary>Asynchronously begins a read/write transaction.</summary>
-  Task<TTransaction> BeginTransactionAsync(
+  ValueTask<TTransaction> BeginTransactionAsync(
       TransactionIsolationLevel isolationLevel = TransactionIsolationLevel.Serializable,
       CancellationToken cancellationToken = default);
 
@@ -24,7 +29,7 @@ public interface IClusterTransactionSource<TTransaction>
   TTransaction BeginTransaction(ClusterTransactionOptions options);
 
   /// <summary>Asynchronously begins a read/write transaction with the given options.</summary>
-  Task<TTransaction> BeginTransactionAsync(
+  ValueTask<TTransaction> BeginTransactionAsync(
       ClusterTransactionOptions options, CancellationToken cancellationToken = default);
 
   /// <summary>

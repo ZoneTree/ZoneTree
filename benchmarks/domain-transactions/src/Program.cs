@@ -26,6 +26,9 @@ sealed record BenchmarkOptions
   public WriteAheadLogMode WalMode { get; init; } = WriteAheadLogMode.AsyncShared;
   public bool Durable { get; init; }
 
+  /// <summary>True to run the cluster engines through their async API, blocking on each call.</summary>
+  public bool AsyncApi { get; init; }
+
   /// <summary>True to give every tree the whole memory budget instead of a share of it.</summary>
   public bool PerTreeBudget { get; init; }
   public int MutableSegmentMaxItemCount { get; init; } = 250_000;
@@ -468,6 +471,7 @@ static class Program
         --isolation <name>        serializable or snapshot (default serializable)
         --wal <mode>              AsyncShared, Shared, AsyncCompressed, SyncCompressed (default AsyncShared)
         --durable                 commit with TryCommitDurableAsync
+        --async                   run the cluster engines through their async API
         --per-tree-budget         give every tree the whole memory budget, not a share
         --mutable-segment <n>     mutable segment records (default 250K)
         --dir <path>              data directory (default <repo>/.tmp/domain-transactions)
@@ -505,6 +509,7 @@ static class Program
         "--isolation" => options with { Isolation = Enum.Parse<TransactionIsolationLevel>(Next(), ignoreCase: true) },
         "--wal" => options with { WalMode = Enum.Parse<WriteAheadLogMode>(Next(), ignoreCase: true) },
         "--durable" => options with { Durable = true },
+        "--async" => options with { AsyncApi = true },
         "--per-tree-budget" => options with { PerTreeBudget = true },
         "--mutable-segment" => options with { MutableSegmentMaxItemCount = (int)ParseCount(Next()) },
         "--dir" => options with { Directory = Next() },

@@ -289,21 +289,37 @@ sealed class ClusterEngine : IEngine
       return WriteViews[index] ??= Write.GetColumn(Engine.Columns[index]);
     }
 
-    public void BeginWrite() => Write = Engine.Domain.BeginTransaction(Engine.TransactionOptions);
+    // The async API is blocked on call by call, the same way for any task type it returns.
+    bool AsyncApi => Engine.Options.AsyncApi;
+
+    public void BeginWrite() => Write = AsyncApi
+        ? Engine.Domain.BeginTransactionAsync(Engine.TransactionOptions).GetAwaiter().GetResult()
+        : Engine.Domain.BeginTransaction(Engine.TransactionOptions);
 
     public bool Get(int column, long key, out byte[] value)
-        => WriteView(column).TryGet(Key(column, key), out value);
+    {
+      if (!AsyncApi)
+        return WriteView(column).TryGet(Key(column, key), out value);
+      var result = WriteView(column).TryGetAsync(Key(column, key)).GetAwaiter().GetResult();
+      value = result.Value;
+      return result.Found;
+    }
 
     public void Put(int column, long key, byte[] value)
-        => WriteView(column).Upsert(Key(column, key), value);
+    {
+      if (AsyncApi)
+        WriteView(column).UpsertAsync(Key(column, key), value).GetAwaiter().GetResult();
+      else
+        WriteView(column).Upsert(Key(column, key), value);
+    }
 
     public bool Commit()
     {
       try
       {
-        return Engine.Options.Durable
-            ? Write.TryCommitDurableAsync().GetAwaiter().GetResult()
-            : Write.TryCommit();
+        if (Engine.Options.Durable)
+          return Write.TryCommitDurableAsync().GetAwaiter().GetResult();
+        return AsyncApi ? Write.TryCommitAsync().GetAwaiter().GetResult() : Write.TryCommit();
       }
       finally
       {
@@ -313,13 +329,19 @@ sealed class ClusterEngine : IEngine
       }
     }
 
-    public void BeginRead() => ReadOnly = Engine.Domain.BeginReadOnlyTransaction();
+    public void BeginRead() => ReadOnly = AsyncApi
+        ? Engine.Domain.BeginReadOnlyTransactionAsync().GetAwaiter().GetResult()
+        : Engine.Domain.BeginReadOnlyTransaction();
 
     public bool Read(int column, long key, out byte[] value)
     {
       var index = Index(column);
       var view = ReadViews[index] ??= ReadOnly.GetColumn(Engine.Columns[index]);
-      return view.TryGet(Key(column, key), out value);
+      if (!AsyncApi)
+        return view.TryGet(Key(column, key), out value);
+      var result = view.TryGetAsync(Key(column, key)).GetAwaiter().GetResult();
+      value = result.Value;
+      return result.Found;
     }
 
     public void EndRead()

@@ -310,7 +310,7 @@ rollback waits for the running operations, and one that starts while the transac
 ends throws, so await all outstanding operations before ending the transaction.
 The example starts independent column writes together and awaits both before commit.
 
-Async methods return `Task`. `TryGetAsync` and `TryGetForUpdateAsync`
+Async methods return `Task`, except the begin methods, which return `ValueTask` and allocate nothing. `TryGetAsync` and `TryGetForUpdateAsync`
 return `ReadResult<TValue>` with `Found` and `Value` properties.
 Ranges and iterators also have asynchronous APIs:
 
