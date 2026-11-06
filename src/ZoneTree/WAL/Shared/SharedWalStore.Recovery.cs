@@ -62,6 +62,16 @@ internal sealed partial class SharedWalStore<TKey, TValue>
     var stream = chunk.Stream;
     stream.Seek(0, SeekOrigin.Begin);
     var hasHeader = false;
+    // Whether the record that starts there can be in the bytes a power loss tore.
+    bool IsTornTail(long start) => repair && stream.IsUnsyncedTail(start, stream.Position);
+    // A torn record ends the entire shared prefix, including otherwise valid later
+    // chunks. A per-segment reader must never make this choice.
+    void TruncateTornTail(long start, bool isSealed)
+    {
+      Logger?.LogWarning($"Truncated the incomplete shared WAL suffix in {chunk.Path} at {start}.");
+      stream.SetLength(start);
+      chunk.Sealed = isSealed;
+    }
     while (stream.Position < stream.Length)
     {
       var start = stream.Position;
@@ -70,17 +80,15 @@ internal sealed partial class SharedWalStore<TKey, TValue>
       {
         record = SharedWalRecord.Read(stream);
       }
-      catch (InvalidDataException) when (repair && stream.IsUnsyncedTail(start, stream.Position))
+      catch (InvalidDataException) when (IsTornTail(start))
       {
-        // A damaged record ends the entire shared prefix, including otherwise
-        // valid later chunks. A per-segment reader must never make this choice.
-        Logger?.LogWarning($"Truncated the incomplete shared WAL suffix in {chunk.Path} at {start}.");
-        stream.SetLength(start);
-        chunk.Sealed = false;
+        TruncateTornTail(start, false);
         break;
       }
-      // A complete, checksummed envelope with a broken chain is corruption,
-      // rather than the partially persisted end of a write.
+      // A complete, checksummed envelope with a broken chain is corruption in the synced
+      // prefix. In the unsynced tail it ends the prefix, as a damaged record does: a power
+      // loss can leave any bytes there, including complete records of an earlier block,
+      // because the stream reuses its tail file for the next block.
       if (!hasHeader)
       {
         if (record.Kind != SharedWalRecordKind.ChunkHeader || record.SegmentId != chunk.Id ||
@@ -91,17 +99,38 @@ internal sealed partial class SharedWalStore<TKey, TValue>
         continue;
       }
       if (chunk.Sealed)
+      {
+        if (IsTornTail(start))
+        {
+          TruncateTornTail(start, true);
+          break;
+        }
         throw new InvalidDataException("Records follow a sealed shared WAL chunk.");
+      }
       if (record.Kind == SharedWalRecordKind.SealChunk)
       {
         if (record.Sequence != WrittenSequence || record.SegmentId != chunk.Id + 1 ||
             record.Key.Length != 0 || record.Value.Length != 0)
+        {
+          if (IsTornTail(start))
+          {
+            TruncateTornTail(start, false);
+            break;
+          }
           throw new InvalidDataException("Invalid shared WAL chunk boundary.");
+        }
         chunk.Sealed = true;
         continue;
       }
       if (record.Kind == SharedWalRecordKind.ChunkHeader || record.Sequence != WrittenSequence + 1 || record.SegmentId <= 0)
+      {
+        if (IsTornTail(start))
+        {
+          TruncateTornTail(start, false);
+          break;
+        }
         throw new InvalidDataException("A shared WAL record is missing or out of order.");
+      }
       ApplyRecovered(record);
       chunk.References[record.SegmentId] = record.Sequence;
       chunk.LastSequence = WrittenSequence = record.Sequence;
