@@ -118,6 +118,9 @@ using var restored = await new ZoneTreeClusterFactory()
 - Each column keeps its generations in a store of its own, and a generation publishes once
   every column uploaded, so a failed generation leaves the previous ones restorable.
 - Column drops wait for a running generation.
+- A generation captures coordinated and raw columns in place, without moving their mutable
+  segments forward, so it makes no merge work. A standalone column moves its mutable
+  segment forward once per generation, as an MVCC tree's backup does.
 
 ## Current limitations
 

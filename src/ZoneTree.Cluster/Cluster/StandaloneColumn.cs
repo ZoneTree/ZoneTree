@@ -17,7 +17,7 @@ internal sealed class StandaloneColumn<TKey, TValue> : Column,
 
   // A standalone column has no cut: its backup captures the tree when it runs, with the
   // transaction statuses the MVCC tree keeps consistent.
-  internal override ColumnBackup CreateBackup(Backup.LiveBackupOptions options)
+  internal override ColumnBackup CreateBackup(Backup.LiveBackupOptions options, long oldestWriterId)
       => new LiveColumnBackup(Id, () => ((Transactional.Mvcc.MvccZoneTree<TKey, TValue>)Tree).CreateLiveBackup(options));
 
   IZoneTreeCluster IStandaloneColumn<TKey, TValue>.Cluster => Cluster;

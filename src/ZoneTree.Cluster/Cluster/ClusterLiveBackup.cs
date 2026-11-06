@@ -283,7 +283,9 @@ internal sealed class ClusterLiveBackup : ILiveBackup
         BackupAfterMerge = false,
         Schedule = LiveBackupSchedule.None,
         IncludeInMemoryRecords = true,
-        InMemoryMode = LiveBackupInMemoryMode.Snapshot,
+        // Raw columns iterate their in-memory segments in place, so a generation makes no
+        // merge work; coordinated columns capture themselves, and standalone ones as the MVCC tree does.
+        InMemoryMode = LiveBackupInMemoryMode.Live,
         RecordBatchCompression = Options.RecordBatchCompression,
         // The columns upload concurrently and share the cluster's limit.
         MaxConcurrentFileTransfers = Math.Max(1, Options.MaxConcurrentFileTransfers / Math.Max(1, columnCount))

@@ -165,6 +165,19 @@ internal sealed class DomainSnapshots
     return trimmed;
   }
 
+  /// <summary>
+  /// The id of the oldest writing transaction, or, without one, the id the next transaction
+  /// takes. Every transaction that began later has a higher id.
+  /// </summary>
+  internal long OldestWriterId()
+  {
+    lock (Gate)
+    {
+      TrimWriters();
+      return Writers.TryPeek(out var oldest) ? oldest.TransactionId : Clock.Current + 1;
+    }
+  }
+
   /// <summary>Joins the read-only transactions of the latest snapshot.</summary>
   internal SnapshotBucket JoinReader()
   {

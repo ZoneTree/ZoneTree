@@ -20,7 +20,7 @@ internal sealed class RawColumn<TKey, TValue> : Column,
   }
 
   // A raw column has no cut: its backup captures the tree when it runs.
-  internal override ColumnBackup CreateBackup(Backup.LiveBackupOptions options)
+  internal override ColumnBackup CreateBackup(Backup.LiveBackupOptions options, long oldestWriterId)
       => new LiveColumnBackup(Id, () => new Backup.LiveBackup<TKey, TValue>(Tree, options));
 
   IZoneTreeCluster IRawColumn<TKey, TValue>.Cluster => Cluster;

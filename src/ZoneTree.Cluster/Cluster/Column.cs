@@ -106,9 +106,10 @@ internal abstract class Column : IDisposable
   /// <summary>
   /// Creates the column's part of a cluster backup generation, with the store in the options.
   /// Called under the schema lock, while the domains' cuts are pinned: a coordinated column
-  /// captures its storage here, at a point that includes its domain's cut.
+  /// captures its storage here, at a point that includes its domain's cut. The oldest writer
+  /// id is its domain's at the cut; other kinds ignore it.
   /// </summary>
-  internal abstract ColumnBackup CreateBackup(Backup.LiveBackupOptions options);
+  internal abstract ColumnBackup CreateBackup(Backup.LiveBackupOptions options, long oldestWriterId);
 
   /// <summary>Tells the cluster's live backups that a merge of the column's storage succeeded.</summary>
   protected void OnStorageMergeEnded(MergeResult result)

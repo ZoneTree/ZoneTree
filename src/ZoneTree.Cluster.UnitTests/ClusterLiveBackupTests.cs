@@ -270,6 +270,40 @@ public sealed class ClusterLiveBackupTests
   }
 
   [Test]
+  public async Task AStartedBackupUnderWritesDoesNotRunGenerationsBackToBack()
+  {
+    using (var cluster = Factory.CreateInProcess(Options(Data("source"), withOthers: false)))
+    using (var maintainer = cluster.CreateMaintainer())
+    using (var backup = cluster.CreateLiveBackup(BackupStorage(), new ClusterLiveBackupOptions { BackupAfterMerge = true }))
+    {
+      var domain = cluster.GetDomain(Domain);
+      using var stop = new CancellationTokenSource();
+      var writer = Task.Run(() =>
+      {
+        for (var key = 0L; !stop.IsCancellationRequested; ++key)
+          Commit(domain, key);
+      });
+      backup.Start();
+      // One merge starts one generation.
+      var storage = cluster.GetCoordinatedColumnMaintenance<long, long>("left").ZoneTree.Maintenance;
+      storage.MoveMutableSegmentForward();
+      storage.StartMergeOperation()?.Join();
+      Assert.That(SpinWait.SpinUntil(() => backup.CurrentGenerationId == 1, TimeSpan.FromSeconds(10)), Is.True);
+      // A generation captures the columns in place, so it makes no merge that would start
+      // the next one while the writes go on.
+      await Task.Delay(1500);
+      Assert.That(backup.CurrentGenerationId, Is.EqualTo(1));
+      stop.Cancel();
+      await writer;
+      backup.Stop();
+      backup.WaitForLiveBackup();
+    }
+    using var restored = await Factory.RestoreInProcessAsync(Options(Data("restored"), withOthers: false), BackupStorage());
+    var restoredDomain = restored.GetDomain(Domain);
+    Assert.That(Read(restoredDomain, "left"), Is.EqualTo(Read(restoredDomain, "right")));
+  }
+
+  [Test]
   public async Task ABackupNeedsEveryColumnOpenAndARestoreEveryDefinition()
   {
     using (Factory.CreateInProcess(Options(Data("source"))))

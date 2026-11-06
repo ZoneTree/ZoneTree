@@ -164,14 +164,19 @@ internal sealed class CommitSequencer
   /// snapshot timestamp and the sequence number of the newest commit the snapshot includes.
   /// The snapshot cannot move meanwhile, since it moves only under the gate.
   /// </summary>
-  internal (SnapshotBucket Reader, CommitPoint Point) JoinReaderAtSnapshot(DomainSnapshots snapshots)
+  /// <remarks>
+  /// It also returns the id of the oldest transaction still writing, which no committed
+  /// version without a status record reaches: see <see cref="CutIterator{TKey, TValue}"/>.
+  /// </remarks>
+  internal (SnapshotBucket Reader, CommitPoint Point, long OldestWriterId) JoinReaderAtSnapshot(
+      DomainSnapshots snapshots)
   {
     lock (Gate)
     {
       // Every commit before the first one in flight is visible, and the numbers have no gaps.
       var sequence = InFlight.TryPeek(out var head) ? head.Sequence - 1 : LastSequence;
       var reader = snapshots.JoinReader();
-      return (reader, new CommitPoint(reader.SnapshotTimestamp, sequence));
+      return (reader, new CommitPoint(reader.SnapshotTimestamp, sequence), snapshots.OldestWriterId());
     }
   }
 

@@ -759,18 +759,22 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
       var backups = new List<ColumnBackup>(columns.Length);
       var readers = new List<SnapshotBucket>(Domains.Count);
       var points = new Dictionary<long, CommitPoint>();
+      var oldestWriters = new Dictionary<long, long>();
       lock (BackupGate)
         ++RunningBackups;
       try
       {
         foreach (var domain in Domains.Values)
         {
-          var (reader, point) = domain.Coordinator.Sequencer.JoinReaderAtSnapshot(domain.Coordinator.Snapshots);
+          var (reader, point, oldestWriter) =
+              domain.Coordinator.Sequencer.JoinReaderAtSnapshot(domain.Coordinator.Snapshots);
           readers.Add(reader);
           points[domain.Id] = point;
+          oldestWriters[domain.Id] = oldestWriter;
         }
         foreach (var column in columns)
-          backups.Add(column.CreateBackup(optionsFor(column, columns.Length, publishing)));
+          backups.Add(column.CreateBackup(optionsFor(column, columns.Length, publishing),
+              column.Domain != null ? oldestWriters[column.Domain.Id] : long.MaxValue));
       }
       catch
       {

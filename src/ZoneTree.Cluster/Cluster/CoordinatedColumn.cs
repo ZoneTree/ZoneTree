@@ -15,9 +15,15 @@ internal sealed class CoordinatedColumn<TKey, TValue> : Column,
     tree.Storage.Maintenance.OnMergeOperationEnded += (_, result) => OnStorageMergeEnded(result);
   }
 
-  internal override ColumnBackup CreateBackup(Backup.LiveBackupOptions options)
-      => new CapturedColumnBackup<VersionedKey<TKey>, VersionedValue<TValue>>(Id,
-          (global::ZoneTree.Core.ZoneTree<VersionedKey<TKey>, VersionedValue<TValue>>)Tree.Storage, options);
+  // The capture iterates the in-memory segments in place, without moving the mutable segment
+  // forward, so a generation makes no merge work.
+  internal override ColumnBackup CreateBackup(Backup.LiveBackupOptions options, long oldestWriterId)
+  {
+    var storage = (global::ZoneTree.Core.ZoneTree<VersionedKey<TKey>, VersionedValue<TValue>>)Tree.Storage;
+    var captured = storage.CollectBackupSegments(moveMutableSegmentForward: false, includeInMemorySegments: true);
+    captured.InMemoryIterator = new CutIterator<TKey, TValue>(captured.InMemoryIterator, oldestWriterId);
+    return new CapturedColumnBackup<VersionedKey<TKey>, VersionedValue<TValue>>(Id, storage, options, captured);
+  }
 
   IZoneTreeCluster ICoordinatedColumn<TKey, TValue>.Cluster => Cluster;
   IClusterDomain ICoordinatedColumn<TKey, TValue>.Domain => Domain;
