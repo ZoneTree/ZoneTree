@@ -1118,6 +1118,12 @@ public sealed class PowerLossRecoveryTests
   [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.LZ4, 1)]
   [TestCase(WriteAheadLogMode.Shared, CompressionMethod.Zstd, 1)]
   [TestCase(WriteAheadLogMode.Shared, CompressionMethod.None, 2)]
+  // These tear a sync after a recovery so that the reused tail file keeps complete
+  // records of the previous block in the unsynced tail.
+  [TestCase(WriteAheadLogMode.Shared, CompressionMethod.None, 3)]
+  [TestCase(WriteAheadLogMode.Shared, CompressionMethod.Zstd, 4)]
+  [TestCase(WriteAheadLogMode.Shared, CompressionMethod.None, 6)]
+  [TestCase(WriteAheadLogMode.Shared, CompressionMethod.Zstd, 8)]
   [TestCase(WriteAheadLogMode.AsyncShared, CompressionMethod.Zstd, 1)]
   [TestCase(WriteAheadLogMode.AsyncShared, CompressionMethod.LZ4, 2)]
   public async Task SyncedRecordsSurviveTornPowerLosses(

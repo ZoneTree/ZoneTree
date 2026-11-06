@@ -4,8 +4,25 @@ using ZoneTree.Serializers;
 
 namespace ZoneTree.UnitTests;
 
+/// <summary>
+/// Values that expire, and expirations that slide.
+/// </summary>
+/// <remarks>
+/// The checks follow the clock, not the length of a sleep: a loaded machine can sleep far
+/// longer than asked. A check that a value is still alive runs only while the clock says it
+/// is, and waits for an expiration last until the clock passed it.
+/// </remarks>
 public sealed class TTLTests
 {
+  static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(1);
+
+  /// <summary>Waits until the clock reaches the time, when a value with that expiration expired.</summary>
+  static void WaitUntil(DateTime time)
+  {
+    while (DateTime.UtcNow < time)
+      Thread.Sleep(10);
+  }
+
   [Test]
   public void TestTTL()
   {
@@ -21,32 +38,48 @@ public sealed class TTLTests
         .SetMarkValueDeletedDelegate(void (ref TTLValue<int> value) => value.Expire())
         .OpenOrCreate();
 
-    zoneTree.Upsert(5, new TTLValue<int>(99, DateTime.UtcNow.AddMilliseconds(300)));
-    var f1 = zoneTree.TryGet(5, out var v1);
-    Thread.Sleep(300);
-    var f2 = zoneTree.TryGet(5, out var v2);
+    // A value is found until it expires.
+    var expiration = DateTime.UtcNow + Lifetime;
+    zoneTree.Upsert(5, new TTLValue<int>(99, expiration));
+    var found = zoneTree.TryGet(5, out var value);
+    if (DateTime.UtcNow < expiration)
+      Assert.That(found && value.Value == 99, Is.True);
+    WaitUntil(expiration);
+    Assert.That(zoneTree.TryGet(5, out _), Is.False);
 
-    Assert.That(f1, Is.True);
-    Assert.That(f2, Is.False);
-
-    zoneTree.Upsert(5, new TTLValue<int>(99, DateTime.UtcNow.AddMilliseconds(300)));
-    Thread.Sleep(150);
-    f1 = zoneTree.TryGetAndUpdate(
+    // Sliding the expiration keeps the value past its first expiration.
+    var firstExpiration = DateTime.UtcNow + Lifetime;
+    zoneTree.Upsert(5, new TTLValue<int>(99, firstExpiration));
+    WaitUntil(firstExpiration - Lifetime / 2);
+    var slideStart = DateTime.UtcNow;
+    var slid = zoneTree.TryGetAndUpdate(
         5,
-        out v1,
-        bool (ref TTLValue<int> v) =>
-            v.SlideExpiration(TimeSpan.FromMilliseconds(300)),
+        out _,
+        bool (ref TTLValue<int> v) => v.SlideExpiration(Lifetime),
         out _);
-    Thread.Sleep(450); // initial expiration (300) + slided expiration (300) - Thread.Sleep(150)
-    f2 = zoneTree.TryGetAndUpdate(
-        5,
-        out v2,
-        bool (ref TTLValue<int> v) =>
-            v.SlideExpiration(TimeSpan.FromMilliseconds(300)),
-        out _);
+    // The slid expiration is the slide's clock plus the lifetime.
+    var slideEnd = DateTime.UtcNow;
+    if (slid)
+    {
+      WaitUntil(firstExpiration);
+      found = zoneTree.TryGet(5, out _);
+      if (DateTime.UtcNow < slideStart + Lifetime)
+        Assert.That(found, Is.True);
+    }
+    else
+    {
+      // Only a value that expired before the slide is not found.
+      Assert.That(slideEnd, Is.GreaterThanOrEqualTo(firstExpiration));
+    }
 
-    Assert.That(f1, Is.True);
-    Assert.That(f2, Is.False);
+    // Once the slid expiration passed, the value is gone and does not slide again.
+    WaitUntil(slideEnd + Lifetime);
+    var slidAgain = zoneTree.TryGetAndUpdate(
+        5,
+        out _,
+        bool (ref TTLValue<int> v) => v.SlideExpiration(Lifetime),
+        out _);
+    Assert.That(slidAgain, Is.False);
 
     zoneTree.Maintenance.Drop();
   }

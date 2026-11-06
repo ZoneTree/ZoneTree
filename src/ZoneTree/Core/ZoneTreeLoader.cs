@@ -270,6 +270,32 @@ public sealed class ZoneTreeLoader<TKey, TValue>
         ZoneTreeMeta.BottomSegments?.ToArray() ?? Array.Empty<long>());
   }
 
+  /// <summary>
+  /// A move records the segment that follows the mutable one ahead of time, with the mutable
+  /// segment as read-only. A tree that closed or crashed before it wrote to that segment
+  /// reopens with it empty among the read-only segments. A move never makes an empty segment
+  /// read-only, and an empty one holds nothing, so it goes: the metadata first, then its WAL.
+  /// </summary>
+  void DropEmptyReadOnlySegments()
+  {
+    if (Array.TrueForAll(ReadOnlySegments, segment => segment.Length != 0))
+      return;
+    var empty = Array.FindAll(ReadOnlySegments, segment => segment.Length == 0);
+    ReadOnlySegments = Array.FindAll(ReadOnlySegments, segment => segment.Length != 0);
+    ZoneTreeMeta.ReadOnlySegments = ReadOnlySegments.Select(segment => segment.SegmentId).ToArray();
+    using (var metaWal = new ZoneTreeMetaWAL<TKey, TValue>(Options, false))
+    {
+      metaWal.SaveMetaData(
+          ZoneTreeMeta,
+          ZoneTreeMeta.MutableSegment,
+          ZoneTreeMeta.DiskSegment,
+          ZoneTreeMeta.ReadOnlySegments.ToArray(),
+          ZoneTreeMeta.BottomSegments?.ToArray() ?? Array.Empty<long>());
+    }
+    foreach (var segment in empty)
+      segment.Drop();
+  }
+
   long LoadReadOnlySegments()
   {
     long maximumOpIndex = 0;
@@ -338,6 +364,7 @@ public sealed class ZoneTreeLoader<TKey, TValue>
     SetMaximumId();
     SeparateMutableSegmentFromReadOnlySegments();
     var maximumOpIndex = Math.Max(ZoneTreeMeta.MaximumOpIndex, LoadReadOnlySegments());
+    DropEmptyReadOnlySegments();
     bool collectGarbage = Options.EnableSingleSegmentGarbageCollection && !ZoneTreeMeta.HasDiskSegment && ReadOnlySegments.Length == 0;
     var mutableSegmentWal = LoadMutableSegment(maximumOpIndex, collectGarbage);
     SaveMaximumOpIndex(MutableSegment.OpIndexProvider.LastId);

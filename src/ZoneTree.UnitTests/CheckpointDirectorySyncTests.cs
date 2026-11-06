@@ -104,6 +104,8 @@ public sealed class CheckpointDirectorySyncTests
     for (var key = 0; key < 120; ++key) tree.Upsert(key, key + 1);
     await tree.SyncWALAsync();
     tree.Maintenance.MoveMutableSegmentForward();
+    // The move records the next mutable segment in the background.
+    ((ZoneTree<int, int>)tree).WaitForNextMutableSegment();
     var oldMetaWal = files.ReadAllBytes("data/0.meta.wal");
     Assert.That(oldMetaWal, Is.Not.Empty);
     files.BeforeDirectorySync = path =>
@@ -130,6 +132,7 @@ public sealed class CheckpointDirectorySyncTests
     await tree.SyncWALAsync();
     using var continued = Factory(files.SimulatePowerLoss(), mode, diskMode).Open();
     AssertRecords(continued, 180);
+    ((ZoneTree<int, int>)tree).WaitForNextMutableSegment();
     tree.Maintenance.SaveMetaData();
     Assert.That(files.ReadAllBytes("data/0.meta.wal"), Is.Empty);
   }

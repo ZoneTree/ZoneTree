@@ -19,6 +19,12 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
   /// is the mutable segment passed by argument.
   /// </summary>
   /// <param name="mutableSegment">The mutable segment to move forward.</param>
+  /// <remarks>
+  /// Writers wait on the frozen segment until the next one is published, so the next segment
+  /// is recorded in the meta WAL ahead of time, in the background after the previous move.
+  /// The move then publishes it without a disk sync. The first move of a tree, or one that
+  /// comes before the background recording finished, records it itself.
+  /// </remarks>
   void MoveMutableSegmentForward(IMutableSegment<TKey, TValue> mutableSegment)
   {
     lock (AtomicUpdateLock)
@@ -34,22 +40,87 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       if (c == 0)
         return;
 
+      var newMutableSegment = NextMutableSegment ?? RecordNextMutableSegment(mutableSegment);
+      NextMutableSegment = null;
       MutableSegment = new FrozenMutableSegment<TKey, TValue>(mutableSegment);
       mutableSegment.Freeze();
       while (!mutableSegment.IsFullyFrozen) Thread.Yield();
       ReadOnlySegmentQueue.Enqueue(mutableSegment);
-      MetaWal.EnqueueMaximumOpIndex(mutableSegment.MaximumOpIndex);
-      MetaWal.EnqueueReadOnlySegment(mutableSegment.SegmentId);
-      var newMutableSegment = new MutableSegment<TKey, TValue>(
-          Options, IncrementalIdProvider.NextId(),
-          mutableSegment.OpIndexProvider);
-      // Record the new mutable segment before publishing it.
-      // Writers retry on the frozen segment until then, so none of them
-      // can append to a WAL that a crash would leave unrecorded.
-      MetaWal.NewMutableSegment(newMutableSegment.SegmentId);
       MutableSegment = newMutableSegment;
+      if (!IsNextMutableSegmentStopped)
+        NextMutableSegmentPreparation = Task.Run(() => PrepareNextMutableSegment(newMutableSegment));
     }
     OnMutableSegmentMovedForward?.Invoke(this);
+  }
+
+  /// <summary>
+  /// Creates the segment that follows the mutable one and records both in the meta WAL: the
+  /// mutable segment as read-only, then the next one as mutable, each synced. A crash before
+  /// the move only makes the mutable segment read-only with every record its WAL holds. The
+  /// records are separate, so a crash between them leaves the mutable segment among the
+  /// read-only ones, which the loader handles. Called under the atomic update lock.
+  /// </summary>
+  MutableSegment<TKey, TValue> RecordNextMutableSegment(IMutableSegment<TKey, TValue> mutableSegment)
+  {
+    var next = new MutableSegment<TKey, TValue>(
+        Options, IncrementalIdProvider.NextId(), mutableSegment.OpIndexProvider);
+    try
+    {
+      MetaWal.EnqueueReadOnlySegment(mutableSegment.SegmentId);
+      MetaWal.NewMutableSegment(next.SegmentId);
+    }
+    catch
+    {
+      next.ReleaseResources();
+      throw;
+    }
+    return next;
+  }
+
+  /// <summary>
+  /// Records the segment that follows the mutable one, unless it moved meanwhile. A failure
+  /// leaves it to the next move, which records it itself and reports the error.
+  /// </summary>
+  void PrepareNextMutableSegment(IMutableSegment<TKey, TValue> mutableSegment)
+  {
+    try
+    {
+      lock (AtomicUpdateLock)
+      {
+        if (IsNextMutableSegmentStopped || NextMutableSegment != null ||
+            mutableSegment.IsFrozen || !ReferenceEquals(mutableSegment, MutableSegment))
+          return;
+        NextMutableSegment = RecordNextMutableSegment(mutableSegment);
+      }
+    }
+    catch (Exception e)
+    {
+      Logger.LogError(e);
+    }
+  }
+
+  /// <summary>Waits for the background recording of the next mutable segment.</summary>
+  internal void WaitForNextMutableSegment() => NextMutableSegmentPreparation.Wait();
+
+  /// <summary>
+  /// Stops recording next mutable segments, waits for one in progress, and releases or drops
+  /// the one recorded.
+  /// </summary>
+  void StopNextMutableSegment(bool drop)
+  {
+    IMutableSegment<TKey, TValue> next;
+    lock (AtomicUpdateLock)
+    {
+      IsNextMutableSegmentStopped = true;
+      next = NextMutableSegment;
+      NextMutableSegment = null;
+    }
+    if (next == null)
+      return;
+    if (drop)
+      next.Drop();
+    else
+      next.ReleaseResources();
   }
 
   public void MoveMutableSegmentForward()
@@ -400,6 +471,9 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         OnCanNotDropDiskSegment?.Invoke(oldDiskSegment, e);
       }
 
+      // Recovery takes the highest op index from the meta WAL and the segment WALs it
+      // finds, so it is recorded before the merged segments' WALs go.
+      MetaWal.EnqueueMaximumOpIndex(roSegments.Max(x => x.MaximumOpIndex));
       len = readOnlySegmentsArray.Length;
       while (len > 0)
       {

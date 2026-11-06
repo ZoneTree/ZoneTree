@@ -37,6 +37,18 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
   readonly Lock AtomicUpdateLock = new();
 
+  /// <summary>
+  /// The segment that follows the mutable one, already recorded in the meta WAL, or null.
+  /// Changed under the atomic update lock.
+  /// </summary>
+  IMutableSegment<TKey, TValue> NextMutableSegment;
+
+  /// <summary>The background recording of the next mutable segment.</summary>
+  Task NextMutableSegmentPreparation = Task.CompletedTask;
+
+  /// <summary>Set when the tree closes; no next mutable segment is recorded afterward.</summary>
+  bool IsNextMutableSegmentStopped;
+
   readonly Lock LongMergerLock = new();
 
   readonly Lock LongBottomSegmentsMergerLock = new();
@@ -227,12 +239,37 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       lock (AtomicUpdateLock)
       {
         ZoneTreeMeta.MaximumOpIndex = MutableSegment.OpIndexProvider.LastId;
-        MetaWal.SaveMetaData(
-            ZoneTreeMeta,
-            MutableSegment.SegmentId,
-            DiskSegment.SegmentId,
-            ReadOnlySegmentQueue.Select(x => x.SegmentId).ToArray(),
-            BottomSegmentQueue.Select(x => x.SegmentId).ToArray());
+        // A next mutable segment is recorded already, with the mutable segment as read-only;
+        // the new metadata keeps that, or the move that publishes it would be unrecorded. An
+        // empty mutable segment stays mutable instead, and the next segment goes: the next move
+        // records one itself. A write that lands meanwhile is in the mutable segment's WAL.
+        // The next segment is forgotten before the save: a failed save may still leave the
+        // new metadata, which does not record it, so no move may publish it afterward. Its
+        // WAL goes only after the save; until then the previous metadata may still use it.
+        var next = NextMutableSegment;
+        IMutableSegment<TKey, TValue> discarded = null;
+        if (next != null && MutableSegment.Length == 0)
+        {
+          discarded = next;
+          next = null;
+          NextMutableSegment = null;
+        }
+        var readOnlySegments = ReadOnlySegmentQueue.Select(x => x.SegmentId);
+        try
+        {
+          MetaWal.SaveMetaData(
+              ZoneTreeMeta,
+              next?.SegmentId ?? MutableSegment.SegmentId,
+              DiskSegment.SegmentId,
+              (next == null ? readOnlySegments : readOnlySegments.Prepend(MutableSegment.SegmentId)).ToArray(),
+              BottomSegmentQueue.Select(x => x.SegmentId).ToArray());
+        }
+        catch
+        {
+          discarded?.ReleaseResources();
+          throw;
+        }
+        discarded?.Drop();
       }
   }
 
@@ -331,6 +368,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     foreach (var iterator in OpenIterators.Values)
       Release(iterator.ReleaseOnTreeDisposing);
     OpenIterators.Clear();
+    Release(() => StopNextMutableSegment(drop: false));
     Release(MutableSegment.ReleaseResources);
     try { _diskSegment.Dispose(); }
     catch (Exception e) { error ??= e; }
@@ -346,6 +384,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
   public void Drop()
   {
+    StopNextMutableSegment(drop: true);
     MetaWal.Dispose();
     MutableSegment.Drop();
     DiskSegment.Drop();
