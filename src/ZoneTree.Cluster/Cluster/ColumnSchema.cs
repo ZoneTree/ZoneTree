@@ -10,7 +10,7 @@ namespace ZoneTree.Cluster;
 internal static class ColumnSchema
 {
   internal static ZoneTreeFactory<TKey, TValue> Prepare<TKey, TValue>(
-      ZoneTreeCluster cluster,
+      ColumnStorageSettings cluster,
       ColumnDefinition column,
       ColumnEncodings<TKey, TValue> encodings,
       Action<ZoneTreeFactory<TKey, TValue>> configureStorage)

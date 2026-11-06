@@ -61,8 +61,6 @@ Measured with `benchmarks/domain-transactions` (keep runs under 3 minutes).
 
 ## Postponed features
 
-- [ ] **Cluster-wide backup and restore.** They throw `NotSupportedException` today, and
-  `ClusterLiveBackupOptions` is only an API stub.
 - [ ] **Remote and distributed.** The domain coordinator is the remote boundary, and
   `ITimestampOracle` is the clock interface. This work covers remote clients, multiple
   coordinators, and schema permissions and authentication.

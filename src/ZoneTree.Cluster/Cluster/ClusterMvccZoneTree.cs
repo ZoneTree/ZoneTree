@@ -167,6 +167,21 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   }
 
   /// <summary>
+  /// Restores a backup generation of the storage tree of a coordinated column, which the
+  /// column opens afterward.
+  /// </summary>
+  internal static async ValueTask RestoreStorageAsync(ZoneTreeOptions<TKey, TValue> options,
+      Backup.ILiveBackupSource source, long generationId)
+  {
+    RejectUnsupportedOptions(options);
+    // Nothing merges during a restore, so the storage needs no tree for its merge filter.
+    var storageOptions = CreateStorageOptions(options, new StrongBox<ClusterMvccZoneTree<TKey, TValue>>());
+    var restore = new Backup.LiveBackupRestore<VersionedKey<TKey>, VersionedValue<TValue>>(
+        storageOptions, source, Backup.LiveBackupTreeKind.Plain);
+    await restore.RestoreGeneration(generationId).ConfigureAwait(false);
+  }
+
+  /// <summary>
   /// The storage tree holds versions, not user records, so the options that act on
   /// user records cannot apply. They are rejected rather than silently ignored.
   /// </summary>

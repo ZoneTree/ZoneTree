@@ -159,6 +159,22 @@ internal sealed class CommitSequencer
         waiter.TrySetException(new TransactionalTreeCommitsStoppedException(error));
   }
 
+  /// <summary>
+  /// Joins a reader at the current snapshot, and returns it with the point it reads at: the
+  /// snapshot timestamp and the sequence number of the newest commit the snapshot includes.
+  /// The snapshot cannot move meanwhile, since it moves only under the gate.
+  /// </summary>
+  internal (SnapshotBucket Reader, CommitPoint Point) JoinReaderAtSnapshot(DomainSnapshots snapshots)
+  {
+    lock (Gate)
+    {
+      // Every commit before the first one in flight is visible, and the numbers have no gaps.
+      var sequence = InFlight.TryPeek(out var head) ? head.Sequence - 1 : LastSequence;
+      var reader = snapshots.JoinReader();
+      return (reader, new CommitPoint(reader.SnapshotTimestamp, sequence));
+    }
+  }
+
   /// <summary>Refuses new commits.</summary>
   internal void Close()
   {

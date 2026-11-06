@@ -59,6 +59,21 @@ public interface IZoneTreeClusterHost : IZoneTreeCluster
   /// <summary>
   /// Creates a consistent cluster-wide live backup in local storage.
   /// </summary>
+  /// <remarks>
+  /// <para>
+  /// A generation backs up the catalog and every column while the cluster serves reads and
+  /// writes. Each domain's part is one cut: the domain's snapshot when the generation began.
+  /// Every column of the domain holds exactly the commits of that cut after a restore. Raw and
+  /// standalone columns are each backed up at one moment of their own.
+  /// </para>
+  /// <para>
+  /// Every column must be open in this process: declared, or opened with <c>GetColumn</c>.
+  /// Each column keeps its generations in a store of its own under the backup location, and a
+  /// generation publishes once every column uploaded. Column drops wait for a running
+  /// generation. <see cref="LocalLiveBackupOptions.KeepLastGenerations"/> keeps that many
+  /// cluster generations.
+  /// </para>
+  /// </remarks>
   ILiveBackup CreateLiveBackup(
       LocalLiveBackupOptions storage,
       ClusterLiveBackupOptions options = null);
@@ -66,6 +81,10 @@ public interface IZoneTreeClusterHost : IZoneTreeCluster
   /// <summary>
   /// Creates a consistent cluster-wide live backup in custom object storage.
   /// </summary>
+  /// <remarks>
+  /// The generations work as in local storage. The objects live under
+  /// <see cref="ObjectStorageLiveBackupOptions.Prefix"/>, which must belong to this cluster.
+  /// </remarks>
   ILiveBackup CreateLiveBackup(
       IBackupObjectStorage storage,
       ObjectStorageLiveBackupOptions storageOptions = null,

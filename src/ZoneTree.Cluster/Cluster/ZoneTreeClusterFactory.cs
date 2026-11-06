@@ -17,6 +17,10 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
   public IZoneTreeClusterHost OpenOrCreateInProcess(ZoneTreeClusterOptions options) => Open(options, true, true);
 
   static ZoneTreeCluster Open(ZoneTreeClusterOptions options, bool canCreate, bool canOpen)
+      => OpenValidated(options, Validate(options), canCreate, canOpen);
+
+  /// <summary>Checks the options and the declared schema; returns every declared column.</summary>
+  internal static List<(ColumnDefinition Column, string Domain)> Validate(ZoneTreeClusterOptions options)
   {
     ArgumentNullException.ThrowIfNull(options);
     ArgumentNullException.ThrowIfNull(options.Logger);
@@ -28,7 +32,12 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
     if (options.CoordinatedWriteAheadLog.WriteAheadLogMode is not (WriteAheadLogMode.Shared or WriteAheadLogMode.AsyncShared))
       throw new ArgumentException(
           "Coordinated columns need the Shared or AsyncShared write ahead log mode.", nameof(options));
-    var columns = ValidateDeclarations(options);
+    return ValidateDeclarations(options);
+  }
+
+  static ZoneTreeCluster OpenValidated(ZoneTreeClusterOptions options,
+      List<(ColumnDefinition Column, string Domain)> columns, bool canCreate, bool canOpen)
+  {
     var directory = Path.GetFullPath(options.DataDirectory);
     var directoryExisted = Directory.Exists(directory);
     if (!canCreate && !directoryExisted)
@@ -124,12 +133,13 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
 
   public ValueTask<IZoneTreeClusterHost> RestoreInProcessAsync(ZoneTreeClusterOptions options,
       LocalLiveBackupOptions backup, long? generationId = null, CancellationToken cancellationToken = default)
-      => throw new NotSupportedException("Cluster-wide backup and restore are not supported yet.");
+      => ClusterRestore.RunAsync(this, options, ClusterBackupLocation.Local(backup), generationId, cancellationToken);
 
   public ValueTask<IZoneTreeClusterHost> RestoreInProcessAsync(ZoneTreeClusterOptions options,
       IBackupObjectStorage storage, ObjectStorageLiveBackupOptions backupOptions = null,
       long? generationId = null, CancellationToken cancellationToken = default)
-      => throw new NotSupportedException("Cluster-wide backup and restore are not supported yet.");
+      => ClusterRestore.RunAsync(this, options, ClusterBackupLocation.ObjectStorage(storage, backupOptions),
+          generationId, cancellationToken);
 
   public ValueTask<IZoneTreeCluster> ConnectAsync(ZoneTreeClusterConnectionOptions options,
       CancellationToken cancellationToken = default)

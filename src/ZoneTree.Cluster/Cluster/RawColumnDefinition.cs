@@ -24,6 +24,14 @@ public sealed class RawColumnDefinition<TKey, TValue> : ColumnDefinition,
   internal override Column GetOrCreate(ZoneTreeCluster cluster, string domain)
       => cluster.GetOrCreateColumn<TKey, TValue>(this, domain, getOrCreate: true);
 
+  internal override async ValueTask RestoreStorageAsync(ColumnStorageSettings settings,
+      ClusterEncodingRegistry encodings, ColumnRecord record, string directory,
+      Backup.ILiveBackupSource source, long generationId)
+  {
+    var factory = PrepareRestore(settings, encodings, record, directory, ConfigureStorage);
+    using var tree = await factory.RestoreFromLiveBackupGeneration(source, generationId).ConfigureAwait(false);
+  }
+
   Column ITypedColumnDefinition<TKey, TValue>.OpenStorage(
       ZoneTreeCluster cluster, ColumnRecord record, ZoneTreeFactory<TKey, TValue> factory)
   {

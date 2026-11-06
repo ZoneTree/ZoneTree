@@ -95,9 +95,32 @@ and the column records how far the commits are durable, so recovery reads only t
 - With `AsyncShared`, a process crash can lose commits whose records were still queued,
   and every later commit.
 
+## Live backup and restore
+
+`CreateLiveBackup` backs up the catalog and every column while the cluster serves reads
+and writes, to a local directory or to object storage. Each domain's part of a generation
+is one cut, the domain's snapshot when the generation began: after a restore, every column
+of the domain holds exactly the commits of that cut. Raw and standalone columns are each
+backed up at one moment of their own.
+
+```csharp
+using var backup = cluster.CreateLiveBackup(
+    new LocalLiveBackupOptions { Directory = "./bank-backup", KeepLastGenerations = 7 });
+await backup.CreateGenerationAsync();      // Or Start() for the schedule and after merges.
+
+using var restored = await new ZoneTreeClusterFactory()
+    .RestoreInProcessAsync(options, new LocalLiveBackupOptions { Directory = "./bank-backup" });
+```
+
+- A backup needs every column open in this process: declared, or opened with `GetColumn`.
+- A restore needs every backed-up column declared in its options, with its domain, kind,
+  types and encodings, and a data directory that holds no cluster.
+- Each column keeps its generations in a store of its own, and a generation publishes once
+  every column uploaded, so a failed generation leaves the previous ones restorable.
+- Column drops wait for a running generation.
+
 ## Current limitations
 
-- Cluster-wide backup and restore throw `NotSupportedException`.
 - `GetTransactionOutcomeAsync` asks the columns open in this process. A transaction that
   wrote only columns this process has not opened reports `Unknown` until they are opened.
 
@@ -305,5 +328,5 @@ own transaction. Raw column operations do not create transactions.
 columns alike. A transaction whose commit ends in doubt can be looked up later with
 `GetTransactionOutcomeAsync`.
 
-Cluster and column maintenance are available on the host. The backup, restore and
-connect APIs are defined, but they throw `NotSupportedException` until they are implemented.
+Cluster and column maintenance, live backup and restore are available on the host. The
+connect API is defined, but it throws `NotSupportedException` until remote access exists.

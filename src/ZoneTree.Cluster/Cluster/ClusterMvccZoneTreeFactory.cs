@@ -19,4 +19,13 @@ internal static class ClusterMvccZoneTreeFactory
     factory.InitWriteAheadLogProvider(isTransactional: true);
     return ClusterMvccZoneTree<TKey, TValue>.Load(factory.Options, canCreate, canOpen, coordinator, isRolledBack);
   }
+
+  /// <summary>Restores a backup generation of the storage of a coordinated column.</summary>
+  internal static ValueTask RestoreAsync<TKey, TValue>(ZoneTreeFactory<TKey, TValue> factory,
+      Backup.ILiveBackupSource source, long generationId)
+  {
+    factory.FillMissingOptionsForKnownTypes();
+    factory.InitWriteAheadLogProvider(isTransactional: true);
+    return ClusterMvccZoneTree<TKey, TValue>.RestoreStorageAsync(factory.Options, source, generationId);
+  }
 }

@@ -1,4 +1,5 @@
 using ZoneTree.AbstractFileStream;
+using ZoneTree.Backup;
 using ZoneTree.Exceptions;
 using ZoneTree.Logger;
 using ZoneTree.Transactional;
@@ -96,6 +97,29 @@ internal sealed class ClusterCatalog : IDisposable
     var domains = ReadPrefix(read, CatalogRecords.DomainPrefix, CatalogRecords.DecodeDomain);
     var columns = ReadPrefix(read, CatalogRecords.ColumnPrefix, CatalogRecords.DecodeColumn);
     return new CatalogState(CatalogRecords.DecodeCluster(header), domains, columns);
+  }
+
+  /// <summary>
+  /// Writes the catalog of a restored cluster, with the records of a backup, in one durable
+  /// commit. The cluster opens it afterward.
+  /// </summary>
+  internal static void Restore(string clusterDirectory, ILogger logger, IFileStreamProvider files,
+      ClusterRecord cluster, IEnumerable<DomainRecord> domains, IEnumerable<ColumnRecord> columns)
+  {
+    using var tree = new ZoneTreeFactory<string, Memory<byte>>(files)
+        .SetDataDirectory(Path.Combine(clusterDirectory, "catalog"))
+        .SetLogger(logger)
+        .OpenOrCreateTransactional();
+    if (HasRecords(tree))
+      throw new LiveBackupRestoreTargetAlreadyExistsException();
+    Commit(tree, transaction =>
+    {
+      transaction.Upsert(CatalogRecords.ClusterKey, CatalogRecords.Encode(cluster));
+      foreach (var domain in domains)
+        transaction.Upsert(CatalogRecords.DomainKey(domain.Id), CatalogRecords.Encode(domain));
+      foreach (var column in columns)
+        transaction.Upsert(CatalogRecords.ColumnKey(column.Id), CatalogRecords.Encode(column));
+    });
   }
 
   static bool HasRecords(ITransactionalZoneTree<string, Memory<byte>> tree)

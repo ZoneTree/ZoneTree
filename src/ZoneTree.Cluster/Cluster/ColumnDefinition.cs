@@ -44,6 +44,25 @@ public abstract class ColumnDefinition
   /// <summary>Opens the column, creating it in the catalog first if it does not exist.</summary>
   internal abstract Column GetOrCreate(ZoneTreeCluster cluster, string domain);
 
+  /// <summary>
+  /// Restores a backup generation of the column's storage into its directory, with the
+  /// column's types and encodings. The column opens afterward, with the cluster.
+  /// </summary>
+  internal abstract ValueTask RestoreStorageAsync(ColumnStorageSettings settings, ClusterEncodingRegistry encodings,
+      ColumnRecord record, string directory, Backup.ILiveBackupSource source, long generationId);
+
+  /// <summary>Prepares the storage factory of a restored column, with the encodings it was created with.</summary>
+  private protected ZoneTreeFactory<TKey, TValue> PrepareRestore<TKey, TValue>(ColumnStorageSettings settings,
+      ClusterEncodingRegistry registry, ColumnRecord record, string directory,
+      Action<ZoneTreeFactory<TKey, TValue>> configureStorage)
+  {
+    var encodings = registry.Resolve<TKey, TValue>(this);
+    if (!encodings.Matches(record))
+      throw new ColumnEncodingException(
+          $"Column '{record.Name}' was created with {encodings.DescribeDifference(record)}.");
+    return ColumnSchema.Prepare(settings, this, encodings, configureStorage).SetDataDirectory(directory);
+  }
+
   private protected ColumnDefinition(string name)
   {
     ClusterCatalog.ValidateName(name, "column");

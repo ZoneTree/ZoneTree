@@ -25,6 +25,9 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
   readonly Lock SchemaLock = new();
   readonly ConcurrentDictionary<long, Column> OpenColumns = new();
   readonly ConcurrentDictionary<long, ClusterDomain> Domains = new();
+  readonly ConcurrentDictionary<ClusterLiveBackup, byte> LiveBackups = new();
+  readonly object BackupGate = new();
+  int RunningBackups;
   readonly List<ClusterMaintainer> Maintainers = [];
   // The writing standalone transactions that disposal rolls back if they are still active.
   // Domains find their writing transactions in their own registries.
@@ -43,6 +46,9 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
 
   /// <summary>The write ahead log settings every coordinated column uses.</summary>
   internal WriteAheadLogOptions CoordinatedWriteAheadLog { get; }
+
+  /// <summary>The settings that prepare the columns' storage.</summary>
+  internal ColumnStorageSettings StorageSettings { get; }
   internal string DataDirectory { get; }
   public ILogger Logger { get; }
   public IClusterSchema Schema { get; }
@@ -58,6 +64,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     StorageDefaults = options.StorageDefaults;
     FileStreamProvider = options.FileStreamProvider ?? new LocalFileStreamProvider();
     CoordinatedWriteAheadLog = CopyOf(options.CoordinatedWriteAheadLog);
+    StorageSettings = new ColumnStorageSettings(Logger, FileStreamProvider, CoordinatedWriteAheadLog, StorageDefaults);
     Schema = new ClusterSchema(this);
     autoSyncInterval = options.AutoSyncInterval;
     StartDomains();
@@ -138,8 +145,10 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
          left.CompressionBlockSize == right.CompressionBlockSize &&
          left.CompressionMethod == right.CompressionMethod;
 
-  internal string ColumnDirectory(long id)
-      => Path.Combine(DataDirectory, "columns", id.ToString(CultureInfo.InvariantCulture));
+  internal string ColumnDirectory(long id) => ColumnDirectory(DataDirectory, id);
+
+  internal static string ColumnDirectory(string dataDirectory, long id)
+      => Path.Combine(dataDirectory, "columns", id.ToString(CultureInfo.InvariantCulture));
 
   public IClusterDomain GetDomain(string name)
   {
@@ -199,7 +208,9 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
       maintainers = Maintainers.ToArray();
     }
     // Nothing can reach the column any more, so deleting it needs no schema lock. A crash
-    // from here on leaves a dropped record, which the next open purges.
+    // from here on leaves a dropped record, which the next open purges. A running backup
+    // generation may still read the storage, so the deletion waits for it.
+    WaitForBackupGenerations();
     if (column != null)
     {
       foreach (var maintainer in maintainers)
@@ -408,7 +419,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
       ThrowIfReadOnly();
       // The storage hooks run before the column enters the catalog, so a failing hook
       // leaves no column behind.
-      var factory = ColumnSchema.Prepare(this, definition, encodings,
+      var factory = ColumnSchema.Prepare(StorageSettings, definition, encodings,
           ((ITypedColumnDefinition<TKey, TValue>)definition).ConfigureStorage);
       // Ids only grow, and a drop deletes the storage before its record, so storage under the
       // next id belongs to a column the catalog lost.
@@ -440,7 +451,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
       throw new ColumnEncodingException(
           $"Column '{record.Name}' was created with {encodings.DescribeDifference(record)}.");
     var typed = (ITypedColumnDefinition<TKey, TValue>)definition;
-    factory ??= ColumnSchema.Prepare(this, definition, encodings, typed.ConfigureStorage);
+    factory ??= ColumnSchema.Prepare(StorageSettings, definition, encodings, typed.ConfigureStorage);
     factory.SetDataDirectory(ColumnDirectory(record.Id));
     var column = typed.OpenStorage(this, record, factory);
     try
@@ -617,6 +628,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
       ObjectDisposedException.ThrowIf(true, this);
     // The dropped data goes away with the transactions, so a failed rollback is only logged.
     List<Exception> errors = null;
+    DisposeLiveBackups(ref errors);
     RollBackOpenTransactions(ref errors);
     errors?.ForEach(Logger.LogError);
     try
@@ -652,6 +664,8 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     if (Interlocked.Exchange(ref Disposed, 1) != 0)
       return;
     List<Exception> errors = null;
+    // A running backup generation finishes while the columns are open.
+    DisposeLiveBackups(ref errors);
     RollBackOpenTransactions(ref errors);
     // The domains sync their columns and record a clean shutdown while the columns are open.
     foreach (var domain in Domains.Values)
@@ -688,9 +702,116 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
   }
 
   public ILiveBackup CreateLiveBackup(LocalLiveBackupOptions storage, ClusterLiveBackupOptions options = null)
-      => throw new NotSupportedException("Cluster-wide backup and restore are not supported yet.");
+      => AddLiveBackup(ClusterBackupLocation.Local(storage), options);
 
   public ILiveBackup CreateLiveBackup(IBackupObjectStorage storage,
       ObjectStorageLiveBackupOptions storageOptions = null, ClusterLiveBackupOptions options = null)
-      => throw new NotSupportedException("Cluster-wide backup and restore are not supported yet.");
+      => AddLiveBackup(ClusterBackupLocation.ObjectStorage(storage, storageOptions), options);
+
+  ClusterLiveBackup AddLiveBackup(ClusterBackupLocation location, ClusterLiveBackupOptions options)
+  {
+    ThrowIfDisposed();
+    var backup = new ClusterLiveBackup(this, location, options);
+    LiveBackups[backup] = 0;
+    return backup;
+  }
+
+  internal void RemoveLiveBackup(ClusterLiveBackup backup) => LiveBackups.TryRemove(backup, out _);
+
+  /// <summary>Stops the live backups and waits for their running generations.</summary>
+  void DisposeLiveBackups(ref List<Exception> errors)
+  {
+    foreach (var backup in LiveBackups.Keys.ToArray())
+    {
+      try { backup.Dispose(); }
+      catch (Exception error) { (errors ??= []).Add(error); }
+    }
+  }
+
+  internal void OnColumnMergeSucceeded()
+  {
+    foreach (var backup in LiveBackups.Keys)
+      backup.OnColumnMergeSucceeded();
+  }
+
+  /// <summary>
+  /// Begins a cluster backup generation. Under the schema lock, it pins each domain's cut,
+  /// creates every column's backup, which captures the coordinated columns while the cuts are
+  /// pinned, and reads the catalog. Drops wait until the generation is disposed.
+  /// </summary>
+  /// <exception cref="InvalidOperationException">A column is not open in this process.</exception>
+  internal ClusterBackupGeneration BeginBackupGeneration(
+      Func<Column, int, ClusterBackupPublishing, LiveBackupOptions> optionsFor)
+  {
+    lock (SchemaLock)
+    {
+      ThrowIfDisposed();
+      // A column opens with its types, which only its definition knows.
+      var closed = Catalog.State.Columns
+          .Where(column => column.State == ColumnState.Ready && !OpenColumns.ContainsKey(column.Id))
+          .Select(column => column.Name)
+          .ToArray();
+      if (closed.Length > 0)
+        throw new InvalidOperationException(
+            $"A live backup needs every column open. Declare or open these columns first: {string.Join(", ", closed)}.");
+      var columns = OpenColumns.Values.OrderBy(column => column.Id).ToArray();
+      var publishing = new ClusterBackupPublishing(columns.Length);
+      var backups = new List<ColumnBackup>(columns.Length);
+      var readers = new List<SnapshotBucket>(Domains.Count);
+      var points = new Dictionary<long, CommitPoint>();
+      lock (BackupGate)
+        ++RunningBackups;
+      try
+      {
+        foreach (var domain in Domains.Values)
+        {
+          var (reader, point) = domain.Coordinator.Sequencer.JoinReaderAtSnapshot(domain.Coordinator.Snapshots);
+          readers.Add(reader);
+          points[domain.Id] = point;
+        }
+        foreach (var column in columns)
+          backups.Add(column.CreateBackup(optionsFor(column, columns.Length, publishing)));
+      }
+      catch
+      {
+        foreach (var backup in backups)
+          backup.Dispose();
+        EndBackupGeneration();
+        throw;
+      }
+      finally
+      {
+        // The captures hold what the cuts read, so merges may go on from here.
+        foreach (var reader in readers)
+          reader.Leave();
+      }
+      // Read after the captures, so the bounds cover every timestamp they hold.
+      var catalog = Catalog.State;
+      var cuts = catalog.Domains
+          .Select(domain => new ClusterBackupCut(domain.Id,
+              points.TryGetValue(domain.Id, out var point) ? point.Sequence : domain.DurableSequence,
+              domain.TimestampBound))
+          .ToArray();
+      return new ClusterBackupGeneration(publishing, backups, catalog, cuts, EndBackupGeneration);
+    }
+  }
+
+  void EndBackupGeneration()
+  {
+    lock (BackupGate)
+    {
+      --RunningBackups;
+      Monitor.PulseAll(BackupGate);
+    }
+  }
+
+  /// <summary>Waits until no backup generation reads the columns' storage.</summary>
+  void WaitForBackupGenerations()
+  {
+    lock (BackupGate)
+    {
+      while (RunningBackups > 0)
+        Monitor.Wait(BackupGate);
+    }
+  }
 }

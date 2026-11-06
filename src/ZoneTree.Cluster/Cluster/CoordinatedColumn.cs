@@ -1,4 +1,5 @@
 using ZoneTree.Transactional;
+using ZoneTree.Transactional.Versioning;
 
 namespace ZoneTree.Cluster;
 
@@ -8,7 +9,15 @@ internal sealed class CoordinatedColumn<TKey, TValue> : Column,
   internal readonly ClusterMvccZoneTree<TKey, TValue> Tree;
 
   internal CoordinatedColumn(ZoneTreeCluster cluster, long id, string name,
-      ClusterMvccZoneTree<TKey, TValue> tree) : base(cluster, id, name) => Tree = tree;
+      ClusterMvccZoneTree<TKey, TValue> tree) : base(cluster, id, name)
+  {
+    Tree = tree;
+    tree.Storage.Maintenance.OnMergeOperationEnded += (_, result) => OnStorageMergeEnded(result);
+  }
+
+  internal override ColumnBackup CreateBackup(Backup.LiveBackupOptions options)
+      => new CapturedColumnBackup<VersionedKey<TKey>, VersionedValue<TValue>>(Id,
+          (global::ZoneTree.Core.ZoneTree<VersionedKey<TKey>, VersionedValue<TValue>>)Tree.Storage, options);
 
   IZoneTreeCluster ICoordinatedColumn<TKey, TValue>.Cluster => Cluster;
   IClusterDomain ICoordinatedColumn<TKey, TValue>.Domain => Domain;

@@ -13,7 +13,15 @@ internal sealed class RawColumn<TKey, TValue> : Column,
   Task AutoSyncTask;
 
   internal RawColumn(ZoneTreeCluster cluster, long id, string name,
-      IZoneTree<TKey, TValue> tree) : base(cluster, id, name) => Tree = tree;
+      IZoneTree<TKey, TValue> tree) : base(cluster, id, name)
+  {
+    Tree = tree;
+    tree.Maintenance.OnMergeOperationEnded += (_, result) => OnStorageMergeEnded(result);
+  }
+
+  // A raw column has no cut: its backup captures the tree when it runs.
+  internal override ColumnBackup CreateBackup(Backup.LiveBackupOptions options)
+      => new LiveColumnBackup(Id, () => new Backup.LiveBackup<TKey, TValue>(Tree, options));
 
   IZoneTreeCluster IRawColumn<TKey, TValue>.Cluster => Cluster;
   public IZoneTreeMaintenance<TKey, TValue> Maintenance => Tree.Maintenance;

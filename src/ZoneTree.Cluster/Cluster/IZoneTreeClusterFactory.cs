@@ -19,6 +19,20 @@ public interface IZoneTreeClusterFactory
   /// <summary>
   /// Restores and opens a cluster from local backup. Null selects the latest generation.
   /// </summary>
+  /// <remarks>
+  /// <para>
+  /// The data directory must hold no cluster. The options declare the restored schema: every
+  /// backed-up column must be declared, with its domain, kind, types and encodings, because
+  /// each column is restored with its types. Each domain keeps the commits of its cut and
+  /// rolls back every later one, in every column.
+  /// </para>
+  /// <para>
+  /// Without a generation id, the newest generation whose column generations all remain is
+  /// restored. A failed restore leaves the data directory without a cluster.
+  /// </para>
+  /// </remarks>
+  /// <exception cref="LiveBackupRestoreTargetAlreadyExistsException">The data directory holds a cluster.</exception>
+  /// <exception cref="ArgumentException">A backed-up column is not declared.</exception>
   ValueTask<IZoneTreeClusterHost> RestoreInProcessAsync(
       ZoneTreeClusterOptions options,
       LocalLiveBackupOptions backup,

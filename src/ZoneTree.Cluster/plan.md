@@ -9,17 +9,9 @@ is not a phase lives in [follow-up.md](follow-up.md).
 | 1. Cluster catalog | The catalog as the single source of truth, stable ids, the encoding registry, the schema API | Done |
 | 2. Schema lifecycle | Drop and rename for columns and domains, recovery of a drop a crash interrupted | Done |
 | 3. ACID across columns | One clock per domain, commits in timestamp order, atomic visibility and recovery, serializable validation across columns | Done |
-| 4. Backup and restore | A consistent backup at a domain snapshot, and restore | Postponed |
+| 4. Backup and restore | Live backups with one cut per domain, to local or object storage, and restore | Done |
 | 5. Remote access | The client/host protocol | Next |
 | 6. Distribution | Replication, sharding, multiple coordinators per domain | Later |
-
-## Phase 4: backup and restore (postponed)
-
-- A backup is one consistent cut at a domain snapshot timestamp: the catalog, every column
-  (through the engine's live backup), and the transaction records.
-- Restore rebuilds the cluster and applies crash recovery to that cut.
-- This replaces the `NotSupportedException` in `CreateLiveBackup` and `RestoreInProcessAsync`.
-- Tests: a backup under load, a restore, and a crash during a backup.
 
 ## Phase 5: remote access (next)
 

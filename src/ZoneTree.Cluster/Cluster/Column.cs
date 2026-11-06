@@ -103,6 +103,20 @@ internal abstract class Column : IDisposable
   internal virtual void SetReadOnly(bool value) { }
   internal abstract void SaveMetaData();
 
+  /// <summary>
+  /// Creates the column's part of a cluster backup generation, with the store in the options.
+  /// Called under the schema lock, while the domains' cuts are pinned: a coordinated column
+  /// captures its storage here, at a point that includes its domain's cut.
+  /// </summary>
+  internal abstract ColumnBackup CreateBackup(Backup.LiveBackupOptions options);
+
+  /// <summary>Tells the cluster's live backups that a merge of the column's storage succeeded.</summary>
+  protected void OnStorageMergeEnded(MergeResult result)
+  {
+    if (result == MergeResult.SUCCESS)
+      Cluster.OnColumnMergeSucceeded();
+  }
+
   /// <summary>Closes and deletes the storage. Called after the operations stopped.</summary>
   protected abstract void DropTree();
 
