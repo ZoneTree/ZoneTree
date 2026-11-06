@@ -94,9 +94,6 @@ and the column records how far the commits are durable, so recovery reads only t
   one that did not reach the disk.
 - With `AsyncShared`, a process crash can lose commits whose records were still queued,
   and every later commit.
-- A commit that fails after it took its number, such as on a WAL write error, stops the
-  domain's commits until the cluster reopens. The commits behind it end in doubt, and
-  recovery rolls them back.
 
 ## Current limitations
 

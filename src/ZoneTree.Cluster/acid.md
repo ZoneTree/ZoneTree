@@ -52,16 +52,11 @@ verified with real process kills, so cross-column ACID is not release-complete.
 1. **Not verified with real crashes.** The recovery tests simulate unclean shutdowns and
    power losses inside the process. Kill-process tests come as the final step.
 
-## Gaps to close before release
+## Maintenance
 
-These do not break ACID:
-
-- **In-doubt commits after a failure:** the domain's commits stay stopped until the cluster
-  reopens.
-- **Unbounded crash bookkeeping:** transactions that recovery aborts after a crash are never
-  purged, and the list of rolled-back ranges grows with each unclean shutdown.
-
-The details are in [follow-up.md](follow-up.md).
+Crash bookkeeping, the aborted entries and rolled-back ranges each unclean shutdown leaves,
+is never purged. It is small and does not affect ACID, so it is maintenance work for when
+users need it. The details are in [follow-up.md](follow-up.md).
 
 ## To complete it
 

@@ -60,9 +60,6 @@ What holds up beyond the noise:
 
 Measured separately:
 
-- **Memory per column matters.** With a small budget split across many columns, each column
-  rotates its segment often, and a rotation stalls that column's writers on disk syncs. This
-  is an engine issue; see [follow-up.md](follow-up.md).
 - **Async column operations did not help** on in-memory data: each one costs a thread pool
   hop, which is more than the operation itself.
 

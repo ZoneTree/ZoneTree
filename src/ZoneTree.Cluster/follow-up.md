@@ -4,62 +4,37 @@ Open work after phase 3 (ACID across the columns of a domain). Items marked
 **release blocker** must be done before the cluster ships, because the cluster ships
 only with full ACID guarantees.
 
-## Recovery
+## Maintenance, only if users need it
 
-- [ ] **Purge crash-aborted transactions.** Recovery turns each rolled-back commit into
-  a pending status record plus an aborted entry, and neither is ever purged. Their
-  versions merge away, but the entries stay in memory and the records stay on disk,
-  across restarts.
-- [ ] **Recovery reads every coordinated column's WAL.** At the open after an unclean
-  shutdown, recovery reads the live WAL segments of every coordinated column of the
-  domain, including dropped columns whose storage remains. Merges keep that bounded by the
-  mutable segment sizes. Columns of other domains are not read.
-- [ ] **Compact the rolled-back ranges.** `DomainRecord.RolledBackRanges` gains one range
-  per unclean shutdown and is never compacted. A range can be dropped once every column
-  of the domain has recovered it, and adjacent ranges can be merged.
-- [ ] **Resolve in-doubt commits.** A failed domain sync stops the domain's commits until
-  the cluster reopens, and recovery decides the outcome. The same happens when a commit
-  fails after it took its sequence number, such as on a WAL write error: the commits behind
-  it end in doubt. Consider a path that resumes
-  commits without a reopen.
+These cost only after an unclean shutdown and do not affect ACID.
+
+- [ ] **Startup after a crash reads every coordinated column's WAL.** Before any column of
+  the domain opens, recovery reads the live WAL segments of every coordinated column of the
+  domain, including columns this process may never open and dropped columns whose storage
+  remains. Merges bound that by the mutable segment sizes and the merge backlog. A column
+  that opens reads its WAL again. Columns of other domains are not read, and a clean open
+  reads nothing. Not measured. Ideas: skip data records cheaply, since recovery needs only
+  status records, or let a column reuse what recovery read.
+- [ ] **Crash bookkeeping.** It grows only with unclean shutdowns, never with traffic, and
+  does not affect ACID. Plain MVCC trees have the same gap.
+  - **Aborted entries:** a column's recovery keeps each transaction that did not survive as
+    an in-memory aborted entry plus a pending status record, and never purges them. That is
+    the transactions in flight at the crash, plus after a power loss the commits since the
+    last domain sync, at most 4096. About 100 bytes each.
+  - **Rolled-back ranges:** `DomainRecord.RolledBackRanges` gains 16 bytes per unclean
+    shutdown, read only when a column opens.
+  - **Idea for the entries:** merges already drop the versions of aborted transactions. An
+    aborted transaction from before an open has versions only in segments that existed at
+    that open, so once a merge leaves none of them, its entries can go at once and later
+    merges can drop its pending status records. One check per merge end; old bottom
+    segments, which merge rarely, delay it.
+  - **The ranges:** dropping one needs proof that every column recovered past it, which costs
+    a catalog write per column open after a crash. Not worth it for the bytes.
 
 ## Durability and performance
 
 Measured with `benchmarks/domain-transactions` (keep runs under 3 minutes).
 
-- [ ] **Engine: segment rotation stalls writers.** `MoveMutableSegmentForward` appends to
-  the meta WAL with an fsync on the writing thread, while the tree's other writers spin on
-  the frozen segment. Columns with small mutable segments rotate often, so this dominates
-  writes with many columns and a shared memory budget: up to a third of a writer's time.
-  This lives in `src/ZoneTree`.
-
-  A rotation appends three meta WAL records (maximum op index, read-only segment, new
-  mutable segment), each with its own fsync, under `AtomicUpdateLock`. Skipping those three
-  fsyncs, which is unsafe on power loss, measures what they cost:
-  - **Setup:** `benchmarks/domain-transactions`, 100K records over 8 logical columns,
-    100-byte values, AsyncShared WAL, serializable isolation. Each measurement runs
-    0.5 seconds of warmup, then counts transactions for 1 second.
-  - **Mutable segments:** a budget of 250K records per engine. `mvcc-one-tree` and
-    `cluster-one-column` have one tree of 250K records. `mvcc-trees` and `cluster-columns`
-    have 8 trees of 31,250 records each, so they rotate about 8 times as often.
-
-  | Workload | Threads | `cluster-columns`, with fsyncs | without | `mvcc-trees`, with fsyncs | without |
-  | --- | --- | --- | --- | --- | --- |
-  | write, span 1 | 1 | 373K | 592K (1.59×) | 416K | 706K |
-  | write, span 1 | 16 | 540K | 851K (1.58×) | 735K | 1.31M |
-  | write, span 4 | 1 | 104K | 162K (1.55×) | 137K | 179K |
-  | write, span 4 | 16 | 155K | 273K (1.76×) | 172K | 357K |
-  | rmw, span 1 | 16 | 537K | 907K (1.69×) | 493K | 963K |
-  | rmw, span 4 | 16 | 140K | 253K (1.81×) | 165K | 309K |
-
-  The engines with one 250K-record tree are 0–20% faster without them: they rotate rarely. Batching the
-  three records under one fsync is not enough on its own: on power loss, a torn write can
-  keep the new mutable segment record without the read-only one, which loses that
-  segment. A safe fix writes the read-only and new-segment records, each fsynced, before
-  freezing the full segment, publishes the new segment after the freeze, and writes the
-  maximum op index (a hint that recovery recomputes) afterward. Writers then never wait for
-  an fsync. Check first that a metadata save cannot run between the early records and the
-  publish.
 - [ ] **Two status writes per column.** A transaction writes a pending record and then a
   commit record in every column it writes. One tree writes two per transaction, so a
   4-column transaction writes 8 against 2. That is most of the single-thread cost of
