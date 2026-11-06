@@ -46,25 +46,31 @@ internal sealed class ClusterCatalog : IDisposable
       bool canCreate, bool canOpen)
   {
     var path = Path.Combine(clusterDirectory, "catalog");
-    if (!files.DirectoryExists(path) && !canCreate)
+    var columnsPath = Path.Combine(clusterDirectory, "columns");
+    var catalogExists = files.DirectoryExists(path);
+    if (!catalogExists && !canCreate)
       throw new DatabaseNotFoundException();
+    // A new catalog would restart the column ids, so its columns would reuse the existing
+    // directories, and a failed declaration would drop their data.
+    if (!catalogExists && files.DirectoryExists(columnsPath))
+      throw new ClusterCatalogCorruptionException(
+          $"The cluster in '{clusterDirectory}' has column storage but no catalog.");
     var tree = new ZoneTreeFactory<string, Memory<byte>>(files)
         .SetDataDirectory(path)
         .SetLogger(logger)
         .OpenOrCreateTransactional();
     try
     {
-      // A catalog without its cluster record was never created: a crash interrupted it.
-      // TODO: Known edge case. Our writes never leave domain or column records without the
-      // cluster record, but storage damage or an incomplete restore can. Such a catalog is
-      // treated as new here, so its ids restart and reuse existing columns' ids and
-      // directories, and a failed declaration would then drop the existing data. A new
-      // catalog next to an existing columns directory has the same effect. The fix is to
-      // refuse both, and to refuse creating a column whose directory already exists.
+      // A catalog without its cluster record was never created: a crash interrupted it
+      // before anything else was written. Other records, or column storage, without it mean
+      // storage damage or an incomplete restore, and starting over would reuse their ids.
       var loaded = Load(tree);
       var created = loaded == null;
       if (created)
       {
+        if (HasRecords(tree) || files.DirectoryExists(columnsPath))
+          throw new ClusterCatalogCorruptionException(
+              $"The catalog of the cluster in '{clusterDirectory}' has lost its cluster record.");
         if (!canCreate)
           throw new DatabaseNotFoundException();
         var cluster = new ClusterRecord(Guid.NewGuid(), SchemaEpoch: 0, NextDomainId: 1, NextColumnId: 1);
@@ -90,6 +96,13 @@ internal sealed class ClusterCatalog : IDisposable
     var domains = ReadPrefix(read, CatalogRecords.DomainPrefix, CatalogRecords.DecodeDomain);
     var columns = ReadPrefix(read, CatalogRecords.ColumnPrefix, CatalogRecords.DecodeColumn);
     return new CatalogState(CatalogRecords.DecodeCluster(header), domains, columns);
+  }
+
+  static bool HasRecords(ITransactionalZoneTree<string, Memory<byte>> tree)
+  {
+    using var read = tree.BeginReadOnlyTransaction();
+    using var iterator = read.CreateIterator();
+    return iterator.Next();
   }
 
   /// <summary>Decodes the records whose keys start with a prefix, in key order.</summary>

@@ -101,6 +101,13 @@ and the column records how far the commits are durable, so recovery reads only t
 ## Current limitations
 
 - Cluster-wide backup and restore throw `NotSupportedException`.
+- `GetTransactionOutcomeAsync` asks the columns open in this process. A transaction that
+  wrote only columns this process has not opened reports `Unknown` until they are opened.
+
+A catalog that does not match the cluster's storage, after storage damage or an incomplete
+restore, makes the open fail with `ClusterCatalogCorruptionException`: one that lost its
+cluster record, column storage without a catalog, or storage under the id the next column
+would take. Starting over would reuse the ids and directories of existing columns.
 
 The async data methods of column views and raw columns run on the thread pool, so
 operations run in parallel, on one view or on different columns. The caller decides

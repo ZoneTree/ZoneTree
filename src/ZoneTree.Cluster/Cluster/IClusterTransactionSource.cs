@@ -33,6 +33,11 @@ public interface IClusterTransactionSource<TTransaction>
   /// decided yet, so ask again; <see cref="TransactionOutcome.Unknown"/> means this source
   /// cannot tell it.
   /// </summary>
+  /// <remarks>
+  /// A domain asks the columns that are open in this process. A transaction that wrote only
+  /// columns this process has not opened yet reports <see cref="TransactionOutcome.Unknown"/>;
+  /// open them first, with <c>GetColumn</c>, to find its outcome.
+  /// </remarks>
   ValueTask<TransactionOutcome> GetTransactionOutcomeAsync(
       long transactionId, CancellationToken cancellationToken = default);
 }

@@ -58,8 +58,6 @@ These do not break ACID:
 
 - **In-doubt commits after a failure:** the domain's commits stay stopped until the cluster
   reopens.
-- **Outcome lookups:** `GetTransactionOutcomeAsync` only asks the columns open in this
-  process.
 - **Unbounded crash bookkeeping:** transactions that recovery aborts after a crash are never
   purged, and the list of rolled-back ranges grows with each unclean shutdown.
 

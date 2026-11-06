@@ -80,20 +80,6 @@ Measured with `benchmarks/domain-transactions` (keep runs under 3 minutes).
   domain snapshot reaches it, as in the engine. A durable commit in flight therefore
   delays the ordinary commits after it by its sync.
 
-## Outcomes
-
-- [ ] `GetTransactionOutcomeAsync` asks only the columns open in this process. A transaction
-  that wrote only to unopened columns reports `Unknown`. Either open the domain's columns
-  for the lookup or document it.
-
-## Catalog
-
-- [ ] **Missing cluster header.** A catalog without its cluster record is treated as new.
-  After storage damage or an incomplete restore, ids restart, reuse existing column
-  directories, and a failed declaration can drop existing data. Refuse that case. Also
-  refuse a new catalog next to an existing `columns` directory, and refuse creating a column
-  whose directory already exists. See the TODO in `ClusterCatalog.Open`.
-
 ## Tests
 
 - [ ] **Crash (process kill) tests.** These come as the final step, and only on request.

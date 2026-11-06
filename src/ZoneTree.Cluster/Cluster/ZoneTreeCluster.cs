@@ -410,6 +410,11 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
       // leaves no column behind.
       var factory = ColumnSchema.Prepare(this, definition, encodings,
           ((ITypedColumnDefinition<TKey, TValue>)definition).ConfigureStorage);
+      // Ids only grow, and a drop deletes the storage before its record, so storage under the
+      // next id belongs to a column the catalog lost.
+      if (FileStreamProvider.DirectoryExists(ColumnDirectory(Catalog.State.Cluster.NextColumnId)))
+        throw new ClusterCatalogCorruptionException(
+            $"Column storage exists under the id that column '{definition.Name}' would take.");
       var record = Catalog.CreateColumn(definition.Name, definition.Kind, domainId,
           encodings.KeySerializerEncoding, encodings.ValueSerializerEncoding, encodings.ComparerEncoding,
           typeof(TKey).SimplifiedFullName(), typeof(TValue).SimplifiedFullName());
