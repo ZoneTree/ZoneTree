@@ -27,11 +27,6 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
   KeyList<TKey> ReadKeys;
 
   /// <summary>
-  /// True once the transaction status record is stored. Guarded by the bookkeeping lock.
-  /// </summary>
-  bool IsStatusStored;
-
-  /// <summary>
   /// True once a write failed in the storage tree. The view is rolled back, and the
   /// domain commit that waited for the write fails.
   /// </summary>
@@ -184,12 +179,9 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
           if (WrittenKeys == null)
           {
             WrittenKeys = new KeyList<TKey>(Tree.KeyComparer);
-            Tree.OnFirstWrite(this);
-            IsStatusStored = true;
+            // Before the version, so a merge that moves it to the disk sees the writer.
+            Entry.HasWritten = true;
           }
-          // A version without its status record would look committed after a crash.
-          else if (!IsStatusStored)
-            throw new TransactionAbortedException(TransactionId);
           WrittenKeys.Add(key);
         }
         Tree.Storage.Upsert(VersionedKey<TKey>.Data(in key, TransactionId), in value);
@@ -303,7 +295,8 @@ internal sealed class ClusterMvccTransaction<TKey, TValue> :
   /// </summary>
   internal bool HasCommitRecord;
 
-  // Without a commit record, the pending status keeps remaining versions aborted.
+  // Without a commit record, remaining versions stay aborted: the entry stays, so merges drop
+  // them, and recovery finds the ones the journal holds without a status record.
   internal override bool RollbackClaimed() => RollbackOwned() || !HasCommitRecord;
 
   /// <summary>

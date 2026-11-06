@@ -74,11 +74,12 @@ internal sealed class LiveColumnBackup(long columnId, Func<ILiveBackup> create) 
 /// </summary>
 /// <remarks>
 /// <para>
-/// Status records sort before the versions. A transaction can write its pending status where
-/// the iterator has passed and a version where it has not, which would leave a version
-/// without a status record, and a restore counts such a version as committed. Only a
-/// transaction that still wrote at the cut, or began later, can do that: its id is at least
-/// the oldest writer's id at the cut.
+/// Status records sort before the versions, and writers go on while the iterator runs, so the
+/// capture can hold a version without the commit record that follows it. A restore rolls such
+/// a transaction back, as recovery rolls back every restored version without a status record,
+/// but the capture leaves out the versions it can tell apart. Only a transaction that still
+/// wrote at the cut, or began later, can write them: its id is at least the oldest writer's
+/// id at the cut.
 /// </para>
 /// <para>
 /// A committed version lacks its status record only once the record was dropped, which waits

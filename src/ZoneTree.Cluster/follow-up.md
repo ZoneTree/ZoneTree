@@ -18,7 +18,8 @@ These cost only after an unclean shutdown and do not affect ACID.
 - [ ] **Crash bookkeeping.** It grows only with unclean shutdowns, never with traffic, and
   does not affect ACID. Plain MVCC trees have the same gap.
   - **Aborted entries:** a column's recovery keeps each transaction that did not survive as
-    an in-memory aborted entry plus a pending status record, and never purges them. That is
+    an in-memory aborted entry, with a pending status record if a merge or a rolled-back
+    range stored one, and never purges them. That is
     the transactions in flight at the crash, plus after a power loss the commits since the
     last domain sync, at most 4096. About 100 bytes each.
   - **Rolled-back ranges:** `DomainRecord.RolledBackRanges` gains 16 bytes per unclean
@@ -35,12 +36,6 @@ These cost only after an unclean shutdown and do not affect ACID.
 
 Measured with `benchmarks/domain-transactions` (keep runs under 3 minutes).
 
-- [ ] **Two status writes per column.** A transaction writes a pending record and then a
-  commit record in every column it writes. One tree writes two per transaction, so a
-  4-column transaction writes 8 against 2. That is most of the single-thread cost of
-  multi-column transactions. Fewer writes need a recovery rule for versions without a
-  status record, plus pending records that the sync writes lazily for transactions the
-  durable sequence number passes.
 - [ ] **One total order per domain.** Every commit takes a timestamp and completes in
   order through the sequencer, and a commit returns only once it is visible. At 16
   threads, span-1 writes reach about 65% of independent trees that give no atomicity,

@@ -43,6 +43,28 @@ internal sealed class TransactionEntry
   /// </summary>
   public long AbortSequence { get; set; }
 
+  bool hasWritten;
+
+  /// <summary>
+  /// Set before the transaction's first version in the storage tree.
+  /// </summary>
+  public bool HasWritten
+  {
+    get => Volatile.Read(ref hasWritten);
+    set => Volatile.Write(ref hasWritten, value);
+  }
+
+  /// <summary>
+  /// True once the storage tree holds a pending status record of the transaction.
+  /// Guarded by the entry.
+  /// </summary>
+  public bool HasPendingRecord { get; set; }
+
+  /// <summary>
+  /// True once a rollback deleted the transaction's status record. Guarded by the entry.
+  /// </summary>
+  public bool IsStatusDeleted { get; set; }
+
   public TransactionEntry(long id, TransactionState state)
   {
     Id = id;

@@ -6,11 +6,11 @@ namespace ZoneTree.Cluster;
 /// </summary>
 /// <remarks>
 /// <para>
-/// A transaction that writes a column stores a pending status record, with meta
-/// <see cref="Pending"/>, before its first version. Its commit replaces that record in every
-/// column it wrote with a commit record, whose meta holds the commit's sequence number and
-/// the number of columns the transaction wrote. A transaction is complete when every one of
-/// those columns holds its commit record.
+/// The commit of a transaction stores a commit record after its versions, in every column it
+/// wrote. Its meta holds the commit's sequence number and the number of columns the
+/// transaction wrote. A transaction is complete when every one of those columns holds its
+/// commit record. A pending status record, with meta <see cref="Pending"/>, marks the versions
+/// of a transaction that did not commit, where a merge or a recovery stored one.
 /// </para>
 /// <para>
 /// The domain numbers its commits without gaps, in commit order. A commit that reached none

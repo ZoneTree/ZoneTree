@@ -239,6 +239,142 @@ public sealed class ClusterFaultTests
     Assert.That(Keys(reopenedDomain, "right"), Is.EqualTo(new long[] { 1, 2, 3 }));
   }
 
+  // A transaction stores no status record until it commits, unless a merge moves its versions.
+
+  static void MergeInMemorySegments(IZoneTreeClusterHost cluster, string column)
+  {
+    var storage = Storage(cluster, column).ZoneTree.Maintenance;
+    storage.MoveMutableSegmentForward();
+    storage.StartMergeOperation()?.Join();
+  }
+
+  static void Write(IClusterDomain domain, IDomainTransaction transaction, long key)
+  {
+    transaction.GetColumn(domain.GetColumn<long, long>("left")).Upsert(key, key + 1);
+    transaction.GetColumn(domain.GetColumn<long, long>("right")).Upsert(key, key + 1);
+  }
+
+  static async Task CommitDurable(IClusterDomain domain, long key)
+  {
+    using var transaction = domain.BeginTransaction();
+    Write(domain, transaction, key);
+    await transaction.CommitDurableAsync();
+  }
+
+  [Test]
+  public async Task VersionsWithoutAStatusRecordInTheJournalRollBackAndStayRolledBack()
+  {
+    var files = new PowerLossFileStreamProvider();
+    PowerLossFileStreamProvider image;
+    using (var cluster = Factory.CreateInProcess(Options(files)))
+    {
+      var domain = cluster.GetDomain(Domain);
+      using var open = domain.BeginTransaction();
+      Write(domain, open, 1);
+      // The durable commit syncs the journals with the open transaction's versions.
+      await CommitDurable(domain, 2);
+      image = files.SimulatePowerLoss();
+    }
+    using (var recovered = Factory.OpenInProcess(Options(image)))
+    {
+      var domain = recovered.GetDomain(Domain);
+      Assert.That(Keys(domain, "left"), Is.EqualTo(new long[] { 2 }));
+      Assert.That(Keys(domain, "right"), Is.EqualTo(new long[] { 2 }));
+      // On the disk, a version without a status record counts as committed, so the merges
+      // must drop the versions recovery rolled back.
+      MergeInMemorySegments(recovered, "left");
+      MergeInMemorySegments(recovered, "right");
+      await CommitDurable(domain, 3);
+      image = image.SimulatePowerLoss();
+    }
+    using var reopened = Factory.OpenInProcess(Options(image));
+    var reopenedDomain = reopened.GetDomain(Domain);
+    Assert.That(Keys(reopenedDomain, "left"), Is.EqualTo(new long[] { 2, 3 }));
+    Assert.That(Keys(reopenedDomain, "right"), Is.EqualTo(new long[] { 2, 3 }));
+  }
+
+  [Test]
+  public async Task AnOpenTransactionWhoseVersionsAMergeMovedToTheDiskRollsBack()
+  {
+    var files = new PowerLossFileStreamProvider();
+    PowerLossFileStreamProvider image;
+    using (var cluster = Factory.CreateInProcess(Options(files)))
+    {
+      var domain = cluster.GetDomain(Domain);
+      await CommitDurable(domain, 1);
+      using var open = domain.BeginTransaction();
+      Write(domain, open, 2);
+      // Only the left column's versions reach the disk.
+      MergeInMemorySegments(cluster, "left");
+      await CommitDurable(domain, 3);
+      image = files.SimulatePowerLoss();
+    }
+    using var recovered = Factory.OpenInProcess(Options(image));
+    var recoveredDomain = recovered.GetDomain(Domain);
+    Assert.That(Keys(recoveredDomain, "left"), Is.EqualTo(new long[] { 1, 3 }));
+    Assert.That(Keys(recoveredDomain, "right"), Is.EqualTo(new long[] { 1, 3 }));
+  }
+
+  [TestCase(true)]
+  [TestCase(false)]
+  public async Task ATransactionThatSpansAMergeCommitsOrRollsBackInEveryColumn(bool commit)
+  {
+    var files = new PowerLossFileStreamProvider();
+    PowerLossFileStreamProvider image;
+    using (var cluster = Factory.CreateInProcess(Options(files)))
+    {
+      var domain = cluster.GetDomain(Domain);
+      using (var transaction = domain.BeginTransaction())
+      {
+        Write(domain, transaction, 1);
+        MergeInMemorySegments(cluster, "left");
+        MergeInMemorySegments(cluster, "right");
+        // Writes after the merge land in the journal, next to the merge's pending record.
+        Write(domain, transaction, 2);
+        if (commit)
+          await transaction.CommitDurableAsync();
+        else
+          transaction.Rollback();
+      }
+      await CommitDurable(domain, 3);
+      // The versions and the status leave memory too.
+      MergeInMemorySegments(cluster, "left");
+      Assert.That(Keys(domain, "left"), Is.EqualTo(commit ? new long[] { 1, 2, 3 } : new long[] { 3 }));
+      image = files.SimulatePowerLoss();
+    }
+    using var recovered = Factory.OpenInProcess(Options(image));
+    var recoveredDomain = recovered.GetDomain(Domain);
+    var expected = commit ? new long[] { 1, 2, 3 } : new long[] { 3 };
+    Assert.That(Keys(recoveredDomain, "left"), Is.EqualTo(expected));
+    Assert.That(Keys(recoveredDomain, "right"), Is.EqualTo(expected));
+  }
+
+  [Test]
+  public async Task AColumnOpenedSessionsAfterACrashRollsBackItsVersionsWithoutAStatusRecord()
+  {
+    var files = new PowerLossFileStreamProvider();
+    PowerLossFileStreamProvider image;
+    using (var cluster = Factory.CreateInProcess(Options(files)))
+    {
+      var domain = cluster.GetDomain(Domain);
+      using var open = domain.BeginTransaction();
+      Write(domain, open, 1);
+      await CommitDurable(domain, 2);
+      image = files.SimulatePowerLoss();
+    }
+    // A session that declares only the left column closes cleanly.
+    var leftOnly = Options(image, WriteAheadLogMode.Shared, "left");
+    using (var session = Factory.OpenInProcess(leftOnly))
+    {
+      var domain = session.GetDomain(Domain);
+      Assert.That(Keys(domain, "left"), Is.EqualTo(new long[] { 2 }));
+    }
+    using var reopened = Factory.OpenInProcess(Options(image));
+    var reopenedDomain = reopened.GetDomain(Domain);
+    Assert.That(Keys(reopenedDomain, "right"), Is.EqualTo(new long[] { 2 }));
+    Assert.That(Keys(reopenedDomain, "left"), Is.EqualTo(new long[] { 2 }));
+  }
+
   // Every power loss point of a workload, with torn sectors.
 
   [TestCase(WriteAheadLogMode.Shared, 1)]

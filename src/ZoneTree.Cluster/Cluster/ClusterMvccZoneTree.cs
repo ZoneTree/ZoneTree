@@ -23,15 +23,17 @@ namespace ZoneTree.Cluster;
 /// commit.
 /// </para>
 /// <para>
-/// A transaction that writes stores a pending status record before its first version. Its
-/// commit replaces that record with the commit timestamp, in every column it wrote. The
-/// commit becomes visible when the domain's snapshot timestamp reaches it, after it is
-/// published in every column, so a reader sees all of its writes or none.
+/// A commit stores a commit record after the versions, in every column the transaction wrote.
+/// The commit becomes visible when the domain's snapshot timestamp reaches it, after it is
+/// published in every column, so a reader sees all of its writes or none. A transaction that
+/// has not committed has a status record only once a merge may move its versions to the
+/// disk: the merge stores a pending record first.
 /// </para>
 /// <para>
-/// Recovery treats remaining pending records as rolled back. A commit record counts unless
-/// its timestamp is in a range the domain rolled back after an unclean shutdown: then the
-/// record becomes pending again. So every column keeps the same prefix of the domain's commits.
+/// Recovery treats pending records as rolled back, and the restored journal's versions that
+/// have no status record too. A commit record counts unless its sequence number is in a range
+/// the domain rolled back after an unclean shutdown: then the record becomes pending again.
+/// So every column keeps the same prefix of the domain's commits.
 /// </para>
 /// <para>
 /// A rollback deletes its versions and then its status record in the storage tree.
@@ -248,13 +250,24 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   /// Restores the schema and the transactions that never committed from the system records.
   /// </summary>
   /// <remarks>
+  /// <para>
   /// A pending record stays registered as rolled back: its transaction did not commit, and
   /// its versions may be anywhere in the tree. A commit record in a range the domain rolled
   /// back becomes pending again, so the rollback holds in every later recovery too.
+  /// </para>
+  /// <para>
+  /// A version in the in-memory segments, which the journal restored, whose transaction has
+  /// no status record did not commit either: a commit record follows its versions, so it is
+  /// in the journal too, and merges drop commit records only with the versions before them.
+  /// Such a transaction is registered as rolled back, so merges drop its versions, and the
+  /// next recovery finds the ones still in the journal again.
+  /// </para>
   /// </remarks>
   void Recover(Func<long, bool> isRolledBack)
   {
     var rolledBack = new List<long>();
+    var withStatus = new HashSet<long>();
+    var withoutStatus = new List<long>();
     using (var iterator = Storage.CreateIterator(IteratorType.NoRefresh, false, true))
     {
       iterator.SeekFirst();
@@ -271,10 +284,21 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
           continue;
         }
         var transactionId = key.Version;
+        withStatus.Add(transactionId);
         if (value.Meta == PendingStatus)
           Entries[transactionId] = new TransactionEntry(transactionId, TransactionState.Aborted);
         else if (isRolledBack(CommitRecord.Sequence(value.Meta)))
           rolledBack.Add(transactionId);
+      }
+    }
+    var core = (global::ZoneTree.Core.ZoneTree<VersionedKey<TKey>, VersionedValue<TValue>>)Storage;
+    using (var iterator = core.CreateInMemorySegmentsIterator(autoRefresh: false, includeDeletedRecords: false))
+    {
+      while (iterator.Next())
+      {
+        var key = iterator.CurrentKey;
+        if (key.Kind == VersionedKeyKind.Data && withStatus.Add(key.Version))
+          withoutStatus.Add(key.Version);
       }
     }
     foreach (var transactionId in rolledBack)
@@ -284,6 +308,8 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
           VersionedValue<TValue>.FromSystem(PendingStatus));
       Entries[transactionId] = new TransactionEntry(transactionId, TransactionState.Aborted);
     }
+    foreach (var transactionId in withoutStatus)
+      Entries[transactionId] = new TransactionEntry(transactionId, TransactionState.Aborted);
     LastPreparedCommitTimestamp = Coordinator.Sequencer.SnapshotTimestamp;
   }
 
@@ -438,13 +464,6 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
 
   internal bool HasCommitAfter(in TKey key, long timestamp)
       => ConflictIndex.HasCommitAfter(in key, timestamp);
-
-  internal void OnFirstWrite(ClusterMvccTransaction<TKey, TValue> transaction)
-  {
-    Storage.Upsert(
-        VersionedKey<TKey>.TransactionStatus(transaction.TransactionId),
-        VersionedValue<TValue>.FromSystem(PendingStatus));
-  }
 
   internal IZoneTreeIterator<VersionedKey<TKey>, VersionedValue<TValue>> CreateStorageIterator(
       bool reverse,
@@ -617,7 +636,12 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
           Storage.ForceDelete(VersionedKey<TKey>.Data(in key, transaction.TransactionId));
         // Delete the status after its versions. An explicit WAL sync is needed
         // to guarantee that all of these deletions survive a crash together.
-        Storage.ForceDelete(VersionedKey<TKey>.TransactionStatus(transaction.TransactionId));
+        // A merge writes no pending record after this deletion.
+        lock (entry)
+        {
+          Storage.ForceDelete(VersionedKey<TKey>.TransactionStatus(transaction.TransactionId));
+          entry.IsStatusDeleted = true;
+        }
         isDeleted = true;
       }
       catch (Exception e)
@@ -768,11 +792,15 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
   internal IMergeFilter<VersionedKey<TKey>, VersionedValue<TValue>> CreateMergeFilter(
       MergeFilterContext context)
   {
-    // A merge of in-memory segments takes their commit records out of the journal, which is
-    // all that recovery reads. The column first makes every commit they can hold durable,
-    // and records that in its journal, so recovery counts those commits as complete.
+    // A merge of in-memory segments takes their records out of the journal, which is all
+    // that recovery reads. The column first stores pending records for the versions that
+    // have not committed, then makes every commit they can hold durable, and records that in
+    // its journal, so recovery counts those commits as complete.
     if (context.NewestMergedSegmentId > 0)
+    {
+      WritePendingRecords();
       WriteDurableWatermark();
+    }
     // The domain's snapshots, then its durable timestamp: a commit that becomes durable in
     // between only makes the filter keep more.
     var snapshots = Coordinator.Snapshots.GetSnapshots();
@@ -783,6 +811,40 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
         context.IncludesOldestRecords,
         snapshots,
         durableCommitTimestamp);
+  }
+
+  /// <summary>
+  /// Stores a pending status record for every active transaction that wrote. On the disk, a
+  /// version without a status record counts as committed, and the merge keeps the versions of
+  /// the active transactions.
+  /// </summary>
+  /// <remarks>
+  /// The merge drops the versions of rolled back transactions. The commit lock keeps the active
+  /// transactions from preparing their commits meanwhile, so a commit record always follows the
+  /// pending record it replaces. A transaction that prepared already has a commit timestamp,
+  /// and the durable watermark that follows waits for its commit record or fails with it. A
+  /// rollback deletes the status record under the entry, so no pending record follows that
+  /// deletion.
+  /// </remarks>
+  void WritePendingRecords()
+  {
+    lock (CommitLock)
+    {
+      foreach (var entry in Entries.Values)
+      {
+        if (!entry.HasWritten || entry.State != TransactionState.Active)
+          continue;
+        lock (entry)
+        {
+          if (entry.HasPendingRecord || entry.IsStatusDeleted)
+            continue;
+          Storage.Upsert(
+              VersionedKey<TKey>.TransactionStatus(entry.Id),
+              VersionedValue<TValue>.FromSystem(PendingStatus));
+          entry.HasPendingRecord = true;
+        }
+      }
+    }
   }
 
   /// <summary>
