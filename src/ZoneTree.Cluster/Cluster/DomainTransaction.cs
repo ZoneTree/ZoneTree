@@ -285,8 +285,8 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
   }
 
   /// <summary>
-  /// Ends a commit that wrote its records but cannot become visible, because an earlier one
-  /// stopped the domain's commits. Recovery rolls it back.
+  /// Ends a commit that wrote its records but cannot become visible or durable, because the
+  /// domain's commits stopped. Recovery decides its outcome.
   /// </summary>
   TransactionInDoubtException LeaveInDoubt(Exception error)
   {
@@ -376,9 +376,7 @@ internal sealed class DomainTransaction : DomainReadTransaction, IDomainTransact
           view.LeaveInDoubt();
         _ = sequencer.Complete(slot);
       }
-      state = TransactionState.InDoubt;
-      Close();
-      throw new TransactionInDoubtException(TransactionId, error);
+      throw LeaveInDoubt(error);
     }
     await visible.ConfigureAwait(false);
     return await CompleteCommit(slot.Timestamp).ConfigureAwait(false);

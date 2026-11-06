@@ -286,7 +286,7 @@ internal sealed class DomainCoordinator
   /// its sequence number passes its slot: the slot never completes, so no later commit becomes
   /// visible or durable, and recovery cuts at that number.
   /// </summary>
-  internal void StopCommits(Exception error, CommitSequencer.Slot slot = null)
+  internal void StopCommits(Exception error, CommitSequencer.Slot slot)
   {
     FailWaiters(error);
     if (slot != null)
@@ -297,7 +297,7 @@ internal sealed class DomainCoordinator
   /// Stops the domain's commits after a failed sync. The waiting durable commits stay in
   /// doubt: their records may be on the disk, and recovery decides their outcome.
   /// </summary>
-  void FailWaiters(Exception error)
+  internal void FailWaiters(Exception error)
   {
     DurableWaiter[] failed;
     lock (SyncGate)

@@ -73,11 +73,11 @@ conflict or a failure before the commit completes rolls back every column.
 
 Every column has its own WAL. The WAL of every coordinated column is set once, by
 `ZoneTreeClusterOptions.CoordinatedWriteAheadLog`: the `Shared` journal (the default)
-or `AsyncShared`, with its compression and chunk size. A coordinated column's
-`ConfigureStorage` cannot change it or replace its WAL provider. A domain syncs its
-columns together, in one parallel round of WAL syncs; concurrent durable commits share
-a round. A domain also syncs on its own after 4096 commits.
-`ZoneTreeClusterOptions.FileStreamProvider` sets the file streams of every column.
+or `AsyncShared`, with its compression. A coordinated column's `ConfigureStorage` cannot
+change the mode, the compression method or the block size, or replace the WAL provider;
+it can change the compression level and the chunk size. A domain syncs its columns
+together, in one parallel round of WAL syncs; concurrent durable commits share a round.
+A domain also syncs on its own after 4096 commits.
 
 A domain numbers its commits without gaps. Each commit record in a column holds the
 commit's number and the number of columns the transaction wrote. After an unclean

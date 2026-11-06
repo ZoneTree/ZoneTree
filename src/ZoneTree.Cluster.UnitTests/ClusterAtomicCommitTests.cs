@@ -61,7 +61,7 @@ public sealed class ClusterAtomicCommitTests
 
   /// <summary>Stops the domain's commits like a failed sync, so closing it is not clean.</summary>
   static void StopCommits(IClusterDomain domain)
-      => CoordinatorOf(domain).StopCommits(new IOException("Simulated sync failure."));
+      => CoordinatorOf(domain).FailWaiters(new IOException("Simulated sync failure."));
 
   [Test]
   public async Task ReadersSeeEveryTransactionWholeAndCommitsAreVisibleWhenTheyReturn()

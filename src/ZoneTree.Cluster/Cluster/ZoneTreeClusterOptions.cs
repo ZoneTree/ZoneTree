@@ -43,15 +43,18 @@ public sealed class ZoneTreeClusterOptions
   public IColumnStorageConfigurator StorageDefaults { get; init; }
 
   /// <summary>
-  /// The file streams of every column's storage. The local file system when not set.
+  /// The file streams of the columns' storage, for tests that simulate a power loss. The local
+  /// file system when not set. The catalog, and the deletion of dropped columns, always use
+  /// the local file system.
   /// </summary>
-  public IFileStreamProvider FileStreamProvider { get; init; }
+  internal IFileStreamProvider FileStreamProvider { get; init; }
 
   /// <summary>
   /// The write ahead log of every coordinated column: the <see cref="WriteAheadLogMode.Shared"/>
-  /// or <see cref="WriteAheadLogMode.AsyncShared"/> journal, with its compression and chunk
-  /// size. Recovery reads the journals of columns that are not open to keep every complete
-  /// transaction, so a coordinated column's storage hooks cannot change them.
+  /// or <see cref="WriteAheadLogMode.AsyncShared"/> journal, with its compression. Recovery
+  /// reads the journals of columns that are not open, so a coordinated column's storage hooks
+  /// cannot change the mode, the compression method or the block size. They can change the
+  /// compression level and the chunk size.
   /// </summary>
   /// <remarks>
   /// With <see cref="WriteAheadLogMode.AsyncShared"/>, a process crash can lose the records

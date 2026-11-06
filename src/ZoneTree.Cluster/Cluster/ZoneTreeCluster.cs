@@ -128,13 +128,15 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     SharedModeOptions = new() { MaximumChunkSize = options.SharedModeOptions.MaximumChunkSize }
   };
 
-  /// <summary>Whether two write ahead log settings read and write the same journal.</summary>
+  /// <summary>
+  /// Whether two write ahead log settings make the same journal: its mode, which sets what a
+  /// crash can lose, and the block format recovery reads. The compression level and the chunk
+  /// size only change how new records are written.
+  /// </summary>
   internal static bool SameJournal(WriteAheadLogOptions left, WriteAheadLogOptions right)
       => left.WriteAheadLogMode == right.WriteAheadLogMode &&
          left.CompressionBlockSize == right.CompressionBlockSize &&
-         left.CompressionMethod == right.CompressionMethod &&
-         left.CompressionLevel == right.CompressionLevel &&
-         left.SharedModeOptions.MaximumChunkSize == right.SharedModeOptions.MaximumChunkSize;
+         left.CompressionMethod == right.CompressionMethod;
 
   internal string ColumnDirectory(long id)
       => Path.Combine(DataDirectory, "columns", id.ToString(CultureInfo.InvariantCulture));
