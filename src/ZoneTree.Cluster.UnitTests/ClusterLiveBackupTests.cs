@@ -270,35 +270,55 @@ public sealed class ClusterLiveBackupTests
   }
 
   [Test]
-  public async Task AStartedBackupUnderWritesDoesNotRunGenerationsBackToBack()
+  public async Task GenerationsUnderWritesLeaveTheMutableSegmentsOfEveryColumnInPlace()
   {
-    using (var cluster = Factory.CreateInProcess(Options(Data("source"), withOthers: false)))
-    using (var maintainer = cluster.CreateMaintainer())
-    using (var backup = cluster.CreateLiveBackup(BackupStorage(), new ClusterLiveBackupOptions { BackupAfterMerge = true }))
+    // Default mutable segments, which the throttled writes never fill during the test.
+    using (var cluster = Factory.CreateInProcess(Options(Data("source"))))
+    using (var backup = cluster.CreateLiveBackup(BackupStorage()))
     {
       var domain = cluster.GetDomain(Domain);
+      var cache = cluster.GetRawColumn<long, long>("cache");
+      var visits = cluster.GetStandaloneColumn<long, long>("visits");
+      var rotations = 0;
+      var recordCounts = new List<Func<long>>();
+      void Watch<TKey, TValue>(IZoneTreeMaintenance<TKey, TValue> storage)
+      {
+        storage.OnMutableSegmentMovedForward += _ => Interlocked.Increment(ref rotations);
+        recordCounts.Add(() => storage.MutableSegmentRecordCount);
+      }
+      Watch(cluster.GetCoordinatedColumnMaintenance<long, long>("left").ZoneTree.Maintenance);
+      Watch(cluster.GetCoordinatedColumnMaintenance<long, long>("right").ZoneTree.Maintenance);
+      Watch(cluster.GetRawColumnMaintenance<long, long>("cache"));
+      Watch(((ZoneTreeCluster)cluster).GetStandaloneColumnStorage<long, long>("visits").Maintenance.ZoneTree.Maintenance);
       using var stop = new CancellationTokenSource();
       var writer = Task.Run(() =>
       {
         for (var key = 0L; !stop.IsCancellationRequested; ++key)
+        {
           Commit(domain, key);
+          cache.Upsert(key % 1000, key);
+          visits.Execute(transaction => transaction.Upsert(key % 1000, key));
+          if (key % 50 == 49)
+            Thread.Sleep(1);
+        }
       });
-      backup.Start();
-      // One merge starts one generation.
-      var storage = cluster.GetCoordinatedColumnMaintenance<long, long>("left").ZoneTree.Maintenance;
-      storage.MoveMutableSegmentForward();
-      storage.StartMergeOperation()?.Join();
-      Assert.That(SpinWait.SpinUntil(() => backup.CurrentGenerationId == 1, TimeSpan.FromSeconds(10)), Is.True);
-      // A generation captures the columns in place, so it makes no merge that would start
-      // the next one while the writes go on.
-      await Task.Delay(1500);
-      Assert.That(backup.CurrentGenerationId, Is.EqualTo(1));
-      stop.Cancel();
-      await writer;
-      backup.Stop();
-      backup.WaitForLiveBackup();
+      try
+      {
+        Assert.That(SpinWait.SpinUntil(() => recordCounts.All(count => count() > 0),
+            TimeSpan.FromSeconds(10)), Is.True);
+        // A rotation would start a merge, and a merge the next generation of a backup
+        // that runs after merges.
+        for (var i = 0; i < 3; ++i)
+          await backup.CreateGenerationAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.That(Volatile.Read(ref rotations), Is.Zero);
+      }
+      finally
+      {
+        stop.Cancel();
+        await writer;
+      }
     }
-    using var restored = await Factory.RestoreInProcessAsync(Options(Data("restored"), withOthers: false), BackupStorage());
+    using var restored = await Factory.RestoreInProcessAsync(Options(Data("restored")), BackupStorage());
     var restoredDomain = restored.GetDomain(Domain);
     Assert.That(Read(restoredDomain, "left"), Is.EqualTo(Read(restoredDomain, "right")));
   }
