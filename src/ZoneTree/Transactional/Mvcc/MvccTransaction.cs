@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using ZoneTree.Comparers;
 using ZoneTree.Exceptions;
 using ZoneTree.Transactional.Conflicts;
@@ -12,7 +13,9 @@ namespace ZoneTree.Transactional.Mvcc;
 /// Writes go to the storage tree at once, stored under the transaction id, and stay
 /// invisible to other transactions until the commit. The transaction keeps the keys
 /// it wrote to detect conflicts and to roll back, the keys it read for update, and in
-/// serializable mode the keys and ranges it read.
+/// serializable mode the keys and ranges it read. Its operations can run concurrently.
+/// One commit or rollback owns the end of the transaction, and waits for the running
+/// operations before it reads the keys.
 /// </remarks>
 internal sealed class MvccTransaction<TKey, TValue> :
     MvccReader<TKey, TValue>, ITransaction<TKey, TValue>
@@ -24,11 +27,34 @@ internal sealed class MvccTransaction<TKey, TValue> :
   KeyList<TKey> ReadKeys;
 
   /// <summary>
+  /// True once the transaction status record is stored. Guarded by the bookkeeping lock.
+  /// </summary>
+  bool IsStatusStored;
+
+  /// <summary>
+  /// True once a write failed in the storage tree. The transaction is rolled back,
+  /// and a commit that waited for the write fails.
+  /// </summary>
+  volatile bool HasFailedWrite;
+
+  /// <summary>
   /// True while the tree counts the transaction as active. Guarded by the tree state lock.
   /// </summary>
   internal bool IsRegistered;
 
   volatile TransactionState state;
+
+  volatile bool hasConflict;
+
+  /// <summary>
+  /// Who owns the end of the transaction: <see cref="EndedByCommit"/>,
+  /// <see cref="EndedByRollback"/>, or 0 while nobody does.
+  /// </summary>
+  int EndOwner;
+
+  const int EndedByCommit = 1;
+
+  const int EndedByRollback = 2;
 
   public long CommitTimestamp { get; private set; }
 
@@ -36,7 +62,7 @@ internal sealed class MvccTransaction<TKey, TValue> :
 
   public TransactionState State => state;
 
-  public bool HasConflict { get; private set; }
+  public bool HasConflict => hasConflict;
 
   /// <summary>
   /// The clock when the transaction began. Rolled back versions stay registered
@@ -65,6 +91,8 @@ internal sealed class MvccTransaction<TKey, TValue> :
     IsolationLevel = isolationLevel;
   }
 
+  protected override bool IsActive => state == TransactionState.Active;
+
   internal override void EnsureActive()
   {
     switch (state)
@@ -80,24 +108,46 @@ internal sealed class MvccTransaction<TKey, TValue> :
     }
   }
 
+  protected override void ThrowEnding()
+  {
+    if (Volatile.Read(ref EndOwner) == EndedByRollback)
+      throw new TransactionAbortedException(TransactionId);
+    throw new TransactionCommitInProgressException(TransactionId);
+  }
+
   public override bool TryGet(in TKey key, out TValue value)
   {
-    EnsureActive();
-    if (TracksReads)
-      AddReadKey(in key);
-    return ReadVisible(in key, out value);
+    BeginOperation();
+    try
+    {
+      if (TracksReads)
+        AddReadKey(in key);
+      return ReadVisible(in key, out value);
+    }
+    finally
+    {
+      EndOperation();
+    }
   }
 
   public bool TryGetForUpdate(in TKey key, out TValue value)
   {
-    EnsureActive();
-    AddReadKey(in key);
-    return ReadVisible(in key, out value);
+    BeginOperation();
+    try
+    {
+      AddReadKey(in key);
+      return ReadVisible(in key, out value);
+    }
+    finally
+    {
+      EndOperation();
+    }
   }
 
   void AddReadKey(in TKey key)
   {
-    (ReadKeys ??= new KeyList<TKey>(Tree.KeyComparer)).Add(key);
+    lock (BookkeepingLock)
+      (ReadKeys ??= new KeyList<TKey>(Tree.KeyComparer)).Add(key);
   }
 
   public void Upsert(in TKey key, in TValue value)
@@ -112,32 +162,52 @@ internal sealed class MvccTransaction<TKey, TValue> :
 
   void Write(in TKey key, in VersionedValue<TValue> value)
   {
-    EnsureActive();
-    // The commit of a conflicting transaction fails, so its writes are not stored.
-    if (HasConflict)
-      return;
-    if (Tree.HasCommitAfter(in key, SnapshotTimestamp))
-    {
-      HasConflict = true;
-      return;
-    }
+    BeginOperation();
+    Exception failure = null;
     try
     {
-      if (WrittenKeys == null)
+      // The commit of a conflicting transaction fails, so its writes are not stored.
+      if (hasConflict)
+        return;
+      if (Tree.HasCommitAfter(in key, SnapshotTimestamp))
       {
-        WrittenKeys = new KeyList<TKey>(Tree.KeyComparer);
-        Tree.OnFirstWrite(this);
+        hasConflict = true;
+        return;
       }
-      WrittenKeys.Add(key);
-      Tree.Storage.Upsert(VersionedKey<TKey>.Data(in key, TransactionId), in value);
+      try
+      {
+        lock (BookkeepingLock)
+        {
+          if (WrittenKeys == null)
+          {
+            WrittenKeys = new KeyList<TKey>(Tree.KeyComparer);
+            Tree.OnFirstWrite(this);
+            IsStatusStored = true;
+          }
+          // A version without its status record would look committed after a crash.
+          else if (!IsStatusStored)
+            throw new TransactionAbortedException(TransactionId);
+          WrittenKeys.Add(key);
+        }
+        Tree.Storage.Upsert(VersionedKey<TKey>.Data(in key, TransactionId), in value);
+      }
+      catch (Exception e)
+      {
+        HasFailedWrite = true;
+        failure = e;
+      }
     }
-    catch
+    finally
     {
-      // The storage tree can keep a write in memory that its WAL never recorded,
-      // so the transaction must not commit it.
-      Rollback();
-      throw;
+      EndOperation();
     }
+    if (failure == null)
+      return;
+    // The storage tree can keep a write in memory that its WAL never recorded,
+    // so the transaction must not commit it. The rollback waits for the running
+    // operations, so this one ends first.
+    Rollback();
+    ExceptionDispatchInfo.Throw(failure);
   }
 
   /// <summary>
@@ -145,18 +215,22 @@ internal sealed class MvccTransaction<TKey, TValue> :
   /// </summary>
   internal int AddReadRange(in KeyRange<TKey> range)
   {
-    (ReadRanges ??= new()).Add(range);
-    return ReadRanges.Count - 1;
+    lock (BookkeepingLock)
+    {
+      (ReadRanges ??= new()).Add(range);
+      return ReadRanges.Count - 1;
+    }
   }
 
   internal void UpdateReadRange(int index, in KeyRange<TKey> range)
   {
-    ReadRanges[index] = range;
+    lock (BookkeepingLock)
+      ReadRanges[index] = range;
   }
 
   /// <summary>
   /// Checks the transaction against the commits after its snapshot.
-  /// Called by the tree under its commit lock.
+  /// Called by the tree under its commit lock, after the operations stopped.
   /// </summary>
   internal bool ConflictsWith(ConflictIndex<TKey> conflictIndex)
   {
@@ -183,21 +257,51 @@ internal sealed class MvccTransaction<TKey, TValue> :
 
   public bool TryCommit()
   {
+    BeginEnd();
     Task<bool> commit;
     lock (Tree.CommitGate)
     {
-      EnsureActive();
-      if (HasConflict)
-      {
-        Rollback();
+      if (!CanStartCommit())
         return false;
-      }
       ReleaseReaders();
       commit = StartCommit(false);
     }
     // Waiting on the task itself needs no thread pool thread:
     // the commit sync thread completes a pending commit.
     return commit.GetAwaiter().GetResult();
+  }
+
+  /// <summary>
+  /// Takes the end of the transaction for a commit, and waits for the running operations.
+  /// </summary>
+  void BeginEnd()
+  {
+    EnsureActive();
+    if (Interlocked.CompareExchange(ref EndOwner, EndedByCommit, 0) != 0)
+    {
+      EnsureActive();
+      ThrowEnding();
+    }
+    StopOperations();
+  }
+
+  /// <summary>
+  /// Rolls back a transaction that cannot commit. Returns false for a conflict,
+  /// and throws for a failed write.
+  /// </summary>
+  bool CanStartCommit()
+  {
+    if (HasFailedWrite)
+    {
+      RollbackOwned();
+      throw new TransactionAbortedException(TransactionId);
+    }
+    if (hasConflict)
+    {
+      RollbackOwned();
+      return false;
+    }
+    return true;
   }
 
   /// <summary>
@@ -258,14 +362,11 @@ internal sealed class MvccTransaction<TKey, TValue> :
     Task<bool> commit;
     try
     {
+      BeginEnd();
       lock (Tree.CommitGate)
       {
-        EnsureActive();
-        if (HasConflict)
-        {
-          Rollback();
+        if (!CanStartCommit())
           return Task.FromResult(false);
-        }
         ReleaseReaders();
         commit = StartCommit(true);
       }
@@ -295,11 +396,21 @@ internal sealed class MvccTransaction<TKey, TValue> :
 
   internal void OnCommitInDoubt() => state = TransactionState.InDoubt;
 
+  /// <summary>
+  /// Rolls back an active transaction. A commit or another rollback that owns the end
+  /// of the transaction makes it a no-op.
+  /// </summary>
   public void Rollback()
   {
-    if (state != TransactionState.Active)
+    if (Interlocked.CompareExchange(ref EndOwner, EndedByRollback, 0) != 0)
       return;
+    RollbackOwned();
+  }
+
+  void RollbackOwned()
+  {
     state = TransactionState.Aborted;
+    StopOperations();
     ReleaseReaders();
     Tree.Rollback(this);
   }

@@ -1,0 +1,16 @@
+<Project>
+
+  <!-- The cluster ships with the ZoneTree version it is built with, so it shares its version, metadata and build settings. -->
+  <Import Project="..\ZoneTree\Directory.Build.props" />
+
+  <PropertyGroup>
+    <Title>ZoneTree.Cluster</Title>
+    <AssemblyTitle>ZoneTree.Cluster</AssemblyTitle>
+    <Description>ZoneTree.Cluster distributes ZoneTree by column: independently typed coordinated, standalone and raw columns, with ACID transactions across the columns of a domain.</Description>
+    <Summary>
+      ZoneTree.Cluster distributes ZoneTree by column: independently typed coordinated, standalone and raw columns, with ACID transactions across the columns of a domain.
+    </Summary>
+    <PackageTags>high-performance, database, cluster, distributed-database, transactions, mvcc, acid, key-value-database, lsm-tree, storage-engine, dotnet</PackageTags>
+  </PropertyGroup>
+
+</Project>

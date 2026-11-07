@@ -5,7 +5,9 @@ namespace ZoneTree.Transactional;
 /// </summary>
 /// <remarks>
 /// A transaction reads the snapshot taken when it began, plus its own writes.
-/// It is not thread-safe. Disposing an active transaction rolls it back.
+/// Its methods can be called concurrently, but each iterator is used by one caller at a
+/// time. A commit or rollback waits for the running operations, and the first of them
+/// ends the transaction. Disposing an active transaction rolls it back.
 /// Conflicts are reported by the commit, not by exceptions from reads or writes.
 /// </remarks>
 /// <typeparam name="TKey">The key type.</typeparam>

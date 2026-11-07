@@ -1,0 +1,373 @@
+using ZoneTree.Collections.BTree;
+using ZoneTree.Collections.BTree.Lock;
+using ZoneTree.Comparers;
+
+namespace ZoneTree.Cluster;
+
+/// <summary>
+/// Maps each key reserved by a prepared or published commit to its latest commit timestamp.
+/// A transaction conflicts with these keys after its snapshot timestamp, including
+/// reservations whose durable publication is still waiting for sync.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Commits publish a sorted batch under the commit lock of the tree. Older batches
+/// join the generation's tree only while an overlapping writer still needs them.
+/// A lookup that races with a commit may miss its keys, so a commit validates again
+/// under the commit lock.
+/// </para>
+/// <para>
+/// The keys live in generations, oldest first, and a key in a newer generation has a
+/// newer commit. A generation is dropped as a whole once every active writer's snapshot
+/// includes its newest commit, so forgetting keys costs nothing per key. The last
+/// generation stays until it is full, because otherwise a single writer would build
+/// a new one for every commit. Its keys cannot conflict once the snapshots include them.
+/// </para>
+/// <para>
+/// A long-running writer keeps every newer generation alive, and a lookup can visit all
+/// of them. So a background thread merges generations once there are too many. It only
+/// reads generations that have a newer one, because commits add keys to the last one only.
+/// </para>
+/// </remarks>
+internal sealed class ConflictIndex<TKey>
+{
+  /// <summary>
+  /// The number of keys that fills a generation. Small enough that a generation
+  /// usually dies young under load, and that a lookup stays cheap.
+  /// </summary>
+  const int GenerationSize = 4096;
+
+  /// <summary>
+  /// The number of generations that starts a merge. Short transactions never reach it.
+  /// </summary>
+  const int MaximumGenerationCount = 16;
+
+  sealed class Batch(TKey[] keys, long timestamp)
+  {
+    public readonly TKey[] Keys = keys;
+
+    public readonly long Timestamp = timestamp;
+  }
+
+  sealed class Generation(IRefComparer<TKey> comparer, long newestCommit)
+  {
+    public readonly BTree<TKey, long> Keys = new(comparer, BTreeLockMode.NodeLevelMonitor);
+
+    public volatile Batch RecentBatch;
+
+    public int Length => Keys.Length + (RecentBatch?.Keys.Length ?? 0);
+
+    public long NewestCommit = newestCommit;
+  }
+
+  readonly Lock SyncRoot = new();
+
+  readonly IRefComparer<TKey> Comparer;
+
+  volatile Generation[] Generations = [];
+
+  long prunedHorizon;
+
+  // Guarded by SyncRoot.
+  bool isMerging;
+
+  public ConflictIndex(IRefComparer<TKey> comparer)
+  {
+    Comparer = comparer;
+  }
+
+  /// <summary>
+  /// The number of keys that can still conflict. It counts a key once per generation.
+  /// </summary>
+  public int Count
+  {
+    get
+    {
+      var horizon = Volatile.Read(ref prunedHorizon);
+      var count = 0;
+      foreach (var generation in Generations)
+      {
+        if (Volatile.Read(ref generation.NewestCommit) <= horizon)
+          continue;
+        var batch = generation.RecentBatch;
+        var countBatch = batch != null && batch.Timestamp > horizon;
+        if (countBatch)
+          count += batch.Keys.Length;
+        var iterator = new BTreeSeekableIterator<TKey, long>(generation.Keys);
+        for (var found = iterator.SeekBegin(); found; found = iterator.Next())
+        {
+          var key = iterator.CurrentKey;
+          if (iterator.CurrentValue > horizon && (!countBatch || Find(batch.Keys, in key) < 0))
+            ++count;
+        }
+      }
+      return count;
+    }
+  }
+
+  public bool HasCommitAfter(in TKey key, long timestamp)
+  {
+    var generations = Generations;
+    for (var i = generations.Length - 1; i >= 0; --i)
+    {
+      var generation = generations[i];
+      if (Volatile.Read(ref generation.NewestCommit) <= timestamp)
+        return false;
+      var batch = generation.RecentBatch;
+      if (batch != null && Find(batch.Keys, in key) >= 0)
+        return batch.Timestamp > timestamp;
+      if (generation.Keys.TryGetValue(in key, out var commitTimestamp))
+        return commitTimestamp > timestamp;
+    }
+    return false;
+  }
+
+  public bool HasCommitAfter(List<TKey> keys, long timestamp)
+  {
+    foreach (var key in keys)
+    {
+      if (HasCommitAfter(in key, timestamp))
+        return true;
+    }
+    return false;
+  }
+
+  public bool HasCommitAfter(IReadOnlyList<KeyRange<TKey>> ranges, long timestamp)
+  {
+    var generations = Generations;
+    for (var i = generations.Length - 1; i >= 0; --i)
+    {
+      var generation = generations[i];
+      if (Volatile.Read(ref generation.NewestCommit) <= timestamp)
+        return false;
+      var count = ranges.Count;
+      for (var j = 0; j < count; ++j)
+      {
+        if (HasCommitAfter(generation, ranges[j], timestamp))
+          return true;
+      }
+    }
+    return false;
+  }
+
+  bool HasCommitAfter(Generation generation, in KeyRange<TKey> range, long timestamp)
+  {
+    var batch = generation.RecentBatch;
+    if (batch != null && batch.Timestamp > timestamp && HasKeyInRange(batch.Keys, in range))
+      return true;
+    var iterator = new BTreeSeekableIterator<TKey, long>(generation.Keys);
+    var found = range.HasLow ?
+        iterator.SeekToFirstGreaterOrEqualElement(in range.Low) :
+        iterator.SeekBegin();
+    for (; found; found = iterator.Next())
+    {
+      var key = iterator.CurrentKey;
+      if (range.HasHigh && Comparer.Compare(in key, in range.High) > 0)
+        return false;
+      if (iterator.CurrentValue > timestamp)
+        return true;
+    }
+    return false;
+  }
+
+  bool HasKeyInRange(TKey[] keys, in KeyRange<TKey> range)
+  {
+    var position = range.HasLow ? LowerBound(keys, in range.Low) : 0;
+    return position < keys.Length &&
+        (!range.HasHigh || Comparer.Compare(in keys[position], in range.High) <= 0);
+  }
+
+  int LowerBound(TKey[] keys, in TKey key)
+  {
+    var low = 0;
+    var high = keys.Length;
+    while (low < high)
+    {
+      var middle = low + (high - low) / 2;
+      if (Comparer.Compare(in keys[middle], in key) < 0)
+        low = middle + 1;
+      else
+        high = middle;
+    }
+    return low;
+  }
+
+  int Find(TKey[] keys, in TKey key)
+  {
+    var position = LowerBound(keys, in key);
+    return position < keys.Length && Comparer.Compare(in keys[position], in key) == 0 ?
+        position : -1;
+  }
+
+  /// <summary>
+  /// Takes ownership of the sorted, distinct keys of a commit. Called under the
+  /// commit lock of the tree, with increasing timestamps.
+  /// </summary>
+  public void Add(TKey[] keys, long commitTimestamp)
+  {
+    var generation = GetGenerationToAdd(commitTimestamp);
+    var previous = generation.RecentBatch;
+    if (previous != null && previous.Timestamp > Volatile.Read(ref prunedHorizon))
+    {
+      // Keep the old batch published until every key is in the tree. A failed
+      // comparison leaves it available, and a concurrent lookup cannot lose it.
+      foreach (var key in previous.Keys)
+        generation.Keys.Upsert(in key, in previous.Timestamp, out _);
+    }
+    generation.RecentBatch = new Batch(keys, commitTimestamp);
+  }
+
+  /// <summary>
+  /// Claims a generation for the commit before adding any key, so that
+  /// pruning cannot drop the generation while the keys are going in.
+  /// </summary>
+  Generation GetGenerationToAdd(long commitTimestamp)
+  {
+    lock (SyncRoot)
+    {
+      var generations = Generations;
+      if (generations.Length > 0 && generations[^1].Length < GenerationSize)
+      {
+        var last = generations[^1];
+        Volatile.Write(ref last.NewestCommit, commitTimestamp);
+        return last;
+      }
+      var generation = new Generation(Comparer, commitTimestamp);
+      Generations = [.. generations, generation];
+      if (Generations.Length > MaximumGenerationCount && !isMerging)
+      {
+        isMerging = true;
+        new Thread(MergeGenerations) { IsBackground = true, Name = MergeThreadName }.Start();
+      }
+      return generation;
+    }
+  }
+
+  internal const string MergeThreadName = "ZoneTree conflict index merge";
+
+  void MergeGenerations()
+  {
+    try
+    {
+      while (true)
+      {
+        Generation[] run;
+        lock (SyncRoot)
+        {
+          run = SelectGenerationsToMerge(Generations);
+          if (run == null)
+          {
+            isMerging = false;
+            return;
+          }
+        }
+        ReplaceGenerations(run, Merge(run));
+      }
+    }
+    catch (Exception)
+    {
+      // The comparer failed. The generations are as they were, so lookups stay
+      // correct and only slower. The next generation starts another merge.
+      lock (SyncRoot)
+        isMerging = false;
+    }
+  }
+
+  /// <summary>
+  /// Selects the newest generations with a similar total size, so that a key takes
+  /// part in few merges. The sizes end up growing with age, which keeps a tree of any
+  /// size within a few generations.
+  /// </summary>
+  /// <returns>Adjacent generations, oldest first, or null if no merge is needed.</returns>
+  static Generation[] SelectGenerationsToMerge(Generation[] generations)
+  {
+    if (generations.Length <= MaximumGenerationCount)
+      return null;
+    // Commits are still adding keys to the last generation.
+    var end = generations.Length - 1;
+    var start = end - 1;
+    long size = generations[start].Length;
+    while (start > 0 && generations[start - 1].Length <= size * 2)
+    {
+      --start;
+      size += generations[start].Length;
+    }
+    if (end - start < 2)
+      --start;
+    return generations[start..end];
+  }
+
+  /// <summary>
+  /// Builds a generation from the given ones. A newer commit of a key replaces an
+  /// older one, and a key that no writer can conflict with is left out.
+  /// </summary>
+  Generation Merge(Generation[] run)
+  {
+    var horizon = Volatile.Read(ref prunedHorizon);
+    var merged = new Generation(Comparer, Volatile.Read(ref run[^1].NewestCommit));
+    foreach (var generation in run)
+    {
+      var iterator = new BTreeSeekableIterator<TKey, long>(generation.Keys);
+      for (var found = iterator.SeekBegin(); found; found = iterator.Next())
+      {
+        var commitTimestamp = iterator.CurrentValue;
+        if (commitTimestamp <= horizon)
+          continue;
+        var key = iterator.CurrentKey;
+        merged.Keys.Upsert(in key, in commitTimestamp, out _);
+      }
+      var batch = generation.RecentBatch;
+      if (batch != null && batch.Timestamp > horizon)
+      {
+        foreach (var key in batch.Keys)
+          merged.Keys.Upsert(in key, in batch.Timestamp, out _);
+      }
+    }
+    return merged;
+  }
+
+  void ReplaceGenerations(Generation[] run, Generation merged)
+  {
+    lock (SyncRoot)
+    {
+      var generations = Generations;
+      // Pruning drops the oldest generations first, and only this
+      // thread merges, so what is left of the run is still adjacent.
+      var end = Array.IndexOf(generations, run[^1]);
+      if (end < 0)
+        return;
+      var start = Math.Max(0, end - run.Length + 1);
+      Generations = [.. generations[..start], merged, .. generations[(end + 1)..]];
+    }
+  }
+
+  /// <summary>
+  /// Forgets the keys that no writer can conflict with.
+  /// </summary>
+  /// <param name="horizon">The oldest snapshot timestamp of the active writers,
+  /// or the latest commit timestamp without one. A commit that has not finished
+  /// is newer than this, so its generation stays.</param>
+  public void Prune(long horizon)
+  {
+    Volatile.Write(ref prunedHorizon, horizon);
+    var generations = Generations;
+    if (generations.Length == 0 || !CanDrop(generations, 0, horizon))
+      return;
+    lock (SyncRoot)
+    {
+      generations = Generations;
+      var dropCount = 0;
+      while (dropCount < generations.Length && CanDrop(generations, dropCount, horizon))
+        ++dropCount;
+      if (dropCount > 0)
+        Generations = generations[dropCount..];
+    }
+  }
+
+  static bool CanDrop(Generation[] generations, int index, long horizon)
+  {
+    var generation = generations[index];
+    return Volatile.Read(ref generation.NewestCommit) <= horizon &&
+        (index < generations.Length - 1 || generation.Length >= GenerationSize);
+  }
+}

@@ -50,26 +50,47 @@ public sealed class ZoneTreeEngine : ITransactionEngine
   }
 
   internal static ZoneTreeFactory<long, byte[]> CreateFactory(EngineOpenOptions options, WriteAheadLogMode walMode)
+      => ConfigureFactory(new ZoneTreeFactory<long, byte[]>().SetDataDirectory(options.Directory), options, walMode);
+
+  internal static ZoneTreeFactory<long, byte[]> ConfigureFactory(
+      ZoneTreeFactory<long, byte[]> factory, EngineOpenOptions options, WriteAheadLogMode walMode)
+      => ConfigureStorage(factory
+          .SetComparer(new Int64ComparerAscending())
+          .SetKeySerializer(new Int64Serializer()), options, walMode);
+
+  /// <summary>The storage tuning without the comparer and serializers.</summary>
+  internal static ZoneTreeFactory<long, byte[]> ConfigureStorage(
+      ZoneTreeFactory<long, byte[]> factory, EngineOpenOptions options, WriteAheadLogMode walMode)
+      => ConfigureSegments(factory, options).ConfigureWriteAheadLogOptions(wal => ConfigureJournal(wal, walMode));
+
+  /// <summary>The segment tuning; a coordinated cluster column takes its journal from the cluster.</summary>
+  internal static ZoneTreeFactory<long, byte[]> ConfigureSegments(
+      ZoneTreeFactory<long, byte[]> factory, EngineOpenOptions options)
   {
     var tuning = options.Tuning;
-    return new ZoneTreeFactory<long, byte[]>()
-        .SetDataDirectory(options.Directory)
+    return factory
         .SetMutableSegmentMaxItemCount(tuning.ZoneTreeMutableSegmentMaxItemCount)
-        .SetComparer(new Int64ComparerAscending())
-        .SetKeySerializer(new Int64Serializer())
-        .SetValueSerializer(new ValueSerializer())
         .ConfigureDiskSegmentOptions(disk =>
         {
           disk.DefaultSparseArrayStepSize = tuning.ZoneTreeSparseArrayStepSize;
           disk.KeyCacheSize = tuning.ZoneTreeKeyCacheSize;
           disk.ValueCacheSize = tuning.ZoneTreeValueCacheSize;
-        })
-        .ConfigureWriteAheadLogOptions(wal =>
-        {
-          wal.CompressionMethod = CompressionMethod.None;
-          wal.WriteAheadLogMode = walMode;
-          wal.CompressionBlockSize = 1024 * 256;
         });
+  }
+
+  /// <summary>The journal settings, for the cluster's coordinated columns.</summary>
+  internal static WriteAheadLogOptions Journal(WriteAheadLogMode walMode)
+  {
+    var wal = new WriteAheadLogOptions();
+    ConfigureJournal(wal, walMode);
+    return wal;
+  }
+
+  static void ConfigureJournal(WriteAheadLogOptions wal, WriteAheadLogMode walMode)
+  {
+    wal.CompressionMethod = CompressionMethod.None;
+    wal.WriteAheadLogMode = walMode;
+    wal.CompressionBlockSize = 1024 * 256;
   }
 
   void StartBottomMerge(
@@ -150,10 +171,4 @@ public sealed class ZoneTreeEngine : ITransactionEngine
     public void Dispose() => transaction.Dispose();
   }
 
-  sealed class ValueSerializer : ISerializer<byte[]>
-  {
-    public byte[] Deserialize(Memory<byte> bytes) => bytes.ToArray();
-
-    public Memory<byte> Serialize(in byte[] entry) => entry;
-  }
 }

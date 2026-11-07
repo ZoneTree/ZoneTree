@@ -6,13 +6,19 @@ on:
       name:
         description: 'When you press run workflow, the nuget package will be published.'
         default: 'I understand.'
+
+# Trusted publishing: NuGet/login exchanges the workflow's OIDC token for a short-lived API key.
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
             10.0.x
@@ -31,8 +37,14 @@ jobs:
       - name: Test
         run: dotnet test --no-build --configuration Release --verbosity normal
         working-directory: ./src
+      - name: Pack
+        run: dotnet pack ZoneTree/ZoneTree.csproj --no-build --configuration Release
+        working-directory: ./src
+      - name: Log in to nuget.org
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: koculu
       - name: Publish the package to nuget.org
-        run: dotnet nuget push ZoneTree/bin/Release/*.nupkg -k $NUGET_AUTH_TOKEN -s https://api.nuget.org/v3/index.json
-        env:
-          NUGET_AUTH_TOKEN: ${{ secrets.NUGET_TOKEN }}
+        run: dotnet nuget push ZoneTree/bin/Release/*.nupkg --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json
         working-directory: ./src

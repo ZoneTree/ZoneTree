@@ -19,9 +19,7 @@ public sealed class ZoneTreeRawEngine : ITransactionEngine
   {
     var tuning = options.Tuning;
     Durable = options.Durability == DurabilityMode.PerCommit;
-    Tree = ZoneTreeEngine.CreateFactory(options, walMode)
-        .SetValueSerializer(new ValueSerializer())
-        .OpenOrCreate();
+    Tree = ZoneTreeEngine.CreateFactory(options, walMode).OpenOrCreate();
     Maintainer = Tree.CreateMaintainer();
     Maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(1);
     Maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(30);
@@ -115,11 +113,4 @@ public sealed class ZoneTreeRawEngine : ITransactionEngine
     public void Dispose() { }
   }
 
-  sealed class ValueSerializer : ISerializer<byte[]>
-  {
-    // Benchmark values are nonempty. Preserve null tombstones when reopening.
-    public byte[] Deserialize(Memory<byte> bytes) => bytes.IsEmpty ? null! : bytes.ToArray();
-
-    public Memory<byte> Serialize(in byte[] value) => value;
-  }
 }

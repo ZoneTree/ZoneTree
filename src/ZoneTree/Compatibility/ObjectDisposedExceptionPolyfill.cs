@@ -69,4 +69,5 @@ internal static class ObjectDisposedException
   }
 }
 }
+
 #endif

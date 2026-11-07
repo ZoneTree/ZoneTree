@@ -26,8 +26,9 @@ public static class SvgCharts
 
   // Slots validated for adjacent series in both modes; the engine catalog's order assigns
   // them, so an engine keeps its color when others are filtered out. Each engine family has
-  // its own color range: ZoneTree blues, RocksDB oranges, then SQLite. In ZoneTree, async is
-  // the darker shade of each isolation level's pair. All four stay apart from each other.
+  // its own color range: ZoneTree blues, RocksDB oranges, then SQLite. ZoneTreeCluster
+  // variants append two blue/teal slots, and its standalone variants four greens, so the
+  // existing variants retain their colors.
   const string Style =
       """
       <style>
@@ -35,6 +36,8 @@ public static class SvgCharts
           --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781; --grid: #e1e0d9; --axis: #c3c2b7;
           --s1: #5a40c9; --s2: #0c77a4; --s3: #678afd; --s4: #15c1d5; --s5: #c44206; --s6: #ee8d04; --s7: #ad238a;
           --s8: #253d95; --s9: #2693d5; --s10: #9e5416; --s11: #d35b9f;
+          --s12: #3b5c9e; --s13: #168fa1;
+          --s14: #237a3b; --s15: #5aa832; --s16: #0a8a6a; --s17: #8a9a1c;
           font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
         }
         @media (prefers-color-scheme: dark) {
@@ -42,6 +45,8 @@ public static class SvgCharts
             --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781; --grid: #2c2c2a; --axis: #383835;
             --s1: #6838c1; --s2: #006e9c; --s3: #4283fe; --s4: #0da4a1; --s5: #a53603; --s6: #db7605; --s7: #ad1c81;
             --s8: #8a9fff; --s9: #48b7ef; --s10: #dfae76; --s11: #f79acb;
+            --s12: #7eabf8; --s13: #59c4cf;
+            --s14: #4fbf6d; --s15: #8fd35c; --s16: #36c9a0; --s17: #c9d24a;
           }
         }
         .surface { fill: var(--surface); }
@@ -58,6 +63,10 @@ public static class SvgCharts
         .c1 { stroke: var(--s1); } .c2 { stroke: var(--s2); } .c3 { stroke: var(--s3); } .c4 { stroke: var(--s4); } .c5 { stroke: var(--s5); } .c6 { stroke: var(--s6); } .c7 { stroke: var(--s7); }
         .f8 { fill: var(--s8); } .f9 { fill: var(--s9); } .f10 { fill: var(--s10); } .f11 { fill: var(--s11); }
         .c8 { stroke: var(--s8); } .c9 { stroke: var(--s9); } .c10 { stroke: var(--s10); } .c11 { stroke: var(--s11); }
+        .f12 { fill: var(--s12); } .f13 { fill: var(--s13); }
+        .c12 { stroke: var(--s12); } .c13 { stroke: var(--s13); }
+        .f14 { fill: var(--s14); } .f15 { fill: var(--s15); } .f16 { fill: var(--s16); } .f17 { fill: var(--s17); }
+        .c14 { stroke: var(--s14); } .c15 { stroke: var(--s15); } .c16 { stroke: var(--s16); } .c17 { stroke: var(--s17); }
       </style>
       """;
 

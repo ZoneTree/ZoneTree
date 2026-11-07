@@ -15,6 +15,22 @@ internal abstract class MvccReader<TKey, TValue> : IReadTransaction<TKey, TValue
   List<MvccTransactionIterator<TKey, TValue>> OpenIterators;
 
   /// <summary>
+  /// Guards the bookkeeping of the transaction: its open iterators, and the keys and
+  /// ranges a writing transaction tracks. Storage reads and writes run outside of it.
+  /// </summary>
+  protected readonly Lock BookkeepingLock = new();
+
+  /// <summary>
+  /// The number of running operations, plus <see cref="OperationsStopped"/> once the
+  /// transaction takes no new ones. Ending the transaction waits for the running
+  /// operations, so none of them races with the commit, the rollback or the release
+  /// of the storage iterators.
+  /// </summary>
+  int Operations;
+
+  const int OperationsStopped = 1 << 30;
+
+  /// <summary>
   /// The id of a writing transaction, or 0 for a read-only one. Its versions are
   /// the only ones above the snapshot that the transaction sees.
   /// </summary>
@@ -39,14 +55,58 @@ internal abstract class MvccReader<TKey, TValue> : IReadTransaction<TKey, TValue
   /// </summary>
   internal abstract void EnsureActive();
 
+  /// <summary>
+  /// True until the transaction ends.
+  /// </summary>
+  protected abstract bool IsActive { get; }
+
+  /// <summary>
+  /// Throws for an operation that starts while an active transaction is ending.
+  /// </summary>
+  protected abstract void ThrowEnding();
+
+  /// <summary>
+  /// Starts an operation, which the end of the transaction waits for.
+  /// Throws if the transaction ended or is ending.
+  /// </summary>
+  internal void BeginOperation()
+  {
+    if ((Interlocked.Increment(ref Operations) & OperationsStopped) == 0 && IsActive)
+      return;
+    Interlocked.Decrement(ref Operations);
+    EnsureActive();
+    ThrowEnding();
+  }
+
+  internal void EndOperation() => Interlocked.Decrement(ref Operations);
+
+  /// <summary>
+  /// Rejects new operations and waits for the running ones to end.
+  /// An operation must not stop the operations of its own transaction.
+  /// </summary>
+  protected void StopOperations()
+  {
+    Interlocked.Or(ref Operations, OperationsStopped);
+    var wait = new SpinWait();
+    while (Volatile.Read(ref Operations) != OperationsStopped)
+      wait.SpinOnce();
+  }
+
   internal bool IsVisible(long version) => Tree.IsVisible(version, this);
 
   public bool ContainsKey(in TKey key) => TryGet(in key, out _);
 
   public virtual bool TryGet(in TKey key, out TValue value)
   {
-    EnsureActive();
-    return ReadVisible(in key, out value);
+    BeginOperation();
+    try
+    {
+      return ReadVisible(in key, out value);
+    }
+    finally
+    {
+      EndOperation();
+    }
   }
 
   /// <summary>
@@ -149,28 +209,43 @@ internal abstract class MvccReader<TKey, TValue> : IReadTransaction<TKey, TValue
   MvccTransactionIterator<TKey, TValue> CreateIterator(
       bool reverse, TransactionIteratorOptions options, bool hasBound, TKey bound)
   {
-    EnsureActive();
-    var iterator = new MvccTransactionIterator<TKey, TValue>(
-        this, Tree, Comparer, reverse, options, hasBound, bound);
-    (OpenIterators ??= new()).Add(iterator);
-    return iterator;
+    BeginOperation();
+    try
+    {
+      var iterator = new MvccTransactionIterator<TKey, TValue>(
+          this, Tree, Comparer, reverse, options, hasBound, bound);
+      lock (BookkeepingLock)
+        (OpenIterators ??= new()).Add(iterator);
+      return iterator;
+    }
+    finally
+    {
+      EndOperation();
+    }
   }
 
   internal void OnIteratorDisposed(MvccTransactionIterator<TKey, TValue> iterator)
   {
-    OpenIterators?.Remove(iterator);
+    lock (BookkeepingLock)
+      OpenIterators?.Remove(iterator);
   }
 
   /// <summary>
   /// Releases the storage iterators. Open iterators hold segments that merges
   /// would otherwise delete, and they cannot be used after the transaction ends.
+  /// Called after the operations stopped.
   /// </summary>
   protected void ReleaseReaders()
   {
-    if (OpenIterators == null)
-      return;
-    for (var i = OpenIterators.Count - 1; i >= 0; --i)
-      OpenIterators[i].Dispose();
+    MvccTransactionIterator<TKey, TValue>[] iterators;
+    lock (BookkeepingLock)
+    {
+      if (OpenIterators == null || OpenIterators.Count == 0)
+        return;
+      iterators = OpenIterators.ToArray();
+    }
+    for (var i = iterators.Length - 1; i >= 0; --i)
+      iterators[i].Dispose();
   }
 
   public abstract void Dispose();

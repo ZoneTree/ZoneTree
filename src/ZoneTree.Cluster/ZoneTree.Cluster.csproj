@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>ZoneTree.Cluster</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RootNamespace>ZoneTree.Cluster</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ZoneTree\ZoneTree.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ZoneTree.Cluster.UnitTests" />
+  </ItemGroup>
+
+  <!-- The cluster uses ZoneTree internals, so the package depends on the exact ZoneTree version it was built with. -->
+  <Target Name="PinZoneTreeVersion" AfterTargets="_GetProjectReferenceVersions">
+    <ItemGroup>
+      <_ProjectReferencesWithVersions Update="@(_ProjectReferencesWithVersions)" ProjectVersion="[%(ProjectVersion)]" />
+    </ItemGroup>
+  </Target>
+</Project>

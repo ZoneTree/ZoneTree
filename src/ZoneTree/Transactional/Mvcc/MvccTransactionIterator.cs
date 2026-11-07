@@ -65,7 +65,7 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
 
   int RangeIndex = -1;
 
-  bool isDisposed;
+  int isDisposed;
 
   TKey currentKey;
 
@@ -105,7 +105,19 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
 
   public void Seek(in TKey key)
   {
-    EnsureUsable();
+    BeginUse();
+    try
+    {
+      SeekCore(in key);
+    }
+    finally
+    {
+      Transaction.EndOperation();
+    }
+  }
+
+  void SeekCore(in TKey key)
+  {
     ResetPosition();
     // A forward seek skips transaction ids above every possibly visible version.
     // Reverse iteration starts at the oldest version of the key.
@@ -118,7 +130,19 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
 
   public void SeekFirst()
   {
-    EnsureUsable();
+    BeginUse();
+    try
+    {
+      SeekFirstCore();
+    }
+    finally
+    {
+      Transaction.EndOperation();
+    }
+  }
+
+  void SeekFirstCore()
+  {
     ResetPosition();
     Inner.SeekFirst();
     // The range starts at the start of the key space (the end in reverse)
@@ -128,9 +152,21 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
 
   public bool Next()
   {
-    EnsureUsable();
+    BeginUse();
+    try
+    {
+      return NextCore();
+    }
+    finally
+    {
+      Transaction.EndOperation();
+    }
+  }
+
+  bool NextCore()
+  {
     if (!IsPositioned)
-      SeekFirst();
+      SeekFirstCore();
     var found = IsReverse ? NextReverse() : NextForward();
     if (!found)
     {
@@ -270,13 +306,17 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
   }
 
   /// <summary>
-  /// An iterator of an ended transaction reports the end of the transaction,
-  /// and a disposed one of an active transaction reports its disposal.
+  /// Starts an operation of the transaction. An iterator of an ended transaction
+  /// reports the end of the transaction, and a disposed one of an active transaction
+  /// reports its disposal.
   /// </summary>
-  void EnsureUsable()
+  void BeginUse()
   {
-    Transaction.EnsureActive();
-    ObjectDisposedException.ThrowIf(isDisposed, this);
+    Transaction.BeginOperation();
+    if (Volatile.Read(ref isDisposed) == 0)
+      return;
+    Transaction.EndOperation();
+    ObjectDisposedException.ThrowIf(true, this);
   }
 
   void ResetPosition()
@@ -323,11 +363,14 @@ internal sealed class MvccTransactionIterator<TKey, TValue> : ITransactionIterat
       ReadSet.UpdateReadRange(RangeIndex, in Range);
   }
 
+  /// <summary>
+  /// The end of the transaction disposes its open iterators, possibly while the
+  /// caller disposes one too, so only the first call disposes the storage iterator.
+  /// </summary>
   public void Dispose()
   {
-    if (isDisposed)
+    if (Interlocked.Exchange(ref isDisposed, 1) != 0)
       return;
-    isDisposed = true;
     Inner.Dispose();
     Transaction.OnIteratorDisposed(this);
   }

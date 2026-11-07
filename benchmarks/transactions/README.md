@@ -79,10 +79,11 @@ Add any of these to a command above:
 ```bash
 --scenario rmw-uniform,hot-1                  # these scenarios, not a whole category
 --scenario category:single-key,category:mixed # several categories
---engine zonetree                             # all 4 ZoneTree variants
+--engine zonetree                             # all 6 transactional ZoneTree variants
 --engine rocksdb                              # both RocksDB variants
 --engine sqlite                               # SQLite
 --engine zonetree-mvcc-ser-async,sqlite       # these variants
+--engine dist-mvcc-ser-async,dist-mvcc-ser-sync  # cluster MVCC, AsyncShared and Shared
 --workers 1,2,4,8,16                          # these worker counts
 --keys 100K                                   # fewer keys mean smaller jobs and a shorter run
 --scale 0.1                                   # a tenth of each job
@@ -107,20 +108,20 @@ dotnet run -c Release -- --render-latest
 
 ### How many runs a command starts
 
-Runs = scenarios × worker counts × engines, except that `large-txn` always uses 1 worker. The benchmark prints the total when it starts and counts up as `[1/564]`. The same scenario appears many times in that log, once for each engine and worker count.
+Runs = scenarios × worker counts × engines, except that `large-txn` always uses 1 worker. The benchmark prints the total when it starts and counts up as `[1/846]`. The same scenario appears many times in that log, once for each engine and worker count.
 
 | Category | Scenarios | Runs: `--engine zonetree --workers 1,2,4,8,16` | Runs: all engines, `--workers 1,2,4,8,16` |
 | --- | ---: | ---: | ---: |
-| `single-key` | 3 | 60 | 105 |
-| `contention` | 3 | 60 | 105 |
-| `multi-key` | 5 | 100 | 175 |
-| `mixed` | 2 | 40 | 70 |
-| `snapshot-reads` | 5 | 100 | 175 |
-| `isolation` | 4 | 80 | 140 |
-| `failure` | 2 | 40 | 70 |
-| `large` | 1 | 4 | 7 |
-| `durability` | 4 | 80 | 140 |
-| **All** | **29** | **564** | **987** |
+| `single-key` | 3 | 90 | 135 |
+| `contention` | 3 | 90 | 135 |
+| `multi-key` | 5 | 150 | 225 |
+| `mixed` | 2 | 60 | 90 |
+| `snapshot-reads` | 5 | 150 | 225 |
+| `isolation` | 4 | 120 | 180 |
+| `failure` | 2 | 60 | 90 |
+| `large` | 1 | 6 | 9 |
+| `durability` | 4 | 120 | 180 |
+| **All** | **29** | **846** | **1269** |
 
 ### Good to know
 
@@ -158,6 +159,7 @@ Raw engine IDs are distinct in result files, data directories, charts and refere
 | --- | --- | --- |
 | `zonetree-mvcc-ser-async`, `zonetree-mvcc-ser-sync` | ZoneTree MVCC transactional tree, serializable, `AsyncShared` and `Shared` WAL | A commit fails if a newer committed or prepared transaction wrote a key it wrote or read, or a key inside a range it read. |
 | `zonetree-mvcc-snap-async`, `zonetree-mvcc-snap-sync` | ZoneTree MVCC transactional tree, snapshot, `AsyncShared` and `Shared` WAL | A commit fails if a newer committed or prepared transaction wrote a key it wrote or read for update. Plain reads are not protected. |
+| `dist-mvcc-ser-async`, `dist-mvcc-ser-sync` | `ZoneTreeCluster` API, one `long`/`byte[]` column, `AsyncShared` and `Shared` WAL | Serializable within that column. Measures the cluster API's single-column overhead; does not measure cross-column isolation, atomicity or parallelism. |
 | `rocksdb-optimistic` | `OptimisticTransactionDB`, one snapshot per transaction | A commit fails if a newer commit wrote a key it wrote or read for update. Plain reads and ranges are not protected. |
 | `rocksdb-pessimistic` | `TransactionDB`, key locks, deadlock detection, no snapshot in write transactions | Writes and reads for update lock the key and read the latest value. Plain reads see the latest commit, so they are not repeatable. |
 | `sqlite` | WAL mode, `BEGIN IMMEDIATE` | One write transaction at a time, so writes are serializable and never conflict. Readers keep their snapshot and do not block. |
@@ -168,6 +170,8 @@ Read-only work uses each engine's snapshot: `BeginReadOnlyTransaction` on ZoneTr
 
 The transactional ZoneTree `-async` ids configure `AsyncCompressed`, which the factory promotes to `AsyncShared`; a background writer does the WAL work. The transactional `-sync` ids configure `SyncCompressed`, promoted to `Shared`, where the calling thread appends to a memory-mapped tail. Raw ZoneTree variants retain the private `AsyncCompressed` and `SyncCompressed` WALs. All ZoneTree variants explicitly disable WAL compression in this benchmark. The `-sync` suffix selects the append path; durable scenarios separately require a disk sync before acknowledging their work.
 
+The cluster variants select `AsyncShared` and `Shared` directly. They use the same serializers, segment/cache tuning, disabled WAL compression and background maintenance as the MVCC variants. Each worker binds its transaction's column view once. Existing scenarios provide one keyspace, so the adapter uses one column; dedicated multi-column workloads can be added separately.
+
 RocksDB runs with a 1 GB block cache and bloom filters of 10 bits per key, so reads are not limited by its 8 MB default cache. SQLite's page cache has the same size. `--rocksdb-block-cache-mb` changes it.
 
 ### Durability
@@ -177,6 +181,7 @@ All three engines can make every commit durable before it returns. The `durabili
 | Engine | Durable scenarios |
 | --- | --- |
 | ZoneTree transactional | `TryCommitDurableAsync`: append the commit record, sync the shared WAL, then publish to readers. Concurrent commits share disk syncs. |
+| ZoneTreeCluster (one column) | `IClusterTransaction.TryCommitDurableAsync` waits for the benchmark column's durable commit. This does not test cross-column durability. |
 | ZoneTree raw | `SyncWALAsync` at each scenario boundary; raw writes do not provide multi-key transaction atomicity. |
 | RocksDB | `sync=true`, with RocksDB's group commit. |
 | SQLite | `synchronous=FULL`. |
@@ -332,7 +337,7 @@ Run `--help` for the full list.
 
 ## Adding an engine
 
-Implement `ITransactionEngine` in `src/Engines` and add it to `EngineCatalog.All`, next to its family. Its position sets its report column and chart color, and the charts have seven slots today, so an eighth engine needs a new validated color in `SvgCharts.cs`, from its family's color range. Reads and writes report conflicts through `HasConflict` instead of throwing, so the scenarios work unchanged.
+Implement `ITransactionEngine` in `src/Engines` and append it to `EngineCatalog.All` to retain existing chart colors. Its position sets its report column and chart color; charts currently have thirteen slots. Add a color in `SvgCharts.cs` for each new slot, from its family's color range. Reads and writes report conflicts through `HasConflict` instead of throwing, so the scenarios work unchanged.
 
 ## Adding a scenario
 

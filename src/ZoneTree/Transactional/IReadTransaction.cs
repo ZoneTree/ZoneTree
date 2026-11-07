@@ -4,7 +4,9 @@ namespace ZoneTree.Transactional;
 /// A transaction that reads a consistent snapshot of a transactional ZoneTree.
 /// </summary>
 /// <remarks>
-/// It reads the snapshot taken when it began. It is not thread-safe.
+/// It reads the snapshot taken when it began. Its methods can be called concurrently,
+/// but each iterator is used by one caller at a time. Ending the transaction waits for
+/// its running operations; one that starts after the transaction began to end throws.
 /// Dispose it when its work is done: merges keep the versions an open transaction can read.
 /// </remarks>
 /// <typeparam name="TKey">The key type.</typeparam>
