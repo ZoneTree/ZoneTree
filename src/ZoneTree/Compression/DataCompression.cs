@@ -35,6 +35,10 @@ public static class DataCompression
   public static Memory<byte> Decompress(
       CompressionMethod method, Memory<byte> compressedBytes, int decompressedLength)
   {
+    // Empty bytes decompress to empty bytes with every method. LZ4 compresses them to
+    // empty bytes, which its decoder rejects.
+    if (compressedBytes.Length == 0 && decompressedLength == 0)
+      return Array.Empty<byte>();
     return method switch
     {
       CompressionMethod.LZ4 => LZ4DataCompression.Decompress(compressedBytes, decompressedLength),
@@ -49,6 +53,10 @@ public static class DataCompression
   public static void DecompressInto(
       CompressionMethod method, Memory<byte> compressedBytes, Memory<byte> destination)
   {
+    // Empty bytes decompress to empty bytes with every method. LZ4 compresses them to
+    // empty bytes, which its decoder rejects.
+    if (compressedBytes.Length == 0 && destination.Length == 0)
+      return;
     switch (method)
     {
       case CompressionMethod.LZ4:

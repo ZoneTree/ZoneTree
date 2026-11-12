@@ -1072,6 +1072,46 @@ public sealed class PowerLossRecoveryTests
     Assert.That(MissingKeys(reopened, (blockCount - 1) * 2048 / 28), Is.Empty);
   }
 
+  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  public async Task NewWalWithoutItsFirstSectorIsNotReadAsAReleasedLZ4Wal(WriteAheadLogMode mode)
+  {
+    const int count = 200;
+    var provider = new InMemoryFileStreamProvider();
+    using (SmallBlockFactory(provider, mode).OpenOrCreate())
+    {
+    }
+    // First power loss: the size of the new main file persisted without its
+    // metadata, and the tail kept its first header without its allocation.
+    var mainPath = MainWalPath(provider);
+    Overwrite(provider, mainPath, new byte[1]);
+    Overwrite(provider, mainPath + ".tail", new byte[2 * sizeof(int)]);
+    using (var tree = SmallBlockFactory(provider, mode).Open())
+    {
+      UpsertKeys(tree, 0, count);
+      await tree.SyncWALAsync();
+    }
+
+    // Second power loss: the first sector of the main file is lost again, and the
+    // tail keeps its old size with the new header, which names a later block.
+    // Zero is the metadata of a released LZ4 WAL, whose tail has no checkpoints.
+    var main = provider.ReadAllBytes(mainPath);
+    Assert.That(main.Length, Is.GreaterThan(SectorSize));
+    Array.Clear(main, 0, SectorSize);
+    Overwrite(provider, mainPath, main);
+    var tailHeader = provider.ReadAllBytes(mainPath + ".tail")[..(2 * sizeof(int))];
+    Assert.That(BitConverter.ToInt32(tailHeader, 0), Is.GreaterThan(1));
+    Overwrite(provider, mainPath + ".tail", tailHeader);
+
+    using (var tree = SmallBlockFactory(provider, mode).Open())
+    {
+      UpsertKeys(tree, 0, count);
+      await tree.SyncWALAsync();
+    }
+    using var reopened = SmallBlockFactory(provider, mode).Open();
+    Assert.That(MissingKeys(reopened, count), Is.Empty);
+  }
+
   [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
