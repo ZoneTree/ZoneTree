@@ -2,10 +2,10 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>disable</Nullable>
-    <LangVersion>14.0</LangVersion>
+    <LangVersion>15.0</LangVersion>
     <RootNamespace>ZoneTree.ClusterCrashWorker</RootNamespace>
   </PropertyGroup>
   <ItemGroup>

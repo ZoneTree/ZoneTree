@@ -131,7 +131,7 @@ internal sealed class ClusterCatalog : IDisposable
 
   /// <summary>Decodes the records whose keys start with a prefix, in key order.</summary>
   static List<T> ReadPrefix<T>(IReadTransaction<string, Memory<byte>> read, string prefix,
-      Func<Memory<byte>, T> decode)
+      Func<ReadOnlyMemory<byte>, T> decode)
   {
     var records = new List<T>();
     using var iterator = read.CreateIterator();

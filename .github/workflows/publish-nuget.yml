@@ -14,13 +14,14 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
+            11.0.x
             10.0.x
             9.0.x
             8.0.x
@@ -40,8 +41,8 @@ jobs:
       - name: Pack
         run: dotnet pack ZoneTree/ZoneTree.csproj --no-build --configuration Release
         working-directory: ./src
-      - name: Log in to nuget.org
-        id: login
+      - name: NuGet login
+        id: nuget-login
         uses: NuGet/login@v1
         with:
           user: koculu

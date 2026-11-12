@@ -402,7 +402,7 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
     return JsonSerializer.Deserialize<ZoneTreeMeta>(bytes, ZoneTreeMetaSourceGenerationContext.Default.ZoneTreeMeta);
   }
 
-  private static ZoneTreeMeta JsonDeserialize(Span<byte> bytes)
+  private static ZoneTreeMeta JsonDeserialize(ReadOnlySpan<byte> bytes)
   {
     return JsonSerializer.Deserialize<ZoneTreeMeta>(bytes, ZoneTreeMetaSourceGenerationContext.Default.ZoneTreeMeta);
   }

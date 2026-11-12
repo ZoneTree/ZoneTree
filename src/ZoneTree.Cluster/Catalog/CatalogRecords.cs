@@ -101,7 +101,7 @@ internal static class CatalogRecords
     writer.Write(record.NextColumnId);
   });
 
-  internal static ClusterRecord DecodeCluster(Memory<byte> value) => Read(value, reader =>
+  internal static ClusterRecord DecodeCluster(ReadOnlyMemory<byte> value) => Read(value, reader =>
   {
     var format = reader.ReadInt32();
     if (format != FormatVersion)
@@ -125,7 +125,7 @@ internal static class CatalogRecords
     }
   });
 
-  internal static DomainRecord DecodeDomain(Memory<byte> value) => Read(value, reader =>
+  internal static DomainRecord DecodeDomain(ReadOnlyMemory<byte> value) => Read(value, reader =>
   {
     var id = reader.ReadInt64();
     var name = reader.ReadString();
@@ -154,7 +154,7 @@ internal static class CatalogRecords
     writer.Write(record.DroppedEpoch);
   });
 
-  internal static ColumnRecord DecodeColumn(Memory<byte> value) => Read(value, reader =>
+  internal static ColumnRecord DecodeColumn(ReadOnlyMemory<byte> value) => Read(value, reader =>
   {
     var id = reader.ReadInt64();
     var name = reader.ReadString();
@@ -190,7 +190,7 @@ internal static class CatalogRecords
     return stream.ToArray();
   }
 
-  static T Read<T>(Memory<byte> value, Func<BinaryReader, T> read)
+  static T Read<T>(ReadOnlyMemory<byte> value, Func<BinaryReader, T> read)
   {
     using var stream = new MemoryStream(value.ToArray(), writable: false);
     using var reader = new BinaryReader(stream, Encoding.UTF8);
