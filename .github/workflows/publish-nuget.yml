@@ -47,5 +47,5 @@ jobs:
         with:
           user: koculu
       - name: Publish the package to nuget.org
-        run: dotnet nuget push ZoneTree/bin/Release/*.nupkg --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json
+        run: dotnet nuget push ZoneTree/bin/Release/*.nupkg -k "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" -s https://api.nuget.org/v3/index.json
         working-directory: ./src
