@@ -1,5 +1,8 @@
 name: Publish Nuget Package
 
+# Manual: Actions > Publish Nuget Package > Run workflow. Publishes ZoneTree at the Version in
+# src/ZoneTree/Directory.Build.props, then tags the commit and creates a GitHub release.
+# Any failure stops the run: nothing is tagged, released or uploaded unless nuget.org accepted the package.
 on:
   workflow_dispatch:
     inputs:
@@ -7,45 +10,97 @@ on:
         description: 'When you press run workflow, the nuget package will be published.'
         default: 'I understand.'
 
-# Trusted publishing: NuGet/login exchanges the workflow's OIDC token for a short-lived API key.
 permissions:
+  contents: write
+  # Trusted publishing: nuget.org trusts this workflow's GitHub OIDC token, so no API key is stored.
   id-token: write
-  contents: read
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-26.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
-            11.0.x
-            10.0.x
-            9.0.x
-            8.0.x
-            7.0.x
             6.0.x
-      - name: Display dotnet version
-        run: dotnet --version
-      - name: Restore dependencies
-        working-directory: ./src
-        run: dotnet restore
+            7.0.x
+            8.0.x
+            9.0.x
+            10.0.x
+            11.0.x
+
+      # Refuses a version that is already tagged or already on nuget.org, before anything is built.
+      - name: Version
+        id: version
+        shell: bash
+        run: |
+          raw=$(dotnet msbuild src/ZoneTree/ZoneTree.csproj -getProperty:Version)
+          product=$(dotnet msbuild src/ZoneTree/ZoneTree.csproj -getProperty:ProductVersion)
+          if [ "$raw" != "$product" ]; then
+            echo "::error::Version ($raw) and ProductVersion ($product) differ in src/ZoneTree/Directory.Build.props."
+            exit 1
+          fi
+          # NuGet normalizes 2.1.5.0 to 2.1.5, in the package file name and on nuget.org.
+          version=$raw
+          if [[ $raw =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.0$ ]]; then
+            version=${BASH_REMATCH[1]}
+          fi
+          echo "Publishing ZoneTree $version (Version $raw)"
+          if git ls-remote --exit-code --tags origin "refs/tags/release-v$version" > /dev/null; then
+            echo "::error::release-v$version is already tagged. Raise Version in src/ZoneTree/Directory.Build.props."
+            exit 1
+          fi
+          # 200 lists the published versions; 404 means nothing is published yet.
+          status=$(curl -sS --retry 3 -o versions.json -w '%{http_code}' https://api.nuget.org/v3-flatcontainer/zonetree/index.json)
+          if [ "$status" != "200" ] && [ "$status" != "404" ]; then
+            echo "::error::Could not read the published versions from nuget.org (HTTP $status)."
+            exit 1
+          fi
+          if [ "$status" = "200" ] && grep -qi "\"${version}\"" versions.json; then
+            echo "::error::ZoneTree $version is already on nuget.org. Raise Version in src/ZoneTree/Directory.Build.props."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Build
-        run: dotnet build --configuration Release --no-restore
+        run: dotnet build --configuration Release
         working-directory: ./src
+
       - name: Test
         run: dotnet test --no-build --configuration Release --verbosity normal
         working-directory: ./src
+
       - name: Pack
-        run: dotnet pack ZoneTree/ZoneTree.csproj --no-build --configuration Release
+        run: dotnet pack ZoneTree/ZoneTree.csproj --no-build --configuration Release -o ../artifacts/packages
         working-directory: ./src
+
+      # Exchanges the OIDC token for a temporary API key (valid for an hour), per the trusted publishing
+      # policy on nuget.org. user is the nuget.org profile name of the policy's creator.
       - name: NuGet login
         id: nuget-login
         uses: NuGet/login@v1
         with:
           user: koculu
+
+      # No --skip-duplicate: a package nuget.org refuses (a conflict included) fails the run. The symbols
+      # package (.snupkg) next to it is pushed along with it.
       - name: Publish the package to nuget.org
-        run: dotnet nuget push ZoneTree/bin/Release/*.nupkg -k "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" -s https://api.nuget.org/v3/index.json
-        working-directory: ./src
+        run: dotnet nuget push "artifacts/packages/ZoneTree.${{ steps.version.outputs.version }}.nupkg" -k "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" -s https://api.nuget.org/v3/index.json
+
+      - name: Tag and GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "release-v${{ steps.version.outputs.version }}" artifacts/packages/*
+          --target "$GITHUB_SHA"
+          --title "ZoneTree ${{ steps.version.outputs.version }}"
+          --generate-notes
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages
+          path: artifacts/packages/
