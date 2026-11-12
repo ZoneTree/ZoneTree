@@ -115,7 +115,7 @@ public sealed class InMemoryFileStreamProvider : IFileStreamProvider
 
   static string GetParentDirectory(string path)
   {
-    var index = path.LastIndexOf('/');
+    var index = path.AsSpan().LastIndexOf('/');
     return index <= 0 ? "" : path[..index];
   }
 

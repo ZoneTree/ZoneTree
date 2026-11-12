@@ -4,6 +4,7 @@
     <PackageId>ZoneTree</PackageId>
     <PackageReadmeFile>README-NUGET.md</PackageReadmeFile>
     <RootNamespace>ZoneTree</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
   <ItemGroup>

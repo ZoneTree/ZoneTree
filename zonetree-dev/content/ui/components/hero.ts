@@ -107,7 +107,7 @@ export function defineStorageHero() {
         >Explore the source</BtnLink>
     </div>
     <div class="zt-facts">
-      <span>.NET 6–10</span><span>Open source · MIT</span><span>Runs in your process</span>
+      <span>.NET 6-11</span><span>Open source · MIT</span><span>Runs in your process</span>
     </div>
   </div>
   <figure class="zt-engine" aria-labelledby="zt-engine-caption">

@@ -37,7 +37,7 @@ public sealed class ObjectStorageLiveBackupProvider : ILiveBackupStore, ILiveBac
     Storage = storage ?? throw new ArgumentNullException(nameof(storage));
     options ??= new ObjectStorageLiveBackupOptions();
     var prefix = options.Prefix?.TrimEnd('/');
-    if (string.IsNullOrWhiteSpace(prefix) || prefix.StartsWith('/') || prefix.Contains('\\', StringComparison.Ordinal) ||
+    if (string.IsNullOrWhiteSpace(prefix) || prefix[0] == '/' || prefix.Contains('\\', StringComparison.Ordinal) ||
         prefix.Split('/').Any(x => x is "" or "." or ".."))
       throw new ArgumentException("Prefix must be a nonempty relative object namespace.", nameof(options));
     if (options.KeepLastGenerations is <= 0 || options.MaximumMetadataBytes < 1024)

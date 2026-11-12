@@ -110,7 +110,18 @@ public sealed class MvccZoneTree<TKey, TValue> :
     internal readonly TaskCompletionSource<bool> Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     internal bool Ready = ready;
     internal bool Synced;
+    // The replication of the commit, which it waits for before it is published.
+    internal Task Replication;
+    // Whether the commit waits until it is durable, which a replicated tree's replicator makes it.
+    internal bool Durable;
   }
+
+  /// <summary>
+  /// Replicates the commits of a tree whose replicas another log keeps; null for a tree on its own.
+  /// Set before the first commit. Every commit with writes then waits for its replication before it is
+  /// published, as a durable commit waits for its sync.
+  /// </summary>
+  internal IMvccCommitReplicator<TKey> CommitReplicator { get; set; }
 
   readonly Lock AutoSyncLock = new();
 
@@ -235,7 +246,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
           "A transactional tree deletes keys only with transactions");
   }
 
-  static ZoneTreeOptions<VersionedKey<TKey>, VersionedValue<TValue>> CreateStorageOptions(
+  internal static ZoneTreeOptions<VersionedKey<TKey>, VersionedValue<TValue>> CreateStorageOptions(
       ZoneTreeOptions<TKey, TValue> options,
       StrongBox<MvccZoneTree<TKey, TValue>> owner)
   {
@@ -550,6 +561,21 @@ public sealed class MvccZoneTree<TKey, TValue> :
     var hasConflict = false;
     long commitTimestamp = 0;
     PendingCommit pending = null;
+    // What the commit wrote is read before the commit lock, which covers no I/O.
+    var replicator = CommitReplicator;
+    object captured = null;
+    if (replicator != null)
+    {
+      try
+      {
+        captured = replicator.Capture(transaction.TransactionId, transaction.GetWrittenKeys());
+      }
+      catch
+      {
+        Rollback(transaction);
+        throw;
+      }
+    }
     lock (CommitLock)
     {
       try
@@ -557,7 +583,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
         if (CommitFailure != null)
           throw new TransactionalTreeCommitsStoppedException(CommitFailure);
         // A commit that will wait for the worker needs it before the commit point.
-        if (durable || PendingCommits.Count != 0)
+        if (durable || PendingCommits.Count != 0 || replicator != null)
           EnsureCommitSyncThread();
         // Prepared commits reserve their keys too, even while invisible during sync.
         hasConflict =
@@ -574,10 +600,15 @@ public sealed class MvccZoneTree<TKey, TValue> :
           // before it conflict. They are pruned like the keys of a commit.
           ConflictIndex.Add(keys, commitTimestamp);
           LastPreparedCommitTimestamp = commitTimestamp;
-          if (durable || PendingCommits.Count != 0)
-            pending = new PendingCommit(transaction, !durable);
-          // The commit point: a single record, durable with the next WAL sync.
-          Storage.ForceDelete(VersionedKey<TKey>.TransactionStatus(transaction.TransactionId));
+          if (durable || PendingCommits.Count != 0 || replicator != null)
+            pending = new PendingCommit(transaction, !durable && replicator == null) { Durable = durable };
+          // The commit point: a single record, durable with the next WAL sync. A replicated tree's
+          // replication writes it on every replica once they hold the commit, so a commit its
+          // replicas lack never looks committed here. Replications start in commit order, under the lock.
+          if (replicator == null)
+            Storage.ForceDelete(VersionedKey<TKey>.TransactionStatus(transaction.TransactionId));
+          else
+            pending.Replication = replicator.Replicate(captured, commitTimestamp);
         }
       }
       catch
@@ -676,6 +707,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
       while (true)
       {
         PendingCommit covered;
+        PendingCommit[] replicating = null;
         lock (CommitLock)
         {
           if (PendingCommits.Count == 0)
@@ -685,12 +717,23 @@ public sealed class MvccZoneTree<TKey, TValue> :
             return;
           }
           covered = LastPendingCommit;
+          if (CommitReplicator != null)
+            replicating = PendingCommits.ToArray();
         }
         // One worker batches all prepared records preceding this sync. The
         // commit lock is free during I/O, and cancelling a caller cannot stop it.
         // Blocking keeps the worker off the thread pool: the WAL completes the sync
         // on this thread or on its writer thread.
         Storage.SyncWALAsync().GetAwaiter().GetResult();
+        // The covered commits are published once their replications completed too, and once durable ones
+        // are as durable as the replicas make them.
+        if (replicating != null)
+        {
+          foreach (var item in replicating)
+            item.Replication?.GetAwaiter().GetResult();
+          if (Array.Exists(replicating, static item => item.Durable))
+            CommitReplicator.SyncAsync().GetAwaiter().GetResult();
+        }
         lock (CommitLock)
         {
           foreach (var item in PendingCommits)
@@ -932,6 +975,9 @@ public sealed class MvccZoneTree<TKey, TValue> :
     // The sync covers every commit record written before the call.
     var syncedCommitTimestamp = LastCommitTimestamp;
     await Storage.SyncWALAsync(cancellationToken).ConfigureAwait(false);
+    // A replicated tree's commits are as durable as its replicas make them.
+    if (CommitReplicator is { } replicator)
+      await replicator.SyncAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
     if (!HasDurableWriteAheadLog)
       return;
     lock (StateLock)
