@@ -101,7 +101,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       bool includeInMemorySegments)
   {
     if (moveMutableSegmentForward && includeInMemorySegments)
-      MoveMutableSegmentForward();
+      MoveMutableSegmentForward(MutableSegment);
 
     BackupSegmentCollection result = null;
     try
@@ -274,7 +274,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
     if (iteratorType == IteratorType.Snapshot)
     {
-      MoveMutableSegmentForward();
+      MoveMutableSegmentForward(MutableSegment);
       iterator.Refresh();
       iterator.WaitUntilReadOnlySegmentsBecomeFullyFrozen();
     }
@@ -334,7 +334,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
     if (iteratorType == IteratorType.Snapshot)
     {
-      MoveMutableSegmentForward();
+      MoveMutableSegmentForward(MutableSegment);
       iterator.Refresh();
       iterator.WaitUntilReadOnlySegmentsBecomeFullyFrozen();
     }

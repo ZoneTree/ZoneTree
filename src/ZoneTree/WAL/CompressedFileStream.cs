@@ -204,13 +204,15 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
 
     try
     {
-      if (FileStream.Length > 0)
+      if (FileStream.Length > 0 && !IsFirstSectorUnwritten())
       {
         CompressionMethod = ReadMetaData(out HasLegacyBlocks);
         MainFileMayBeUnsynced = true;
       }
       else
       {
+        // Recovery drops what follows an unwritten first sector, or reports
+        // it as corruption when a checkpoint tells that it was synced.
         CompressionMethod = compressionMethod;
         WriteMetaData();
       }
@@ -229,6 +231,31 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
     TailWriterJobInterval = tailWriterJobInterval;
     if (enableTailWriterJob)
       TailWriterTask = StartTailWriter();
+  }
+
+  /// <summary>
+  /// Tells whether a power loss kept the size of a new main file without its first
+  /// sector, which then reads as zeros. The first disk sync of a main file covers
+  /// that sector, so no sync completed and the file starts over as a new one.
+  /// </summary>
+  /// <remarks>
+  /// Zero is also the metadata of a released LZ4 file. Reading these zeros as its
+  /// block headers would keep empty blocks that were never written. A released
+  /// file with a block that holds records has a nonzero byte in its first sector,
+  /// even after an empty block of an older version. A released file without such
+  /// a block keeps no records in its main file, so it can start over too.
+  /// </remarks>
+  bool IsFirstSectorUnwritten()
+  {
+    Span<byte> sector = stackalloc byte[SectorSize];
+    FileStream.Position = 0;
+    var length = ReadMainFileAtMost(sector);
+    for (var i = 0; i < length; ++i)
+    {
+      if (sector[i] != 0)
+        return false;
+    }
+    return true;
   }
 
   CompressionMethod ReadMetaData(out bool hasLegacyBlocks)

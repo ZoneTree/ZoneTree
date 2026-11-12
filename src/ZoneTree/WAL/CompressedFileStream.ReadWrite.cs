@@ -54,7 +54,7 @@ public sealed unsafe partial class CompressedFileStream
         throw new InvalidDataException("The WAL block header is invalid.");
       return new(index, compressedLength, length, checksum, true);
     }
-    // Released 2.0.8 and earlier files retain their original prefix. Migration
+    // Released 2.0.9 and earlier files retain their original prefix. Migration
     // appends only framed blocks, so there is no legacy writer or sync path.
     if (!HasLegacyBlocks)
       throw new InvalidDataException("The WAL block header is invalid.");

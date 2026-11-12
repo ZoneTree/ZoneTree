@@ -38,8 +38,8 @@ public sealed class MutableSegmentRotationTests
     var files = new PowerLossFileStreamProvider();
     using var tree = Factory(files, mode).Create();
     for (var key = 0; key < 10; ++key) tree.Upsert(key, key + 1);
+    // The move waits for the recording of the next segment.
     tree.Maintenance.MoveMutableSegmentForward();
-    Engine(tree).WaitForNextMutableSegment();
     for (var key = 10; key < 20; ++key) tree.Upsert(key, key + 1);
     // A metadata save after the next segment was recorded keeps it recorded.
     if (saveMetadata)
@@ -53,14 +53,18 @@ public sealed class MutableSegmentRotationTests
   }
 
   [Test]
-  public void AMoveDoesNotWaitForTheMetaWal()
+  public void AWriteThatMovesTheSegmentDoesNotWaitForTheMetaWal()
   {
+    const int segmentSize = 2;
     var files = new PowerLossFileStreamProvider();
-    using var tree = Factory(files, WriteAheadLogMode.Shared).Create();
-    tree.Upsert(0, 1);
-    tree.Maintenance.MoveMutableSegmentForward();
+    using var tree = Factory(files, WriteAheadLogMode.Shared)
+        .Configure(options => options.AllowUnsafeOptionValues = true)
+        .SetMutableSegmentMaxItemCount(segmentSize)
+        .Create();
+    // The third write moves the first full segment and records the next one itself.
+    for (var key = 0; key < segmentSize + 1; ++key) tree.Upsert(key, key + 1);
     Engine(tree).WaitForNextMutableSegment();
-    tree.Upsert(1, 2);
+    tree.Upsert(3, 4);
     using var metaWalSync = new ManualResetEventSlim();
     files.BeforeDiskSync = path =>
     {
@@ -69,10 +73,11 @@ public sealed class MutableSegmentRotationTests
     };
     try
     {
-      // The meta WAL cannot sync, yet the move completes and writes go on.
-      var move = Task.Run(tree.Maintenance.MoveMutableSegmentForward);
-      Assert.That(move.Wait(TimeSpan.FromSeconds(10)), Is.True);
-      tree.Upsert(2, 3);
+      // The meta WAL cannot sync, yet the write moves the full segment and writes go on.
+      var write = Task.Run(() => tree.Upsert(4, 5));
+      Assert.That(write.Wait(TimeSpan.FromSeconds(10)), Is.True);
+      Assert.That(tree.Maintenance.ReadOnlySegments, Has.Count.EqualTo(2));
+      tree.Upsert(5, 6);
     }
     finally
     {
@@ -80,7 +85,49 @@ public sealed class MutableSegmentRotationTests
       files.BeforeDiskSync = null;
     }
     Engine(tree).WaitForNextMutableSegment();
+    AssertRecords(tree, 6);
+  }
+
+  [Test]
+  public void AMaintenanceMoveWaitsForTheRecordingOfTheNextSegment()
+  {
+    const string metaWalPath = "data/0.meta.wal";
+    var files = new PowerLossFileStreamProvider();
+    using var tree = Factory(files, WriteAheadLogMode.Shared).Create();
+    tree.Upsert(0, 1);
+    tree.Maintenance.MoveMutableSegmentForward();
+    var recorded = files.ReadAllBytes(metaWalPath).Length;
+    tree.Upsert(1, 2);
+    using var metaWalSync = new ManualResetEventSlim();
+    files.BeforeDiskSync = path =>
+    {
+      if (path.Contains("meta", StringComparison.Ordinal))
+        metaWalSync.Wait();
+    };
+    Task move;
+    try
+    {
+      // The move publishes the recorded segment at once, so writes go on. The call
+      // itself returns only after the segment that follows is recorded too.
+      move = Task.Run(tree.Maintenance.MoveMutableSegmentForward);
+      Assert.That(
+          SpinWait.SpinUntil(() => tree.Maintenance.ReadOnlySegments.Count == 2, TimeSpan.FromSeconds(10)),
+          Is.True);
+      tree.Upsert(2, 3);
+      Assert.That(move.Wait(TimeSpan.FromMilliseconds(200)), Is.False);
+    }
+    finally
+    {
+      metaWalSync.Set();
+      files.BeforeDiskSync = null;
+    }
+    Assert.That(move.Wait(TimeSpan.FromSeconds(10)), Is.True);
+    Assert.That(files.ReadAllBytes(metaWalPath), Has.Length.GreaterThan(recorded));
     AssertRecords(tree, 3);
+
+    // The metadata is saved without the timing of the recording: the meta WAL is empty.
+    tree.Maintenance.SaveMetaData();
+    Assert.That(files.ReadAllBytes(metaWalPath), Is.Empty);
   }
 
   [TestCase(WriteAheadLogMode.SyncCompressed)]

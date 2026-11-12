@@ -125,10 +125,10 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
   public void MoveMutableSegmentForward()
   {
-    lock (AtomicUpdateLock)
-    {
-      MoveMutableSegmentForward(MutableSegment);
-    }
+    // Only writers move without waiting for the recording of the next mutable segment.
+    // The move raises its event outside the lock, so a handler can call this method.
+    MoveMutableSegmentForward(MutableSegment);
+    WaitForNextMutableSegment();
   }
 
   public Thread StartMergeOperation()

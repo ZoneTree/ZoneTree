@@ -877,6 +877,129 @@ public sealed class CompressedFileStreamTests
         SilentTestLogger.Instance, provider, "torn-format", blockSize, false, 0, method, 0);
   }
 
+  // Only the size of the metadata byte, of the first sector, or of the whole file with
+  // its later sectors persisted.
+  [TestCase(1)]
+  [TestCase(512)]
+  [TestCase(int.MaxValue)]
+  public void MainFileWithoutItsFirstSectorStartsOverAsANewFile(int persistedLength)
+  {
+    const int sectorSize = 512;
+    const byte metadata = (byte)CompressionMethod.Zstd | WalBlockFrame.MetadataFlag;
+    var provider = new InMemoryFileStreamProvider();
+    using (var stream = Open())
+    {
+      stream.Write(Content(3 * BlockSize + 100));
+      stream.SyncToDisk();
+    }
+    var main = provider.ReadAllBytes("unwritten");
+    Assert.That(main[0], Is.EqualTo(metadata));
+    Assert.That(main.Length, Is.GreaterThan(2 * sectorSize));
+    // A power loss before the first disk sync completes can keep the size of the
+    // main file without its first sector. Zero is the metadata of a released LZ4
+    // file, and the tail kept an old size without the checkpoints: only its
+    // header persisted, which names a later block.
+    Array.Clear(main, 0, sectorSize);
+    Put("unwritten", main[..Math.Min(persistedLength, main.Length)]);
+    var tailHeader = provider.ReadAllBytes("unwritten.tail")[..(2 * sizeof(int))];
+    Assert.That(BitConverter.ToInt32(tailHeader, 0), Is.GreaterThan(1));
+    Put("unwritten.tail", tailHeader);
+
+    var content = Content(BlockSize + 100, 2);
+    using (var recovered = Open())
+    {
+      Assert.That(ReadAll(recovered), Is.Empty);
+      recovered.Write(content);
+      recovered.SyncToDisk();
+    }
+    Assert.That(provider.ReadAllBytes("unwritten")[0], Is.EqualTo(metadata));
+    using var reopened = Open();
+    Assert.That(ReadAll(reopened), Is.EqualTo(content));
+
+    CompressedFileStream Open() => new(
+        SilentTestLogger.Instance, provider, "unwritten", BlockSize, false, 0, CompressionMethod.Zstd, 0);
+
+    void Put(string path, byte[] bytes)
+    {
+      using var file = provider.CreateFileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+      file.Write(bytes);
+    }
+  }
+
+  [Test]
+  public void ReleasedLZ4FileWithOnlyAnEmptyBlockKeepsTheRecordsOfItsTail()
+  {
+    var provider = new InMemoryFileStreamProvider();
+    // A released LZ4 main file: the metadata zero and an empty block 0 that older
+    // versions could commit. Its records are in the legacy tail, which names block 1.
+    var records = Content(100);
+    Put("released", new byte[1 + 3 * sizeof(int)]);
+    Put("released.tail", BitConverter.GetBytes(1)
+        .Concat(BitConverter.GetBytes(records.Length)).Concat(records).ToArray());
+
+    var appended = Content(BlockSize + 100, 2);
+    using (var stream = Open())
+    {
+      Assert.That(ReadAll(stream), Is.EqualTo(records));
+      stream.Write(appended);
+      stream.SyncToDisk();
+    }
+    using var reopened = Open();
+    Assert.That(ReadAll(reopened), Is.EqualTo(records.Concat(appended).ToArray()));
+
+    CompressedFileStream Open() => new(
+        SilentTestLogger.Instance, provider, "released", BlockSize, false, 0, CompressionMethod.LZ4, 0);
+
+    void Put(string path, byte[] bytes)
+    {
+      using var file = provider.CreateFileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+      file.Write(bytes);
+    }
+  }
+
+  [Test]
+  public void ReleasedEmptyBlockBeforeABlockSurvivesTheMigration(
+      [Values(CompressionMethod.None, CompressionMethod.LZ4)] CompressionMethod method,
+      [Values] bool loseCheckpoint)
+  {
+    var provider = new InMemoryFileStreamProvider();
+    // A released main file: an empty block 0 that older versions could commit, then
+    // block 1, and a legacy tail that names block 2.
+    var records = Content(1680);
+    var payload = Compression.DataCompression.Compress(method, 0, records).ToArray();
+    Put("released", new[] { (byte)method }
+        .Concat(new[] { 0, 0, 0, 1, payload.Length, records.Length }.SelectMany(BitConverter.GetBytes))
+        .Concat(payload).ToArray());
+    Put("released.tail", BitConverter.GetBytes(2).Concat(new byte[sizeof(int)]).ToArray());
+
+    var appended = Content(BlockSize + 100, 2);
+    using (var stream = Open())
+    {
+      Assert.That(ReadAll(stream), Is.EqualTo(records));
+      stream.Write(appended);
+      stream.SyncToDisk();
+    }
+    if (loseCheckpoint)
+    {
+      // The checkpoint is only a recovery hint, and a power loss may not keep it.
+      var tail = provider.ReadAllBytes("released.tail");
+      Array.Clear(tail, tail.Length - WalSyncCheckpoint.RegionSize,
+          WalSyncCheckpoint.RegionSize - WalTailFormat.DescriptorSize);
+      Put("released.tail", tail);
+    }
+    using var reopened = Open();
+    Assert.That(ReadAll(reopened), Is.EqualTo(records.Concat(appended).ToArray()));
+
+    CompressedFileStream Open() => new(
+        SilentTestLogger.Instance, provider, "released", 2048, false, 0, method, 0);
+
+    void Put(string path, byte[] bytes)
+    {
+      using var file = provider.CreateFileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+      file.Write(bytes);
+    }
+  }
+
   [Test]
   public void TailFormatDescriptorSurvivesCheckpointClearing([Values] Tail tail)
   {

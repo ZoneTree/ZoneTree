@@ -97,6 +97,17 @@ public sealed unsafe partial class CompressedFileStream
       WriteTailHeader(TailBlock.BlockIndex, 0);
       SyncTailFile();
     }
+    else if (TailBlock.BlockIndex > lastBlockIndex + 1)
+    {
+      // A legacy tail keeps its records when the main file holds fewer blocks, such as a
+      // released empty block that recovery drops. Framed blocks follow the main file, so
+      // the tail continues it. A single header write keeps the old or the new index.
+      var length = TailBlock.Length;
+      TailBlock = new DecompressedBlock(lastBlockIndex + 1,
+          TailBlock.GetBytes(0, length).ToArray(), CompressionMethod, CompressionLevel);
+      WriteTailHeader(TailBlock.BlockIndex, length);
+      SyncTailFile();
+    }
     // The tail file is the only other copy of a discarded tail, and writing the
     // new tail must not lose it while the block is not known to be on the disk.
     // Bytes that a truncation removed must not come back under new blocks.
@@ -249,8 +260,13 @@ public sealed unsafe partial class CompressedFileStream
       {
         var header = ReadMainBlockHeader();
         var end = position + header.Size + (long)header.CompressedLength;
+        // Framed blocks are never empty, so an empty block is a legacy header. Released
+        // versions could commit an empty block, with the next index, before the block that
+        // the tail names. Anything else is a header whose sectors did not persist: a torn
+        // legacy header, or the zeros of a framed header. Migration appends only framed
+        // blocks, so a legacy block never follows a framed one.
         var tornEmptyBlock = header.CompressedLength == 0 && header.Length == 0 &&
-            (UsesSyncCheckpoints || header.Index >= TailBlock.BlockIndex);
+            (lastBlock.IsFramed || header.Index != lastIndex + 1 || header.Index >= TailBlock.BlockIndex);
         if (header.CompressedLength < 0 || header.Length < 0 || end > length || tornEmptyBlock ||
             (CompressionMethod == CompressionMethod.None && header.CompressedLength != header.Length) ||
             (header.IsFramed && header.Index != lastIndex + 1) ||
