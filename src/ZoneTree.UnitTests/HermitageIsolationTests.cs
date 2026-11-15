@@ -10,13 +10,13 @@ namespace ZoneTree.UnitTests;
 /// <remarks>
 /// Adapted from Martin Kleppmann and contributors' Hermitage suite (CC BY 4.0):
 /// https://github.com/ept/hermitage (https://creativecommons.org/licenses/by/4.0/).
-/// The SQL Server and PostgreSQL schedules supply the common cases, Oracle adds
-/// different G2 predicates, and FoundationDB adds a predicate-write rollback case.
+/// The common schedules supply most cases; variants add different G2 predicates and a
+/// predicate-write rollback case.
 ///
 /// Transactions are interleaved on one thread to preserve the published schedules
 /// without sleeps or timing dependencies. ZoneTree takes snapshots at BeginTransaction
-/// and reports optimistic conflicts at commit instead of blocking SQL statements.
-/// SQL value predicates are evaluated over fully enumerated key ranges; Serializable
+/// and reports optimistic conflicts at commit instead of blocking statements.
+/// Value predicates are evaluated over fully enumerated key ranges; Serializable
 /// therefore protects the scanned range, including rows rejected by the predicate.
 /// Snapshot permits G2-item and G2; both levels prevent the other anomaly families.
 /// </remarks>
@@ -245,8 +245,8 @@ public sealed class HermitageIsolationTests
     t2.Upsert(3, 30);
     Commit(t2, true);
 
-    // FoundationDB repeats the equality predicate; the other ports use
-    // an overlapping divisibility predicate for the second read.
+    // One variant repeats the equality predicate; the others use an
+    // overlapping divisibility predicate for the second read.
     Assert.That(Rows(t1, value => overlappingPredicates ? value % 3 == 0 : value == 30), Is.Empty);
     Commit(t1, true);
     AssertCommitted((1, 10), (2, 20), (3, 30));
@@ -338,8 +338,8 @@ public sealed class HermitageIsolationTests
     using var t2 = Begin();
     Assert.That(Rows(t1, value => value % 5 == 0), Is.EqualTo(new[] { (1, 10), (2, 20) }));
 
-    // SQL Server uses an insertion; PostgreSQL and Oracle update a row
-    // so that it moves from the first predicate into the second.
+    // One variant inserts a row; the others update a row so that it
+    // moves from the first predicate into the second.
     if (insert)
       t2.Upsert(3, 30);
     else
@@ -374,7 +374,7 @@ public sealed class HermitageIsolationTests
   [Test]
   public void GSingle_RolledBackPredicateWriteDoesNotAbortTheOtherWriter()
   {
-    // FoundationDB's g-single-write-2 interleaves the delete before the
+    // The g-single-write-2 variant interleaves the delete before the
     // second update, then rolls it back instead of committing a cycle.
     using var t1 = Begin();
     using var t2 = Begin();
@@ -425,7 +425,7 @@ public sealed class HermitageIsolationTests
     Assert.That(Rows(t2, value => value % (differentPredicates ? 5 : 3) == 0),
         Is.EqualTo(differentPredicates ? new[] { (1, 10), (2, 20) } : Array.Empty<(int, int)>()));
 
-    // Oracle's general G2 case uses different predicates and 60 rather than 42.
+    // One variant of the general G2 case uses different predicates and 60 rather than 42.
     var secondValue = differentPredicates ? 60 : 42;
     t1.Upsert(3, 30);
     t2.Upsert(4, secondValue);

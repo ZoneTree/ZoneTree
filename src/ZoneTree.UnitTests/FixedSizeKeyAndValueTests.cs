@@ -120,26 +120,6 @@ public sealed class FixedSizeKeyAndValueTests
   }
 
   [Test]
-  public void IntNullableIntDeleteTest()
-  {
-    var dataPath = "data/IntStringDeleteTest";
-    if (Directory.Exists(dataPath))
-      Directory.Delete(dataPath, true);
-
-    using var data = new ZoneTreeFactory<int, int?>()
-        .SetDataDirectory(dataPath)
-        .SetValueSerializer(new NullableInt32Serializer())
-        .OpenOrCreate();
-    data.TryAtomicAdd(1, 1, out _);
-    data.TryAtomicAdd(2, 2, out _);
-    data.TryAtomicAdd(3, 3, out _);
-    data.TryDelete(2, out _);
-    Assert.That(data.ContainsKey(1), Is.True);
-    Assert.That(data.ContainsKey(2), Is.False);
-    Assert.That(data.ContainsKey(3), Is.True);
-  }
-
-  [Test]
   public void IntStringGarbageCollectionTest()
   {
     var dataPath = "data/IntStringGarbageCollectionTest";

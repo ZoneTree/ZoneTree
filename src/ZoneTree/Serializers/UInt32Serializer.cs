@@ -1,14 +1,17 @@
+using System.Buffers.Binary;
+
 namespace ZoneTree.Serializers;
 
+/// <summary>Serializes 32-bit unsigned integers as 4 bytes, little-endian.</summary>
 public sealed class UInt32Serializer : ISerializer<uint>
 {
   public uint Deserialize(Memory<byte> bytes)
-  {
-    return BitConverter.ToUInt32(bytes.Span);
-  }
+    => BinaryPrimitives.ReadUInt32LittleEndian(bytes.Span);
 
   public Memory<byte> Serialize(in uint entry)
   {
-    return BitConverter.GetBytes(entry);
+    var bytes = new byte[sizeof(uint)];
+    BinaryPrimitives.WriteUInt32LittleEndian(bytes, entry);
+    return bytes;
   }
 }

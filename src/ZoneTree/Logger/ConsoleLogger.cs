@@ -22,6 +22,8 @@ public sealed class ConsoleLogger : ILogger
 
   public void LogError(Exception log)
   {
+    if (LogLevel > LogLevel.Error)
+      return;
     lock (SyncRoot)
     {
       var existing = Console.ForegroundColor;

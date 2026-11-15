@@ -1,6 +1,6 @@
 ---
 title: Key Ordering
-description: Design comparer order around query ranges, implement a composite key with a compatible hasher and serializer, and plan ordering changes as storage migrations.
+description: Design comparer order around query ranges, encode multi-part keys with CompositeKey or implement a custom key type with a compatible hasher and serializer, and plan ordering changes as storage migrations.
 ---
 
 <SectionHeader
@@ -31,13 +31,49 @@ The scan can seek to `(7, 41, fromSequence)` and stop when tenant or stream chan
 | One tenant's stream, in sequence | Tenant, stream, sequence. |
 | One entity's time range | Entity, timestamp, a tie-breaker if needed. |
 | Highest scores first within a group | Group, score in the required direction, unique tie-breaker. |
-| Multiple unrelated query orders | Separate secondary indexes with their own key layouts. |
+| Multiple unrelated query orders | Secondary indexes with their own key layouts, in the same tree or their own. See [composite keys and values](composite-keys-and-values.mdx). |
 
 Field names do not establish any of these orders. The comparer implementation does.
 
-## Implement a composite key completely
+## Encode composite keys with CompositeKey
 
-This console example supplies all three custom-key components: comparer, equality-compatible hasher, and serializer. It prints the first stream's events in sequence order:
+`CompositeKey`, in the `ZoneTree.Composite` namespace, encodes several values into one `byte[]` key whose bytes sort as the values do, element by element. A tree of `byte[]` keys orders them with its built-in lexicographic comparer, so a composite key needs no comparer, hasher, or serializer of its own. This console example prints the first stream's events in sequence order:
+
+```csharp
+using System.Text;
+using ZoneTree;
+using ZoneTree.Comparers;
+using ZoneTree.Composite;
+
+using var tree = new ZoneTreeFactory<byte[], byte[]>()
+    .SetDataDirectory("data/composite-events")
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+tree.Upsert(CompositeKey.Create(7, 41L, 2L), Encoding.UTF8.GetBytes("Second"));
+tree.Upsert(CompositeKey.Create(7, 42L, 1L), Encoding.UTF8.GetBytes("Another stream"));
+tree.Upsert(CompositeKey.Create(7, 41L, 1L), Encoding.UTF8.GetBytes("First"));
+
+var (from, to) = CompositeKey.Range(CompositeKey.Create(7, 41L));
+var order = new BytesLexicographicComparerAscending();
+using var iterator = tree.CreateIterator();
+iterator.Seek(from);
+while (iterator.Next() && order.Compare(iterator.CurrentKey, to) <= 0)
+{
+    var sequence = CompositeKey.Get<long>(iterator.CurrentKey, 2);
+    Console.WriteLine($"{sequence}: {Encoding.UTF8.GetString(iterator.CurrentValue)}");
+}
+```
+
+`Range` returns inclusive bounds that hold every key under the prefix's whole elements, and nothing else: `(7, 41)` does not hold `(7, 410)`.
+
+Each element records its type, so `Get` and `Decode` read a key without knowing what wrote it, and every integer type compares by value: `7`, `7L`, and `(byte)7` are the same element. `CompositeKey.Descending(value)` makes one element sort in reverse, for newest-first layouts.
+
+[Composite keys and values](composite-keys-and-values.mdx) covers the rest: rows and indexes in one tree, `BeginsWith` ranges for text that begins with given characters, key layouts that fix each position's type and order, the full element type list, and `CompositeValue` for values of several fields.
+
+## Implement a custom key type
+
+A key of its own .NET type needs a comparer, an equality-compatible hasher, and a serializer. This console example supplies all three. It prints the first stream's events in sequence order:
 
 ```csharp
 using ZoneTree;
@@ -106,10 +142,11 @@ Do not let a key's order depend on mutable fields, the current time, or configur
 | --- | --- | --- |
 | `int`, `long`, and other supported numeric keys | Built-in ascending comparer. | Numeric ranges can seek directly to numeric bounds. |
 | `string` | Ordinal ascending. | `"item:10"` sorts before `"item:2"`; text order is not numeric order. |
-| `Memory<byte>` | Lexicographic byte order. | A byte prefix sorts before a longer key beginning with that prefix. |
+| `byte[]` and `Memory<byte>` | Lexicographic byte order. | A byte prefix sorts before a longer key beginning with that prefix. |
+| `CompositeKey` keys | Element by element, through the `byte[]` order. | `CompositeKey.Range` selects the keys under given elements. |
 | Custom key type | You supply the comparer. | Implement every field and direction needed by the query. |
 
-For text keys with embedded numbers, use an appropriate encoding or comparer; a delimiter alone does not create numeric sorting. For byte keys, make sure the byte encoding and the comparer jointly produce the intended order. Use `Memory<byte>` rather than unsupported `byte[]` keys, and retain ownership of the bytes.
+For text keys with embedded numbers, use an appropriate encoding or comparer; a delimiter alone does not create numeric sorting. For byte keys, make sure the byte encoding and the comparer jointly produce the intended order, as `CompositeKey` does. Retain ownership of the bytes.
 
 ## Forward and reverse traversal
 

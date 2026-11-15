@@ -1,14 +1,17 @@
+using System.Buffers.Binary;
+
 namespace ZoneTree.Serializers;
 
+/// <summary>Serializes DateTime values as the 8 bytes of their ticks, little-endian. The kind is not kept.</summary>
 public sealed class DateTimeSerializer : ISerializer<DateTime>
 {
   public DateTime Deserialize(Memory<byte> bytes)
-  {
-    return new DateTime(BitConverter.ToInt64(bytes.Span));
-  }
+    => new(BinaryPrimitives.ReadInt64LittleEndian(bytes.Span));
 
   public Memory<byte> Serialize(in DateTime entry)
   {
-    return BitConverter.GetBytes(entry.Ticks);
+    var bytes = new byte[sizeof(long)];
+    BinaryPrimitives.WriteInt64LittleEndian(bytes, entry.Ticks);
+    return bytes;
   }
 }

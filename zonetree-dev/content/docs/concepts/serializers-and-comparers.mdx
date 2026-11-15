@@ -29,13 +29,19 @@ The factory fills missing components for known types. For example, `ZoneTreeFact
 
 | Shape | Built-in support |
 | --- | --- |
-| `byte`, `char`, `DateTime`, `decimal`, `double`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `Guid` | Default serializers, ascending comparers, and compatible hashers. |
+| `bool`, `char`, `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `Int128`, `UInt128` | Serializers, ascending comparers, and compatible hashers. |
+| `Half`, `float`, `double`, `decimal` | The same. A floating comparer follows `CompareTo`, which puts NaN first. |
+| `DateTime`, `DateTimeOffset`, `DateOnly`, `TimeOnly`, `TimeSpan`, `Guid` | The same. A `DateTimeOffset` compares by its UTC instant and keeps its offset in the stored bytes. |
+| `BigInteger` | The same, stored in as many bytes as the value needs. |
+| `nint`, `nuint` | The same, stored in the process's native size, so a tree is read by a process of the same size. |
+| Enums | The same, by the underlying value: `EnumSerializer<T>`, `EnumComparerAscending<T>`, and the default hasher. |
 | `string` | UTF-8 serializer, ordinal ascending comparer, and compatible hasher. |
-| `Memory<byte>` | Byte serializer, lexicographic comparer, and content-based hasher. |
-| `bool` | A default serializer; supply comparison and hashing if using it as a filtered key. |
+| `byte[]`, `Memory<byte>`, and `ReadOnlyMemory<byte>` | Byte serializer, lexicographic comparer, and content-based hasher. |
 | Custom classes or structs | Supply the missing components explicitly. A custom unmanaged struct does not automatically receive a serializer or comparer. |
 
-`byte[]` keys and values are rejected; use `Memory<byte>` for byte sequences. A memory wrapper still shares its underlying buffer, so it is not an immutable copy.
+The comparers have descending siblings, such as `Int64ComparerDescending`, except those of `byte`, `char`, and `Guid`, which sort ascending only. `Int128` and `UInt128` need .NET 7 or later.
+
+A `byte[]`, `Memory<byte>`, or `ReadOnlyMemory<byte>` still shares its buffer with whoever holds it, so it is not an immutable copy. For keys and values of several fields, [`CompositeKey` and `CompositeValue`](composite-keys-and-values.mdx) encode them into one `byte[]` with no components of their own.
 
 ## Configure comparison and hashing together
 
@@ -114,7 +120,7 @@ The serializer can be called from concurrent application, recovery, or maintenan
 
 | Choice | Contract to preserve |
 | --- | --- |
-| Built-in scalar serializer | The specific serializer's representation and supported values. |
+| Built-in serializer | The value's bytes, little-endian, on every platform. A type without references writes exactly its in-memory size, as fixed-size disk segments read it. |
 | `StructSerializer<T>` | An unmanaged type's raw layout. Size, layout, and runtime assumptions are part of compatibility; this is not automatically a portable versioned format. |
 | JSON or another structured format | Field names, options, null handling, validation, and compatibility with older records. |
 | Custom binary format | Explicit field order, widths, byte order, versioning, and malformed-input handling. |
