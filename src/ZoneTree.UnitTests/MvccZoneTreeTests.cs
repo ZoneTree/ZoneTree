@@ -788,6 +788,15 @@ public sealed class MvccZoneTreeTests
     Task.WaitAll(readers.Append(merger).ToArray());
 
     Assert.That(inconsistentSnapshots, Is.Zero);
+    // The merger's last merge may have run while a reader still held its snapshot, and a merge
+    // with nothing new does not rewrite the disk segment, so the final merge gets a write: an
+    // account keeps its balance.
+    using (var touch = tree.BeginTransaction())
+    {
+      touch.TryGet(0, out var balance);
+      touch.Upsert(0, balance);
+      Assert.That(touch.TryCommit(), Is.True);
+    }
     MergeAll(tree);
     using var final = tree.BeginReadOnlyTransaction();
     var records = Scan(final);

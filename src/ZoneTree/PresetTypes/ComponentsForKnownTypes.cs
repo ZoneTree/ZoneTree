@@ -1,3 +1,4 @@
+using System.Numerics;
 using ZoneTree.Comparers;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
@@ -34,6 +35,21 @@ public static class ComponentsForKnownTypes
       long => new Int64ComparerAscending() as IRefComparer<TKey>,
       ulong => new UInt64ComparerAscending() as IRefComparer<TKey>,
       Guid => new GuidComparerAscending() as IRefComparer<TKey>,
+      bool => new BooleanComparerAscending() as IRefComparer<TKey>,
+      sbyte => new SByteComparerAscending() as IRefComparer<TKey>,
+      float => new SingleComparerAscending() as IRefComparer<TKey>,
+      Half => new HalfComparerAscending() as IRefComparer<TKey>,
+      nint => new IntPtrComparerAscending() as IRefComparer<TKey>,
+      nuint => new UIntPtrComparerAscending() as IRefComparer<TKey>,
+#if NET7_0_OR_GREATER
+      Int128 => new Int128ComparerAscending() as IRefComparer<TKey>,
+      UInt128 => new UInt128ComparerAscending() as IRefComparer<TKey>,
+#endif
+      BigInteger => new BigIntegerComparerAscending() as IRefComparer<TKey>,
+      TimeSpan => new TimeSpanComparerAscending() as IRefComparer<TKey>,
+      DateTimeOffset => new DateTimeOffsetComparerAscending() as IRefComparer<TKey>,
+      DateOnly => new DateOnlyComparerAscending() as IRefComparer<TKey>,
+      TimeOnly => new TimeOnlyComparerAscending() as IRefComparer<TKey>,
       _ => null
     };
     if (typeof(TKey) == typeof(string))
@@ -46,6 +62,11 @@ public static class ComponentsForKnownTypes
     else if (typeof(TKey) == typeof(byte[]))
       comparer =
           new BytesLexicographicComparerAscending() as IRefComparer<TKey>;
+    else if (typeof(TKey) == typeof(ReadOnlyMemory<byte>))
+      comparer =
+          new ReadOnlyByteMemoryLexicographicComparerAscending() as IRefComparer<TKey>;
+    else if (typeof(TKey).IsEnum)
+      comparer = new EnumComparerAscending<TKey>();
     return comparer;
   }
 
@@ -61,9 +82,14 @@ public static class ComponentsForKnownTypes
   {
     TKey key = default;
     var isKnownType = key is byte or char or DateTime or decimal or double or
-        short or ushort or int or uint or long or ulong or Guid;
+        short or ushort or int or uint or long or ulong or Guid or
+        bool or sbyte or float or Half or nint or nuint or BigInteger or
+        TimeSpan or DateTimeOffset or DateOnly or TimeOnly;
+#if NET7_0_OR_GREATER
+    isKnownType = isKnownType || key is Int128 or UInt128;
+#endif
 
-    if (isKnownType || typeof(TKey) == typeof(string))
+    if (isKnownType || typeof(TKey) == typeof(string) || typeof(TKey).IsEnum)
       return new DefaultKeyHasher<TKey>();
 
     if (typeof(TKey) == typeof(Memory<byte>))
@@ -71,6 +97,9 @@ public static class ComponentsForKnownTypes
 
     if (typeof(TKey) == typeof(byte[]))
       return new BytesKeyHasher() as IKeyHasher<TKey>;
+
+    if (typeof(TKey) == typeof(ReadOnlyMemory<byte>))
+      return new ReadOnlyByteMemoryKeyHasher() as IKeyHasher<TKey>;
     return null;
   }
 
@@ -97,7 +126,21 @@ public static class ComponentsForKnownTypes
       uint => new UInt32Serializer() as ISerializer<T>,
       long => new Int64Serializer() as ISerializer<T>,
       ulong => new UInt64Serializer() as ISerializer<T>,
-      Guid => new StructSerializer<Guid>() as ISerializer<T>,
+      Guid => new GuidSerializer() as ISerializer<T>,
+      sbyte => new SByteSerializer() as ISerializer<T>,
+      float => new SingleSerializer() as ISerializer<T>,
+      Half => new HalfSerializer() as ISerializer<T>,
+      nint => new IntPtrSerializer() as ISerializer<T>,
+      nuint => new UIntPtrSerializer() as ISerializer<T>,
+#if NET7_0_OR_GREATER
+      Int128 => new Int128Serializer() as ISerializer<T>,
+      UInt128 => new UInt128Serializer() as ISerializer<T>,
+#endif
+      BigInteger => new BigIntegerSerializer() as ISerializer<T>,
+      TimeSpan => new TimeSpanSerializer() as ISerializer<T>,
+      DateTimeOffset => new DateTimeOffsetSerializer() as ISerializer<T>,
+      DateOnly => new DateOnlySerializer() as ISerializer<T>,
+      TimeOnly => new TimeOnlySerializer() as ISerializer<T>,
       _ => null
     };
 
@@ -112,6 +155,11 @@ public static class ComponentsForKnownTypes
     else if (typeof(T) == typeof(byte[]))
       serializer =
           new BytesSerializer() as ISerializer<T>;
+    else if (typeof(T) == typeof(ReadOnlyMemory<byte>))
+      serializer =
+          new ReadOnlyByteMemorySerializer() as ISerializer<T>;
+    else if (typeof(T).IsEnum)
+      serializer = new EnumSerializer<T>();
     return serializer;
   }
 
@@ -129,6 +177,7 @@ public static class ComponentsForKnownTypes
   static bool IsDeletedULong<TKey>(in TKey key, in ulong value) => value == default;
   static bool IsDeletedGuid<TKey>(in TKey key, in Guid value) => value == default;
   static bool IsDeletedMemoryByte<TKey>(in TKey key, in Memory<byte> value) => value.Length == 0;
+  static bool IsDeletedReadOnlyMemoryByte<TKey>(in TKey key, in ReadOnlyMemory<byte> value) => value.Length == 0;
   // A byte array, like a byte memory, has no bytes once deleted: a null array is stored as no
   // bytes and reads back as an empty array, so an empty array is deleted too.
   static bool IsDeletedByteArray<TKey>(in TKey key, in byte[] value) => value == null || value.Length == 0;
@@ -167,6 +216,8 @@ public static class ComponentsForKnownTypes
 
     if (typeof(TValue) == typeof(Memory<byte>))
       result = Cast(new IsDeletedDelegate<TKey, Memory<byte>>(IsDeletedMemoryByte));
+    if (typeof(TValue) == typeof(ReadOnlyMemory<byte>))
+      result = Cast(new IsDeletedDelegate<TKey, ReadOnlyMemory<byte>>(IsDeletedReadOnlyMemoryByte));
     if (typeof(TValue) == typeof(byte[]))
       return Cast(new IsDeletedDelegate<TKey, byte[]>(IsDeletedByteArray));
     if (!typeof(TValue).IsValueType)

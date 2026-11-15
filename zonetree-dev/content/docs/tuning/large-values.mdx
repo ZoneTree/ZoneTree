@@ -19,7 +19,7 @@ description: Translate record limits into payload costs, choose direct values or
 | Store metadata and a content reference | Queries mostly filter or order small metadata, or payloads have a separate delivery path. | Coordinate the payload store, reference publication, and cleanup. ZoneTree does not make updates across external stores atomic. |
 | Split independently accessed data into records | Fields or chunks have different access and update patterns. | Design key ordering and application consistency across those records. |
 
-Direct strings and `Memory<byte>` values use built-in serializers. `byte[]` is not a supported key/value type; wrap owned bytes in `Memory<byte>`. Custom document types need a compatible serializer. Keep stored objects and backing buffers read-only; see [value ownership](../concepts/value-mutability.mdx).
+Direct strings, `byte[]`, `Memory<byte>`, and `ReadOnlyMemory<byte>` values use built-in serializers. A value of several fields can be a [`CompositeValue`](../concepts/composite-keys-and-values.mdx), whose fields are read one at a time. Custom document types need a compatible serializer. Keep stored objects and backing buffers read-only; see [value ownership](../concepts/value-mutability.mdx).
 
 ## Translate counts before choosing a limit
 

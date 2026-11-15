@@ -56,40 +56,47 @@ layout:
     <DocCard
       number="03 / QUERY SHAPE"
       title="Key ordering"
-      summary="Put related records into contiguous comparer order and implement a complete composite-key example."
+      summary="Put related records into contiguous comparer order, with CompositeKey or a custom key type."
       href="/docs/concepts/key-ordering/"
       icon="tabler:arrows-sort"
       label="Design the keyspace"/>
     <DocCard
-      number="04 / DATA CONTRACTS"
+      number="04 / MULTI-FIELD RECORDS"
+      title="Composite keys and values"
+      summary="Encode several typed fields into one byte[] key or value, keep rows and indexes in one tree, and bound scans by prefix."
+      href="/docs/concepts/composite-keys-and-values/"
+      icon="tabler:layers-linked"
+      label="Combine fields into one key"/>
+    <DocCard
+      number="05 / DATA CONTRACTS"
       title="Serializers and comparers"
       summary="Separate equality, hashing, and persisted bytes. Configure custom components and preserve compatibility."
       href="/docs/concepts/serializers-and-comparers/"
       icon="tabler:code"
       label="Define the contracts"/>
     <DocCard
-      number="05 / POINT READS"
+      number="06 / POINT READS"
       title="Bloom filters"
       summary="Skip provably absent memory-segment lookups and understand filter allocation, hashing, and false positives."
       href="/docs/concepts/bloom-filters/"
       icon="tabler:settings"
       label="How the filter works"/>
     <DocCard
-      number="06 / VISIBILITY"
+      number="07 / VISIBILITY"
       title="Deletion markers and TTL"
       summary="Choose tombstones, model expiration, and reclaim deleted storage without exposing older values."
       href="/docs/concepts/deletion-markers-and-ttl/"
       icon="tabler:shield-check"
       label="Define what is live"/>
     <DocCard
-      number="07 / WRITE IDENTITY"
+      number="08 / WRITE IDENTITY"
       title="Operation indexes"
       summary="Use a producer's write sequence without confusing it with durable delivery, global ordering, or transaction commits."
       href="/docs/concepts/op-index/"
       icon="tabler:git-branch"
       label="Write sequencing and replay"/>
     <DocCard
-      number="08 / OWNERSHIP"
+      number="09 / OWNERSHIP"
       title="Value mutability"
       summary="Keep stored objects and buffers read-only, create replacements, and make cancellation leave no shared mutation."
       href="/docs/concepts/value-mutability/"

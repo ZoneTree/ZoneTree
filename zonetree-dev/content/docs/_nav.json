@@ -33,6 +33,7 @@
     "concepts/segments.mdx",
     "concepts/bloom-filters.mdx",
     "concepts/key-ordering.mdx",
+    "concepts/composite-keys-and-values.mdx",
     "concepts/serializers-and-comparers.mdx",
     "concepts/deletion-markers-and-ttl.mdx",
     "concepts/op-index.mdx",

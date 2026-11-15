@@ -39,7 +39,9 @@ A delete returning successfully does not imply that old bytes have already been 
 
 ## Choose a marker that is not application data
 
-With many primitive value types, the default value represents deletion. For references it is `null`; for `Memory<byte>` it is an empty value. A custom value type uses default equality unless you configure another rule.
+With many primitive value types, the default value represents deletion, an enum's zero value among them. For references it is `null`; for `Memory<byte>` and `ReadOnlyMemory<byte>` it is an empty value, and for `byte[]` a null or empty array. A custom value type uses default equality unless you configure another rule.
+
+A [`CompositeValue`](composite-keys-and-values.mdx) is never empty, so a `byte[]` value made with it is never taken for a deletion, even with no elements.
 
 If zero is a valid integer value, reserve a different marker. This complete program uses `-1` as the tombstone:
 
