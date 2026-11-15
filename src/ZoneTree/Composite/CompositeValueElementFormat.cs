@@ -112,5 +112,8 @@ internal readonly struct CompositeValueElementFormat : IElementFormat
   public string ReadString(ReadOnlySpan<byte> payload, in ElementInfo element)
       => CompositeKeyFormat.StrictUtf8.GetString(payload);
 
+  public bool TryReadString(ReadOnlySpan<byte> payload, in ElementInfo element, out string value)
+      => CompositeKeyFormat.TryDecodeText(payload, out value);
+
   public byte[] ReadBytes(ReadOnlySpan<byte> payload, in ElementInfo element) => payload.ToArray();
 }

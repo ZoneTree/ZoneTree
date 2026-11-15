@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+using ZoneTree.Exceptions;
 
 namespace ZoneTree.Composite;
 
@@ -10,7 +10,9 @@ namespace ZoneTree.Composite;
 /// <remarks>
 /// A layout is made once, as a static definition, and is safe for concurrent use. Its typed forms,
 /// <see cref="CompositeKeyLayout{T1}"/> to <see cref="CompositeKeyLayout{T1, T2, T3, T4, T5, T6, T7, T8}"/>,
-/// create, decode and bound its keys.
+/// create, decode and bound its keys. Their ranges are <see cref="CompositeKeyRange"/> values, as those of
+/// <see cref="CompositeKey"/> are, and compare by value at every position, whichever its order: on a descending
+/// position, AtLeast holds the greater values, which sort first.
 /// </remarks>
 public abstract class CompositeKeyLayout
 {
@@ -45,8 +47,8 @@ public abstract class CompositeKeyLayout
   /// <summary>Whether a key starts with the layout's prefix, as every key of the layout does.</summary>
   public bool Matches(ReadOnlySpan<byte> key) => key.StartsWith(prefix);
 
-  /// <summary>The inclusive bounds of every key of the layout.</summary>
-  public (byte[] From, byte[] To) Range() => CompositeKey.Bounds(prefix.AsSpan().ToArray(), 1);
+  /// <summary>The range of every key of the layout.</summary>
+  public CompositeKeyRange Range() => CompositeKey.RangeUnder(prefix.AsSpan().ToArray());
 
   /// <exception cref="NotSupportedException">Composite keys do not support the type, or it is a <see cref="Descending{T}"/>.</exception>
   private protected static void Check<T>()
@@ -58,7 +60,57 @@ public abstract class CompositeKeyLayout
       throw new NotSupportedException("A layout gives each position its order, so a position's type is the element's own type, not a Descending<T>.");
   }
 
-  private protected static (byte[] From, byte[] To) Bounds(byte[] key) => CompositeKey.Bounds(key, 1);
+  /// <summary>The range of the keys under a key of the layout, which keeps the key's array.</summary>
+  private protected static CompositeKeyRange RangeUnder(byte[] key) => CompositeKey.RangeUnder(key);
+
+  /// <summary>
+  /// The range from whichever of two keys of the layout sorts first through the other, each included or excluded as
+  /// the bounds say, which keeps an included first key's array.
+  /// </summary>
+  /// <exception cref="ArgumentOutOfRangeException">The bounds are not one of <see cref="CompositeKeyBounds"/>.</exception>
+  private protected static CompositeKeyRange RangeBetween(byte[] low, byte[] high, CompositeKeyBounds bounds)
+  {
+    CompositeKey.CheckBounds(bounds);
+    return CompositeKey.RangeBetween(low, high, bounds, low, high);
+  }
+
+  /// <summary>The range of the keys whose element after a key's leading elements is at least the key's last.</summary>
+  private protected static CompositeKeyRange RangeAtLeast(byte[] key)
+      => CompositeKey.OneSided(key, lowEnd: true, inclusive: true, key);
+
+  /// <summary>The range of the keys whose element after a key's leading elements is greater than the key's last.</summary>
+  private protected static CompositeKeyRange RangeGreaterThan(byte[] key)
+      => CompositeKey.OneSided(key, lowEnd: true, inclusive: false);
+
+  /// <summary>The range of the keys whose element after a key's leading elements is at most the key's last.</summary>
+  private protected static CompositeKeyRange RangeAtMost(byte[] key)
+      => CompositeKey.OneSided(key, lowEnd: false, inclusive: true, key);
+
+  /// <summary>The range of the keys whose element after a key's leading elements is less than the key's last.</summary>
+  private protected static CompositeKeyRange RangeLessThan(byte[] key)
+      => CompositeKey.OneSided(key, lowEnd: false, inclusive: false);
+
+  /// <summary>The range of the keys whose element at a position, after the elements before it, begins with text.</summary>
+  /// <exception cref="ArgumentNullException">The text is null.</exception>
+  /// <exception cref="ArgumentException">The text is not valid UTF-16.</exception>
+  /// <exception cref="PositionTypeMismatchException">The position's type is not string.</exception>
+  private protected CompositeKeyRange RangeBeginningWith<T>(ReadOnlySpan<byte> elements, int position, string text)
+  {
+    ArgumentNullException.ThrowIfNull(text);
+    if (ShapeOf<T>.Value.Kind != ElementKind.String)
+      throw new PositionTypeMismatchException(position, typeof(T), CompositeElementType.String);
+    return CompositeKey.BeginsWithText(elements, text, descending[position]);
+  }
+
+  /// <summary>The range of the keys whose element at a position, after the elements before it, begins with bytes.</summary>
+  /// <exception cref="PositionTypeMismatchException">The position's type is not a bytes type.</exception>
+  private protected CompositeKeyRange RangeBeginningWith<T>(
+      ReadOnlySpan<byte> elements, int position, ReadOnlySpan<byte> bytes)
+  {
+    if (ShapeOf<T>.Value.Kind is not (ElementKind.ByteArray or ElementKind.ByteMemory or ElementKind.ReadOnlyByteMemory))
+      throw new PositionTypeMismatchException(position, typeof(T), CompositeElementType.Bytes);
+    return CompositeKey.BeginsWithBytes(elements, bytes, descending[position]);
+  }
 
   /// <summary>An array for a key of the prefix and elements of a measured length, with the prefix written.</summary>
   byte[] Start(int length)
@@ -233,389 +285,28 @@ public abstract class CompositeKeyLayout
     if (reader.Next())
       throw new ArgumentException($"The key has more than the {descending.Length} elements of the layout after its prefix.");
   }
-}
 
-/// <summary>A layout of composite keys of a prefix and one element.</summary>
-/// <typeparam name="T1">The type of the element after the prefix.</typeparam>
-public sealed class CompositeKeyLayout<T1> : CompositeKeyLayout
-{
-  /// <summary>A layout of keys that start with a prefix and go on with an element of the type, in the order given.</summary>
-  /// <param name="prefix">The constant elements every key starts with, such as the name of an index; none for no prefix.</param>
-  /// <param name="first">The order of the element after the prefix.</param>
-  /// <exception cref="ArgumentException">The prefix is not composite key elements.</exception>
-  /// <exception cref="ArgumentOutOfRangeException">An order is not one of <see cref="CompositeKeyOrder"/>.</exception>
-  /// <exception cref="NotSupportedException">Composite keys do not support the type, or it is a <see cref="Descending{T}"/>.</exception>
-  public CompositeKeyLayout(ReadOnlySpan<byte> prefix, CompositeKeyOrder first = CompositeKeyOrder.Ascending)
-      : base(prefix, [first])
+  /// <summary>A reader over a key's elements after the layout's prefix, unless the key does not start with it.</summary>
+  private protected bool TryElements(ReadOnlySpan<byte> key, out CompositeKeyReader reader)
   {
-    Check<T1>();
+    if (!Matches(key))
+    {
+      reader = default;
+      return false;
+    }
+    reader = new CompositeKeyReader(key.Slice(prefix.Length));
+    return true;
   }
 
-  /// <summary>Encodes a key of the layout.</summary>
-  public byte[] Create(T1 first) => Key(first);
-
-  /// <summary>Reads a key of the layout.</summary>
-  /// <exception cref="ArgumentException">The key is not of the layout.</exception>
-  /// <exception cref="InvalidCastException">An element has another type.</exception>
-  /// <exception cref="OverflowException">A type cannot hold its element's value exactly.</exception>
-  public T1 Decode(ReadOnlySpan<byte> key)
+  /// <summary>Reads the element at a position after the prefix, unless it is not there in the layout's order and type.</summary>
+  private protected bool TryNext<T>(ref CompositeKeyReader reader, int position, out T value)
   {
-    var reader = Elements(key);
-    var first = Next<T1>(ref reader, 0);
-    End(ref reader);
-    return first;
-  }
-}
-
-/// <summary>A layout of composite keys of a prefix and two elements.</summary>
-public sealed class CompositeKeyLayout<T1, T2> : CompositeKeyLayout
-{
-  /// <summary>A layout of keys that start with a prefix and go on with an element of each type, in the orders given.</summary>
-  /// <exception cref="ArgumentException">The prefix is not composite key elements.</exception>
-  /// <exception cref="ArgumentOutOfRangeException">An order is not one of <see cref="CompositeKeyOrder"/>.</exception>
-  /// <exception cref="NotSupportedException">Composite keys do not support a type, or it is a <see cref="Descending{T}"/>.</exception>
-  public CompositeKeyLayout(ReadOnlySpan<byte> prefix,
-      CompositeKeyOrder first = CompositeKeyOrder.Ascending, CompositeKeyOrder second = CompositeKeyOrder.Ascending)
-      : base(prefix, [first, second])
-  {
-    Check<T1>();
-    Check<T2>();
+    if (reader.TryNext() && reader.IsDescending == descending[position])
+      return reader.TryRead(out value);
+    value = default;
+    return false;
   }
 
-  /// <summary>Encodes a key of the layout.</summary>
-  public byte[] Create(T1 first, T2 second) => Key(first, second);
-
-  /// <summary>The inclusive bounds of the layout's keys that start with an element.</summary>
-  public (byte[] From, byte[] To) Range(T1 first) => Bounds(Key(first));
-
-  /// <summary>Reads a key of the layout.</summary>
-  /// <exception cref="ArgumentException">The key is not of the layout.</exception>
-  /// <exception cref="InvalidCastException">An element has another type.</exception>
-  /// <exception cref="OverflowException">A type cannot hold its element's value exactly.</exception>
-  public (T1, T2) Decode(ReadOnlySpan<byte> key)
-  {
-    var reader = Elements(key);
-    var elements = (Next<T1>(ref reader, 0), Next<T2>(ref reader, 1));
-    End(ref reader);
-    return elements;
-  }
-}
-
-/// <summary>A layout of composite keys of a prefix and three elements.</summary>
-[SuppressMessage("Design", "CA1005", Justification = "A layout has a type for each element, as a tuple does.")]
-public sealed class CompositeKeyLayout<T1, T2, T3> : CompositeKeyLayout
-{
-  /// <summary>A layout of keys that start with a prefix and go on with an element of each type, in the orders given.</summary>
-  /// <exception cref="ArgumentException">The prefix is not composite key elements.</exception>
-  /// <exception cref="ArgumentOutOfRangeException">An order is not one of <see cref="CompositeKeyOrder"/>.</exception>
-  /// <exception cref="NotSupportedException">Composite keys do not support a type, or it is a <see cref="Descending{T}"/>.</exception>
-  public CompositeKeyLayout(ReadOnlySpan<byte> prefix,
-      CompositeKeyOrder first = CompositeKeyOrder.Ascending, CompositeKeyOrder second = CompositeKeyOrder.Ascending,
-      CompositeKeyOrder third = CompositeKeyOrder.Ascending)
-      : base(prefix, [first, second, third])
-  {
-    Check<T1>();
-    Check<T2>();
-    Check<T3>();
-  }
-
-  /// <summary>Encodes a key of the layout.</summary>
-  public byte[] Create(T1 first, T2 second, T3 third) => Key(first, second, third);
-
-  /// <summary>The inclusive bounds of the layout's keys that start with an element.</summary>
-  public (byte[] From, byte[] To) Range(T1 first) => Bounds(Key(first));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second) => Bounds(Key(first, second));
-
-  /// <summary>Reads a key of the layout.</summary>
-  /// <exception cref="ArgumentException">The key is not of the layout.</exception>
-  /// <exception cref="InvalidCastException">An element has another type.</exception>
-  /// <exception cref="OverflowException">A type cannot hold its element's value exactly.</exception>
-  public (T1, T2, T3) Decode(ReadOnlySpan<byte> key)
-  {
-    var reader = Elements(key);
-    var elements = (Next<T1>(ref reader, 0), Next<T2>(ref reader, 1), Next<T3>(ref reader, 2));
-    End(ref reader);
-    return elements;
-  }
-}
-
-/// <summary>A layout of composite keys of a prefix and four elements.</summary>
-[SuppressMessage("Design", "CA1005", Justification = "A layout has a type for each element, as a tuple does.")]
-public sealed class CompositeKeyLayout<T1, T2, T3, T4> : CompositeKeyLayout
-{
-  /// <summary>A layout of keys that start with a prefix and go on with an element of each type, in the orders given.</summary>
-  /// <exception cref="ArgumentException">The prefix is not composite key elements.</exception>
-  /// <exception cref="ArgumentOutOfRangeException">An order is not one of <see cref="CompositeKeyOrder"/>.</exception>
-  /// <exception cref="NotSupportedException">Composite keys do not support a type, or it is a <see cref="Descending{T}"/>.</exception>
-  public CompositeKeyLayout(ReadOnlySpan<byte> prefix,
-      CompositeKeyOrder first = CompositeKeyOrder.Ascending, CompositeKeyOrder second = CompositeKeyOrder.Ascending,
-      CompositeKeyOrder third = CompositeKeyOrder.Ascending, CompositeKeyOrder fourth = CompositeKeyOrder.Ascending)
-      : base(prefix, [first, second, third, fourth])
-  {
-    Check<T1>();
-    Check<T2>();
-    Check<T3>();
-    Check<T4>();
-  }
-
-  /// <summary>Encodes a key of the layout.</summary>
-  public byte[] Create(T1 first, T2 second, T3 third, T4 fourth) => Key(first, second, third, fourth);
-
-  /// <summary>The inclusive bounds of the layout's keys that start with an element.</summary>
-  public (byte[] From, byte[] To) Range(T1 first) => Bounds(Key(first));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second) => Bounds(Key(first, second));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second, T3 third) => Bounds(Key(first, second, third));
-
-  /// <summary>Reads a key of the layout.</summary>
-  /// <exception cref="ArgumentException">The key is not of the layout.</exception>
-  /// <exception cref="InvalidCastException">An element has another type.</exception>
-  /// <exception cref="OverflowException">A type cannot hold its element's value exactly.</exception>
-  public (T1, T2, T3, T4) Decode(ReadOnlySpan<byte> key)
-  {
-    var reader = Elements(key);
-    var elements = (Next<T1>(ref reader, 0), Next<T2>(ref reader, 1), Next<T3>(ref reader, 2), Next<T4>(ref reader, 3));
-    End(ref reader);
-    return elements;
-  }
-}
-
-/// <summary>A layout of composite keys of a prefix and five elements.</summary>
-[SuppressMessage("Design", "CA1005", Justification = "A layout has a type for each element, as a tuple does.")]
-public sealed class CompositeKeyLayout<T1, T2, T3, T4, T5> : CompositeKeyLayout
-{
-  /// <summary>A layout of keys that start with a prefix and go on with an element of each type, in the orders given.</summary>
-  /// <exception cref="ArgumentException">The prefix is not composite key elements.</exception>
-  /// <exception cref="ArgumentOutOfRangeException">An order is not one of <see cref="CompositeKeyOrder"/>.</exception>
-  /// <exception cref="NotSupportedException">Composite keys do not support a type, or it is a <see cref="Descending{T}"/>.</exception>
-  public CompositeKeyLayout(ReadOnlySpan<byte> prefix,
-      CompositeKeyOrder first = CompositeKeyOrder.Ascending, CompositeKeyOrder second = CompositeKeyOrder.Ascending,
-      CompositeKeyOrder third = CompositeKeyOrder.Ascending, CompositeKeyOrder fourth = CompositeKeyOrder.Ascending,
-      CompositeKeyOrder fifth = CompositeKeyOrder.Ascending)
-      : base(prefix, [first, second, third, fourth, fifth])
-  {
-    Check<T1>();
-    Check<T2>();
-    Check<T3>();
-    Check<T4>();
-    Check<T5>();
-  }
-
-  /// <summary>Encodes a key of the layout.</summary>
-  public byte[] Create(T1 first, T2 second, T3 third, T4 fourth, T5 fifth) => Key(first, second, third, fourth, fifth);
-
-  /// <summary>The inclusive bounds of the layout's keys that start with an element.</summary>
-  public (byte[] From, byte[] To) Range(T1 first) => Bounds(Key(first));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second) => Bounds(Key(first, second));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second, T3 third) => Bounds(Key(first, second, third));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second, T3 third, T4 fourth) => Bounds(Key(first, second, third, fourth));
-
-  /// <summary>Reads a key of the layout.</summary>
-  /// <exception cref="ArgumentException">The key is not of the layout.</exception>
-  /// <exception cref="InvalidCastException">An element has another type.</exception>
-  /// <exception cref="OverflowException">A type cannot hold its element's value exactly.</exception>
-  public (T1, T2, T3, T4, T5) Decode(ReadOnlySpan<byte> key)
-  {
-    var reader = Elements(key);
-    var elements = (Next<T1>(ref reader, 0), Next<T2>(ref reader, 1), Next<T3>(ref reader, 2), Next<T4>(ref reader, 3),
-        Next<T5>(ref reader, 4));
-    End(ref reader);
-    return elements;
-  }
-}
-
-/// <summary>A layout of composite keys of a prefix and six elements.</summary>
-[SuppressMessage("Design", "CA1005", Justification = "A layout has a type for each element, as a tuple does.")]
-public sealed class CompositeKeyLayout<T1, T2, T3, T4, T5, T6> : CompositeKeyLayout
-{
-  /// <summary>A layout of keys that start with a prefix and go on with an element of each type, in the orders given.</summary>
-  /// <exception cref="ArgumentException">The prefix is not composite key elements.</exception>
-  /// <exception cref="ArgumentOutOfRangeException">An order is not one of <see cref="CompositeKeyOrder"/>.</exception>
-  /// <exception cref="NotSupportedException">Composite keys do not support a type, or it is a <see cref="Descending{T}"/>.</exception>
-  public CompositeKeyLayout(ReadOnlySpan<byte> prefix,
-      CompositeKeyOrder first = CompositeKeyOrder.Ascending, CompositeKeyOrder second = CompositeKeyOrder.Ascending,
-      CompositeKeyOrder third = CompositeKeyOrder.Ascending, CompositeKeyOrder fourth = CompositeKeyOrder.Ascending,
-      CompositeKeyOrder fifth = CompositeKeyOrder.Ascending, CompositeKeyOrder sixth = CompositeKeyOrder.Ascending)
-      : base(prefix, [first, second, third, fourth, fifth, sixth])
-  {
-    Check<T1>();
-    Check<T2>();
-    Check<T3>();
-    Check<T4>();
-    Check<T5>();
-    Check<T6>();
-  }
-
-  /// <summary>Encodes a key of the layout.</summary>
-  public byte[] Create(T1 first, T2 second, T3 third, T4 fourth, T5 fifth, T6 sixth)
-      => Key(first, second, third, fourth, fifth, sixth);
-
-  /// <summary>The inclusive bounds of the layout's keys that start with an element.</summary>
-  public (byte[] From, byte[] To) Range(T1 first) => Bounds(Key(first));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second) => Bounds(Key(first, second));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second, T3 third) => Bounds(Key(first, second, third));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second, T3 third, T4 fourth) => Bounds(Key(first, second, third, fourth));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second, T3 third, T4 fourth, T5 fifth)
-      => Bounds(Key(first, second, third, fourth, fifth));
-
-  /// <summary>Reads a key of the layout.</summary>
-  /// <exception cref="ArgumentException">The key is not of the layout.</exception>
-  /// <exception cref="InvalidCastException">An element has another type.</exception>
-  /// <exception cref="OverflowException">A type cannot hold its element's value exactly.</exception>
-  public (T1, T2, T3, T4, T5, T6) Decode(ReadOnlySpan<byte> key)
-  {
-    var reader = Elements(key);
-    var elements = (Next<T1>(ref reader, 0), Next<T2>(ref reader, 1), Next<T3>(ref reader, 2), Next<T4>(ref reader, 3),
-        Next<T5>(ref reader, 4), Next<T6>(ref reader, 5));
-    End(ref reader);
-    return elements;
-  }
-}
-
-/// <summary>A layout of composite keys of a prefix and seven elements.</summary>
-[SuppressMessage("Design", "CA1005", Justification = "A layout has a type for each element, as a tuple does.")]
-public sealed class CompositeKeyLayout<T1, T2, T3, T4, T5, T6, T7> : CompositeKeyLayout
-{
-  /// <summary>A layout of keys that start with a prefix and go on with an element of each type, in the orders given.</summary>
-  /// <exception cref="ArgumentException">The prefix is not composite key elements.</exception>
-  /// <exception cref="ArgumentOutOfRangeException">An order is not one of <see cref="CompositeKeyOrder"/>.</exception>
-  /// <exception cref="NotSupportedException">Composite keys do not support a type, or it is a <see cref="Descending{T}"/>.</exception>
-  public CompositeKeyLayout(ReadOnlySpan<byte> prefix,
-      CompositeKeyOrder first = CompositeKeyOrder.Ascending, CompositeKeyOrder second = CompositeKeyOrder.Ascending,
-      CompositeKeyOrder third = CompositeKeyOrder.Ascending, CompositeKeyOrder fourth = CompositeKeyOrder.Ascending,
-      CompositeKeyOrder fifth = CompositeKeyOrder.Ascending, CompositeKeyOrder sixth = CompositeKeyOrder.Ascending,
-      CompositeKeyOrder seventh = CompositeKeyOrder.Ascending)
-      : base(prefix, [first, second, third, fourth, fifth, sixth, seventh])
-  {
-    Check<T1>();
-    Check<T2>();
-    Check<T3>();
-    Check<T4>();
-    Check<T5>();
-    Check<T6>();
-    Check<T7>();
-  }
-
-  /// <summary>Encodes a key of the layout.</summary>
-  public byte[] Create(T1 first, T2 second, T3 third, T4 fourth, T5 fifth, T6 sixth, T7 seventh)
-      => Key(first, second, third, fourth, fifth, sixth, seventh);
-
-  /// <summary>The inclusive bounds of the layout's keys that start with an element.</summary>
-  public (byte[] From, byte[] To) Range(T1 first) => Bounds(Key(first));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second) => Bounds(Key(first, second));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second, T3 third) => Bounds(Key(first, second, third));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second, T3 third, T4 fourth) => Bounds(Key(first, second, third, fourth));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second, T3 third, T4 fourth, T5 fifth)
-      => Bounds(Key(first, second, third, fourth, fifth));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second, T3 third, T4 fourth, T5 fifth, T6 sixth)
-      => Bounds(Key(first, second, third, fourth, fifth, sixth));
-
-  /// <summary>Reads a key of the layout.</summary>
-  /// <exception cref="ArgumentException">The key is not of the layout.</exception>
-  /// <exception cref="InvalidCastException">An element has another type.</exception>
-  /// <exception cref="OverflowException">A type cannot hold its element's value exactly.</exception>
-  public (T1, T2, T3, T4, T5, T6, T7) Decode(ReadOnlySpan<byte> key)
-  {
-    var reader = Elements(key);
-    var elements = (Next<T1>(ref reader, 0), Next<T2>(ref reader, 1), Next<T3>(ref reader, 2), Next<T4>(ref reader, 3),
-        Next<T5>(ref reader, 4), Next<T6>(ref reader, 5), Next<T7>(ref reader, 6));
-    End(ref reader);
-    return elements;
-  }
-}
-
-/// <summary>A layout of composite keys of a prefix and eight elements.</summary>
-[SuppressMessage("Design", "CA1005", Justification = "A layout has a type for each element, as a tuple does.")]
-public sealed class CompositeKeyLayout<T1, T2, T3, T4, T5, T6, T7, T8> : CompositeKeyLayout
-{
-  /// <summary>A layout of keys that start with a prefix and go on with an element of each type, in the orders given.</summary>
-  /// <exception cref="ArgumentException">The prefix is not composite key elements.</exception>
-  /// <exception cref="ArgumentOutOfRangeException">An order is not one of <see cref="CompositeKeyOrder"/>.</exception>
-  /// <exception cref="NotSupportedException">Composite keys do not support a type, or it is a <see cref="Descending{T}"/>.</exception>
-  public CompositeKeyLayout(ReadOnlySpan<byte> prefix,
-      CompositeKeyOrder first = CompositeKeyOrder.Ascending, CompositeKeyOrder second = CompositeKeyOrder.Ascending,
-      CompositeKeyOrder third = CompositeKeyOrder.Ascending, CompositeKeyOrder fourth = CompositeKeyOrder.Ascending,
-      CompositeKeyOrder fifth = CompositeKeyOrder.Ascending, CompositeKeyOrder sixth = CompositeKeyOrder.Ascending,
-      CompositeKeyOrder seventh = CompositeKeyOrder.Ascending, CompositeKeyOrder eighth = CompositeKeyOrder.Ascending)
-      : base(prefix, [first, second, third, fourth, fifth, sixth, seventh, eighth])
-  {
-    Check<T1>();
-    Check<T2>();
-    Check<T3>();
-    Check<T4>();
-    Check<T5>();
-    Check<T6>();
-    Check<T7>();
-    Check<T8>();
-  }
-
-  /// <summary>Encodes a key of the layout.</summary>
-  public byte[] Create(T1 first, T2 second, T3 third, T4 fourth, T5 fifth, T6 sixth, T7 seventh, T8 eighth)
-      => Key(first, second, third, fourth, fifth, sixth, seventh, eighth);
-
-  /// <summary>The inclusive bounds of the layout's keys that start with an element.</summary>
-  public (byte[] From, byte[] To) Range(T1 first) => Bounds(Key(first));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second) => Bounds(Key(first, second));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second, T3 third) => Bounds(Key(first, second, third));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second, T3 third, T4 fourth) => Bounds(Key(first, second, third, fourth));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second, T3 third, T4 fourth, T5 fifth)
-      => Bounds(Key(first, second, third, fourth, fifth));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second, T3 third, T4 fourth, T5 fifth, T6 sixth)
-      => Bounds(Key(first, second, third, fourth, fifth, sixth));
-
-  /// <summary>The inclusive bounds of the layout's keys that start with elements.</summary>
-  public (byte[] From, byte[] To) Range(T1 first, T2 second, T3 third, T4 fourth, T5 fifth, T6 sixth, T7 seventh)
-      => Bounds(Key(first, second, third, fourth, fifth, sixth, seventh));
-
-  /// <summary>Reads a key of the layout.</summary>
-  /// <exception cref="ArgumentException">The key is not of the layout.</exception>
-  /// <exception cref="InvalidCastException">An element has another type.</exception>
-  /// <exception cref="OverflowException">A type cannot hold its element's value exactly.</exception>
-  public (T1, T2, T3, T4, T5, T6, T7, T8) Decode(ReadOnlySpan<byte> key)
-  {
-    var reader = Elements(key);
-    var elements = (Next<T1>(ref reader, 0), Next<T2>(ref reader, 1), Next<T3>(ref reader, 2), Next<T4>(ref reader, 3),
-        Next<T5>(ref reader, 4), Next<T6>(ref reader, 5), Next<T7>(ref reader, 6), Next<T8>(ref reader, 7));
-    End(ref reader);
-    return elements;
-  }
+  /// <summary>Whether a key ends after the layout's elements.</summary>
+  private protected static bool TryEnd(ref CompositeKeyReader reader) => !reader.TryNext() && reader.AtEnd;
 }

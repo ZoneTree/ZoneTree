@@ -1,3 +1,4 @@
+using System.Text;
 using static ZoneTree.Composite.CompositeValueFormat;
 
 namespace ZoneTree.Composite;
@@ -24,7 +25,9 @@ namespace ZoneTree.Composite;
 /// <para>
 /// A composite value is never empty, so it is never the empty byte array a tree takes for a deletion.
 /// <see cref="Create{T1}(T1)"/> and its overloads build values of up to eight elements in one call, and
-/// <see cref="CompositeValueBuilder"/> builds values of any number.
+/// <see cref="CompositeValueBuilder"/> builds values of any number. The members that read elements as types have
+/// a Try form, which returns false for a value that does not hold the types instead of throwing, and
+/// <see cref="Format"/> shows any value as text.
 /// </para>
 /// </remarks>
 /// <example>
@@ -300,6 +303,200 @@ public static class CompositeValue
   static T Read<T>(CompositeValueLayout layout, int index)
       => CompositeValueReader.ReadElement<T>(layout.Tag(index), layout.Payload(index), index);
 
+  /// <summary>Reads a value's first element, as <see cref="Decode{T1}(ReadOnlySpan{byte})"/> does, unless the value does not hold it.</summary>
+  /// <returns>
+  /// False if the value has no elements, its bytes are not a composite value, the element is malformed or has
+  /// another type, the type cannot hold its value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite values do not support the type.</exception>
+  public static bool TryDecode<T1>(ReadOnlySpan<byte> value, out T1 first)
+  {
+    CompositeElementReading.CheckReadable<T1>();
+    if (TryLeading(value, 1, out var layout) && CompositeValueReader.TryReadElement(layout, 0, out first))
+      return true;
+    first = default;
+    return false;
+  }
+
+  /// <summary>Reads a value's first 2 elements, as <see cref="Decode{T1, T2}(ReadOnlySpan{byte})"/> does, unless the value does not hold them.</summary>
+  /// <returns>
+  /// False if the value has fewer elements, its bytes are not a composite value, an element is malformed or has
+  /// another type, a type cannot hold its element's value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite values do not support a type.</exception>
+  public static bool TryDecode<T1, T2>(ReadOnlySpan<byte> value, out (T1, T2) elements)
+  {
+    CompositeElementReading.CheckReadable<T1>();
+    CompositeElementReading.CheckReadable<T2>();
+    elements = default;
+    if (TryLeading(value, 2, out var layout) &&
+        CompositeValueReader.TryReadElement(layout, 0, out elements.Item1) &&
+        CompositeValueReader.TryReadElement(layout, 1, out elements.Item2))
+      return true;
+    elements = default;
+    return false;
+  }
+
+  /// <summary>Reads a value's first 3 elements, as <see cref="Decode{T1, T2, T3}(ReadOnlySpan{byte})"/> does, unless the value does not hold them.</summary>
+  /// <returns>
+  /// False if the value has fewer elements, its bytes are not a composite value, an element is malformed or has
+  /// another type, a type cannot hold its element's value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite values do not support a type.</exception>
+  public static bool TryDecode<T1, T2, T3>(ReadOnlySpan<byte> value, out (T1, T2, T3) elements)
+  {
+    CompositeElementReading.CheckReadable<T1>();
+    CompositeElementReading.CheckReadable<T2>();
+    CompositeElementReading.CheckReadable<T3>();
+    elements = default;
+    if (TryLeading(value, 3, out var layout) &&
+        CompositeValueReader.TryReadElement(layout, 0, out elements.Item1) &&
+        CompositeValueReader.TryReadElement(layout, 1, out elements.Item2) &&
+        CompositeValueReader.TryReadElement(layout, 2, out elements.Item3))
+      return true;
+    elements = default;
+    return false;
+  }
+
+  /// <summary>Reads a value's first 4 elements, as <see cref="Decode{T1, T2, T3, T4}(ReadOnlySpan{byte})"/> does, unless the value does not hold them.</summary>
+  /// <returns>
+  /// False if the value has fewer elements, its bytes are not a composite value, an element is malformed or has
+  /// another type, a type cannot hold its element's value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite values do not support a type.</exception>
+  public static bool TryDecode<T1, T2, T3, T4>(ReadOnlySpan<byte> value, out (T1, T2, T3, T4) elements)
+  {
+    CompositeElementReading.CheckReadable<T1>();
+    CompositeElementReading.CheckReadable<T2>();
+    CompositeElementReading.CheckReadable<T3>();
+    CompositeElementReading.CheckReadable<T4>();
+    elements = default;
+    if (TryLeading(value, 4, out var layout) &&
+        CompositeValueReader.TryReadElement(layout, 0, out elements.Item1) &&
+        CompositeValueReader.TryReadElement(layout, 1, out elements.Item2) &&
+        CompositeValueReader.TryReadElement(layout, 2, out elements.Item3) &&
+        CompositeValueReader.TryReadElement(layout, 3, out elements.Item4))
+      return true;
+    elements = default;
+    return false;
+  }
+
+  /// <summary>Reads a value's first 5 elements, as <see cref="Decode{T1, T2, T3, T4, T5}(ReadOnlySpan{byte})"/> does, unless the value does not hold them.</summary>
+  /// <returns>
+  /// False if the value has fewer elements, its bytes are not a composite value, an element is malformed or has
+  /// another type, a type cannot hold its element's value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite values do not support a type.</exception>
+  public static bool TryDecode<T1, T2, T3, T4, T5>(ReadOnlySpan<byte> value, out (T1, T2, T3, T4, T5) elements)
+  {
+    CompositeElementReading.CheckReadable<T1>();
+    CompositeElementReading.CheckReadable<T2>();
+    CompositeElementReading.CheckReadable<T3>();
+    CompositeElementReading.CheckReadable<T4>();
+    CompositeElementReading.CheckReadable<T5>();
+    elements = default;
+    if (TryLeading(value, 5, out var layout) &&
+        CompositeValueReader.TryReadElement(layout, 0, out elements.Item1) &&
+        CompositeValueReader.TryReadElement(layout, 1, out elements.Item2) &&
+        CompositeValueReader.TryReadElement(layout, 2, out elements.Item3) &&
+        CompositeValueReader.TryReadElement(layout, 3, out elements.Item4) &&
+        CompositeValueReader.TryReadElement(layout, 4, out elements.Item5))
+      return true;
+    elements = default;
+    return false;
+  }
+
+  /// <summary>Reads a value's first 6 elements, as <see cref="Decode{T1, T2, T3, T4, T5, T6}(ReadOnlySpan{byte})"/> does, unless the value does not hold them.</summary>
+  /// <returns>
+  /// False if the value has fewer elements, its bytes are not a composite value, an element is malformed or has
+  /// another type, a type cannot hold its element's value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite values do not support a type.</exception>
+  public static bool TryDecode<T1, T2, T3, T4, T5, T6>(ReadOnlySpan<byte> value, out (T1, T2, T3, T4, T5, T6) elements)
+  {
+    CompositeElementReading.CheckReadable<T1>();
+    CompositeElementReading.CheckReadable<T2>();
+    CompositeElementReading.CheckReadable<T3>();
+    CompositeElementReading.CheckReadable<T4>();
+    CompositeElementReading.CheckReadable<T5>();
+    CompositeElementReading.CheckReadable<T6>();
+    elements = default;
+    if (TryLeading(value, 6, out var layout) &&
+        CompositeValueReader.TryReadElement(layout, 0, out elements.Item1) &&
+        CompositeValueReader.TryReadElement(layout, 1, out elements.Item2) &&
+        CompositeValueReader.TryReadElement(layout, 2, out elements.Item3) &&
+        CompositeValueReader.TryReadElement(layout, 3, out elements.Item4) &&
+        CompositeValueReader.TryReadElement(layout, 4, out elements.Item5) &&
+        CompositeValueReader.TryReadElement(layout, 5, out elements.Item6))
+      return true;
+    elements = default;
+    return false;
+  }
+
+  /// <summary>Reads a value's first 7 elements, as <see cref="Decode{T1, T2, T3, T4, T5, T6, T7}(ReadOnlySpan{byte})"/> does, unless the value does not hold them.</summary>
+  /// <returns>
+  /// False if the value has fewer elements, its bytes are not a composite value, an element is malformed or has
+  /// another type, a type cannot hold its element's value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite values do not support a type.</exception>
+  public static bool TryDecode<T1, T2, T3, T4, T5, T6, T7>(ReadOnlySpan<byte> value, out (T1, T2, T3, T4, T5, T6, T7) elements)
+  {
+    CompositeElementReading.CheckReadable<T1>();
+    CompositeElementReading.CheckReadable<T2>();
+    CompositeElementReading.CheckReadable<T3>();
+    CompositeElementReading.CheckReadable<T4>();
+    CompositeElementReading.CheckReadable<T5>();
+    CompositeElementReading.CheckReadable<T6>();
+    CompositeElementReading.CheckReadable<T7>();
+    elements = default;
+    if (TryLeading(value, 7, out var layout) &&
+        CompositeValueReader.TryReadElement(layout, 0, out elements.Item1) &&
+        CompositeValueReader.TryReadElement(layout, 1, out elements.Item2) &&
+        CompositeValueReader.TryReadElement(layout, 2, out elements.Item3) &&
+        CompositeValueReader.TryReadElement(layout, 3, out elements.Item4) &&
+        CompositeValueReader.TryReadElement(layout, 4, out elements.Item5) &&
+        CompositeValueReader.TryReadElement(layout, 5, out elements.Item6) &&
+        CompositeValueReader.TryReadElement(layout, 6, out elements.Item7))
+      return true;
+    elements = default;
+    return false;
+  }
+
+  /// <summary>Reads a value's first 8 elements, as <see cref="Decode{T1, T2, T3, T4, T5, T6, T7, T8}(ReadOnlySpan{byte})"/> does, unless the value does not hold them.</summary>
+  /// <returns>
+  /// False if the value has fewer elements, its bytes are not a composite value, an element is malformed or has
+  /// another type, a type cannot hold its element's value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite values do not support a type.</exception>
+  public static bool TryDecode<T1, T2, T3, T4, T5, T6, T7, T8>(
+      ReadOnlySpan<byte> value, out (T1, T2, T3, T4, T5, T6, T7, T8) elements)
+  {
+    CompositeElementReading.CheckReadable<T1>();
+    CompositeElementReading.CheckReadable<T2>();
+    CompositeElementReading.CheckReadable<T3>();
+    CompositeElementReading.CheckReadable<T4>();
+    CompositeElementReading.CheckReadable<T5>();
+    CompositeElementReading.CheckReadable<T6>();
+    CompositeElementReading.CheckReadable<T7>();
+    CompositeElementReading.CheckReadable<T8>();
+    elements = default;
+    if (TryLeading(value, 8, out var layout) &&
+        CompositeValueReader.TryReadElement(layout, 0, out elements.Item1) &&
+        CompositeValueReader.TryReadElement(layout, 1, out elements.Item2) &&
+        CompositeValueReader.TryReadElement(layout, 2, out elements.Item3) &&
+        CompositeValueReader.TryReadElement(layout, 3, out elements.Item4) &&
+        CompositeValueReader.TryReadElement(layout, 4, out elements.Item5) &&
+        CompositeValueReader.TryReadElement(layout, 5, out elements.Item6) &&
+        CompositeValueReader.TryReadElement(layout, 6, out elements.Item7) &&
+        CompositeValueReader.TryReadElement(layout, 7, out elements.Item8))
+      return true;
+    elements = default;
+    return false;
+  }
+
+  static bool TryLeading(ReadOnlySpan<byte> value, int expected, out CompositeValueLayout layout)
+      => CompositeValueLayout.TryParse(value, out layout) && layout.Count >= expected;
+
   /// <summary>Reads one element of a value, without reading the others.</summary>
   /// <exception cref="ArgumentOutOfRangeException">The value has no element at the index.</exception>
   /// <exception cref="ArgumentException">The value's bytes are not a composite value.</exception>
@@ -311,6 +508,21 @@ public static class CompositeValue
     var layout = CompositeValueLayout.Parse(value);
     layout.CheckIndex(index);
     return Read<T>(layout, index);
+  }
+
+  /// <summary>Reads one element of a value, as <see cref="Get{T}"/> does, unless the value does not hold it.</summary>
+  /// <returns>
+  /// False if the value has no element at the index, its bytes are not a composite value, the element is malformed
+  /// or has another type, the type cannot hold its value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite values do not support the type.</exception>
+  public static bool TryGet<T>(ReadOnlySpan<byte> value, int index, out T element)
+  {
+    CompositeElementReading.CheckReadable<T>();
+    if (CompositeValueLayout.TryParse(value, out var layout) && (uint)index < (uint)layout.Count)
+      return CompositeValueReader.TryReadElement(layout, index, out element);
+    element = default;
+    return false;
   }
 
   /// <summary>The number of elements in a value, from its header.</summary>
@@ -407,6 +619,52 @@ public static class CompositeValue
       WriteNumber(ends.Slice(i * width), width, end);
     }
     return result;
+  }
+
+  /// <summary>
+  /// The text of a value, for logs, debugging and tools: its elements in order, such as ("bob", 19.99m, 42), each
+  /// in the form <see cref="CompositeKey.Format"/> gives it. It reads any bytes: an element that is malformed shows
+  /// as malformed(0x...) with its payload, and bytes whose header is malformed show as one malformed(0x...).
+  /// </summary>
+  /// <remarks>
+  /// Every element shows as it was written: a decimal with its scale, a DateTime with Z for UTC and with local after
+  /// it for local time, a DateTimeOffset with its offset, and a floating value in its own size.
+  /// </remarks>
+  public static string Format(ReadOnlySpan<byte> value)
+  {
+    var text = new StringBuilder("(");
+    if (!CompositeValueLayout.TryParse(value, out var layout) || !HasWholeBounds(layout))
+    {
+      CompositeElementText.AppendMalformed(text, value);
+      return text.Append(')').ToString();
+    }
+    for (var i = 0; i < layout.Count; ++i)
+    {
+      if (i > 0)
+        text.Append(", ");
+      var tag = layout.Tag(i);
+      var payload = layout.Payload(i);
+      var start = text.Length;
+      if (!IsValidElement(tag, payload, checkText: false) ||
+          !CompositeElementText.TryAppend<CompositeValueElementFormat>(
+              text, payload, new ElementInfo((CompositeElementType)tag, tag, 0, i)))
+      {
+        text.Length = start;
+        CompositeElementText.AppendMalformed(text, payload);
+      }
+    }
+    return text.Append(')').ToString();
+  }
+
+  /// <summary>Whether every element's payload lies within the payloads, after the one before it.</summary>
+  static bool HasWholeBounds(CompositeValueLayout layout)
+  {
+    for (var i = 0; i < layout.Count; ++i)
+    {
+      if (!layout.TryPayload(i, out _))
+        return false;
+    }
+    return true;
   }
 
   /// <summary>

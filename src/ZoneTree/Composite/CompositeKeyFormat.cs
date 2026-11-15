@@ -308,6 +308,26 @@ internal static class CompositeKeyFormat
     }
   }
 
+  /// <summary>Decodes a string's UTF-8 bytes, unless they are not valid UTF-8.</summary>
+  internal static bool TryReadString(ReadOnlySpan<byte> payload, byte mask, out string value)
+  {
+    if (mask == 0 && payload.IndexOf((byte)0) < 0)
+      return TryDecodeText(payload, out value);
+    var length = UnescapedLength(payload, mask);
+    byte[] rented = null;
+    var buffer = length <= 256 ? stackalloc byte[length] : (rented = ArrayPool<byte>.Shared.Rent(length)).AsSpan(0, length);
+    try
+    {
+      Unescape(payload, mask, buffer);
+      return TryDecodeText(buffer, out value);
+    }
+    finally
+    {
+      if (rented != null)
+        ArrayPool<byte>.Shared.Return(rented);
+    }
+  }
+
   /// <summary>Whether a string's bytes are valid UTF-8.</summary>
   internal static bool IsValidUtf8(ReadOnlySpan<byte> payload, byte mask)
   {
@@ -317,25 +337,56 @@ internal static class CompositeKeyFormat
     try
     {
       Unescape(payload, mask, buffer);
-#if NET8_0_OR_GREATER
-      return System.Text.Unicode.Utf8.IsValid(buffer);
-#else
-      try
-      {
-        StrictUtf8.GetCharCount(buffer);
-        return true;
-      }
-      catch (DecoderFallbackException)
-      {
-        return false;
-      }
-#endif
+      return IsValidText(buffer);
     }
     finally
     {
       if (rented != null)
         ArrayPool<byte>.Shared.Return(rented);
     }
+  }
+
+  /// <summary>Whether bytes are valid UTF-8.</summary>
+  internal static bool IsValidText(ReadOnlySpan<byte> utf8)
+  {
+#if NET8_0_OR_GREATER
+    return System.Text.Unicode.Utf8.IsValid(utf8);
+#else
+    try
+    {
+      StrictUtf8.GetCharCount(utf8);
+      return true;
+    }
+    catch (DecoderFallbackException)
+    {
+      return false;
+    }
+#endif
+  }
+
+  /// <summary>Decodes UTF-8 bytes, unless they are not valid UTF-8.</summary>
+  internal static bool TryDecodeText(ReadOnlySpan<byte> utf8, out string value)
+  {
+#if NET8_0_OR_GREATER
+    if (!System.Text.Unicode.Utf8.IsValid(utf8))
+    {
+      value = null;
+      return false;
+    }
+    value = StrictUtf8.GetString(utf8);
+    return true;
+#else
+    try
+    {
+      value = StrictUtf8.GetString(utf8);
+      return true;
+    }
+    catch (DecoderFallbackException)
+    {
+      value = null;
+      return false;
+    }
+#endif
   }
 
   /// <summary>The mask a decimal's payload is read through: a negative decimal holds its magnitude complemented.</summary>
@@ -432,6 +483,169 @@ internal static class CompositeKeyFormat
     bytes.Slice(6, 2).Reverse();
     return new Guid(bytes);
   }
+
+  /// <summary>
+  /// The bytes just below whole elements, which a range that excludes the elements' keys ends at: every key below
+  /// the elements sorts below them, no key lies between them and the elements, and no key equals them.
+  /// </summary>
+  /// <remarks>
+  /// Byte order has no bytes just below a key in general, as a key can go on with any run of 0xFF bytes and still
+  /// sort below it. The last element's encoding gives them: after a fixed-width payload, nothing but the next
+  /// element's tag can follow, and a terminated payload has a byte no other payload byte can take. The element is
+  /// what the bytes sort below:
+  /// <list type="bullet">
+  /// <item>A fixed-width payload, its width set by its tag or by a length byte: the payload minus one, then 0xFF,
+  /// after every element of a smaller payload and what follows it; for a payload of zeros, the tag and length
+  /// alone, which no element of the tag sorts below.</item>
+  /// <item>Escaped bytes or a string, ended by 00 01, or 0xFF 0xFE descending: the bytes before the last, ending in
+  /// a lead byte no terminator or escape follows.</item>
+  /// <item>A decimal's digits, ended by 0x00, or 0xFF where the digits are complemented: the digits alone, or with
+  /// 0xD0, above every complemented digit and below the terminator.</item>
+  /// <item>An element with no payload: the element of the tag below it with its greatest payload, then 0xFF.</item>
+  /// </list>
+  /// </remarks>
+  internal static byte[] Below(ReadOnlySpan<byte> elements)
+  {
+    if (elements.Length == 0)
+      return [];
+    var last = LastElement(elements);
+    var head = elements.Slice(0, last);
+    var element = elements.Slice(last);
+    var tag = AscendingTag(element[0], out var mask);
+    var descending = mask != 0;
+    switch (tag)
+    {
+      case BytesTag:
+      case StringTag:
+        // Ascending: 00 01 becomes 00, which a 01 or an escape must follow. Descending: FF FE becomes FF 01.
+        return descending ? Join(head, element[..^1], 0x01) : Join(head, element[..^1]);
+      case PositiveDecimal:
+      case NegativeDecimal:
+        // The digits end with 0x00 where they are as they are, and with 0xFF where they are complemented.
+        return element[^1] == 0x00 ? Join(head, element[..^1]) : Join(head, element[..^1], 0xD0);
+      case WideNegativeInteger:
+      case WidePositiveInteger:
+        // The tag and the length byte, then the magnitude.
+        return BelowPayload(head, element, 2);
+      case Null:
+      case IntegerZero:
+      case DecimalZero:
+      case False:
+      case True:
+        return Join(head, descending ? BelowDescendingEmpty(tag) : BelowAscendingEmpty(tag));
+      default:
+        // An integer of 1 to 8 bytes, a floating value, a time, or a Guid: the tag, then a payload of a fixed width.
+        return BelowPayload(head, element, 1);
+    }
+  }
+
+  /// <summary>
+  /// The bytes below an element of a fixed-width payload after a head of the given length: the payload minus one,
+  /// then 0xFF, or the head alone for a payload of zeros.
+  /// </summary>
+  static byte[] BelowPayload(ReadOnlySpan<byte> head, ReadOnlySpan<byte> element, int elementHead)
+  {
+    var payload = element.Slice(elementHead);
+#if NET7_0_OR_GREATER
+    var position = payload.LastIndexOfAnyExcept((byte)0);
+#else
+    var position = payload.Length - 1;
+    while (position >= 0 && payload[position] == 0)
+      --position;
+#endif
+    if (position < 0)
+      return Join(head, element.Slice(0, elementHead));
+    var below = Join(head, element, PrefixEnd);
+    var at = head.Length + elementHead + position;
+    --below[at];
+    below.AsSpan(at + 1, payload.Length - position - 1).Fill(0xFF);
+    return below;
+  }
+
+  /// <summary>
+  /// The bytes below an ascending element with no payload: the tag below it, then 0xFF, which none of that tag's
+  /// payloads starts with.
+  /// </summary>
+  static byte[] BelowAscendingEmpty(byte tag) => tag switch
+  {
+    // No element sorts below null; 0x00 starts none.
+    Null => [0x00],
+    // A negative integer of 1 byte holds its magnitude complemented, whose top bit is never all ones.
+    IntegerZero => [IntegerZero - 1, PrefixEnd],
+    // A negative decimal starts with its exponent complemented, and a positive one with its exponent, never 0xFF.
+    DecimalZero => [NegativeDecimal, PrefixEnd],
+    False => [PositiveDecimal, PrefixEnd],
+    _ => [False, PrefixEnd]
+  };
+
+  /// <summary>
+  /// The bytes below a descending element with no payload: the descending element of the tag below it with its
+  /// greatest payload, then 0xFF.
+  /// </summary>
+  static byte[] BelowDescendingEmpty(byte tag) => tag switch
+  {
+    // Below a descending null, descending bytes, whose greatest is the empty bytes, FD FF FE.
+    Null => [unchecked((byte)~BytesTag), PrefixEnd, PrefixEnd],
+    // Below a descending zero, a descending positive integer of 1 byte, which holds its value complemented, never 0xFF.
+    IntegerZero => [unchecked((byte)~(IntegerZero + 1)), PrefixEnd],
+    // Below a descending decimal zero, a descending positive decimal, which starts with its exponent complemented.
+    DecimalZero => [unchecked((byte)~PositiveDecimal), PrefixEnd],
+    // Below a descending false, a descending true, which has no payload.
+    False => [unchecked((byte)~True), PrefixEnd],
+    // Below a descending true, a descending DateTime, whose ticks complemented can be all ones.
+    _ => [unchecked((byte)~DateTimeTag), PrefixEnd, PrefixEnd, PrefixEnd, PrefixEnd, PrefixEnd, PrefixEnd, PrefixEnd, PrefixEnd, PrefixEnd]
+  };
+
+  static byte[] Join(ReadOnlySpan<byte> head, ReadOnlySpan<byte> tail)
+  {
+    var joined = new byte[head.Length + tail.Length];
+    head.CopyTo(joined);
+    tail.CopyTo(joined.AsSpan(head.Length));
+    return joined;
+  }
+
+  static byte[] Join(ReadOnlySpan<byte> head, ReadOnlySpan<byte> tail, byte end)
+  {
+    var joined = new byte[head.Length + tail.Length + 1];
+    head.CopyTo(joined);
+    tail.CopyTo(joined.AsSpan(head.Length));
+    joined[^1] = end;
+    return joined;
+  }
+
+  /// <summary>Where the last of whole elements starts, or -1 for none.</summary>
+  /// <exception cref="ArgumentException">The bytes are not whole elements.</exception>
+  internal static int LastElement(ReadOnlySpan<byte> elements)
+  {
+    var last = -1;
+    for (var offset = 0; offset < elements.Length;)
+    {
+      var length = Measure(elements, offset);
+      if (length < 0)
+        throw Malformed(offset);
+      last = offset;
+      offset += length;
+    }
+    return last;
+  }
+
+  /// <summary>
+  /// The bytes below every element after a head, and above the head itself: the head and 0x00, which starts no
+  /// element.
+  /// </summary>
+  internal static byte[] FirstAfter(ReadOnlySpan<byte> head) => Join(head, 0x00);
+
+  /// <summary>
+  /// An upper bound at a tag after a head, which is no key: the head and the tag, or the bytes just below the
+  /// element the tag is by itself where it has no payload.
+  /// </summary>
+  internal static byte[] UpperAtTag(ReadOnlySpan<byte> head, byte tag)
+  {
+    var end = Join(head, tag);
+    return Measure(end, head.Length) == 1 ? Below(end) : end;
+  }
+
+  static byte[] Join(ReadOnlySpan<byte> head, byte end) => Join(head, [], end);
 
   internal static ArgumentException Malformed(int offset)
       => new($"The bytes are not a composite key: the element at byte {offset} is malformed.");

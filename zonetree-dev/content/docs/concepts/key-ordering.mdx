@@ -42,7 +42,6 @@ Field names do not establish any of these orders. The comparer implementation do
 ```csharp
 using System.Text;
 using ZoneTree;
-using ZoneTree.Comparers;
 using ZoneTree.Composite;
 
 using var tree = new ZoneTreeFactory<byte[], byte[]>()
@@ -54,22 +53,21 @@ tree.Upsert(CompositeKey.Create(7, 41L, 2L), Encoding.UTF8.GetBytes("Second"));
 tree.Upsert(CompositeKey.Create(7, 42L, 1L), Encoding.UTF8.GetBytes("Another stream"));
 tree.Upsert(CompositeKey.Create(7, 41L, 1L), Encoding.UTF8.GetBytes("First"));
 
-var (from, to) = CompositeKey.Range(CompositeKey.Create(7, 41L));
-var order = new BytesLexicographicComparerAscending();
+var stream = CompositeKey.Range(CompositeKey.Create(7, 41L));
 using var iterator = tree.CreateIterator();
-iterator.Seek(from);
-while (iterator.Next() && order.Compare(iterator.CurrentKey, to) <= 0)
+iterator.Seek(stream.Lower);
+while (iterator.Next() && stream.Contains(iterator.CurrentKey))
 {
     var sequence = CompositeKey.Get<long>(iterator.CurrentKey, 2);
     Console.WriteLine($"{sequence}: {Encoding.UTF8.GetString(iterator.CurrentValue)}");
 }
 ```
 
-`Range` returns inclusive bounds that hold every key under the prefix's whole elements, and nothing else: `(7, 41)` does not hold `(7, 410)`.
+`Range` returns a range of every key under the prefix's whole elements, and nothing else: the scan starts at its `Lower` bound and reads while it `Contains` the key, and `(7, 41)` does not hold `(7, 410)`.
 
 Each element records its type, so `Get` and `Decode` read a key without knowing what wrote it, and every integer type compares by value: `7`, `7L`, and `(byte)7` are the same element. `CompositeKey.Descending(value)` makes one element sort in reverse, for newest-first layouts.
 
-[Composite keys and values](composite-keys-and-values.mdx) covers the rest: rows and indexes in one tree, `BeginsWith` ranges for text that begins with given characters, key layouts that fix each position's type and order, the full element type list, and `CompositeValue` for values of several fields.
+[Composite keys and values](composite-keys-and-values.mdx) covers the rest: rows and their indexes, `Between` ranges from one value through another, ranges on one side of a value, `BeginsWith` ranges for text that begins with given characters, reading page by page, key layouts that fix each position's type and order, reads that return false instead of throwing, keys as text, the full element type list, and `CompositeValue` for values of several fields.
 
 ## Implement a custom key type
 

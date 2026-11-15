@@ -66,6 +66,15 @@ public ref struct CompositeValueReader
     return ReadElement<T>(layout.Tag(current), layout.Payload(current), current);
   }
 
+  /// <summary>Reads the element as a value of a type, as <see cref="Read{T}"/> does, unless the type does not hold it.</summary>
+  /// <returns>
+  /// False if the element is malformed or has another type, the type cannot hold its value exactly, or a string
+  /// element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="InvalidOperationException">The reader is not on an element.</exception>
+  /// <exception cref="NotSupportedException">Composite values do not support the type.</exception>
+  public readonly bool TryRead<T>(out T value) => TryReadElement(layout, Current(), out value);
+
   readonly int Current()
       => index < 0 || index >= layout.Count
           ? throw new InvalidOperationException("The reader is not on an element: call Next, and read while it returns true.")
@@ -84,5 +93,20 @@ public ref struct CompositeValueReader
     if (!IsValidElement(tag, payload, checkText: false))
       throw Malformed(index);
     return CompositeElementReading.Read<T, CompositeValueElementFormat>(payload, new ElementInfo((CompositeElementType)tag, tag, 0, index));
+  }
+
+  /// <summary>Reads an element by the rules of <see cref="ReadElement{T}"/>, false where it throws for the element.</summary>
+  /// <exception cref="NotSupportedException">Composite values do not support the type.</exception>
+  internal static bool TryReadElement<T>(CompositeValueLayout layout, int index, out T value)
+  {
+    CompositeElementReading.CheckReadable<T>();
+    var tag = layout.Tag(index);
+    if (!layout.TryPayload(index, out var payload) || !IsValidElement(tag, payload, checkText: false))
+    {
+      value = default;
+      return false;
+    }
+    return CompositeElementReading.TryRead<T, CompositeValueElementFormat>(
+        payload, new ElementInfo((CompositeElementType)tag, tag, 0, index), out value);
   }
 }

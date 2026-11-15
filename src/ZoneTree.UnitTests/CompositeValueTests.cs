@@ -221,6 +221,98 @@ public sealed class CompositeValueTests
   }
 
   [Test]
+  public void TryReadsReturnFalseWhereReadsThrow()
+  {
+    var value = CompositeValue.Create("bob", 300L, 19.99m, 0.1f);
+    Assert.That(CompositeValue.TryDecode(value, out string name), Is.True);
+    Assert.That(name, Is.EqualTo("bob"));
+    Assert.That(CompositeValue.TryDecode(value, out (string, int, decimal) three), Is.True);
+    Assert.That(three, Is.EqualTo(("bob", 300, 19.99m)));
+    Assert.That(CompositeValue.TryGet(value, 3, out float single), Is.True);
+    Assert.That(single, Is.EqualTo(0.1f));
+
+    // Each failure leaves the default behind.
+    Assert.That(CompositeValue.TryDecode(value, out (string, long, decimal, float, int) tooFew), Is.False);
+    Assert.That(tooFew, Is.EqualTo(default((string, long, decimal, float, int))));
+    Assert.That(CompositeValue.TryDecode(value, out (string, string) mismatch), Is.False);
+    Assert.That(mismatch, Is.EqualTo(default((string, string))));
+    Assert.That(CompositeValue.TryGet(value, 1, out byte overflow), Is.False);
+    Assert.That(overflow, Is.Zero);
+    Assert.That(CompositeValue.TryGet(value, 3, out Half _), Is.False);
+    Assert.That(CompositeValue.TryGet(value, 4, out string _), Is.False);
+    Assert.That(CompositeValue.TryGet(value, -1, out string _), Is.False);
+    Assert.That(CompositeValue.TryDecode<string>(new CompositeValueBuilder().ToArray(), out _), Is.False);
+
+    // A malformed header fails every read, a malformed element the reads of it, and a string of invalid UTF-8 as it
+    // is read.
+    Assert.That(CompositeValue.TryGet([3, 0], 0, out int _), Is.False);
+    Assert.That(CompositeValue.TryDecode([3, 0], out (int, int) _), Is.False);
+    byte[] malformedGuid = [0, 2, 3, 12, 1, 4, 7, 1, 2, 3];
+    Assert.That(CompositeValue.TryGet(malformedGuid, 0, out int integer), Is.True);
+    Assert.That(integer, Is.EqualTo(7));
+    Assert.That(CompositeValue.TryGet(malformedGuid, 1, out Guid _), Is.False);
+    Assert.That(CompositeValue.TryDecode(malformedGuid, out (int, Guid) _), Is.False);
+    byte[] invalidUtf8 = [0, 1, 2, 2, 0xC3, 0x28];
+    Assert.That(CompositeValue.TryGet(invalidUtf8, 0, out string _), Is.False);
+
+    // A type no element is, is a mistake in the code, so it still throws.
+    Assert.Throws<NotSupportedException>(() => CompositeValue.TryGet<object>([3, 0], 0, out _));
+    Assert.Throws<NotSupportedException>(() => CompositeValue.TryDecode<string, Descending<int>>(value, out _));
+
+    var reader = new CompositeValueReader(malformedGuid);
+    Assert.That(reader.Next(), Is.True);
+    Assert.That(reader.TryRead(out string wrong), Is.False);
+    Assert.That(wrong, Is.Null);
+    Assert.That(reader.TryRead(out long number), Is.True);
+    Assert.That(number, Is.EqualTo(7));
+    Assert.That(reader.Next(), Is.True);
+    Assert.That(reader.TryRead(out Guid _), Is.False);
+
+    var eight = CompositeValue.Create(1, 2, 3, 4, 5, 6, 7, 8);
+    Assert.That(CompositeValue.TryDecode(eight, out (int, int) two), Is.True);
+    Assert.That(two, Is.EqualTo((1, 2)));
+    Assert.That(CompositeValue.TryDecode(eight, out (int, int, int, int) four), Is.True);
+    Assert.That(four, Is.EqualTo((1, 2, 3, 4)));
+    Assert.That(CompositeValue.TryDecode(eight, out (int, int, int, int, int) five), Is.True);
+    Assert.That(five, Is.EqualTo((1, 2, 3, 4, 5)));
+    Assert.That(CompositeValue.TryDecode(eight, out (int, int, int, int, int, int) six), Is.True);
+    Assert.That(six, Is.EqualTo((1, 2, 3, 4, 5, 6)));
+    Assert.That(CompositeValue.TryDecode(eight, out (int, int, int, int, int, int, int) seven), Is.True);
+    Assert.That(seven, Is.EqualTo((1, 2, 3, 4, 5, 6, 7)));
+    Assert.That(CompositeValue.TryDecode(eight, out (int, int, int, int, int, int, int, int) all), Is.True);
+    Assert.That(all, Is.EqualTo((1, 2, 3, 4, 5, 6, 7, 8)));
+  }
+
+  [Test]
+  public void FormatShowsEveryElementAsWritten()
+  {
+    var value = new CompositeValueBuilder()
+        .Add("bob")
+        .Add(19.90m)
+        .Add(new DateTime(2026, 11, 15, 9, 30, 0, DateTimeKind.Utc))
+        .Add(new DateTime(2026, 11, 15, 9, 30, 0, DateTimeKind.Local))
+        .Add(new DateTime(2026, 11, 15, 9, 30, 0))
+        .Add(new DateTimeOffset(2026, 11, 15, 9, 30, 0, TimeSpan.FromHours(3)))
+        .Add(0.1f)
+        .Add((Half)0.5)
+        .Add(2.0)
+        .Add(-0.0)
+        .Add((string)null)
+        .Add(new byte[] { 1, 2 })
+        .Add(ulong.MaxValue)
+        .ToArray();
+    Assert.That(CompositeValue.Format(value), Is.EqualTo(
+        """("bob", 19.90m, 2026-11-15T09:30:00.0000000Z, 2026-11-15T09:30:00.0000000 local, 2026-11-15T09:30:00.0000000, 2026-11-15T09:30:00.0000000+03:00, 0.1, 0.5, 2.0, -0.0, null, 0x0102, 18446744073709551615)"""));
+
+    // Any bytes have a text: a malformed element shows its payload, and a malformed header the whole bytes.
+    Assert.That(CompositeValue.Format(new CompositeValueBuilder().ToArray()), Is.EqualTo("()"));
+    Assert.That(CompositeValue.Format([0, 2, 3, 12, 1, 4, 7, 1, 2, 3]), Is.EqualTo("(7, malformed(0x010203))"));
+    Assert.That(CompositeValue.Format([0, 1, 2, 2, 0xC3, 0x28]), Is.EqualTo("(malformed(0xC328))"));
+    Assert.That(CompositeValue.Format([3, 0]), Is.EqualTo("(malformed(0x0300))"));
+    Assert.That(CompositeValue.Format([0, 3, 3, 3, 3, 2, 1, 3, 7, 8, 9]), Is.EqualTo("(malformed(0x0003030303020103070809))"));
+  }
+
+  [Test]
   public void TheBuilderBuildsWhatCreateBuildsAndMore()
   {
     var placed = new DateTimeOffset(2026, 11, 15, 12, 0, 0, TimeSpan.FromHours(3));

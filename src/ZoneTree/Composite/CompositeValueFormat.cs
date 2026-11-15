@@ -121,24 +121,6 @@ internal static class CompositeValueFormat
         BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(4)), flags < 0, (byte)(flags >> 16));
   }
 
-  /// <summary>Whether bytes are valid UTF-8.</summary>
-  static bool IsValidText(ReadOnlySpan<byte> payload)
-  {
-#if NET8_0_OR_GREATER
-    return System.Text.Unicode.Utf8.IsValid(payload);
-#else
-    try
-    {
-      StrictUtf8.GetCharCount(payload);
-      return true;
-    }
-    catch (System.Text.DecoderFallbackException)
-    {
-      return false;
-    }
-#endif
-  }
-
   /// <summary>Whether a decimal's sign and scale are a decimal's: a scale up to 28, and no other bits.</summary>
   static bool IsDecimal(ReadOnlySpan<byte> payload)
   {
