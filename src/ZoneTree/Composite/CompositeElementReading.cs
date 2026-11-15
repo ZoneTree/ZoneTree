@@ -61,13 +61,36 @@ internal interface IElementFormat
   /// <exception cref="ArgumentException">The string's bytes are not valid UTF-8.</exception>
   string ReadString(ReadOnlySpan<byte> payload, in ElementInfo element);
 
+  /// <summary>A string, unless its bytes are not valid UTF-8.</summary>
+  bool TryReadString(ReadOnlySpan<byte> payload, in ElementInfo element, out string value);
+
   byte[] ReadBytes(ReadOnlySpan<byte> payload, in ElementInfo element);
+}
+
+/// <summary>What a read does with an element its type does not hold: throws, or returns false.</summary>
+internal interface IReadMode
+{
+  bool Throws { get; }
+}
+
+internal readonly struct ThrowingRead : IReadMode
+{
+  public bool Throws => true;
+}
+
+internal readonly struct TryingRead : IReadMode
+{
+  public bool Throws => false;
 }
 
 /// <summary>
 /// The reading rules every composite format shares: which elements read as which .NET types, the ranges and the
 /// exactness a type needs, and the errors when it has neither.
 /// </summary>
+/// <remarks>
+/// One set of rules serves both a read that throws and one that returns false: the mode is a struct type
+/// argument, so the JIT keeps only the mode's own branches in each instantiation.
+/// </remarks>
 internal static class CompositeElementReading
 {
   /// <summary>
@@ -79,181 +102,261 @@ internal static class CompositeElementReading
   /// <exception cref="OverflowException">The type cannot hold the element's value exactly.</exception>
   /// <exception cref="ArgumentException">A string element's bytes are not valid UTF-8.</exception>
   /// <exception cref="NotSupportedException">Composite elements do not support the type.</exception>
+  [MethodImpl(MethodImplOptions.AggressiveInlining)]
   internal static T Read<T, TFormat>(ReadOnlySpan<byte> payload, in ElementInfo element) where TFormat : struct, IElementFormat
+  {
+    Read<T, TFormat, ThrowingRead>(payload, element, out var value);
+    return value;
+  }
+
+  /// <summary>Reads an element as a value of a type, by the rules of <see cref="Read{T, TFormat}"/>.</summary>
+  /// <returns>False where <see cref="Read{T, TFormat}"/> throws for the element.</returns>
+  /// <exception cref="NotSupportedException">Composite elements do not support the type.</exception>
+  [MethodImpl(MethodImplOptions.AggressiveInlining)]
+  internal static bool TryRead<T, TFormat>(ReadOnlySpan<byte> payload, in ElementInfo element, out T value)
+      where TFormat : struct, IElementFormat
+      => Read<T, TFormat, TryingRead>(payload, element, out value);
+
+  /// <summary>Checks that a type is one an element reads as: a supported type, and not a <see cref="Descending{T}"/>.</summary>
+  /// <exception cref="NotSupportedException">Composite elements do not support the type.</exception>
+  [MethodImpl(MethodImplOptions.AggressiveInlining)]
+  internal static void CheckReadable<T>()
   {
     var shape = ShapeOf<T>.Value;
     if (shape.Kind == ElementKind.Unsupported)
       throw new NotSupportedException($"A composite element cannot be read as a {typeof(T)}.");
     if (shape.IsDescending)
       throw new NotSupportedException("An element reads back as a value of its own type, not as a Descending<T>.");
+  }
+
+  static bool Read<T, TFormat, TMode>(ReadOnlySpan<byte> payload, in ElementInfo element, out T value)
+      where TFormat : struct, IElementFormat
+      where TMode : struct, IReadMode
+  {
+    CheckReadable<T>();
+    var shape = ShapeOf<T>.Value;
+    value = default;
     if (element.Type == CompositeElementType.Null)
-    {
-      if (shape.IsNullable || shape.Kind is ElementKind.String or ElementKind.ByteArray)
-        return default;
-      throw Mismatch<T>(element);
-    }
+      return shape.IsNullable || shape.Kind is ElementKind.String or ElementKind.ByteArray || Mismatch<T, TMode>(element);
     var format = default(TFormat);
     switch (shape.Kind)
     {
       case ElementKind.String:
-        Expect<T>(element, CompositeElementType.String);
-        var text = format.ReadString(payload, element);
-        return Unsafe.As<string, T>(ref text);
+        if (element.Type != CompositeElementType.String)
+          return Mismatch<T, TMode>(element);
+        string text;
+        if (default(TMode).Throws)
+          text = format.ReadString(payload, element);
+        else if (!format.TryReadString(payload, element, out text))
+          return false;
+        value = Unsafe.As<string, T>(ref text);
+        return true;
       case ElementKind.ByteArray:
-        Expect<T>(element, CompositeElementType.Bytes);
+        if (element.Type != CompositeElementType.Bytes)
+          return Mismatch<T, TMode>(element);
         var array = format.ReadBytes(payload, element);
-        return Unsafe.As<byte[], T>(ref array);
+        value = Unsafe.As<byte[], T>(ref array);
+        return true;
       case ElementKind.ByteMemory:
-        Expect<T>(element, CompositeElementType.Bytes);
-        return Give<T, Memory<byte>>(shape, format.ReadBytes(payload, element));
+        return element.Type == CompositeElementType.Bytes
+            ? Give(shape, (Memory<byte>)format.ReadBytes(payload, element), out value)
+            : Mismatch<T, TMode>(element);
       case ElementKind.ReadOnlyByteMemory:
-        Expect<T>(element, CompositeElementType.Bytes);
-        return Give<T, ReadOnlyMemory<byte>>(shape, format.ReadBytes(payload, element));
+        return element.Type == CompositeElementType.Bytes
+            ? Give(shape, (ReadOnlyMemory<byte>)format.ReadBytes(payload, element), out value)
+            : Mismatch<T, TMode>(element);
       case ElementKind.Boolean:
-        Expect<T>(element, CompositeElementType.Boolean);
-        return Give<T, bool>(shape, format.ReadBoolean(payload, element));
+        return element.Type == CompositeElementType.Boolean
+            ? Give(shape, format.ReadBoolean(payload, element), out value)
+            : Mismatch<T, TMode>(element);
       case ElementKind.SByte:
-        return Give<T, sbyte>(shape, (sbyte)Signed<T, TFormat>(payload, element, sbyte.MinValue, sbyte.MaxValue));
+        return Signed<T, TFormat, TMode>(payload, element, sbyte.MinValue, sbyte.MaxValue, out var int8) &&
+            Give(shape, (sbyte)int8, out value);
       case ElementKind.Byte:
-        return Give<T, byte>(shape, (byte)Unsigned<T, TFormat>(payload, element, byte.MaxValue));
+        return Unsigned<T, TFormat, TMode>(payload, element, byte.MaxValue, out var uint8) &&
+            Give(shape, (byte)uint8, out value);
       case ElementKind.Int16:
-        return Give<T, short>(shape, (short)Signed<T, TFormat>(payload, element, short.MinValue, short.MaxValue));
+        return Signed<T, TFormat, TMode>(payload, element, short.MinValue, short.MaxValue, out var int16) &&
+            Give(shape, (short)int16, out value);
       case ElementKind.UInt16:
-        return Give<T, ushort>(shape, (ushort)Unsigned<T, TFormat>(payload, element, ushort.MaxValue));
+        return Unsigned<T, TFormat, TMode>(payload, element, ushort.MaxValue, out var uint16) &&
+            Give(shape, (ushort)uint16, out value);
       case ElementKind.Int32:
-        return Give<T, int>(shape, (int)Signed<T, TFormat>(payload, element, int.MinValue, int.MaxValue));
+        return Signed<T, TFormat, TMode>(payload, element, int.MinValue, int.MaxValue, out var int32) &&
+            Give(shape, (int)int32, out value);
       case ElementKind.UInt32:
-        return Give<T, uint>(shape, (uint)Unsigned<T, TFormat>(payload, element, uint.MaxValue));
+        return Unsigned<T, TFormat, TMode>(payload, element, uint.MaxValue, out var uint32) &&
+            Give(shape, (uint)uint32, out value);
       case ElementKind.Int64:
-        return Give<T, long>(shape, Signed<T, TFormat>(payload, element, long.MinValue, long.MaxValue));
+        return Signed<T, TFormat, TMode>(payload, element, long.MinValue, long.MaxValue, out var int64) &&
+            Give(shape, int64, out value);
       case ElementKind.UInt64:
-        return Give<T, ulong>(shape, Unsigned<T, TFormat>(payload, element, ulong.MaxValue));
+        return Unsigned<T, TFormat, TMode>(payload, element, ulong.MaxValue, out var uint64) &&
+            Give(shape, uint64, out value);
       case ElementKind.IntPtr:
-        return Give<T, nint>(shape, (nint)Signed<T, TFormat>(payload, element, nint.MinValue, nint.MaxValue));
+        return Signed<T, TFormat, TMode>(payload, element, nint.MinValue, nint.MaxValue, out var native) &&
+            Give(shape, (nint)native, out value);
       case ElementKind.UIntPtr:
-        return Give<T, nuint>(shape, (nuint)Unsigned<T, TFormat>(payload, element, nuint.MaxValue));
+        return Unsigned<T, TFormat, TMode>(payload, element, nuint.MaxValue, out var unsignedNative) &&
+            Give(shape, (nuint)unsignedNative, out value);
       case ElementKind.Char:
-        return Give<T, char>(shape, (char)Unsigned<T, TFormat>(payload, element, char.MaxValue));
+        return Unsigned<T, TFormat, TMode>(payload, element, char.MaxValue, out var character) &&
+            Give(shape, (char)character, out value);
 #if NET7_0_OR_GREATER
       case ElementKind.Int128:
-        Expect<T>(element, CompositeElementType.Integer);
+        if (element.Type != CompositeElementType.Integer)
+          return Mismatch<T, TMode>(element);
         if (format.TryReadWide(payload, element, out var negative128, out var magnitude128))
         {
           var limit = (UInt128)Int128.MaxValue;
           if (negative128 && magnitude128 <= limit + 1)
-            return Give<T, Int128>(shape, magnitude128 == limit + 1 ? Int128.MinValue : -(Int128)magnitude128);
+            return Give(shape, magnitude128 == limit + 1 ? Int128.MinValue : -(Int128)magnitude128, out value);
           if (!negative128 && magnitude128 <= limit)
-            return Give<T, Int128>(shape, (Int128)magnitude128);
+            return Give(shape, (Int128)magnitude128, out value);
         }
-        throw TooLarge<T>(format.ReadInteger(payload, element), element);
+        return TooLarge<T, TFormat, TMode>(payload, element);
       case ElementKind.UInt128:
-        Expect<T>(element, CompositeElementType.Integer);
+        if (element.Type != CompositeElementType.Integer)
+          return Mismatch<T, TMode>(element);
         if (format.TryReadWide(payload, element, out var negativeUnsigned, out var unsigned128) && !negativeUnsigned)
-          return Give<T, UInt128>(shape, unsigned128);
-        throw TooLarge<T>(format.ReadInteger(payload, element), element);
+          return Give(shape, unsigned128, out value);
+        return TooLarge<T, TFormat, TMode>(payload, element);
 #endif
       case ElementKind.BigInteger:
-        Expect<T>(element, CompositeElementType.Integer);
-        return Give<T, BigInteger>(shape, format.TryReadNarrow(payload, element, out var negativeBig, out var magnitudeBig)
+        if (element.Type != CompositeElementType.Integer)
+          return Mismatch<T, TMode>(element);
+        return Give(shape, format.TryReadNarrow(payload, element, out var negativeBig, out var magnitudeBig)
             ? (negativeBig ? -(BigInteger)magnitudeBig : magnitudeBig)
-            : format.ReadInteger(payload, element));
+            : format.ReadInteger(payload, element), out value);
       case ElementKind.Half:
-        Expect<T>(element, CompositeElementType.Floating);
+        if (element.Type != CompositeElementType.Floating)
+          return Mismatch<T, TMode>(element);
         if (format.TryReadHalf(payload, element, out var storedHalf))
-          return Give<T, Half>(shape, storedHalf);
+          return Give(shape, storedHalf, out value);
         var wideHalf = format.ReadFloating(payload, element);
         var half = (Half)wideHalf;
         if ((double)half != wideHalf && !double.IsNaN(wideHalf))
-          throw Inexact<T>(wideHalf, element);
-        return Give<T, Half>(shape, half);
+          return Inexact<T, TMode>(wideHalf, element);
+        return Give(shape, half, out value);
       case ElementKind.Single:
-        Expect<T>(element, CompositeElementType.Floating);
+        if (element.Type != CompositeElementType.Floating)
+          return Mismatch<T, TMode>(element);
         if (format.TryReadSingle(payload, element, out var storedSingle))
-          return Give<T, float>(shape, storedSingle);
+          return Give(shape, storedSingle, out value);
         var wideSingle = format.ReadFloating(payload, element);
         var single = (float)wideSingle;
         if (single != wideSingle && !double.IsNaN(wideSingle))
-          throw Inexact<T>(wideSingle, element);
-        return Give<T, float>(shape, single);
+          return Inexact<T, TMode>(wideSingle, element);
+        return Give(shape, single, out value);
       case ElementKind.Double:
-        Expect<T>(element, CompositeElementType.Floating);
-        return Give<T, double>(shape, format.ReadFloating(payload, element));
+        return element.Type == CompositeElementType.Floating
+            ? Give(shape, format.ReadFloating(payload, element), out value)
+            : Mismatch<T, TMode>(element);
       case ElementKind.Decimal:
-        Expect<T>(element, CompositeElementType.Decimal);
-        return Give<T, decimal>(shape, format.ReadDecimal(payload, element));
+        return element.Type == CompositeElementType.Decimal
+            ? Give(shape, format.ReadDecimal(payload, element), out value)
+            : Mismatch<T, TMode>(element);
       case ElementKind.DateTime:
-        Expect<T>(element, CompositeElementType.DateTime);
-        return Give<T, DateTime>(shape, format.ReadDateTime(payload, element));
+        return element.Type == CompositeElementType.DateTime
+            ? Give(shape, format.ReadDateTime(payload, element), out value)
+            : Mismatch<T, TMode>(element);
       case ElementKind.DateTimeOffset:
-        Expect<T>(element, CompositeElementType.DateTimeOffset);
-        return Give<T, DateTimeOffset>(shape, format.ReadDateTimeOffset(payload, element));
+        return element.Type == CompositeElementType.DateTimeOffset
+            ? Give(shape, format.ReadDateTimeOffset(payload, element), out value)
+            : Mismatch<T, TMode>(element);
       case ElementKind.DateOnly:
-        Expect<T>(element, CompositeElementType.DateOnly);
-        return Give<T, DateOnly>(shape, format.ReadDateOnly(payload, element));
+        return element.Type == CompositeElementType.DateOnly
+            ? Give(shape, format.ReadDateOnly(payload, element), out value)
+            : Mismatch<T, TMode>(element);
       case ElementKind.TimeOnly:
-        Expect<T>(element, CompositeElementType.TimeOnly);
-        return Give<T, TimeOnly>(shape, format.ReadTimeOnly(payload, element));
+        return element.Type == CompositeElementType.TimeOnly
+            ? Give(shape, format.ReadTimeOnly(payload, element), out value)
+            : Mismatch<T, TMode>(element);
       case ElementKind.TimeSpan:
-        Expect<T>(element, CompositeElementType.TimeSpan);
-        return Give<T, TimeSpan>(shape, format.ReadTimeSpan(payload, element));
+        return element.Type == CompositeElementType.TimeSpan
+            ? Give(shape, format.ReadTimeSpan(payload, element), out value)
+            : Mismatch<T, TMode>(element);
       case ElementKind.Guid:
-        Expect<T>(element, CompositeElementType.Guid);
-        return Give<T, Guid>(shape, format.ReadGuid(payload, element));
+        return element.Type == CompositeElementType.Guid
+            ? Give(shape, format.ReadGuid(payload, element), out value)
+            : Mismatch<T, TMode>(element);
       default:
         throw new NotSupportedException($"A composite element cannot be read as a {typeof(T)}.");
     }
   }
 
+  /// <summary>Gives a value of a value type, or of its nullable type, as the type read.</summary>
   [MethodImpl(MethodImplOptions.AggressiveInlining)]
-  static T Give<T, TValue>(ElementShape shape, TValue value) where TValue : struct
+  static bool Give<T, TValue>(ElementShape shape, TValue result, out T value) where TValue : struct
   {
     if (shape.IsNullable)
     {
-      TValue? nullable = value;
-      return Unsafe.As<TValue?, T>(ref nullable);
+      TValue? nullable = result;
+      value = Unsafe.As<TValue?, T>(ref nullable);
     }
-    return Unsafe.As<TValue, T>(ref value);
+    else
+      value = Unsafe.As<TValue, T>(ref result);
+    return true;
   }
 
-  static long Signed<T, TFormat>(ReadOnlySpan<byte> payload, in ElementInfo element, long minimum, long maximum)
+  static bool Signed<T, TFormat, TMode>(ReadOnlySpan<byte> payload, in ElementInfo element, long minimum, long maximum, out long result)
       where TFormat : struct, IElementFormat
+      where TMode : struct, IReadMode
   {
-    Expect<T>(element, CompositeElementType.Integer);
+    result = 0;
+    if (element.Type != CompositeElementType.Integer)
+      return Mismatch<T, TMode>(element);
     if (default(TFormat).TryReadNarrow(payload, element, out var negative, out var magnitude))
     {
       if (negative)
       {
         if (magnitude <= (ulong)-(minimum + 1) + 1)
-          return magnitude == CompositeKeyFormat.SignBit ? long.MinValue : -(long)magnitude;
+        {
+          result = magnitude == CompositeKeyFormat.SignBit ? long.MinValue : -(long)magnitude;
+          return true;
+        }
       }
       else if (magnitude <= (ulong)maximum)
-        return (long)magnitude;
+      {
+        result = (long)magnitude;
+        return true;
+      }
     }
-    throw TooLarge<T>(default(TFormat).ReadInteger(payload, element), element);
+    return TooLarge<T, TFormat, TMode>(payload, element);
   }
 
-  static ulong Unsigned<T, TFormat>(ReadOnlySpan<byte> payload, in ElementInfo element, ulong maximum)
+  static bool Unsigned<T, TFormat, TMode>(ReadOnlySpan<byte> payload, in ElementInfo element, ulong maximum, out ulong result)
       where TFormat : struct, IElementFormat
+      where TMode : struct, IReadMode
   {
-    Expect<T>(element, CompositeElementType.Integer);
+    result = 0;
+    if (element.Type != CompositeElementType.Integer)
+      return Mismatch<T, TMode>(element);
     if (default(TFormat).TryReadNarrow(payload, element, out var negative, out var magnitude) && !negative && magnitude <= maximum)
-      return magnitude;
-    throw TooLarge<T>(default(TFormat).ReadInteger(payload, element), element);
+    {
+      result = magnitude;
+      return true;
+    }
+    return TooLarge<T, TFormat, TMode>(payload, element);
   }
 
-  [MethodImpl(MethodImplOptions.AggressiveInlining)]
-  static void Expect<T>(in ElementInfo element, CompositeElementType expected)
-  {
-    if (element.Type != expected)
-      throw Mismatch<T>(element);
-  }
+  // A read that returns false only returns it; one that throws builds its exception, with the element's value
+  // for an integer or a floating value the type does not hold.
+  static bool Mismatch<T, TMode>(in ElementInfo element) where TMode : struct, IReadMode
+      => default(TMode).Throws
+          ? throw new InvalidCastException($"Element {element.Index} is {element.Type}, which cannot be read as a {typeof(T)}.")
+          : false;
 
-  static InvalidCastException Mismatch<T>(in ElementInfo element)
-      => new($"Element {element.Index} is {element.Type}, which cannot be read as a {typeof(T)}.");
+  static bool TooLarge<T, TFormat, TMode>(ReadOnlySpan<byte> payload, in ElementInfo element)
+      where TFormat : struct, IElementFormat
+      where TMode : struct, IReadMode
+      => default(TMode).Throws
+          ? throw new OverflowException(
+              $"Element {element.Index} holds {default(TFormat).ReadInteger(payload, element)}, which a {typeof(T)} does not hold.")
+          : false;
 
-  static OverflowException TooLarge<T>(BigInteger value, in ElementInfo element)
-      => new($"Element {element.Index} holds {value}, which a {typeof(T)} does not hold.");
-
-  static OverflowException Inexact<T>(double value, in ElementInfo element)
-      => new($"Element {element.Index} holds {value}, which a {typeof(T)} does not hold exactly.");
+  static bool Inexact<T, TMode>(double value, in ElementInfo element) where TMode : struct, IReadMode
+      => default(TMode).Throws
+          ? throw new OverflowException($"Element {element.Index} holds {value}, which a {typeof(T)} does not hold exactly.")
+          : false;
 }

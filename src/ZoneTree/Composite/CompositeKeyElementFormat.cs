@@ -114,6 +114,9 @@ internal readonly struct CompositeKeyElementFormat : IElementFormat
   public string ReadString(ReadOnlySpan<byte> payload, in ElementInfo element)
       => CompositeKeyFormat.ReadString(Escaped(payload), element.Mask);
 
+  public bool TryReadString(ReadOnlySpan<byte> payload, in ElementInfo element, out string value)
+      => CompositeKeyFormat.TryReadString(Escaped(payload), element.Mask, out value);
+
   public byte[] ReadBytes(ReadOnlySpan<byte> payload, in ElementInfo element)
       => CompositeKeyFormat.ReadBytes(Escaped(payload), element.Mask);
 

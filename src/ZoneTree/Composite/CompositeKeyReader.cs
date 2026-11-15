@@ -32,6 +32,21 @@ public ref struct CompositeKeyReader
   /// <exception cref="ArgumentException">The bytes of the next element are not a composite key element.</exception>
   public bool Next()
   {
+    if (TryNext())
+      return true;
+    if (AtEnd)
+      return false;
+    var at = offset;
+    offset = key.Length;
+    throw Malformed(at);
+  }
+
+  /// <summary>
+  /// Moves to the next element, without throwing: false at the end of the key, and at bytes that are not an
+  /// element, where <see cref="Offset"/> stays and <see cref="AtEnd"/> is false.
+  /// </summary>
+  internal bool TryNext()
+  {
     offset += length;
     length = 0;
     if (offset >= key.Length)
@@ -41,15 +56,14 @@ public ref struct CompositeKeyReader
     }
     var measured = Measure(key, offset);
     if (measured < 0)
-    {
-      var at = offset;
-      offset = key.Length;
-      throw Malformed(at);
-    }
+      return false;
     length = measured;
     ++index;
     return true;
   }
+
+  /// <summary>Whether the reader passed the key's last element.</summary>
+  internal readonly bool AtEnd => offset >= key.Length;
 
   /// <summary>The index of the element the reader is on.</summary>
   public readonly int Index => index;
@@ -83,6 +97,21 @@ public ref struct CompositeKeyReader
     var element = Current();
     var tag = AscendingTag(element[0], out var mask);
     return CompositeElementReading.Read<T, CompositeKeyElementFormat>(element.Slice(1), new ElementInfo(TypeOf(tag), tag, mask, index));
+  }
+
+  /// <summary>Reads the element as a value of a type, as <see cref="Read{T}"/> does, unless the type does not hold it.</summary>
+  /// <returns>
+  /// False if the element has another type, the type cannot hold its value exactly, or a string element's bytes
+  /// are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="InvalidOperationException">The reader is not on an element.</exception>
+  /// <exception cref="NotSupportedException">Composite keys do not support the type.</exception>
+  public readonly bool TryRead<T>(out T value)
+  {
+    var element = Current();
+    var tag = AscendingTag(element[0], out var mask);
+    return CompositeElementReading.TryRead<T, CompositeKeyElementFormat>(
+        element.Slice(1), new ElementInfo(TypeOf(tag), tag, mask, index), out value);
   }
 
   readonly ReadOnlySpan<byte> Current()

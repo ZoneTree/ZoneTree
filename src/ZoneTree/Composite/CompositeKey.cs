@@ -1,3 +1,4 @@
+using System.Text;
 using static ZoneTree.Composite.CompositeKeyFormat;
 
 namespace ZoneTree.Composite;
@@ -10,8 +11,15 @@ namespace ZoneTree.Composite;
 /// <para>
 /// A key is its elements one after another, with no header, so two keys joined end to end are the key of their
 /// elements together, and a key's bytes start every key that extends it. One tree can hold rows and the entries
-/// of several indexes, each under a leading element of its own, and <see cref="Range"/> bounds the keys
-/// that start with given elements.
+/// of several indexes, each under a leading element of its own. <see cref="Range"/> makes the range of the keys
+/// that start with given elements, <see cref="Between"/> that of the keys from one prefix through another,
+/// <see cref="AtLeast"/>, <see cref="GreaterThan"/>, <see cref="AtMost"/> and <see cref="LessThan"/> those of the
+/// keys on one side of a value, and <see cref="BeginsWith(ReadOnlySpan{byte}, string, CompositeKeyOrder)"/> that of
+/// the keys whose next string begins with given text.
+/// </para>
+/// <para>
+/// Every range is a <see cref="CompositeKeyRange"/>. A forward scan seeks its lower bound and a reverse scan its
+/// upper bound, and each reads while <see cref="CompositeKeyRange.Contains"/> holds.
 /// </para>
 /// <para>
 /// Elements can be any .NET integer type, BigInteger, char, an enum, Half, float, double, decimal, bool,
@@ -32,7 +40,9 @@ namespace ZoneTree.Composite;
 /// </para>
 /// <para>
 /// <see cref="Create{T1}(T1)"/> and its overloads build keys of up to eight elements in one call, and
-/// <see cref="CompositeKeyBuilder"/> builds keys of any number. Every reading member reads keys of any length.
+/// <see cref="CompositeKeyBuilder"/> builds keys of any number. Every reading member reads keys of any length,
+/// and those that read elements as types have a Try form, which returns false for a key that does not hold the
+/// types instead of throwing. <see cref="Format"/> shows any key as text.
 /// </para>
 /// </remarks>
 /// <example>
@@ -319,6 +329,190 @@ public static class CompositeKey
     return reader.Read<T>();
   }
 
+  /// <summary>Reads a key's first element, as <see cref="Decode{T1}(ReadOnlySpan{byte})"/> does, unless the key does not hold it.</summary>
+  /// <returns>
+  /// False if the key has no elements, its bytes are not a composite key up to the element, the element has
+  /// another type, the type cannot hold its value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite keys do not support the type.</exception>
+  public static bool TryDecode<T1>(ReadOnlySpan<byte> key, out T1 first)
+  {
+    CompositeElementReading.CheckReadable<T1>();
+    var reader = new CompositeKeyReader(key);
+    if (TryNext(ref reader, out first))
+      return true;
+    first = default;
+    return false;
+  }
+
+  /// <summary>Reads a key's first 2 elements, as <see cref="Decode{T1, T2}(ReadOnlySpan{byte})"/> does, unless the key does not hold them.</summary>
+  /// <returns>
+  /// False if the key has fewer elements, its bytes are not a composite key up to them, an element has another
+  /// type, a type cannot hold its element's value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite keys do not support a type.</exception>
+  public static bool TryDecode<T1, T2>(ReadOnlySpan<byte> key, out (T1, T2) elements)
+  {
+    CompositeElementReading.CheckReadable<T1>();
+    CompositeElementReading.CheckReadable<T2>();
+    var reader = new CompositeKeyReader(key);
+    elements = default;
+    if (TryNext(ref reader, out elements.Item1) && TryNext(ref reader, out elements.Item2))
+      return true;
+    elements = default;
+    return false;
+  }
+
+  /// <summary>Reads a key's first 3 elements, as <see cref="Decode{T1, T2, T3}(ReadOnlySpan{byte})"/> does, unless the key does not hold them.</summary>
+  /// <returns>
+  /// False if the key has fewer elements, its bytes are not a composite key up to them, an element has another
+  /// type, a type cannot hold its element's value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite keys do not support a type.</exception>
+  public static bool TryDecode<T1, T2, T3>(ReadOnlySpan<byte> key, out (T1, T2, T3) elements)
+  {
+    CompositeElementReading.CheckReadable<T1>();
+    CompositeElementReading.CheckReadable<T2>();
+    CompositeElementReading.CheckReadable<T3>();
+    var reader = new CompositeKeyReader(key);
+    elements = default;
+    if (TryNext(ref reader, out elements.Item1) && TryNext(ref reader, out elements.Item2) &&
+        TryNext(ref reader, out elements.Item3))
+      return true;
+    elements = default;
+    return false;
+  }
+
+  /// <summary>Reads a key's first 4 elements, as <see cref="Decode{T1, T2, T3, T4}(ReadOnlySpan{byte})"/> does, unless the key does not hold them.</summary>
+  /// <returns>
+  /// False if the key has fewer elements, its bytes are not a composite key up to them, an element has another
+  /// type, a type cannot hold its element's value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite keys do not support a type.</exception>
+  public static bool TryDecode<T1, T2, T3, T4>(ReadOnlySpan<byte> key, out (T1, T2, T3, T4) elements)
+  {
+    CompositeElementReading.CheckReadable<T1>();
+    CompositeElementReading.CheckReadable<T2>();
+    CompositeElementReading.CheckReadable<T3>();
+    CompositeElementReading.CheckReadable<T4>();
+    var reader = new CompositeKeyReader(key);
+    elements = default;
+    if (TryNext(ref reader, out elements.Item1) && TryNext(ref reader, out elements.Item2) &&
+        TryNext(ref reader, out elements.Item3) && TryNext(ref reader, out elements.Item4))
+      return true;
+    elements = default;
+    return false;
+  }
+
+  /// <summary>Reads a key's first 5 elements, as <see cref="Decode{T1, T2, T3, T4, T5}(ReadOnlySpan{byte})"/> does, unless the key does not hold them.</summary>
+  /// <returns>
+  /// False if the key has fewer elements, its bytes are not a composite key up to them, an element has another
+  /// type, a type cannot hold its element's value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite keys do not support a type.</exception>
+  public static bool TryDecode<T1, T2, T3, T4, T5>(ReadOnlySpan<byte> key, out (T1, T2, T3, T4, T5) elements)
+  {
+    CompositeElementReading.CheckReadable<T1>();
+    CompositeElementReading.CheckReadable<T2>();
+    CompositeElementReading.CheckReadable<T3>();
+    CompositeElementReading.CheckReadable<T4>();
+    CompositeElementReading.CheckReadable<T5>();
+    var reader = new CompositeKeyReader(key);
+    elements = default;
+    if (TryNext(ref reader, out elements.Item1) && TryNext(ref reader, out elements.Item2) &&
+        TryNext(ref reader, out elements.Item3) && TryNext(ref reader, out elements.Item4) &&
+        TryNext(ref reader, out elements.Item5))
+      return true;
+    elements = default;
+    return false;
+  }
+
+  /// <summary>Reads a key's first 6 elements, as <see cref="Decode{T1, T2, T3, T4, T5, T6}(ReadOnlySpan{byte})"/> does, unless the key does not hold them.</summary>
+  /// <returns>
+  /// False if the key has fewer elements, its bytes are not a composite key up to them, an element has another
+  /// type, a type cannot hold its element's value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite keys do not support a type.</exception>
+  public static bool TryDecode<T1, T2, T3, T4, T5, T6>(ReadOnlySpan<byte> key, out (T1, T2, T3, T4, T5, T6) elements)
+  {
+    CompositeElementReading.CheckReadable<T1>();
+    CompositeElementReading.CheckReadable<T2>();
+    CompositeElementReading.CheckReadable<T3>();
+    CompositeElementReading.CheckReadable<T4>();
+    CompositeElementReading.CheckReadable<T5>();
+    CompositeElementReading.CheckReadable<T6>();
+    var reader = new CompositeKeyReader(key);
+    elements = default;
+    if (TryNext(ref reader, out elements.Item1) && TryNext(ref reader, out elements.Item2) &&
+        TryNext(ref reader, out elements.Item3) && TryNext(ref reader, out elements.Item4) &&
+        TryNext(ref reader, out elements.Item5) && TryNext(ref reader, out elements.Item6))
+      return true;
+    elements = default;
+    return false;
+  }
+
+  /// <summary>Reads a key's first 7 elements, as <see cref="Decode{T1, T2, T3, T4, T5, T6, T7}(ReadOnlySpan{byte})"/> does, unless the key does not hold them.</summary>
+  /// <returns>
+  /// False if the key has fewer elements, its bytes are not a composite key up to them, an element has another
+  /// type, a type cannot hold its element's value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite keys do not support a type.</exception>
+  public static bool TryDecode<T1, T2, T3, T4, T5, T6, T7>(ReadOnlySpan<byte> key, out (T1, T2, T3, T4, T5, T6, T7) elements)
+  {
+    CompositeElementReading.CheckReadable<T1>();
+    CompositeElementReading.CheckReadable<T2>();
+    CompositeElementReading.CheckReadable<T3>();
+    CompositeElementReading.CheckReadable<T4>();
+    CompositeElementReading.CheckReadable<T5>();
+    CompositeElementReading.CheckReadable<T6>();
+    CompositeElementReading.CheckReadable<T7>();
+    var reader = new CompositeKeyReader(key);
+    elements = default;
+    if (TryNext(ref reader, out elements.Item1) && TryNext(ref reader, out elements.Item2) &&
+        TryNext(ref reader, out elements.Item3) && TryNext(ref reader, out elements.Item4) &&
+        TryNext(ref reader, out elements.Item5) && TryNext(ref reader, out elements.Item6) &&
+        TryNext(ref reader, out elements.Item7))
+      return true;
+    elements = default;
+    return false;
+  }
+
+  /// <summary>Reads a key's first 8 elements, as <see cref="Decode{T1, T2, T3, T4, T5, T6, T7, T8}(ReadOnlySpan{byte})"/> does, unless the key does not hold them.</summary>
+  /// <returns>
+  /// False if the key has fewer elements, its bytes are not a composite key up to them, an element has another
+  /// type, a type cannot hold its element's value exactly, or a string element's bytes are not valid UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite keys do not support a type.</exception>
+  public static bool TryDecode<T1, T2, T3, T4, T5, T6, T7, T8>(
+      ReadOnlySpan<byte> key, out (T1, T2, T3, T4, T5, T6, T7, T8) elements)
+  {
+    CompositeElementReading.CheckReadable<T1>();
+    CompositeElementReading.CheckReadable<T2>();
+    CompositeElementReading.CheckReadable<T3>();
+    CompositeElementReading.CheckReadable<T4>();
+    CompositeElementReading.CheckReadable<T5>();
+    CompositeElementReading.CheckReadable<T6>();
+    CompositeElementReading.CheckReadable<T7>();
+    CompositeElementReading.CheckReadable<T8>();
+    var reader = new CompositeKeyReader(key);
+    elements = default;
+    if (TryNext(ref reader, out elements.Item1) && TryNext(ref reader, out elements.Item2) &&
+        TryNext(ref reader, out elements.Item3) && TryNext(ref reader, out elements.Item4) &&
+        TryNext(ref reader, out elements.Item5) && TryNext(ref reader, out elements.Item6) &&
+        TryNext(ref reader, out elements.Item7) && TryNext(ref reader, out elements.Item8))
+      return true;
+    elements = default;
+    return false;
+  }
+
+  static bool TryNext<T>(ref CompositeKeyReader reader, out T value)
+  {
+    if (reader.TryNext())
+      return reader.TryRead(out value);
+    value = default;
+    return false;
+  }
+
   /// <summary>Reads one element of a key.</summary>
   /// <exception cref="ArgumentOutOfRangeException">The key has no element at the index.</exception>
   /// <exception cref="ArgumentException">The key's bytes are not a composite key.</exception>
@@ -326,6 +520,26 @@ public static class CompositeKey
   /// <exception cref="OverflowException">The type cannot hold the element's value exactly.</exception>
   /// <exception cref="NotSupportedException">Composite keys do not support the type.</exception>
   public static T Get<T>(ReadOnlySpan<byte> key, int index) => At(key, index).Read<T>();
+
+  /// <summary>Reads one element of a key, as <see cref="Get{T}"/> does, unless the key does not hold it.</summary>
+  /// <returns>
+  /// False if the key has no element at the index, its bytes are not a composite key up to the element, the
+  /// element has another type, the type cannot hold its value exactly, or a string element's bytes are not valid
+  /// UTF-8.
+  /// </returns>
+  /// <exception cref="NotSupportedException">Composite keys do not support the type.</exception>
+  public static bool TryGet<T>(ReadOnlySpan<byte> key, int index, out T value)
+  {
+    CompositeElementReading.CheckReadable<T>();
+    var reader = new CompositeKeyReader(key);
+    var found = index >= 0;
+    for (var i = 0; found && i <= index; ++i)
+      found = reader.TryNext();
+    if (found)
+      return reader.TryRead(out value);
+    value = default;
+    return false;
+  }
 
   /// <summary>The number of elements in a key.</summary>
   /// <exception cref="ArgumentException">The key's bytes are not a composite key.</exception>
@@ -417,38 +631,180 @@ public static class CompositeKey
   }
 
   /// <summary>
-  /// The bounds of the keys under whole elements: every key that starts with the elements of a prefix, the prefix
-  /// itself among them. They are inclusive bounds for a range scan or a seek in byte order, and they match whole
-  /// elements: the prefix ("bob") does not hold ("bobby"), which <see cref="BeginsWith(ReadOnlySpan{byte}, string, CompositeKeyOrder)"/> does.
+  /// The range of the keys under whole elements: every key that starts with the elements of a prefix, the prefix
+  /// itself among them. It matches whole elements: the prefix ("bob") does not hold ("bobby"), which
+  /// <see cref="BeginsWith(ReadOnlySpan{byte}, string, CompositeKeyOrder)"/> does.
   /// </summary>
   /// <exception cref="ArgumentException">The prefix's bytes are not a composite key.</exception>
-  public static (byte[] From, byte[] To) Range(ReadOnlySpan<byte> prefix)
+  public static CompositeKeyRange Range(ReadOnlySpan<byte> prefix)
   {
     CheckElements(prefix);
-    return Bounds(prefix.ToArray(), 1);
+    return RangeUnder(prefix.ToArray());
   }
 
   /// <summary>
-  /// The bounds of the keys whose next element, after the elements of a prefix, is a string that begins with given
-  /// text, such as every name that begins with "bo": inclusive bounds for a range scan or a seek in byte order.
+  /// The range of the keys from one prefix through another. The prefixes usually share leading elements and differ
+  /// in their last, such as ("bob", monday) and ("bob", friday) for bob's keys from monday through friday, or up to
+  /// friday with <see cref="CompositeKeyBounds.ExcludeHigh"/>.
+  /// </summary>
+  /// <remarks>
+  /// <para>
+  /// Each prefix stands for the keys under its whole elements. The range starts where the keys under the prefix
+  /// that sorts first start, or just after them where it is excluded, and it stops where the keys under the other
+  /// stop, or just before them where it is excluded. Where one prefix starts the other, as ("bob") and
+  /// ("bob", 5) do, the range runs from the first of bob's keys through those under ("bob", 5).
+  /// </para>
+  /// <para>
+  /// The prefixes come in either order. A descending element puts the higher value first, so the range starts at
+  /// whichever prefix sorts first in bytes, and the same call serves an ascending and a descending element.
+  /// <see cref="CompositeKeyBounds"/> names the prefix it excludes by its argument, whichever sorts first.
+  /// </para>
+  /// </remarks>
+  /// <param name="low">A prefix, usually the one of the lower value.</param>
+  /// <param name="high">A prefix, usually the one of the higher value.</param>
+  /// <param name="bounds">Which of the two prefixes the range includes.</param>
+  /// <exception cref="ArgumentException">A prefix's bytes are not a composite key.</exception>
+  /// <exception cref="ArgumentOutOfRangeException">The bounds are not one of <see cref="CompositeKeyBounds"/>.</exception>
+  public static CompositeKeyRange Between(
+      ReadOnlySpan<byte> low, ReadOnlySpan<byte> high, CompositeKeyBounds bounds = CompositeKeyBounds.Inclusive)
+  {
+    CheckBounds(bounds);
+    CheckElements(low);
+    CheckElements(high);
+    return RangeBetween(low, high, bounds);
+  }
+
+  /// <summary>
+  /// The range of the keys from a low value on: those that start with the leading elements of a prefix and go on
+  /// with an element at least its last, with any elements after it. A prefix of ("bob", 10) holds bob's keys from
+  /// 10 on.
+  /// </summary>
+  /// <remarks>
+  /// The range holds what a <see cref="Between"/> with that one end holds. Elements compare as keys sort: by value
+  /// in either order, with a null below every value, so when the end's value is not null, nulls are in AtMost and
+  /// LessThan, and not in AtLeast or GreaterThan. On a descending element, the greater values sort first.
+  /// </remarks>
+  /// <param name="low">
+  /// A prefix: the leading elements, then the value the range starts at. Every key is under an empty one, so the
+  /// range then holds every key.
+  /// </param>
+  /// <exception cref="ArgumentException">The prefix's bytes are not a composite key.</exception>
+  public static CompositeKeyRange AtLeast(ReadOnlySpan<byte> low)
+  {
+    CheckElements(low);
+    return OneSided(low, lowEnd: true, inclusive: true);
+  }
+
+  /// <summary>
+  /// The range of the keys after a low value: those that start with the leading elements of a prefix and go on with
+  /// an element greater than its last, with any elements after it. A prefix of ("bob", 10) holds bob's keys after
+  /// 10.
+  /// </summary>
+  /// <remarks>
+  /// The range holds what a <see cref="Between"/> with that one end holds. Elements compare as keys sort: by value
+  /// in either order, with a null below every value, so when the end's value is not null, nulls are in AtMost and
+  /// LessThan, and not in AtLeast or GreaterThan. On a descending element, the greater values sort first.
+  /// </remarks>
+  /// <param name="low">
+  /// A prefix: the leading elements, then the value the range starts after. Every key is under an empty one, so the
+  /// range then holds no key.
+  /// </param>
+  /// <exception cref="ArgumentException">The prefix's bytes are not a composite key.</exception>
+  public static CompositeKeyRange GreaterThan(ReadOnlySpan<byte> low)
+  {
+    CheckElements(low);
+    return OneSided(low, lowEnd: true, inclusive: false);
+  }
+
+  /// <summary>
+  /// The range of the keys up to a high value: those that start with the leading elements of a prefix and go on
+  /// with an element at most its last, with any elements after it. A prefix of ("bob", 10) holds bob's keys
+  /// through 10.
+  /// </summary>
+  /// <remarks>
+  /// The range holds what a <see cref="Between"/> with that one end holds. Elements compare as keys sort: by value
+  /// in either order, with a null below every value, so when the end's value is not null, nulls are in AtMost and
+  /// LessThan, and not in AtLeast or GreaterThan. On a descending element, the greater values sort first.
+  /// </remarks>
+  /// <param name="high">
+  /// A prefix: the leading elements, then the value the range ends at. Every key is under an empty one, so the range
+  /// then holds every key.
+  /// </param>
+  /// <exception cref="ArgumentException">The prefix's bytes are not a composite key.</exception>
+  public static CompositeKeyRange AtMost(ReadOnlySpan<byte> high)
+  {
+    CheckElements(high);
+    return OneSided(high, lowEnd: false, inclusive: true);
+  }
+
+  /// <summary>
+  /// The range of the keys below a high value: those that start with the leading elements of a prefix and go on
+  /// with an element less than its last, with any elements after it. A prefix of ("bob", 10) holds bob's keys
+  /// before 10.
+  /// </summary>
+  /// <remarks>
+  /// The range holds what a <see cref="Between"/> with that one end holds. Elements compare as keys sort: by value
+  /// in either order, with a null below every value, so when the end's value is not null, nulls are in AtMost and
+  /// LessThan, and not in AtLeast or GreaterThan. On a descending element, the greater values sort first.
+  /// </remarks>
+  /// <param name="high">
+  /// A prefix: the leading elements, then the value the range ends before. Every key is under an empty one, so the
+  /// range then holds no key.
+  /// </param>
+  /// <exception cref="ArgumentException">The prefix's bytes are not a composite key.</exception>
+  public static CompositeKeyRange LessThan(ReadOnlySpan<byte> high)
+  {
+    CheckElements(high);
+    return OneSided(high, lowEnd: false, inclusive: false);
+  }
+
+  /// <summary>
+  /// The range of the keys whose next element, after the elements of a prefix, is a string that begins with given
+  /// text, such as every name that begins with "bo".
   /// </summary>
   /// <param name="prefix">The whole elements before the string; none for keys that begin with the string.</param>
   /// <param name="text">The text the string begins with; a string that is the text itself is among them.</param>
   /// <param name="order">The order of the string element.</param>
   /// <exception cref="ArgumentException">The prefix's bytes are not a composite key, or the text is not valid UTF-16.</exception>
   /// <exception cref="ArgumentOutOfRangeException">The order is not one of <see cref="CompositeKeyOrder"/>.</exception>
-  public static (byte[] From, byte[] To) BeginsWith(
+  public static CompositeKeyRange BeginsWith(
       ReadOnlySpan<byte> prefix, string text, CompositeKeyOrder order = CompositeKeyOrder.Ascending)
   {
     ArgumentNullException.ThrowIfNull(text);
     CheckElements(prefix);
+    return BeginsWithText(prefix, text, Descends(order));
+  }
+
+  /// <summary>
+  /// The range of the keys whose next element, after the elements of a prefix, is a bytes element that begins
+  /// with given bytes, such as every hash that begins with a byte.
+  /// </summary>
+  /// <param name="prefix">The whole elements before the bytes element; none for keys that begin with it.</param>
+  /// <param name="bytes">The bytes the element begins with; an element of the bytes themselves is among them.</param>
+  /// <param name="order">The order of the bytes element.</param>
+  /// <exception cref="ArgumentException">The prefix's bytes are not a composite key.</exception>
+  /// <exception cref="ArgumentOutOfRangeException">The order is not one of <see cref="CompositeKeyOrder"/>.</exception>
+  public static CompositeKeyRange BeginsWith(
+      ReadOnlySpan<byte> prefix, ReadOnlySpan<byte> bytes, CompositeKeyOrder order = CompositeKeyOrder.Ascending)
+  {
+    CheckElements(prefix);
+    return BeginsWithBytes(prefix, bytes, Descends(order));
+  }
+
+  /// <summary>
+  /// The range of the keys whose next element, after a prefix the caller checked, is a string in the given order that
+  /// begins with text.
+  /// </summary>
+  /// <exception cref="ArgumentException">The text is not valid UTF-16.</exception>
+  internal static CompositeKeyRange BeginsWithText(ReadOnlySpan<byte> prefix, string text, bool descending)
+  {
     var count = StrictUtf8.GetByteCount(text);
     byte[] rented = null;
     var bytes = count <= 256 ? stackalloc byte[count] : (rented = System.Buffers.ArrayPool<byte>.Shared.Rent(count)).AsSpan(0, count);
     try
     {
       StrictUtf8.GetBytes(text, bytes);
-      return BeginsWithBounds(prefix, StringTag, bytes, order);
+      return BeginsWithRange(prefix, StringTag, bytes, descending);
     }
     finally
     {
@@ -458,30 +814,19 @@ public static class CompositeKey
   }
 
   /// <summary>
-  /// The bounds of the keys whose next element, after the elements of a prefix, is a bytes element that begins
-  /// with given bytes, such as every hash that begins with a byte: inclusive bounds for a range scan or a seek in
-  /// byte order.
+  /// The range of the keys whose next element, after a prefix the caller checked, is a bytes element in the given
+  /// order that begins with bytes.
   /// </summary>
-  /// <param name="prefix">The whole elements before the bytes element; none for keys that begin with it.</param>
-  /// <param name="bytes">The bytes the element begins with; an element of the bytes themselves is among them.</param>
-  /// <param name="order">The order of the bytes element.</param>
-  /// <exception cref="ArgumentException">The prefix's bytes are not a composite key.</exception>
-  /// <exception cref="ArgumentOutOfRangeException">The order is not one of <see cref="CompositeKeyOrder"/>.</exception>
-  public static (byte[] From, byte[] To) BeginsWith(
-      ReadOnlySpan<byte> prefix, ReadOnlySpan<byte> bytes, CompositeKeyOrder order = CompositeKeyOrder.Ascending)
-  {
-    CheckElements(prefix);
-    return BeginsWithBounds(prefix, BytesTag, bytes, order);
-  }
+  internal static CompositeKeyRange BeginsWithBytes(ReadOnlySpan<byte> prefix, ReadOnlySpan<byte> bytes, bool descending)
+      => BeginsWithRange(prefix, BytesTag, bytes, descending);
 
   /// <summary>
-  /// The bounds of the keys whose next element, a string or bytes, begins with given bytes: the prefix, the tag and
-  /// the escaped bytes, without the terminator that would end the element, up to the first bytes after every key
-  /// that goes on from there.
+  /// The range of the keys whose next element, a string or bytes, begins with given bytes: from the prefix, the tag
+  /// and the escaped bytes, without the terminator that would end the element, up to the first bytes after every
+  /// key that goes on from there.
   /// </summary>
-  static (byte[] From, byte[] To) BeginsWithBounds(ReadOnlySpan<byte> prefix, byte tag, ReadOnlySpan<byte> bytes, CompositeKeyOrder order)
+  static CompositeKeyRange BeginsWithRange(ReadOnlySpan<byte> prefix, byte tag, ReadOnlySpan<byte> bytes, bool descending)
   {
-    var descending = Descends(order);
 #if NET8_0_OR_GREATER
     var zeros = bytes.Count((byte)0);
 #else
@@ -492,46 +837,122 @@ public static class CompositeKey
         ++zeros;
     }
 #endif
-    var from = new byte[prefix.Length + 1 + bytes.Length + zeros];
-    prefix.CopyTo(from);
+    var lower = new byte[prefix.Length + 1 + bytes.Length + zeros];
+    prefix.CopyTo(lower);
     var at = prefix.Length;
-    from[at++] = tag;
+    lower[at++] = tag;
     foreach (var b in bytes)
     {
-      from[at++] = b;
+      lower[at++] = b;
       if (b == 0)
-        from[at++] = Escape;
+        lower[at++] = Escape;
     }
     if (descending)
     {
-      foreach (ref var b in from.AsSpan(prefix.Length))
+      foreach (ref var b in lower.AsSpan(prefix.Length))
         b = (byte)~b;
     }
-    // The element goes on with any bytes, 0xFF among them, so the bound is the first bytes after every key that
-    // starts with these: their last byte below 0xFF, incremented, and nothing after it. The tag is below 0xFF,
-    // and the bound ends within the element, so it is no key itself.
+    // The element goes on with any bytes, 0xFF among them, so the upper bound is the first bytes after every key
+    // that starts with these: their last byte below 0xFF, incremented, and nothing after it. The tag is below 0xFF,
+    // so that byte is the tag or one after it. After the tag it ends within an element, which is no key; at the
+    // tag it is the next tag, an upper bound as at the end of a type's elements.
 #if NET7_0_OR_GREATER
-    var last = from.AsSpan().LastIndexOfAnyExcept(PrefixEnd);
+    var last = lower.AsSpan().LastIndexOfAnyExcept(PrefixEnd);
 #else
-    var last = from.Length - 1;
-    while (from[last] == PrefixEnd)
+    var last = lower.Length - 1;
+    while (lower[last] == PrefixEnd)
       --last;
 #endif
-    var to = from.AsSpan(0, last + 1).ToArray();
-    ++to[last];
-    return (from, to);
+    if (last == prefix.Length)
+      return new(lower, UpperAtTag(prefix, (byte)(lower[last] + 1)));
+    var upper = lower.AsSpan(0, last + 1).ToArray();
+    ++upper[last];
+    return new(lower, upper);
   }
 
   /// <summary>
-  /// The bounds of the keys that start with bytes the caller owns: the bytes themselves, and the bytes followed by
-  /// a number of 0xFF bytes, which no element starts with.
+  /// The range of the keys under elements the caller owns: from the elements up to their <see cref="UpperBound"/>.
   /// </summary>
-  internal static (byte[] From, byte[] To) Bounds(byte[] from, int ends)
+  internal static CompositeKeyRange RangeUnder(byte[] elements) => new(elements, UpperBound(elements));
+
+  /// <summary>
+  /// The range from whichever of two prefixes sorts first through the other, each included or excluded as the
+  /// bounds say, which the caller checked. A caller that owns a prefix's array passes it too, and an included
+  /// first prefix then keeps its array rather than a copy.
+  /// </summary>
+  internal static CompositeKeyRange RangeBetween(ReadOnlySpan<byte> low, ReadOnlySpan<byte> high, CompositeKeyBounds bounds,
+      byte[] ownedLow = null, byte[] ownedHigh = null)
   {
-    var to = new byte[from.Length + ends];
-    from.CopyTo(to, 0);
-    to.AsSpan(from.Length).Fill(PrefixEnd);
-    return (from, to);
+    var lowFirst = Ends(low, high, bounds, out var excludeFirst, out var excludeSecond);
+    var first = lowFirst ? low : high;
+    var second = lowFirst ? high : low;
+    // Every key is under the empty prefix, so a range that ends below its keys holds none.
+    if (excludeSecond && second.IsEmpty)
+      return NoKeys();
+    var lower = excludeFirst ? UpperBound(first) : (lowFirst ? ownedLow : ownedHigh) ?? first.ToArray();
+    return new(lower, excludeSecond ? Below(second) : UpperBound(second));
+  }
+
+  /// <summary>
+  /// The range of a <see cref="Between"/> with one end open, for an end of composite key elements the caller checked:
+  /// the keys after the end's leading elements whose next element is on one side of the end's last in key order, by
+  /// value in either order. In bytes, the range runs from the end to the last element at its position, or from the
+  /// first element there to the end, as the element's order puts that side. An end stands for every key under it,
+  /// as an end of <see cref="Between"/> does, so an empty end stands for every key. A caller that owns the end's
+  /// array passes it too, and a range that starts at the end then keeps it.
+  /// </summary>
+  internal static CompositeKeyRange OneSided(ReadOnlySpan<byte> end, bool lowEnd, bool inclusive, byte[] ownedEnd = null)
+  {
+    // Every key is under the empty end: a range that includes its keys holds every key, and one that excludes
+    // them holds none, on either side.
+    if (end.IsEmpty)
+      return inclusive ? RangeUnder([]) : NoKeys();
+    var last = LastElement(end);
+    var head = end.Slice(0, last);
+    // A low end on an ascending element, and a high end on a descending one, keep the elements above it in bytes, up
+    // to the end of the leading elements' keys; the others keep those below it, from the first element after them.
+    if (lowEnd != (end[last] >= 0x80))
+      return new(inclusive ? ownedEnd ?? end.ToArray() : UpperBound(end), UpperBound(head));
+    return new(FirstAfter(head), inclusive ? UpperBound(end) : Below(end));
+  }
+
+  /// <summary>
+  /// The range that holds no key: both bounds 0xFF, which starts no key, for a range that would otherwise end at the
+  /// empty key, as nothing sorts below it.
+  /// </summary>
+  internal static CompositeKeyRange NoKeys() => new([PrefixEnd], [PrefixEnd]);
+
+  /// <summary>
+  /// Which of two prefixes sorts first, and whether the bounds exclude each in that order: an included prefix's
+  /// keys run from it up to its <see cref="UpperBound"/>, so a range that excludes the first starts after its
+  /// keys, at its upper bound, and one that excludes the second ends below its keys, at
+  /// <see cref="CompositeKeyFormat.Below"/>.
+  /// </summary>
+  static bool Ends(ReadOnlySpan<byte> low, ReadOnlySpan<byte> high, CompositeKeyBounds bounds,
+      out bool excludeFirst, out bool excludeSecond)
+  {
+    var lowFirst = low.SequenceCompareTo(high) <= 0;
+    var excludeLow = (bounds & CompositeKeyBounds.ExcludeLow) != 0;
+    var excludeHigh = (bounds & CompositeKeyBounds.ExcludeHigh) != 0;
+    excludeFirst = lowFirst ? excludeLow : excludeHigh;
+    excludeSecond = lowFirst ? excludeHigh : excludeLow;
+    return lowFirst;
+  }
+
+  /// <exception cref="ArgumentOutOfRangeException">The bounds are not one of <see cref="CompositeKeyBounds"/>.</exception>
+  internal static void CheckBounds(CompositeKeyBounds bounds)
+  {
+    if ((bounds & ~CompositeKeyBounds.Exclusive) != 0)
+      throw new ArgumentOutOfRangeException(nameof(bounds), bounds, "The bounds include or exclude each of their two values.");
+  }
+
+  /// <summary>Bytes followed by 0xFF, which no element starts with, so every key that starts with the bytes sorts before it.</summary>
+  internal static byte[] UpperBound(ReadOnlySpan<byte> prefix)
+  {
+    var to = new byte[prefix.Length + 1];
+    prefix.CopyTo(to);
+    to[^1] = PrefixEnd;
+    return to;
   }
 
   /// <exception cref="ArgumentOutOfRangeException">The order is not one of <see cref="CompositeKeyOrder"/>.</exception>
@@ -570,6 +991,50 @@ public static class CompositeKey
       offset += length;
     }
     return true;
+  }
+
+  /// <summary>
+  /// The text of a key, for logs, debugging and tools: its elements in order, such as ("by-customer", "bob", 42),
+  /// each in a form its type can be told from. It reads any bytes: those that are not a composite key show as
+  /// malformed(0x...), from where they stop being one.
+  /// </summary>
+  /// <remarks>
+  /// Strings are quoted with C# escapes, bytes are hex after 0x, integers are digits, a floating value always has a
+  /// point or an exponent, a decimal ends with m, and a descending element is desc(...). A DateTime, a
+  /// DateTimeOffset and a DateOnly are ISO 8601, a TimeOnly is ISO 8601 after its T designator, a TimeSpan has its
+  /// constant format, [-][d.]hh:mm:ss[.fffffff], and a Guid its hyphenated form. The text is culture-invariant.
+  /// </remarks>
+  public static string Format(ReadOnlySpan<byte> key)
+  {
+    var text = new StringBuilder("(");
+    var reader = new CompositeKeyReader(key);
+    while (reader.TryNext())
+    {
+      if (reader.Index > 0)
+        text.Append(", ");
+      var element = reader.ElementBytes;
+      var tag = AscendingTag(element[0], out var mask);
+      var start = text.Length;
+      if (mask != 0)
+        text.Append("desc(");
+      if (!CompositeElementText.TryAppend<CompositeKeyElementFormat>(
+          text, element.Slice(1), new ElementInfo(TypeOf(tag), tag, mask, reader.Index)))
+      {
+        // A string of invalid UTF-8 is where the key stops being one.
+        text.Length = start;
+        CompositeElementText.AppendMalformed(text, key.Slice(reader.Offset));
+        return text.Append(')').ToString();
+      }
+      if (mask != 0)
+        text.Append(')');
+    }
+    if (!reader.AtEnd)
+    {
+      if (reader.Index >= 0)
+        text.Append(", ");
+      CompositeElementText.AppendMalformed(text, key.Slice(reader.Offset));
+    }
+    return text.Append(')').ToString();
   }
 
   static CompositeKeyReader At(ReadOnlySpan<byte> key, int index)
