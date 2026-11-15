@@ -1,4 +1,5 @@
 using ZoneTree.Collections.TimSort;
+using ZoneTree.Exceptions;
 using ZoneTree.Exceptions.WAL;
 using ZoneTree.Serializers;
 
@@ -35,7 +36,9 @@ public sealed class SharedWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TVa
 
   public void Append(in TKey key, in TValue value, long opIndex)
   {
-    if (Closed || Frozen) throw new InvalidOperationException("The shared WAL handle is frozen or closed.");
+    // A tree writes to its WAL without a lock, so a write that races the tree's drop or
+    // dispose reaches a frozen or closed handle.
+    if (Closed || Frozen) throw new WriteAheadLogClosedException(Store.DirectoryPath);
     Store.Append(SegmentId, key, value, opIndex);
   }
 
