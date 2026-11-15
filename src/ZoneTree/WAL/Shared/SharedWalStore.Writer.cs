@@ -45,8 +45,9 @@ internal sealed partial class SharedWalStore<TKey, TValue>
     lock (StorageLock)
     {
       var channel = GetChannel(id);
+      // A write that passed its handle's check just before a drop retired the segment.
       if (channel.Retired)
-        throw new InvalidOperationException("The shared WAL segment has been retired.");
+        throw new WriteAheadLogClosedException(DirectoryPath);
       var record = new SharedWalRecord(SharedWalRecordKind.Data, sequence, id, opIndex, keyBytes, valueBytes);
       // Serialization and validation above have not changed the journal. Once
       // writing starts, any failure can leave a partial record and is permanent.

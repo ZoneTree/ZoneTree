@@ -262,6 +262,41 @@ public sealed class SharedWriteAheadLogTests
 
   [TestCase(WriteAheadLogMode.Shared)]
   [TestCase(WriteAheadLogMode.AsyncShared)]
+  public async Task AnAppendToAClosedHandleFailsLikeOneOnAnyClosedWal(WriteAheadLogMode mode)
+  {
+    var files = new PowerLossFileStreamProvider();
+    var provider = Provider(files);
+    // The open handle keeps the store open, so the closed handles are what reject the appends.
+    using var open = Open(provider, 1, Options(mode));
+    var dropped = Open(provider, 2, Options(mode));
+    var disposed = Open(provider, 3, Options(mode));
+    var frozen = Open(provider, 4, Options(mode));
+    dropped.Append(1, 1, 1);
+    disposed.Append(1, 1, 1);
+    dropped.Drop();
+    disposed.Dispose();
+    // A tree's dispose freezes its WAL before it disposes it.
+    frozen.MarkFrozen();
+    // A tree writes to its WAL without a lock, so a write that races the tree's drop or
+    // dispose reaches a closed handle and must fail like one on a disposed tree.
+    Assert.Throws<WriteAheadLogClosedException>(() => dropped.Append(2, 2, 2));
+    Assert.Throws<WriteAheadLogClosedException>(() => disposed.Append(2, 2, 2));
+    Assert.Throws<WriteAheadLogClosedException>(() => frozen.Append(2, 2, 2));
+    frozen.Dispose();
+    // The rejected appends recorded nothing and left the journal usable.
+    open.Append(5, 5, 5);
+    await open.SyncAsync();
+    var recovered = Provider(files.SimulatePowerLoss());
+    using var openRecovery = Open(recovered, 1, Options(mode));
+    using var disposedRecovery = Open(recovered, 3, Options(mode));
+    using var frozenRecovery = Open(recovered, 4, Options(mode));
+    Assert.That(openRecovery.ReadLogEntries(true, true, true).Values, Is.EqualTo(new[] { 5 }));
+    Assert.That(disposedRecovery.ReadLogEntries(true, true, true).Values, Is.EqualTo(new[] { 1 }));
+    Assert.That(frozenRecovery.ReadLogEntries(true, true, true).Values, Is.Empty);
+  }
+
+  [TestCase(WriteAheadLogMode.Shared)]
+  [TestCase(WriteAheadLogMode.AsyncShared)]
   public async Task TornUnsyncedChunksRecoverOnePrefixAcrossHandles(WriteAheadLogMode mode)
   {
     var files = new PowerLossFileStreamProvider();
