@@ -18,12 +18,15 @@ public abstract class CompositeKeyLayout
 {
   readonly byte[] prefix;
   readonly bool[] descending;
+  // The number of the prefix's elements, from which a read of a key counts the elements after the prefix.
+  readonly int prefixCount;
 
   private protected CompositeKeyLayout(ReadOnlySpan<byte> prefix, CompositeKeyOrder[] orders)
   {
     if (!CompositeKey.IsValid(prefix))
       throw new ArgumentException("A layout's prefix is composite key elements.", nameof(prefix));
     this.prefix = prefix.ToArray();
+    prefixCount = CompositeKey.ElementCount(prefix);
     descending = new bool[orders.Length];
     for (var i = 0; i < orders.Length; ++i)
       descending[i] = CompositeKey.Descends(orders[i]);
@@ -263,7 +266,7 @@ public abstract class CompositeKeyLayout
   {
     if (!Matches(key))
       throw new ArgumentException("The key does not start with the layout's prefix.", nameof(key));
-    return new CompositeKeyReader(key.Slice(prefix.Length));
+    return new CompositeKeyReader(key, prefix.Length, prefixCount);
   }
 
   /// <summary>Reads the element at a position after the prefix, checked to be there in the layout's order.</summary>
@@ -274,7 +277,7 @@ public abstract class CompositeKeyLayout
       throw new ArgumentException($"The key has {position} elements after the layout's prefix, not {descending.Length}.");
     if (reader.IsDescending != descending[position])
       throw new ArgumentException(
-          $"Element {position} after the layout's prefix sorts {(reader.IsDescending ? "descending" : "ascending")}, and the layout's sorts {(descending[position] ? "descending" : "ascending")}.");
+          $"Element {reader.Index} sorts {(reader.IsDescending ? "descending" : "ascending")}, and the layout's sorts {(descending[position] ? "descending" : "ascending")}.");
     return reader.Read<T>();
   }
 
@@ -294,7 +297,7 @@ public abstract class CompositeKeyLayout
       reader = default;
       return false;
     }
-    reader = new CompositeKeyReader(key.Slice(prefix.Length));
+    reader = new CompositeKeyReader(key, prefix.Length, prefixCount);
     return true;
   }
 

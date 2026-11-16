@@ -207,7 +207,7 @@ internal struct CompositeKeyWriter : IElementSink
     if (measuring)
     {
       // A string's UTF-8 bytes hold a zero byte for each U+0000 it holds, and each needs an escape.
-      length += StrictUtf8.GetByteCount(value) + Count(value.AsSpan(), '\0');
+      length += Utf8Length(value, "A string element") + Count(value.AsSpan(), '\0');
     }
     else
     {

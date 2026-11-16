@@ -58,6 +58,23 @@ internal static class CompositeKeyFormat
 
   internal static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
+  /// <summary>The length of a string's UTF-8 bytes, which a writer measures before it writes them.</summary>
+  /// <param name="text">The string.</param>
+  /// <param name="what">How the message names the string, such as "A string element".</param>
+  /// <param name="parameter">The parameter the string came in, if it is one.</param>
+  /// <exception cref="ArgumentException">The string is not valid UTF-16: it holds a surrogate with no pair.</exception>
+  internal static int Utf8Length(string text, string what, string parameter = null)
+  {
+    try
+    {
+      return StrictUtf8.GetByteCount(text);
+    }
+    catch (EncoderFallbackException error)
+    {
+      throw new ArgumentException($"{what} is not valid UTF-16: the surrogate at index {error.Index} has no pair.", parameter, error);
+    }
+  }
+
   /// <summary>The ascending tag of an element, and the mask its descending bytes are read through.</summary>
   internal static byte AscendingTag(byte first, out byte mask)
   {

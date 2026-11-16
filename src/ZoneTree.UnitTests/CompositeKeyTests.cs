@@ -470,7 +470,7 @@ public sealed class CompositeKeyTests
   public void BeginsWithChecksItsArguments()
   {
     Assert.Throws<ArgumentException>(() => CompositeKey.BeginsWith([0x03, 0x61], "bo"));
-    Assert.Throws<EncoderFallbackException>(() => CompositeKey.BeginsWith([], "\uD800"));
+    Assert.Throws<ArgumentException>(() => CompositeKey.BeginsWith([], "\uD800"));
     Assert.Throws<ArgumentNullException>(() => CompositeKey.BeginsWith([], (string)null));
     Assert.Throws<ArgumentOutOfRangeException>(() => CompositeKey.BeginsWith([], "bo", (CompositeKeyOrder)5));
     var longText = new string('x', 400);
@@ -500,7 +500,7 @@ public sealed class CompositeKeyTests
     Assert.Throws<NotSupportedException>(() => CompositeKey.Create(new object()));
     Assert.Throws<NotSupportedException>(() => CompositeKey.Create(CompositeKey.Descending(CompositeKey.Descending(1))));
     Assert.Throws<NotSupportedException>(() => CompositeKey.Create(new Version(1, 2)));
-    Assert.Throws<EncoderFallbackException>(() => CompositeKey.Create("\uD800"));
+    Assert.Throws<ArgumentException>(() => CompositeKey.Create("\uD800"));
   }
 
   [Test]
@@ -538,7 +538,7 @@ public sealed class CompositeKeyTests
     Assert.That(CompositeKey.TryDecode(broken, out (string, string) _), Is.False);
     byte[] invalidUtf8 = [0x03, 0xC3, 0x28, 0x00, 0x01];
     Assert.That(CompositeKey.TryGet(invalidUtf8, 0, out string _), Is.False);
-    Assert.Throws<DecoderFallbackException>(() => CompositeKey.Get<string>(invalidUtf8, 0));
+    Assert.Throws<ArgumentException>(() => CompositeKey.Get<string>(invalidUtf8, 0));
 
     // A type no element is, is a mistake in the code, so it still throws.
     Assert.Throws<NotSupportedException>(() => CompositeKey.TryGet<object>([], 0, out _));
@@ -1409,7 +1409,7 @@ public sealed class CompositeKeyTests
     byte[] invalidUtf8 = [0x03, 0xC3, 0x28, 0x00, 0x01];
     Assert.That(CompositeKey.IsValid(invalidUtf8), Is.False);
     Assert.That(CompositeKey.ElementCount(invalidUtf8), Is.EqualTo(1));
-    Assert.Throws<DecoderFallbackException>(() => CompositeKey.Get<string>(invalidUtf8, 0));
+    Assert.Throws<ArgumentException>(() => CompositeKey.Get<string>(invalidUtf8, 0));
 
     Assert.That(CompositeKey.IsValid([]), Is.True);
     Assert.That(CompositeKey.IsValid(CompositeKey.Create(decimal.MinValue, 1e-28m, 1e28m, -1e-28m)), Is.True);
@@ -1703,11 +1703,109 @@ public sealed class CompositeKeyTests
     var builder = new CompositeKeyBuilder().Add("kept");
     var before = builder.ToArray();
     Assert.Throws<NotSupportedException>(() => builder.Add(new Version(1, 2)));
-    Assert.Throws<EncoderFallbackException>(() => builder.Add("\uD800"));
+    Assert.Throws<ArgumentException>(() => builder.Add("\uD800"));
     Assert.Throws<ArgumentException>(() => builder.AddElements(CompositeKey.Create("whole").AsSpan(0, 3)));
     Assert.Throws<ArgumentException>(() => builder.AddElements([0xFF]));
     Assert.That(builder.ToArray(), Is.EqualTo(before));
     Assert.Throws<ArgumentOutOfRangeException>(() => new CompositeKeyBuilder(-1));
+  }
+
+  [Test]
+  public void TheComparersOrderKeysAndTextAsKeysSortThem()
+  {
+    // Code units below the surrogates, from U+E000 up, and surrogate pairs, alone, after a prefix, and with zeros.
+    var emoji = char.ConvertFromUtf32(0x1F600);
+    var halfWidth = char.ConvertFromUtf32(0xFF71);
+    string[] texts =
+    [
+      "", "a", "a" + (char)0, "a" + (char)0 + "b", "a" + (char)1, "ab", "b", char.ConvertFromUtf32(0xD7FF),
+      char.ConvertFromUtf32(0xE000), halfWidth, char.ConvertFromUtf32(0xFFFD), char.ConvertFromUtf32(0x10000), emoji,
+      "x" + halfWidth, "x" + emoji, "x" + emoji + "y", emoji + halfWidth,
+    ];
+    // Each text comparer holds to the keys of the strings, nulls among them, in each of the four ways an element and a
+    // tree can turn: the ascending one where both or neither are descending, the descending one where one of them is.
+    var descendingOrder = new BytesLexicographicComparerDescending();
+    string[] textsAndNull = [.. texts, null];
+    foreach (var a in textsAndNull)
+    {
+      foreach (var b in textsAndNull)
+      {
+        var at = $"{(a == null ? "null" : Show(a))} and {(b == null ? "null" : Show(b))}";
+        var ascending = Math.Sign(CompositeKey.TextComparerAscending.Compare(a, b));
+        var descending = Math.Sign(CompositeKey.TextComparerDescending.Compare(a, b));
+        var (up, down) = (CompositeKey.Create(a), CompositeKey.Create(b));
+        var (upDescending, downDescending) = (CompositeKey.Create(CompositeKey.Descending(a)), CompositeKey.Create(CompositeKey.Descending(b)));
+        Assert.That(ascending, Is.EqualTo(Math.Sign(Order.Compare(up, down))), at);
+        Assert.That(descending, Is.EqualTo(Math.Sign(Order.Compare(upDescending, downDescending))), at);
+        Assert.That(descending, Is.EqualTo(Math.Sign(descendingOrder.Compare(up, down))), at);
+        Assert.That(ascending, Is.EqualTo(Math.Sign(descendingOrder.Compare(upDescending, downDescending))), at);
+        Assert.That(CompositeKey.TextComparerAscending.Equals(a, b), Is.EqualTo(a == b), at);
+        Assert.That(CompositeKey.TextComparerDescending.Equals(a, b), Is.EqualTo(a == b), at);
+      }
+    }
+    // Ordinal order differs from the keys' where a surrogate pair meets a character from U+E000 up.
+    Assert.That(string.CompareOrdinal(emoji, halfWidth), Is.LessThan(0));
+    Assert.That(CompositeKey.TextComparerAscending.Compare(emoji, halfWidth), Is.GreaterThan(0));
+    Assert.That(CompositeKey.TextComparerDescending.Compare(emoji, halfWidth), Is.LessThan(0));
+    Assert.That(texts.Order(CompositeKey.TextComparerAscending).Select(text => CompositeKey.Create(text)),
+        Is.EqualTo(texts.Select(text => CompositeKey.Create(text)).Order(CompositeKey.ComparerAscending)));
+    Assert.That(texts.Order(CompositeKey.TextComparerDescending).Select(text => CompositeKey.Create(text)),
+        Is.EqualTo(texts.Select(text => CompositeKey.Create(text)).Order(CompositeKey.ComparerDescending)));
+    // A null comes first in the ascending order and last in the descending one, as a null element does in keys.
+    Assert.That(CompositeKey.TextComparerAscending.Compare(null, ""), Is.LessThan(0));
+    Assert.That(CompositeKey.TextComparerDescending.Compare(null, ""), Is.GreaterThan(0));
+    Assert.Throws<ArgumentNullException>(() => CompositeKey.TextComparerDescending.GetHashCode(null));
+
+    // The comparers are written out rather than taken from the trees' comparers, so they are held to them here: on
+    // every pair of the keys of the texts and of short bytes, nulls among them, which the trees take as empty.
+    var bytes = texts.Select(text => CompositeKey.Create(text)).Concat(AllBytes(2, [0x00, 0x01, 0x7F, 0xFF])).Append(null).ToList();
+    foreach (var a in bytes)
+    {
+      foreach (var b in bytes)
+      {
+        var at = $"0x{Convert.ToHexString(a ?? [])}{(a == null ? " (null)" : "")} and 0x{Convert.ToHexString(b ?? [])}{(b == null ? " (null)" : "")}";
+        Assert.That(Math.Sign(CompositeKey.ComparerAscending.Compare(a, b)), Is.EqualTo(Math.Sign(Order.Compare(a, b))), at);
+        Assert.That(Math.Sign(CompositeKey.ComparerDescending.Compare(a, b)), Is.EqualTo(Math.Sign(descendingOrder.Compare(a, b))), at);
+        // Both take as one key what the trees do, and hash those keys alike.
+        var same = Order.Compare(a, b) == 0;
+        Assert.That(CompositeKey.ComparerAscending.Equals(a, b), Is.EqualTo(same), at);
+        Assert.That(CompositeKey.ComparerDescending.Equals(a, b), Is.EqualTo(same), at);
+        if (same)
+        {
+          Assert.That(CompositeKey.ComparerAscending.GetHashCode(a), Is.EqualTo(CompositeKey.ComparerAscending.GetHashCode(b)), at);
+          Assert.That(CompositeKey.ComparerDescending.GetHashCode(a), Is.EqualTo(CompositeKey.ComparerAscending.GetHashCode(b)), at);
+        }
+      }
+    }
+
+    // Keys with the same bytes are one key in a set, whatever arrays hold them.
+    var key = CompositeKey.Create("bob", 42L);
+    var copy = key.ToArray();
+    Assert.That(key == copy, Is.False);
+    Assert.That(new HashSet<byte[]>([key, copy], CompositeKey.ComparerAscending), Has.Count.EqualTo(1));
+    Assert.That(new HashSet<byte[]>([key, copy, [], []], CompositeKey.ComparerDescending), Has.Count.EqualTo(2));
+  }
+
+  [Test]
+  public void InvalidTextIsRefusedWithWhereItFails()
+  {
+    var lone = "ab" + (char)0xD800 + "c";
+    var write = Assert.Throws<ArgumentException>(() => CompositeKey.Create("ok", lone));
+    Assert.That(write.Message, Does.Contain("A string element is not valid UTF-16").And.Contain("index 2"));
+    Assert.That(Assert.Throws<ArgumentException>(() => CompositeValue.Create(lone)).Message, Does.Contain("index 2"));
+    Assert.That(Assert.Throws<ArgumentException>(() => new CompositeValueBuilder().Add(lone)).Message, Does.Contain("index 2"));
+    var text = Assert.Throws<ArgumentException>(() => CompositeKey.BeginsWith([], lone));
+    Assert.That((text.ParamName, text.Message.StartsWith("The text is not valid UTF-16", StringComparison.Ordinal)), Is.EqualTo(("text", true)));
+
+    // A read names the element whose bytes are not UTF-8.
+    byte[] key = [.. CompositeKey.Create("ok"), 0x03, 0xC3, 0x28, 0x00, 0x01];
+    Assert.That(Assert.Throws<ArgumentException>(() => CompositeKey.Get<string>(key, 1)).Message,
+        Does.StartWith("Element 1 is a string whose bytes are not valid UTF-8"));
+    var value = CompositeValue.Create("ok", "ab");
+    value[^2] = 0xC3;
+    value[^1] = 0x28;
+    Assert.That(Assert.Throws<ArgumentException>(() => CompositeValue.Get<string>(value, 1)).Message,
+        Does.StartWith("Element 1 is a string whose bytes are not valid UTF-8"));
   }
 
   [TestCase(DiskSegmentMode.SingleDiskSegment)]

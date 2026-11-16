@@ -267,7 +267,7 @@ internal struct CompositeValueWriter : IElementSink
   {
     if (measuring)
     {
-      Element(CompositeElementType.String, CompositeKeyFormat.StrictUtf8.GetByteCount(value));
+      Element(CompositeElementType.String, CompositeKeyFormat.Utf8Length(value, "A string element"));
       return;
     }
     // The string is encoded straight into its payload, whose length the encoding gives.
