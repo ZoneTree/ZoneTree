@@ -22,9 +22,21 @@ public ref struct CompositeKeyReader
 
   /// <summary>A reader before the first element of a key.</summary>
   public CompositeKeyReader(ReadOnlySpan<byte> key)
+      : this(key, 0, 0)
+  {
+  }
+
+  /// <summary>
+  /// A reader of a key from one of its elements on, as a layout reads its elements after its prefix: before the
+  /// element that starts at a byte, and counting elements from its index. Its offsets and indexes, and the messages
+  /// of its reads, are those of the whole key, as <see cref="CompositeKey.Format"/> and
+  /// <see cref="CompositeKey.Get{T}"/> give them.
+  /// </summary>
+  internal CompositeKeyReader(ReadOnlySpan<byte> key, int start, int firstIndex)
   {
     this.key = key;
-    index = -1;
+    offset = start;
+    index = firstIndex - 1;
   }
 
   /// <summary>Moves to the next element.</summary>

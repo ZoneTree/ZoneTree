@@ -3,6 +3,7 @@ using ZoneTree.Comparers;
 using ZoneTree.Composite;
 using ZoneTree.Exceptions;
 using ZoneTree.Options;
+using ZoneTree.Transactional;
 
 namespace ZoneTree.UnitTests;
 
@@ -128,8 +129,22 @@ public sealed class CompositeKeyLayoutTests
     Assert.Throws<ArgumentException>(() => ByCustomer.Decode(CompositeKey.Create("by-customer", "bob")));
     // A key that sorts its time ascending is not of the newest-first layout.
     var ascending = Assert.Throws<ArgumentException>(() => ByTime.Decode(CompositeKey.Create("by-time", placed, 1L)));
-    Assert.That(ascending.Message, Does.Contain("sorts ascending, and the layout's sorts descending"));
+    Assert.That(ascending.Message, Is.EqualTo("Element 1 sorts ascending, and the layout's sorts descending."));
     Assert.Throws<InvalidCastException>(() => ByCustomer.Decode(CompositeKey.Create("by-customer", 5, 1L)));
+
+    // An error names the element by its index in the whole key, and malformed bytes by their offset in it, as
+    // CompositeKey.Get does: the prefix's element is 0, so the customer is 1 and the order id 2.
+    var integer = Assert.Throws<InvalidCastException>(() => ByCustomer.Decode(CompositeKey.Create("by-customer", "bob", "1")));
+    Assert.That(integer.Message, Does.StartWith("Element 2 is String"));
+    byte[] notUtf8 = [.. CompositeKey.Create("by-customer"), 0x03, 0xC3, 0x28, 0x00, 0x01, .. CompositeKey.Create(1L)];
+    var text = Assert.Throws<ArgumentException>(() => ByCustomer.Decode(notUtf8));
+    Assert.That(text.Message, Is.EqualTo(Assert.Throws<ArgumentException>(() => CompositeKey.Get<string>(notUtf8, 1)).Message));
+    Assert.That(text.Message, Does.StartWith("Element 1 is a string whose bytes are not valid UTF-8"));
+    var customer = CompositeKey.Create("by-customer", "bob");
+    byte[] malformed = [.. customer, 0xFF];
+    var bytes = Assert.Throws<ArgumentException>(() => ByCustomer.Decode(malformed));
+    Assert.That(bytes.Message, Is.EqualTo(Assert.Throws<ArgumentException>(() => CompositeKey.Get<long>(malformed, 2)).Message));
+    Assert.That(bytes.Message, Does.Contain($"the element at byte {customer.Length} is malformed"));
 
     // TryDecode returns false where Decode throws, and leaves the default behind.
     Assert.That(ByCustomer.TryDecode(ByCustomer.Create("bob", 1), out var elements), Is.True);
@@ -484,6 +499,67 @@ public sealed class CompositeKeyLayoutTests
         keys.Add(iterator.CurrentKey);
       return keys;
     }
+  }
+
+  [Test]
+  public void TransactionsReadCompositeRangesAndSerializableOnesGuardExactlyThem()
+  {
+    using var tree = CreateFactory(new InMemoryFileStreamProvider(), DiskSegmentMode.SingleDiskSegment).CreateTransactional();
+    var byCustomer = new CompositeKeyLayout<string, long>(CompositeKey.Create("by-customer"));
+    byte[] entry = [1];
+    long Id(byte[] key) => byCustomer.Decode(key).Item2;
+    void Order(string customer, long id)
+    {
+      using var tx = tree.BeginTransaction();
+      tx.Upsert(byCustomer.Create(customer, id), entry);
+      tx.Commit();
+    }
+    foreach (var (customer, id) in new[] { ("alice", 1L), ("bob", 2L), ("bob", 4L), ("bobby", 3L), ("carol", 5L) })
+      Order(customer, id);
+
+    var bob = byCustomer.Range("bob");
+    using (var tx = tree.BeginTransaction(TransactionIsolationLevel.Snapshot))
+    {
+      // The transaction's own write, not yet committed, is among the keys it reads.
+      tx.Upsert(byCustomer.Create("bob", 3), entry);
+      Assert.That(Read(tx, bob, Id), Is.EqualTo(new long[] { 2, 3, 4 }));
+      Assert.That(Read(tx, bob, Id, reverse: true), Is.EqualTo(new long[] { 4, 3, 2 }));
+      // Range takes the bounds as they are: Upper is never a key, so its inclusive end holds no extra key.
+      Assert.That(tx.Range(bob.Lower, bob.Upper).Select(record => Id(record.Key)), Is.EqualTo(new long[] { 2, 3, 4 }));
+      Assert.That(tx.Range(bob.Lower, bob.Upper, reverse: true).Select(record => Id(record.Key)), Is.EqualTo(new long[] { 4, 3, 2 }));
+      Assert.That(Read(tx, bob.StartAfter(byCustomer.Create("bob", 2)), Id), Is.EqualTo(new long[] { 3, 4 }));
+      Assert.That(Read(tx, bob.EndBefore(byCustomer.Create("bob", 4)), Id, reverse: true), Is.EqualTo(new long[] { 3, 2 }));
+      Assert.That(Read(tx, byCustomer.BeginsWith("bob"), Id), Is.EqualTo(new long[] { 2, 3, 4, 3 }));
+      tx.Commit();
+    }
+
+    // A serializable read of a range conflicts with a commit inside it, and with none outside it: not another
+    // customer's whose name starts with bob, nor the excluded end of a range, which is a whole key.
+    bool CommitsAfterAnOrderOf(CompositeKeyRange range, string customer, long id)
+    {
+      using var reader = tree.BeginTransaction(TransactionIsolationLevel.Serializable);
+      reader.Range(range.Lower, range.Upper).ToList();
+      Order(customer, id);
+      reader.Upsert(CompositeKey.Create("audit"), entry);
+      return reader.TryCommit();
+    }
+    var upToTen = byCustomer.Between("bob", 0L, 10L, CompositeKeyBounds.ExcludeHigh);
+    Assert.That(CommitsAfterAnOrderOf(bob, "bobby", 6), Is.True);
+    Assert.That(CommitsAfterAnOrderOf(bob, "alice", 7), Is.True);
+    Assert.That(CommitsAfterAnOrderOf(upToTen, "bob", 10), Is.True);
+    Assert.That(CommitsAfterAnOrderOf(upToTen, "bob", 8), Is.False);
+    Assert.That(CommitsAfterAnOrderOf(bob, "bob", 9), Is.False);
+  }
+
+  /// <summary>The ids of a range's keys a transaction reads, seeking one bound and reading while the range holds them.</summary>
+  static List<long> Read(IReadTransaction<byte[], byte[]> tx, CompositeKeyRange range, Func<byte[], long> id, bool reverse = false)
+  {
+    using var iterator = reverse ? tx.CreateReverseIterator() : tx.CreateIterator();
+    iterator.Seek(reverse ? range.Upper : range.Lower);
+    var ids = new List<long>();
+    while (iterator.Next() && range.Contains(iterator.CurrentKey))
+      ids.Add(id(iterator.CurrentKey));
+    return ids;
   }
 
   static ZoneTreeFactory<byte[], byte[]> CreateFactory(InMemoryFileStreamProvider provider, DiskSegmentMode mode)

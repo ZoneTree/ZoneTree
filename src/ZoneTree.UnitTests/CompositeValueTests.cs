@@ -217,7 +217,7 @@ public sealed class CompositeValueTests
     Assert.Throws<NotSupportedException>(() => CompositeValue.Get<Descending<string>>(value, 0));
     Assert.Throws<NotSupportedException>(() => CompositeValue.Create(new Version(1, 2)));
     Assert.Throws<NotSupportedException>(() => CompositeValue.Create(CompositeKey.Descending(1)));
-    Assert.Throws<EncoderFallbackException>(() => CompositeValue.Create("\uD800"));
+    Assert.Throws<ArgumentException>(() => CompositeValue.Create("\uD800"));
   }
 
   [Test]
@@ -349,7 +349,7 @@ public sealed class CompositeValueTests
     Assert.That(CompositeValue.Get<int>(new CompositeValueBuilder().AddElements(malformedSource, 0, 1).ToArray(), 0), Is.EqualTo(7));
     Assert.Throws<NotSupportedException>(() => builder.Add(new Version(1, 2)));
     Assert.Throws<NotSupportedException>(() => builder.Add(CompositeKey.Descending(1)));
-    Assert.Throws<EncoderFallbackException>(() => builder.Add("\uD800"));
+    Assert.Throws<ArgumentException>(() => builder.Add("\uD800"));
     Assert.That(builder.ToArray(), Is.EqualTo(before));
     Assert.Throws<ArgumentOutOfRangeException>(() => new CompositeValueBuilder(-1));
     Assert.That(new CompositeValueBuilder(4).Add(new string('y', 100)).ToArray(), Is.EqualTo(CompositeValue.Create(new string('y', 100))));
@@ -454,7 +454,7 @@ public sealed class CompositeValueTests
     byte[] invalidUtf8 = [0, 1, 2, 2, 0xC3, 0x28];
     Assert.That(CompositeValue.IsValid(invalidUtf8), Is.False);
     Assert.That(CompositeValue.ElementCount(invalidUtf8), Is.EqualTo(1));
-    Assert.Throws<DecoderFallbackException>(() => CompositeValue.Get<string>(invalidUtf8, 0));
+    Assert.Throws<ArgumentException>(() => CompositeValue.Get<string>(invalidUtf8, 0));
   }
 
   [Test]

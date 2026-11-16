@@ -398,6 +398,41 @@ foreach (var (key, _) in Scan(tree, week))
 
 A descending element compares with a value encoded descending, as `CompositeKey.Create(CompositeKey.Descending("bob"))`.
 
+### Compare keys and text in memory
+
+A key is a byte array, and `==` on arrays compares references, not bytes. For sets, dictionaries, and
+sorts of keys, use the key comparer that matches the tree's comparer:
+
+| Tree's comparer | Key comparer |
+| --- | --- |
+| `BytesLexicographicComparerAscending`, the default for `byte[]` keys | `CompositeKey.ComparerAscending` |
+| `BytesLexicographicComparerDescending` | `CompositeKey.ComparerDescending` |
+
+Both compare bytes, so they find the same keys equal; only their order differs.
+
+```csharp
+var seen = new HashSet<byte[]>(CompositeKey.ComparerAscending);
+var sorted = keys.Order(CompositeKey.ComparerAscending);
+```
+
+Keys sort strings by their Unicode code points. .NET's ordinal comparison, `string.CompareOrdinal` and
+`StringComparer.Ordinal`, sorts UTF-16 code units instead, and the two orders disagree where a character above
+U+FFFF, such as an emoji, meets one from U+E000 to U+FFFF. To sort or merge strings in the order a forward
+scan returns them, use the text comparer that matches the string element and the tree's comparer:
+
+| String element | Tree's comparer | Text comparer |
+| --- | --- | --- |
+| Ascending | `BytesLexicographicComparerAscending` | `CompositeKey.TextComparerAscending` |
+| Descending | `BytesLexicographicComparerAscending` | `CompositeKey.TextComparerDescending` |
+| Ascending | `BytesLexicographicComparerDescending` | `CompositeKey.TextComparerDescending` |
+| Descending | `BytesLexicographicComparerDescending` | `CompositeKey.TextComparerAscending` |
+
+```csharp
+var names = customers.Order(CompositeKey.TextComparerAscending);
+```
+
+A null string sorts where a null element does: first in ascending order, and last in descending order.
+
 ## Composite values
 
 ### Create and read a value
@@ -560,6 +595,10 @@ An element's type is the type argument of `Create`, `Add`, or `Get`, so an eleme
 supported. `Int128` and `UInt128` need .NET 7 or later.
 
 ### How keys sort
+
+Composite keys need a tree whose comparer is `BytesLexicographicComparerAscending`, the default for `byte[]`
+keys, or `BytesLexicographicComparerDescending`. Ranges, `BeginsWith`, paging, and the comparers all work in
+byte order, so with any other comparer they give wrong results.
 
 - Elements compare one at a time, and a key sorts before every key that extends it.
 - Elements of different types sort by type: null, bytes, string, integer, floating, decimal, boolean,

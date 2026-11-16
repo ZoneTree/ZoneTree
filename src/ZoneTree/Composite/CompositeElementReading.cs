@@ -146,7 +146,7 @@ internal static class CompositeElementReading
           return Mismatch<T, TMode>(element);
         string text;
         if (default(TMode).Throws)
-          text = format.ReadString(payload, element);
+          text = ReadText(format, payload, element);
         else if (!format.TryReadString(payload, element, out text))
           return false;
         value = Unsafe.As<string, T>(ref text);
@@ -282,6 +282,21 @@ internal static class CompositeElementReading
             : Mismatch<T, TMode>(element);
       default:
         throw new NotSupportedException($"A composite element cannot be read as a {typeof(T)}.");
+    }
+  }
+
+  /// <summary>Reads a string element, decoding its UTF-8 bytes once.</summary>
+  /// <exception cref="ArgumentException">The element's bytes are not valid UTF-8.</exception>
+  static string ReadText<TFormat>(TFormat format, ReadOnlySpan<byte> payload, in ElementInfo element)
+      where TFormat : struct, IElementFormat
+  {
+    try
+    {
+      return format.ReadString(payload, element);
+    }
+    catch (System.Text.DecoderFallbackException error)
+    {
+      throw new ArgumentException($"Element {element.Index} is a string whose bytes are not valid UTF-8.", error);
     }
   }
 

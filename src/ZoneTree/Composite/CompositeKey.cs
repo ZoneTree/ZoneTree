@@ -5,7 +5,8 @@ namespace ZoneTree.Composite;
 
 /// <summary>
 /// Encodes several values into one byte-array key whose bytes sort as the values do, element by element, and
-/// reads them back. The keys sort with the built-in lexicographic comparer of byte-array keys.
+/// reads them back. The keys sort with <see cref="Comparers.BytesLexicographicComparerAscending"/>, the default
+/// comparer of byte-array keys, or in reverse with <see cref="Comparers.BytesLexicographicComparerDescending"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -43,6 +44,12 @@ namespace ZoneTree.Composite;
 /// <see cref="CompositeKeyBuilder"/> builds keys of any number. Every reading member reads keys of any length,
 /// and those that read elements as types have a Try form, which returns false for a key that does not hold the
 /// types instead of throwing. <see cref="Format"/> shows any key as text.
+/// </para>
+/// <para>
+/// A key is a byte array, and <c>==</c> on arrays compares references. For sets, dictionaries and sorts of keys,
+/// <see cref="ComparerAscending"/> and <see cref="ComparerDescending"/> compare keys in the order of the tree's
+/// comparer of the same direction, and <see cref="TextComparerAscending"/> and <see cref="TextComparerDescending"/>
+/// order strings as a forward scan returns them.
 /// </para>
 /// </remarks>
 /// <example>
@@ -226,6 +233,34 @@ public static class CompositeKey
 
   /// <summary>An element that sorts in descending order, for <see cref="Create{T1}(T1)"/> and its overloads.</summary>
   public static Descending<T> Descending<T>(T value) => new(value);
+
+  /// <summary>
+  /// Compares keys in the order of <see cref="Comparers.BytesLexicographicComparerAscending"/>, the default comparer
+  /// of byte-array keys, for sets, dictionaries and sorts of keys in memory, where <c>==</c> on the arrays would
+  /// compare references.
+  /// </summary>
+  public static CompositeKeyComparerAscending ComparerAscending => CompositeKeyComparerAscending.Instance;
+
+  /// <summary>
+  /// Compares keys in the order of <see cref="Comparers.BytesLexicographicComparerDescending"/>. It finds the same
+  /// keys equal as <see cref="ComparerAscending"/> does.
+  /// </summary>
+  public static CompositeKeyComparerDescending ComparerDescending => CompositeKeyComparerDescending.Instance;
+
+  /// <summary>
+  /// Orders strings by their Unicode code points, a null first, as a forward scan returns an ascending string element
+  /// on a tree with <see cref="Comparers.BytesLexicographicComparerAscending"/>, or a descending one on a tree with
+  /// <see cref="Comparers.BytesLexicographicComparerDescending"/>. <see cref="StringComparer.Ordinal"/> orders UTF-16
+  /// code units instead, which puts a character above U+FFFF before one from U+E000 to U+FFFF.
+  /// </summary>
+  public static StringComparer TextComparerAscending => CompositeTextComparerAscending.Instance;
+
+  /// <summary>
+  /// Orders strings in the reverse of <see cref="TextComparerAscending"/>, a null last, as a forward scan returns a
+  /// descending string element on a tree with <see cref="Comparers.BytesLexicographicComparerAscending"/>, or an
+  /// ascending one on a tree with <see cref="Comparers.BytesLexicographicComparerDescending"/>.
+  /// </summary>
+  public static StringComparer TextComparerDescending => CompositeTextComparerDescending.Instance;
 
   /// <summary>Reads a key's first element; any elements after it are left unread.</summary>
   /// <exception cref="ArgumentException">The key has no elements, or its bytes are not a composite key.</exception>
@@ -798,7 +833,7 @@ public static class CompositeKey
   /// <exception cref="ArgumentException">The text is not valid UTF-16.</exception>
   internal static CompositeKeyRange BeginsWithText(ReadOnlySpan<byte> prefix, string text, bool descending)
   {
-    var count = StrictUtf8.GetByteCount(text);
+    var count = Utf8Length(text, "The text", nameof(text));
     byte[] rented = null;
     var bytes = count <= 256 ? stackalloc byte[count] : (rented = System.Buffers.ArrayPool<byte>.Shared.Rent(count)).AsSpan(0, count);
     try
