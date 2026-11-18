@@ -276,14 +276,15 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// <param name="iteratorType">Defines iterator type.</param>
   /// <param name="includeDeletedRecords">if true the iterator retrieves
   /// the deleted and normal records.</param>
-  /// <param name="contributeToTheBlockCache">if true the iterator disk segment reads
-  /// contributes to the block cache.</param>
+  /// <param name="contributeToTheBlockCache">If true, the iterator's disk segment reads contribute to the block cache,
+  /// so later reads of the same blocks are served from memory. Set it to false for a one-pass scan over much of the
+  /// data, such as an export or a full count, so that the scan does not fill the cache.</param>
   ///
   /// <returns>ZoneTree Iterator</returns>
   IZoneTreeIterator<TKey, TValue> CreateIterator(
       IteratorType iteratorType = IteratorType.AutoRefresh,
       bool includeDeletedRecords = false,
-      bool contributeToTheBlockCache = false);
+      bool contributeToTheBlockCache = true);
 
   /// <summary>
   /// Creates an iterator that enables scanning of the entire database.
@@ -291,8 +292,9 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// <param name="iteratorType">Defines iterator type.</param>
   /// <param name="includeDeletedRecords">if true the iterator retrieves
   /// the deleted and normal records.</param>
-  /// <param name="contributeToTheBlockCache">if true the iterator disk segment reads
-  /// contributes to the block cache.</param>
+  /// <param name="contributeToTheBlockCache">If true, the iterator's disk segment reads contribute to the block cache,
+  /// so later reads of the same blocks are served from memory. Set it to false for a one-pass scan over much of the
+  /// data, such as an export or a full count, so that the scan does not fill the cache.</param>
   /// <param name="diskSegmentPrefetchSize">The number of sequential disk-segment
   /// records the iterator may prefetch at once. Values less than two disable
   /// prefetching.</param>
@@ -323,14 +325,15 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// <param name="iteratorType">Defines iterator type.</param>
   /// <param name="includeDeletedRecords">if true the iterator retrieves
   /// the deleted and normal records.</param>
-  /// <param name="contributeToTheBlockCache">if true the iterator disk segment reads
-  /// contributes to the block cache</param>
+  /// <param name="contributeToTheBlockCache">If true, the iterator's disk segment reads contribute to the block cache,
+  /// so later reads of the same blocks are served from memory. Set it to false for a one-pass scan over much of the
+  /// data, such as an export or a full count, so that the scan does not fill the cache.</param>
   ///
   /// <returns>ZoneTree Iterator</returns>
   IZoneTreeIterator<TKey, TValue> CreateReverseIterator(
       IteratorType iteratorType = IteratorType.AutoRefresh,
       bool includeDeletedRecords = false,
-      bool contributeToTheBlockCache = false);
+      bool contributeToTheBlockCache = true);
 
   /// <summary>
   /// Creates a reverse iterator that enables scanning of the entire database.
@@ -338,8 +341,9 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// <param name="iteratorType">Defines iterator type.</param>
   /// <param name="includeDeletedRecords">if true the iterator retrieves
   /// the deleted and normal records.</param>
-  /// <param name="contributeToTheBlockCache">if true the iterator disk segment reads
-  /// contributes to the block cache.</param>
+  /// <param name="contributeToTheBlockCache">If true, the iterator's disk segment reads contribute to the block cache,
+  /// so later reads of the same blocks are served from memory. Set it to false for a one-pass scan over much of the
+  /// data, such as an export or a full count, so that the scan does not fill the cache.</param>
   /// <param name="diskSegmentPrefetchSize">The number of sequential disk-segment
   /// records the iterator may prefetch at once. Values less than two disable
   /// prefetching.</param>
