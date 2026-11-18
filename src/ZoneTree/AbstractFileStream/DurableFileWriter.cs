@@ -3,26 +3,29 @@ using System.Text;
 namespace ZoneTree.AbstractFileStream;
 
 /// <summary>
-/// Prevents partial write (e.g. power cut)
-/// by writing to a temporary file first.
-/// As a final step the following options are supported:
-///
-/// 1. Replacement with taking a backup:
-/// It replaces the target file with the temp file using
-/// OS Replace API.
-/// Replace method also does a backup of the target file first.
-/// If the file is corrupted the backup file
-/// contains the latest content prior to the crash.
-/// https://source.dot.net/#System.Private.CoreLib/FileSystem.Unix.cs
-/// 
-/// See more details: https://github.com/dotnet/runtime/issues/18034
-/// 
-/// 2. Replacement with ReplaceAPI but without a backup:
-/// Renaming a file in the same volume is atomic operation.
-/// In this mode Replace call uses
-/// Interop.Sys.Rename(sourceFullPath, destFullPath)
-/// internally.
+/// Writes whole files so that a crash never leaves a partly written file: after a crash, the path has either the
+/// previous file or the complete new one.
 /// </summary>
+/// <remarks>
+/// Each write goes first to a temporary file at the target's path with <c>.tmp</c> added, and that file is flushed to
+/// disk. The temporary file then replaces the target with <see cref="IFileStreamProvider.Replace"/>, or, for a new
+/// file, is renamed to the target with <see cref="IFileStreamProvider.MoveFile"/>. The methods whose names end in
+/// <c>WithBackup</c> also keep the previous file under a backup name.
+/// <para>
+/// The new file's content is on disk when a write returns, but its name may not be yet: the name reaches the disk only
+/// when the caller syncs the directory with <see cref="IFileStreamProvider.SyncDirectory"/>. This lets the caller
+/// choose when that happens, for example once before it deletes an older copy it no longer needs. On the local disk on
+/// Windows, where the directory sync does nothing, a write without a backup writes its rename to disk before it
+/// returns.
+/// </para>
+/// <para>
+/// All writes to a path use the same temporary file, so two writes to the same path must never run at the same time.
+/// </para>
+/// <para>
+/// For a write whose new name must be on disk when it returns, or for writes to one path that may run at the same
+/// time, use the operations from <see cref="IFileStreamProvider.GetDurableFileOperations"/> instead.
+/// </para>
+/// </remarks>
 public sealed class DurableFileWriter
 {
   const string TempFileExtension = ".tmp";

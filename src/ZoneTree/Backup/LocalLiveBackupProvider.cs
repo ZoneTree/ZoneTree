@@ -478,29 +478,15 @@ public sealed class LocalLiveBackupProvider
     }
   }
 
-  static string GetTemporaryPath(string path)
-  {
-    return path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-  }
+  static string GetTemporaryPath(string path) => DurableFileOperations.TemporaryPathOf(path);
 
-  static void CommitTemporaryFile(
-      string tempPath,
-      string path)
-  {
-    if (File.Exists(path))
-    {
-      File.Replace(tempPath, path, null);
-      return;
-    }
-    try
-    {
-      File.Move(tempPath, path);
-    }
-    catch (IOException) when (File.Exists(path))
-    {
-      File.Replace(tempPath, path, null);
-    }
-  }
+  /// <summary>
+  /// Gives a complete temporary file its final name in one atomic step, replacing any earlier file at that path. On
+  /// Windows, where the directory sync does nothing, the rename is written to disk before this method returns. On Linux
+  /// and macOS, the caller's directory sync writes it to disk.
+  /// </summary>
+  static void CommitTemporaryFile(string tempPath, string path)
+      => LocalFileRename.Rename(tempPath, path, replace: true, writeThrough: true);
 
   static void DeleteFileIfExists(string path)
   {
