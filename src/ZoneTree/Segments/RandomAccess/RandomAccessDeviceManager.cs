@@ -93,9 +93,10 @@ public sealed class RandomAccessDeviceManager : IRandomAccessDeviceManager
   {
     if (!FileStreamProvider.FileExists(filePath))
       return;
+    // The backup name is new and unique, so the file is moved there: Replace needs a file at its destination.
     if (backupIfDelete)
-      FileStreamProvider.Replace(filePath,
-          filePath + ".backup." + Guid.NewGuid().ToString("N"), null);
+      FileStreamProvider.MoveFile(filePath,
+          filePath + ".backup." + Guid.NewGuid().ToString("N"));
     else
       FileStreamProvider.DeleteFile(filePath);
   }

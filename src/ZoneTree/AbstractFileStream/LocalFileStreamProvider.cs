@@ -2,11 +2,11 @@ namespace ZoneTree.AbstractFileStream;
 
 public sealed class LocalFileStreamProvider : IFileStreamProvider
 {
-  static readonly int[] ReplaceRetryDelaysMilliseconds = { 10, 25, 50, 100, 200 };
-
   readonly Action<string, string, string> ReplaceFile;
 
   readonly Action<int> Sleep;
+
+  readonly LocalDurableFileOperations Durable;
 
   public LocalFileStreamProvider()
       : this(File.Replace, Thread.Sleep)
@@ -19,6 +19,7 @@ public sealed class LocalFileStreamProvider : IFileStreamProvider
   {
     ReplaceFile = replaceFile;
     Sleep = sleep;
+    Durable = new LocalDurableFileOperations(this);
   }
 
   public IFileStream CreateFileStream(
@@ -69,40 +70,40 @@ public sealed class LocalFileStreamProvider : IFileStreamProvider
     return File.ReadAllBytes(path);
   }
 
+  /// <inheritdoc/>
+  /// <remarks>
+  /// <para>
+  /// Without a backup, this is a plain rename, so it also works when no file exists at the destination yet, and the new
+  /// file keeps its own permissions instead of taking over those of the file it replaces. On Windows, the rename is
+  /// written to disk before this method returns, because the directory sync does nothing on Windows. On Linux and
+  /// macOS, it reaches the disk when the caller calls <see cref="SyncDirectory"/>.
+  /// </para>
+  /// <para>
+  /// With a backup, this uses <c>File.Replace</c>, whose renames Windows writes to disk on its own schedule.
+  /// </para>
+  /// </remarks>
   public void Replace(
       string sourceFileName,
       string destinationFileName,
       string destinationBackupFileName)
   {
-    // File Replace is a fast operation in local filesystem. 
-    // It uses file rename operation and it is atomic.
-    for (var attempt = 0; ; ++attempt)
+    // File.Replace is avoided without a backup: it fails when the destination does not exist, and on Windows its
+    // ReplaceFile can leave no file at the destination at all if it fails halfway.
+    if (destinationBackupFileName == null)
     {
-      try
-      {
-        ReplaceFile(sourceFileName, destinationFileName, destinationBackupFileName);
-        return;
-      }
-      catch (IOException exception) when (CanRetryReplace(exception, attempt))
-      {
-        Sleep(ReplaceRetryDelaysMilliseconds[attempt]);
-      }
+      LocalFileRename.Rename(sourceFileName, destinationFileName, replace: true, writeThrough: true);
+      return;
     }
-  }
-
-  static bool CanRetryReplace(IOException exception, int attempt)
-  {
-    return attempt < ReplaceRetryDelaysMilliseconds.Length &&
-        exception is not FileNotFoundException &&
-        exception is not DirectoryNotFoundException &&
-        exception is not DriveNotFoundException &&
-        exception is not PathTooLongException;
+    // On Windows, File.Replace fails while another process has any of the three files open.
+    HeldFileRetry.Run(() => ReplaceFile(sourceFileName, destinationFileName, destinationBackupFileName), Sleep);
   }
 
   public DurableFileWriter GetDurableFileWriter()
   {
     return new DurableFileWriter(this);
   }
+
+  public IDurableFileOperations GetDurableFileOperations() => Durable;
 
   public IReadOnlyList<string> GetDirectories(string path)
   {
@@ -116,5 +117,21 @@ public sealed class LocalFileStreamProvider : IFileStreamProvider
 
   public IReadOnlyList<string> GetFiles(string path) => Directory.GetFiles(path);
 
-  public void MoveFile(string sourcePath, string destinationPath) => File.Move(sourcePath, destinationPath);
+  /// <inheritdoc/>
+  /// <remarks>
+  /// <para>
+  /// On Windows, where the directory sync does nothing, the rename is written to disk before this method returns. On
+  /// Linux and macOS, it reaches the disk when the caller calls <see cref="SyncDirectory"/>.
+  /// </para>
+  /// <para>
+  /// On Linux and macOS, this uses the system's rename that refuses to replace a file. A few systems lack that rename:
+  /// FreeBSD, Linux with a C library older than glibc 2.28 or a kernel older than 3.15, and file systems that do not
+  /// support it, such as NFS. There, this falls back to <c>File.Move</c>, which checks that the destination is free and
+  /// then renames the file. A crash still leaves the file under exactly one name, but a file that another process
+  /// creates at the destination in between is replaced.
+  /// </para>
+  /// </remarks>
+  public void MoveFile(string sourcePath, string destinationPath)
+      => LocalFileRename.Rename(sourcePath, destinationPath, replace: false, writeThrough: true,
+          NoReplaceFallback.CheckFirst);
 }
