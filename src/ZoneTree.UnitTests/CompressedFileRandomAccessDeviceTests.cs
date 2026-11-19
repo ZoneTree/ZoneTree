@@ -34,7 +34,7 @@ public sealed class CompressedFileRandomAccessDeviceTests
     for (var offset = 0; offset < length;)
     {
       var count = Math.Min(length - offset, random.Next(1, 1500));
-      Assert.That(device.AppendBytesReturnPosition(expected.AsMemory(offset, count)), Is.EqualTo(offset));
+      Assert.That(device.AppendBytesReturnPosition(expected.AsSpan(offset, count)), Is.EqualTo(offset));
       offset += count;
     }
     device.SealDevice();

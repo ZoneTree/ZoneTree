@@ -182,7 +182,7 @@ public sealed class MultiPartDiskSegmentCreator<TKey, TValue> : IDiskSegmentCrea
                 compressionMethod,
                 compressionLevel);
     var compressedBytes = MultiPartMetadataCodec.Encode(ms.ToArray());
-    multiDevice.AppendBytesReturnPosition(compressedBytes);
+    multiDevice.AppendBytesReturnPosition(compressedBytes.Span);
     Options.RandomAccessDeviceManager
         .RemoveWritableDevice(SegmentId, DiskSegmentConstants.MultiPartDiskSegmentCategory);
   }
