@@ -76,8 +76,8 @@ public interface IWriteAheadLog<TKey, TValue> : IDisposable
   void TruncateIncompleteTailRecord(IncompleteTailRecordFoundException incompleteTailException);
 
   /// <summary>
-  /// Returns the files of the log that are compressed with LZ4, Gzip or Brotli,
-  /// which version 2.2.0 removes.
+  /// Returns the files of the log in a format that version 2.2.0 removes:
+  /// LZ4, Gzip or Brotli compression, or the Sync WAL mode.
   /// </summary>
-  IReadOnlyList<string> GetFilesWithLegacyCompression();
+  IReadOnlyList<string> GetLegacyFiles();
 }

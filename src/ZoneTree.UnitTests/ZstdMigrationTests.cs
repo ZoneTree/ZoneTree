@@ -104,6 +104,68 @@ public sealed class ZstdMigrationTests
   }
 
   [Test]
+  public void MigrationConvertsSyncWals(
+      [Values(WriteAheadLogMode.SyncCompressed, WriteAheadLogMode.AsyncCompressed, WriteAheadLogMode.Shared, WriteAheadLogMode.None)]
+      WriteAheadLogMode walMode)
+  {
+    var dataPath = CreateDataPath();
+    try
+    {
+      // Records in the disk segment, in a read-only segment and in the mutable segment.
+      using (var tree = CreateFactory(dataPath, SilentTestLogger.Instance, WriteAheadLogMode.Sync).OpenOrCreate())
+      {
+        Insert(tree, 0, 100);
+        MergeToDisk(tree);
+        Insert(tree, 100, 150);
+        tree.Maintenance.MoveMutableSegmentForward();
+        Insert(tree, 150, 200);
+      }
+
+      var logger = new RecordingLogger();
+      using (var tree = CreateFactory(dataPath, logger, walMode).EnableZstdMigration().OpenOrCreate())
+        AssertRecords(tree, 200);
+      Assert.That(ReadDbVersion(dataPath), Is.EqualTo(CurrentDbVersion));
+      Assert.That(logger.GetWarnings(), Has.None.Contains("2.2.0 removes"));
+      Assert.That(Directory.GetFiles(dataPath, "*.wal_xxh3.0", SearchOption.AllDirectories), Is.Empty);
+
+      // The converted WALs take new writes and merges.
+      logger = new RecordingLogger();
+      using (var tree = CreateFactory(dataPath, logger, walMode).OpenOrCreate())
+      {
+        AssertRecords(tree, 200);
+        Insert(tree, 200, 300);
+        MergeToDisk(tree);
+      }
+      using (var tree = CreateFactory(dataPath, logger, walMode).OpenOrCreate())
+        AssertRecords(tree, 300);
+      Assert.That(logger.GetWarnings(), Is.Empty);
+    }
+    finally
+    {
+      DeleteDataPath(dataPath);
+    }
+  }
+
+  [Test]
+  public void MigrationNeedsAWalModeOtherThanSync()
+  {
+    var dataPath = CreateDataPath();
+    try
+    {
+      using (var tree = CreateFactory(dataPath, SilentTestLogger.Instance, WriteAheadLogMode.Sync).OpenOrCreate())
+        Insert(tree, 0, 100);
+
+      var factory = CreateFactory(dataPath, SilentTestLogger.Instance, WriteAheadLogMode.Sync).EnableZstdMigration();
+      Assert.Throws<InvalidOptionValueException>(() => factory.OpenOrCreate().Dispose());
+      Assert.That(GetBackups(dataPath), Is.Empty);
+    }
+    finally
+    {
+      DeleteDataPath(dataPath);
+    }
+  }
+
+  [Test]
   public void MigrationConvertsALegacyMultipartHeader()
   {
     var dataPath = CreateDataPath();

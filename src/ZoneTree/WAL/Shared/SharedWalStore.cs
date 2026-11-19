@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.Globalization;
 using System.IO.Hashing;
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Compression;
+using ZoneTree.Core;
 using ZoneTree.Exceptions;
 using ZoneTree.Logger;
 using ZoneTree.Options;
@@ -232,11 +232,11 @@ internal sealed partial class SharedWalStore<TKey, TValue> : ISharedWalStore, ID
   CompressedFileStream OpenChunk(string path) => new(Logger, Files, path,
       Options.CompressionBlockSize, false, 0, Options.CompressionMethod, Options.CompressionLevel);
 
-  internal IReadOnlyList<string> GetFilesWithLegacyCompression()
+  internal IReadOnlyList<string> GetLegacyFiles()
   {
     lock (StorageLock)
       return Chunks
-          .Where(chunk => LegacyCompression.IsLegacy(chunk.CompressionMethod))
+          .Where(chunk => LegacyFormats.IsLegacy(chunk.CompressionMethod))
           .Select(chunk => chunk.Path)
           .ToArray();
   }

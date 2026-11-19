@@ -52,5 +52,5 @@ public sealed class NullWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TValu
   {
   }
 
-  public IReadOnlyList<string> GetFilesWithLegacyCompression() => [];
+  public IReadOnlyList<string> GetLegacyFiles() => [];
 }

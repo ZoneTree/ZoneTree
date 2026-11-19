@@ -16,11 +16,11 @@ public sealed class ReadOnlySegmentLoader<TKey, TValue>
   }
 
   /// <summary>
-  /// Loads the read-only segment from its WAL, and returns the WAL files that are
-  /// compressed with LZ4, Gzip or Brotli, which version 2.2.0 removes.
+  /// Loads the read-only segment from its WAL, and returns the WAL files in a format
+  /// that version 2.2.0 removes.
   /// </summary>
   public IReadOnlySegment<TKey, TValue> LoadReadOnlySegment(
-      long segmentId, out IReadOnlyList<string> filesWithLegacyCompression)
+      long segmentId, out IReadOnlyList<string> legacyFiles)
   {
     var wal = Options.WriteAheadLogProvider.GetOrCreateWAL(
         segmentId,
@@ -45,7 +45,7 @@ public sealed class ReadOnlySegmentLoader<TKey, TValue>
         throw new WriteAheadLogCorruptionException(segmentId, result.Exceptions);
       }
     }
-    filesWithLegacyCompression = wal.GetFilesWithLegacyCompression();
+    legacyFiles = wal.GetLegacyFiles();
     wal.MarkFrozen();
 
     (var newKeys, var newValues) = WriteAheadLogUtility

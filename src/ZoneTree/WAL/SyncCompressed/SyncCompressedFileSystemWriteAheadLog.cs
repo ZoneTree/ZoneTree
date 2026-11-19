@@ -1,6 +1,6 @@
 using System.Text;
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Compression;
+using ZoneTree.Core;
 using ZoneTree.Exceptions.WAL;
 using ZoneTree.Logger;
 using ZoneTree.Options;
@@ -208,8 +208,8 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
     }
   }
 
-  public IReadOnlyList<string> GetFilesWithLegacyCompression() =>
-      LegacyCompression.IsLegacy(FileStream.CompressionMethod) ? [FilePath] : [];
+  public IReadOnlyList<string> GetLegacyFiles() =>
+      LegacyFormats.IsLegacy(FileStream.CompressionMethod) ? [FilePath] : [];
 }
 
 #pragma warning restore CA2213

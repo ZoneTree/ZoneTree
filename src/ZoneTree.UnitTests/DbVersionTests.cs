@@ -339,17 +339,60 @@ public sealed class DbVersionTests
   }
 
   [Test]
-  public void UncompressedWalModesDoNotUseTheirCompressionMethod(
-      [Values(WriteAheadLogMode.Sync, WriteAheadLogMode.None)] WriteAheadLogMode walMode)
+  public void SyncWalKeepsTheOldDbVersion()
+  {
+    var dataPath = CreateDataPath();
+    try
+    {
+      var logger = new RecordingLogger();
+      using (var tree = CreateFactory(dataPath, logger, WriteAheadLogMode.Sync).OpenOrCreate())
+        Insert(tree);
+      Assert.That(ReadDbVersion(dataPath), Is.Null);
+      Assert.That(logger.GetWarnings(), Has.One.Contains("WriteAheadLogOptions.WriteAheadLogMode = Sync"));
+
+      // The WAL of the mutable segment keeps its mode.
+      logger = new RecordingLogger();
+      using (var tree = CreateFactory(dataPath, logger, WriteAheadLogMode.SyncCompressed).OpenOrCreate())
+        AssertRecords(tree);
+      Assert.That(ReadDbVersion(dataPath), Is.Null);
+      Assert.That(logger.GetWarnings(), Has.One.Contains(".wal_xxh3.0"));
+    }
+    finally
+    {
+      DeleteDataPath(dataPath);
+    }
+  }
+
+  [Test]
+  public void TreeAtTheCurrentDbVersionRejectsTheSyncWalMode()
+  {
+    var dataPath = CreateDataPath();
+    try
+    {
+      using (var tree = CreateFactory(dataPath, SilentTestLogger.Instance).OpenOrCreate())
+        Insert(tree);
+
+      var factory = CreateFactory(dataPath, SilentTestLogger.Instance, WriteAheadLogMode.Sync);
+      var exception = Assert.Throws<InvalidOptionValueException>(() => factory.OpenOrCreate().Dispose());
+      Assert.That(exception.Value, Is.EqualTo(WriteAheadLogMode.Sync));
+    }
+    finally
+    {
+      DeleteDataPath(dataPath);
+    }
+  }
+
+  [Test]
+  public void WalModeNoneDoesNotUseItsCompressionMethod()
   {
     var dataPath = CreateDataPath();
     var logger = new RecordingLogger();
     try
     {
-      using (var tree = CreateFactory(dataPath, logger, walMode, walMethod: CompressionMethod.LZ4).OpenOrCreate())
+      using (var tree = CreateFactory(dataPath, logger, WriteAheadLogMode.None, walMethod: CompressionMethod.LZ4).OpenOrCreate())
         Insert(tree);
       Assert.That(ReadDbVersion(dataPath), Is.EqualTo(CurrentDbVersion));
-      using (var tree = CreateFactory(dataPath, logger, walMode, walMethod: CompressionMethod.LZ4).OpenOrCreate())
+      using (var tree = CreateFactory(dataPath, logger, WriteAheadLogMode.None, walMethod: CompressionMethod.LZ4).OpenOrCreate())
         tree.Upsert(RecordCount, 0);
       Assert.That(logger.GetWarnings(), Is.Empty);
     }

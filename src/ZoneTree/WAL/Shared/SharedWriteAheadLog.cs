@@ -103,7 +103,7 @@ public sealed class SharedWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TVa
     throw new InvalidOperationException("Shared WAL suffixes are repaired during journal recovery.");
   }
 
-  public IReadOnlyList<string> GetFilesWithLegacyCompression() => Store.GetFilesWithLegacyCompression();
+  public IReadOnlyList<string> GetLegacyFiles() => Store.GetLegacyFiles();
 
   public void Dispose() => Close(false);
   public void Drop() => Close(true);

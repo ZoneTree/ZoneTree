@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Text;
-using ZoneTree.Compression;
 using ZoneTree.Exceptions;
 using ZoneTree.Options;
 using ZoneTree.Segments;
@@ -33,7 +32,7 @@ public sealed class ZoneTreeLoader<TKey, TValue>
 
   IReadOnlyList<IDiskSegment<TKey, TValue>> BottomSegments;
 
-  readonly ConcurrentBag<string> ReadOnlySegmentFilesWithLegacyCompression = new();
+  readonly ConcurrentBag<string> ReadOnlySegmentLegacyFiles = new();
 
   long maximumSegmentId = 1;
   public ZoneTreeLoader(ZoneTreeOptions<TKey, TValue> options)
@@ -116,10 +115,10 @@ public sealed class ZoneTreeLoader<TKey, TValue>
     }
 
     if (IsDbVersionCurrent)
-      LegacyCompression.ThrowIfSelected(
+      LegacyFormats.ThrowIfSelected(
           Options.WriteAheadLogOptions,
           Options.DiskSegmentOptions,
-          "A database free of LZ4, Gzip and Brotli compression accepts only Zstd or None");
+          "A database free of LZ4, Gzip and Brotli compression and the Sync WAL mode accepts neither of them");
   }
 
   static string NormalizeLegacyNamespace(string typeName)
@@ -315,9 +314,9 @@ public sealed class ZoneTreeLoader<TKey, TValue>
     var loader = new ReadOnlySegmentLoader<TKey, TValue>(Options);
     Parallel.ForEach(segments, (segment) =>
     {
-      var ros = loader.LoadReadOnlySegment(segment, out var filesWithLegacyCompression);
-      foreach (var file in filesWithLegacyCompression)
-        ReadOnlySegmentFilesWithLegacyCompression.Add(file);
+      var ros = loader.LoadReadOnlySegment(segment, out var legacyFiles);
+      foreach (var file in legacyFiles)
+        ReadOnlySegmentLegacyFiles.Add(file);
       map.TryAdd(segment, ros);
     });
     foreach (var ros in map.Values)
@@ -374,35 +373,36 @@ public sealed class ZoneTreeLoader<TKey, TValue>
       Version.Parse(ZoneTreeMeta.DbVersion) >= ZoneTreeInfo.DbVersion;
 
   /// <summary>
-  /// Moves the database to the current storage format when nothing in it uses LZ4, Gzip
-  /// or Brotli compression, which version 2.2.0 removes. Otherwise it warns about the uses.
+  /// Moves the database to the current storage format when nothing in it uses LZ4, Gzip or
+  /// Brotli compression or the Sync WAL mode, which version 2.2.0 removes. Otherwise it warns
+  /// about the uses.
   /// </summary>
   void UpdateDbVersion(IWriteAheadLog<TKey, TValue> mutableSegmentWal)
   {
     if (IsDbVersionCurrent)
       return;
-    var uses = LegacyCompression.FindInOptions(
+    var uses = LegacyFormats.FindInOptions(
         Options.WriteAheadLogOptions, Options.DiskSegmentOptions);
-    uses.AddRange(ReadOnlySegmentFilesWithLegacyCompression);
-    uses.AddRange(mutableSegmentWal.GetFilesWithLegacyCompression());
+    uses.AddRange(ReadOnlySegmentLegacyFiles);
+    uses.AddRange(mutableSegmentWal.GetLegacyFiles());
     // Every file of the segments, because a load closes some, such as a sparse array.
     var deviceManager = Options.RandomAccessDeviceManager;
     foreach (var segment in BottomSegments.Prepend(DiskSegment))
     {
       foreach (var file in segment.GetFiles())
         if (file.Path.EndsWith(RandomAccessDeviceManager.CompressedFileExtension, StringComparison.Ordinal) &&
-            LegacyCompression.IsLegacy(CompressedFileRandomAccessDevice.ReadCompressionMethod(
+            LegacyFormats.IsLegacy(CompressedFileRandomAccessDevice.ReadCompressionMethod(
                 deviceManager.FileStreamProvider, file.Path)))
           uses.Add(file.Path);
       if (segment is MultiPartDiskSegment<TKey, TValue> multiPart &&
-          LegacyCompression.IsLegacy(multiPart.HeaderCompressionMethod))
+          LegacyFormats.IsLegacy(multiPart.HeaderCompressionMethod))
         uses.Add(deviceManager.GetFilePath(
             multiPart.SegmentId, DiskSegmentConstants.MultiPartDiskSegmentCategory));
     }
     if (uses.Count > 0)
     {
       // A shared WAL reports its chunks for every segment.
-      LegacyCompression.Warn(Options.Logger, uses.Distinct());
+      LegacyFormats.Warn(Options.Logger, uses.Distinct());
       return;
     }
     ZoneTreeMeta.DbVersion = ZoneTreeInfo.DbVersion.ToString();
