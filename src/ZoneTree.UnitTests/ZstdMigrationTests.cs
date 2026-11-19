@@ -2,6 +2,8 @@ using ZoneTree.Compression;
 using ZoneTree.Exceptions;
 using ZoneTree.Options;
 using ZoneTree.Segments.MultiPart;
+using ZoneTree.Serializers;
+using ZoneTree.WAL;
 using static ZoneTree.UnitTests.DbVersionTests;
 
 namespace ZoneTree.UnitTests;
@@ -139,6 +141,72 @@ public sealed class ZstdMigrationTests
       using (var tree = CreateFactory(dataPath, logger, walMode).OpenOrCreate())
         AssertRecords(tree, 300);
       Assert.That(logger.GetWarnings(), Is.Empty);
+    }
+    finally
+    {
+      DeleteDataPath(dataPath);
+    }
+  }
+
+  /// <summary>
+  /// Rejects bytes of another length, as a serializer that checks its input does.
+  /// </summary>
+  sealed class ExactInt32Serializer : ISerializer<int>
+  {
+    readonly Int32Serializer Inner = new();
+
+    public int Deserialize(Memory<byte> bytes) =>
+        bytes.Length == sizeof(int) ? Inner.Deserialize(bytes) : throw new InvalidDataException("The bytes are not an int.");
+
+    public Memory<byte> Serialize(in int entry) => Inner.Serialize(in entry);
+
+    public int GetMaxByteCount(in int entry) => Inner.GetMaxByteCount(in entry);
+
+    public int Serialize(in int entry, Span<byte> destination) => Inner.Serialize(in entry, destination);
+  }
+
+  [Test]
+  public void MigrationConvertsTheSyncWalsOfATransactionalTree()
+  {
+    var dataPath = CreateDataPath();
+    try
+    {
+      // The key serializer rejects the versioned keys that the WAL stores.
+      // A custom WAL provider keeps the Sync mode, which transactional factories promote otherwise.
+      using (var tree = new ZoneTreeFactory<int, int>()
+          .SetDataDirectory(dataPath)
+          .SetKeySerializer(new ExactInt32Serializer())
+          .SetLogger(SilentTestLogger.Instance)
+          .ConfigureWriteAheadLogOptions(x => x.WriteAheadLogMode = WriteAheadLogMode.Sync)
+          .SetWriteAheadLogProvider(options => new WriteAheadLogProvider(
+              SilentTestLogger.Instance, options.RandomAccessDeviceManager.FileStreamProvider, dataPath))
+          .OpenOrCreateTransactional())
+      {
+        using var tx = tree.BeginTransaction();
+        for (var i = 0; i < 100; ++i)
+          tx.Upsert(i, i + 1);
+        tx.Commit();
+      }
+      Assert.That(Directory.GetFiles(dataPath, "*.wal_xxh3.0", SearchOption.AllDirectories), Is.Not.Empty);
+
+      var logger = new RecordingLogger();
+      using (var tree = new ZoneTreeFactory<int, int>()
+          .SetDataDirectory(dataPath)
+          .SetLogger(logger)
+          .SetKeySerializer(new ExactInt32Serializer())
+          .EnableZstdMigration()
+          .OpenOrCreateTransactional())
+      {
+        using var tx = tree.BeginReadOnlyTransaction();
+        for (var i = 0; i < 100; ++i)
+        {
+          Assert.That(tx.TryGet(i, out var value), Is.True, $"key {i}");
+          Assert.That(value, Is.EqualTo(i + 1));
+        }
+      }
+      Assert.That(ReadDbVersion(dataPath), Is.EqualTo(CurrentDbVersion));
+      Assert.That(logger.GetWarnings(), Has.None.Contains("2.2.0 removes"));
+      Assert.That(Directory.GetFiles(dataPath, "*.wal_xxh3.0", SearchOption.AllDirectories), Is.Empty);
     }
     finally
     {

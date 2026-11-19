@@ -6,6 +6,7 @@ using ZoneTree.Options;
 using ZoneTree.Segments.Disk;
 using ZoneTree.Segments.MultiPart;
 using ZoneTree.Segments.RandomAccess;
+using ZoneTree.Serializers;
 using ZoneTree.WAL;
 
 namespace ZoneTree.Core;
@@ -59,10 +60,13 @@ sealed class ZstdMigration<TKey, TValue>
   {
     if (meta.DbVersion != null && Version.Parse(meta.DbVersion) >= ZoneTreeInfo.DbVersion)
       return;
-    const string rule = "The migration needs Zstd or None compression and a WAL mode other than Sync";
-    LegacyFormats.ThrowIfSelected(Options.WriteAheadLogOptions, Options.DiskSegmentOptions, rule);
-    // Sync WALs become SyncCompressed WALs with the WAL compression method.
-    LegacyFormats.ThrowIfLegacyWalCompression(Options.WriteAheadLogOptions, rule);
+    LegacyFormats.ThrowIfSelected(
+        Options.WriteAheadLogOptions,
+        Options.DiskSegmentOptions,
+        "ZoneTree 2.2.0 does not support it, so the migration cannot convert the database to it");
+    LegacyFormats.ThrowIfLegacyWalCompression(
+        Options.WriteAheadLogOptions,
+        "The migration compresses the Sync WALs with it, and ZoneTree 2.2.0 does not support it");
 
     var dataFiles = Files.GetFiles(DataDirectory);
     var devices = dataFiles
@@ -139,8 +143,8 @@ sealed class ZstdMigration<TKey, TValue>
   {
     var backup = Path.TrimEndingDirectorySeparator(directory) + BackupSuffix + timestamp;
     Options.Logger?.LogWarning(
-        $"ZoneTree backs up {directory} to {backup} and migrates the database to Zstd compression. " +
-        "Delete the backup when the database works.");
+        $"ZoneTree backs up {directory} to {backup} and migrates the database for ZoneTree 2.2.0. " +
+        "Delete the backup after you check that the database works.");
     CopyDirectory(directory, backup);
   }
 
@@ -214,7 +218,8 @@ sealed class ZstdMigration<TKey, TValue>
       using var reader = new BinaryReader(stream, Encoding.UTF8, true);
       content = reader.ReadBytes(checked((int)stream.Length));
       if (content.Length != stream.Length)
-        throw new InvalidDataException($"The WAL {path} could not be read to its end.");
+        throw new InvalidDataException(
+            $"The WAL {path} could not be read to its end. Restore the database from the migration backup.");
     }
     catch
     {
@@ -232,7 +237,8 @@ sealed class ZstdMigration<TKey, TValue>
   /// <summary>
   /// Rewrites a Sync WAL as a SyncCompressed WAL of the same segment. The Sync WAL reader
   /// checks the records, and they are copied as they are, with their op indexes. A torn
-  /// last record is left out.
+  /// last record is left out. The reader reads keys and values as bytes, because a
+  /// transactional tree stores versioned records, not records of the tree types.
   /// </summary>
   /// <remarks>
   /// While both WALs exist, the provider loads the Sync WAL, so a crash before its deletion
@@ -241,8 +247,9 @@ sealed class ZstdMigration<TKey, TValue>
   void ConvertSyncWal(string path)
   {
     long length;
-    using (var wal = new SyncFileSystemWriteAheadLog<TKey, TValue>(
-        Options.Logger, Files, Options.KeySerializer, Options.ValueSerializer, path))
+    var bytes = new ByteArraySerializer();
+    using (var wal = new SyncFileSystemWriteAheadLog<Memory<byte>, Memory<byte>>(
+        Options.Logger, Files, bytes, bytes, path))
     {
       var result = wal.ReadLogEntries(false, false, false);
       if (!result.Success && !result.HasFoundIncompleteTailRecord)

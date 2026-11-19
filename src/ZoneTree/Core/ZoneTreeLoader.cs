@@ -118,7 +118,7 @@ public sealed class ZoneTreeLoader<TKey, TValue>
       LegacyFormats.ThrowIfSelected(
           Options.WriteAheadLogOptions,
           Options.DiskSegmentOptions,
-          "A database free of LZ4, Gzip and Brotli compression and the Sync WAL mode accepts neither of them");
+          "This database is migrated for ZoneTree 2.2.0, which does not support it");
   }
 
   static string NormalizeLegacyNamespace(string typeName)

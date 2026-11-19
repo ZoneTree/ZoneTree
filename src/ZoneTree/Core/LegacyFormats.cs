@@ -42,33 +42,43 @@ static class LegacyFormats
     return uses;
   }
 
+  const string SupportedWalModes = "Set it to SyncCompressed or another WAL mode";
+
+  const string SupportedCompressionMethods = "Set it to Zstd or None";
+
   /// <summary>
-  /// Throws when the options select a legacy format.
+  /// Throws when the options select a legacy format. The message tells the value to set,
+  /// and then the reason.
   /// </summary>
-  public static void ThrowIfSelected(WriteAheadLogOptions wal, DiskSegmentOptions disk, string rule)
+  public static void ThrowIfSelected(WriteAheadLogOptions wal, DiskSegmentOptions disk, string reason)
   {
     if (wal.WriteAheadLogMode == WriteAheadLogMode.Sync)
-      throw new InvalidOptionValueException(WalModeOption, wal.WriteAheadLogMode, rule);
+      throw new InvalidOptionValueException(
+          WalModeOption, wal.WriteAheadLogMode, $"{SupportedWalModes}. {reason}");
     if (CompressesWithLegacyMethod(wal))
-      throw new InvalidOptionValueException(WalCompressionOption, wal.CompressionMethod, rule);
+      throw new InvalidOptionValueException(
+          WalCompressionOption, wal.CompressionMethod, $"{SupportedCompressionMethods}. {reason}");
     if (IsLegacy(disk.CompressionMethod))
-      throw new InvalidOptionValueException(DiskCompressionOption, disk.CompressionMethod, rule);
+      throw new InvalidOptionValueException(
+          DiskCompressionOption, disk.CompressionMethod, $"{SupportedCompressionMethods}. {reason}");
   }
 
   /// <summary>
   /// Throws when the WAL compression method is legacy, even for a WAL mode that does not use it.
   /// </summary>
-  public static void ThrowIfLegacyWalCompression(WriteAheadLogOptions wal, string rule)
+  public static void ThrowIfLegacyWalCompression(WriteAheadLogOptions wal, string reason)
   {
     if (IsLegacy(wal.CompressionMethod))
-      throw new InvalidOptionValueException(WalCompressionOption, wal.CompressionMethod, rule);
+      throw new InvalidOptionValueException(
+          WalCompressionOption, wal.CompressionMethod, $"{SupportedCompressionMethods}. {reason}");
   }
 
   public static void Warn(ILogger logger, IEnumerable<string> uses)
   {
     logger?.LogWarning(
-        "ZoneTree 2.2.0 removes LZ4, Gzip and Brotli compression and the Sync WAL mode, and opens only " +
-        "the databases that ZoneTree 2.1.10 found free of them. Migrate this database with ZoneTree 2.1.10 " +
-        "before upgrading. It uses them in: " + string.Join(", ", uses));
+        "This database uses LZ4, Gzip or Brotli compression or the Sync WAL mode, which ZoneTree 2.2.0 " +
+        "removes: " + string.Join(", ", uses) + ". Before you upgrade to ZoneTree 2.2.0, set Zstd or None " +
+        "compression and a WAL mode other than Sync, and open the database once with " +
+        "ZoneTreeFactory.EnableZstdMigration().");
   }
 }
