@@ -106,13 +106,14 @@ public sealed unsafe partial class CompressedFileStream
       if (SyncJobInterval == 0)
         Thread.Yield();
       else
-        Thread.Sleep(SyncJobInterval);
+        WakeSyncJob.Wait(SyncJobInterval);
     }
   }
 
   void StopSyncJob()
   {
     IsSyncJobRunning = false;
+    WakeSyncJob.Set();
   }
 
   /// <summary>

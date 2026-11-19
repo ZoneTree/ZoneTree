@@ -83,6 +83,10 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
 
   volatile bool IsSyncJobRunning;
 
+  // Wakes the sync job early when the stream closes. It allocates no handle
+  // unless its wait handle is requested, so it is not disposed.
+  readonly ManualResetEventSlim WakeSyncJob = new();
+
   internal Task SyncJobTask { get; }
 
   readonly int SyncJobInterval;

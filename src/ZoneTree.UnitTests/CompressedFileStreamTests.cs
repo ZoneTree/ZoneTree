@@ -1000,6 +1000,18 @@ public sealed class CompressedFileStreamTests
     Assert.That(Task.WaitAll(syncJobs.ToArray(), TimeSpan.FromSeconds(10)), Is.True);
   }
 
+  [Test]
+  public void ClosingWakesAWaitingSyncJob()
+  {
+    var provider = new InMemoryFileStreamProvider();
+    var stream = new CompressedFileStream(
+        SilentTestLogger.Instance, provider, "waiting", BlockSize, true, 60_000, CompressionMethod.None, 0);
+    // Let the job finish its first run and wait for the next one.
+    Thread.Sleep(100);
+    stream.Dispose();
+    Assert.That(stream.SyncJobTask.Wait(TimeSpan.FromSeconds(10)), Is.True);
+  }
+
   [TestCase(false)]
   [TestCase(true)]
   public void FailedDiskSyncKeepsFailingLaterSyncs(bool backgroundFlush)
