@@ -21,9 +21,9 @@ public static class TestConfig
 
   public static DiskSegmentMode DiskSegmentMode = DiskSegmentMode.MultiPartDiskSegment;
 
-  public static CompressionMethod CompressionMethod = CompressionMethod.LZ4;
+  public static CompressionMethod CompressionMethod = CompressionMethod.Zstd;
 
-  public static int CompressionLevel = 0;
+  public static int CompressionLevel = CompressionLevels.Zstd1;
 
   public static void PrintConfig()
   {

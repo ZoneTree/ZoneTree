@@ -8,7 +8,7 @@ internal static class MultiPartMetadataCodec
 {
   internal const CompressionMethod CurrentCompressionMethod = CompressionMethod.Zstd;
 
-  internal const int CurrentCompressionLevel = CompressionLevels.Zstd0;
+  internal const int CurrentCompressionLevel = CompressionLevels.Zstd1;
 
   const int MagicSize = 16;
 

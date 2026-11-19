@@ -368,6 +368,24 @@ public sealed class ZoneTreeFactory<TKey, TValue>
           FileStreamProvider);
     }
     FillMissingComponentsForKnownTypes();
+    FillCompressionLevels();
+  }
+
+  /// <summary>
+  /// The default compression level 1 is the fastest level of Gzip and Brotli too,
+  /// but LZ4 has no level 1. So LZ4 with the default level compresses with
+  /// <see cref="CompressionLevels.LZ4Fastest"/>.
+  /// </summary>
+  void FillCompressionLevels()
+  {
+    var wal = Options.WriteAheadLogOptions;
+    if (wal.CompressionMethod == CompressionMethod.LZ4 &&
+        wal.CompressionLevel == WriteAheadLogDefaultValues.CompressionLevel)
+      wal.CompressionLevel = CompressionLevels.LZ4Fastest;
+    var disk = Options.DiskSegmentOptions;
+    if (disk.CompressionMethod == CompressionMethod.LZ4 &&
+        disk.CompressionLevel == DiskSegmentDefaultValues.CompressionLevel)
+      disk.CompressionLevel = CompressionLevels.LZ4Fastest;
   }
 
   /// <summary>
@@ -396,6 +414,7 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   public ZoneTreeFactory<TKey, TValue> Validate()
   {
     FillMissingComponentsForKnownTypes();
+    FillCompressionLevels();
     if (!ZoneTreeOptionsValidator.TryValidate(Options, out var exception, requireStorageComponents: false))
       throw exception;
     return this;

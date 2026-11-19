@@ -16,12 +16,12 @@ description: Configure WAL and disk compression independently, understand block 
     ><strong>WAL / recent writes</strong>
     <p>
       Ordinary trees default to AsyncCompressed; transactional trees promote
-      that setting to AsyncShared. Both default to Zstd level 0 and 256 KiB blocks.
+      that setting to AsyncShared. Both default to Zstd level 1 and 256 KiB blocks.
     </p></Panel>
   <Panel class="p-0" bodyClass="p-4"
     ><strong>Disk / sorted records</strong>
     <p>
-      The default is Zstd level 0 and 4 MiB blocks. Reads decompress the blocks
+      The default is Zstd level 1 and 4 MiB blocks. Reads decompress the blocks
       containing the requested data.
     </p></Panel>
 </Grid>
@@ -33,7 +33,7 @@ Both paths expose a compression method, method-specific level, and block size, b
 | Control | WAL | Disk segments |
 | --- | --- | --- |
 | Options | `WriteAheadLogOptions` | `DiskSegmentOptions` |
-| Default method / level | `Zstd` / `CompressionLevels.Zstd0` | `Zstd` / `CompressionLevels.Zstd0` |
+| Default method / level | `Zstd` / `CompressionLevels.Zstd1` | `Zstd` / `CompressionLevels.Zstd1` |
 | Default block size | `256 * 1024` bytes, or 256 KiB. | `4 * 1024 * 1024` bytes, or 4 MiB. |
 | Valid block-size range | 1 KiB through 16 MiB. | 1 MiB through 64 MiB. |
 | Main work | Append logging and recovery replay. | Writing sorted output and serving block-addressable reads. |
@@ -63,13 +63,15 @@ Changing compression options does not rewrite existing files. A merge may write 
 
 | Method | Example level constants | Interpretation |
 | --- | --- | --- |
-| `Zstd` | `Zstd0`, `Zstd1`, `Zstd3` | Codec-specific numeric levels. `Zstd0` is ZoneTree's default. |
+| `Zstd` | `Zstd0`, `Zstd1`, `Zstd3` | Codec-specific numeric levels. `Zstd1` is ZoneTree's default. |
 | `LZ4` | `LZ4Fastest`, `LZ4HighCompression9` | Fast mode or a supported high-compression level. |
 | `Brotli` | `BrotliFastest`, `BrotliOptimal`, `BrotliSmallestSize` | Named .NET compression-level choices. |
 | `Gzip` | `GzipFastest`, `GzipOptimal`, `GzipSmallestSize` | Named .NET compression-level choices. |
 | `None` | Level is unused. | Stores uncompressed payload bytes within the selected storage path. |
 
 ZoneTree validates the level against the method. Do not carry a level constant from one codec to another just because both constants are integers. Use `CompressionLevels.IsValid(method, level)` when accepting an application-supplied profile.
+
+When you change the method and keep the default level, the default level 1 is `GzipFastest` for Gzip and `BrotliFastest` for Brotli. LZ4 has no level 1, so LZ4 with the default level uses `LZ4Fastest`.
 
 ## Configure WAL and disk together
 

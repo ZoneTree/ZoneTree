@@ -39,7 +39,7 @@ public sealed class WriteAheadLogOptions
 
   /// <summary>
   /// The compression level of the selected compression method.
-  /// Default is <see cref="CompressionLevels.Zstd0"/>.
+  /// Default is <see cref="CompressionLevels.Zstd1"/>.
   /// </summary>
   public int CompressionLevel { get; set; } = WriteAheadLogDefaultValues.CompressionLevel;
 

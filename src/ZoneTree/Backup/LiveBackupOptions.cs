@@ -77,7 +77,7 @@ public sealed class LiveBackupCompressionOptions
 {
   public const CompressionMethod DefaultMethod = CompressionMethod.Zstd;
 
-  public const int DefaultLevel = CompressionLevels.Zstd0;
+  public const int DefaultLevel = CompressionLevels.Zstd1;
 
   public const int DefaultBlockSize = 1024 * 1024;
 
@@ -100,6 +100,10 @@ public sealed class LiveBackupCompressionOptions
   {
     if (BlockSize <= 0)
       BlockSize = DefaultBlockSize;
+
+    // LZ4 has no level 1, so LZ4 with the default level compresses with LZ4Fastest.
+    if (Method == CompressionMethod.LZ4 && Level == DefaultLevel)
+      Level = CompressionLevels.LZ4Fastest;
 
     if (!CompressionLevels.IsValid(Method, Level))
     {
