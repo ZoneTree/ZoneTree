@@ -91,8 +91,9 @@ public sealed class WalReleaseRegressionTests
     var syncGroup = Field(stream, "SyncGroup");
     using var paused = new ManualResetEventSlim();
     using var resume = new ManualResetEventSlim();
-    // Pause between BinaryWriter calls, after the stream's per-write lock is
-    // released. The WAL must protect the complete record from checkpointing.
+    // Write the record in two parts and pause between them, after the stream's
+    // per-write lock is released. The WAL must protect the complete record from
+    // checkpointing.
     using var writer = new PausingBinaryWriter(stream, paused, resume);
     wal.GetType().GetField("BinaryWriter", flags).SetValue(wal, writer);
     Task sync = null;
@@ -137,12 +138,14 @@ public sealed class WalReleaseRegressionTests
   sealed class PausingBinaryWriter(Stream stream, ManualResetEventSlim paused, ManualResetEventSlim resume)
       : BinaryWriter(stream, Encoding.UTF8, true)
   {
-    public override void Write(long value)
+    public override void Write(ReadOnlySpan<byte> buffer)
     {
-      base.Write(value);
+      var half = buffer.Length / 2;
+      base.Write(buffer[..half]);
       paused.Set();
       if (!resume.Wait(TimeSpan.FromSeconds(30)))
         throw new TimeoutException("Record append was not resumed.");
+      base.Write(buffer[half..]);
     }
   }
 }

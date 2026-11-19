@@ -16,4 +16,12 @@ public sealed class BytesSerializer : ISerializer<byte[]>
   {
     return entry;
   }
+
+  public int GetMaxByteCount(in byte[] entry) => entry?.Length ?? 0;
+
+  public int Serialize(in byte[] entry, Span<byte> destination)
+  {
+    entry.AsSpan().CopyTo(destination);
+    return entry?.Length ?? 0;
+  }
 }

@@ -24,4 +24,17 @@ public sealed class UnicodeStringSerializer : ISerializer<string>
       return new byte[1] { 0 };
     return Encoding.Unicode.GetBytes(entry);
   }
+
+  public int GetMaxByteCount(in string entry)
+      => entry == null ? 1 : Encoding.Unicode.GetMaxByteCount(entry.Length);
+
+  public int Serialize(in string entry, Span<byte> destination)
+  {
+    if (entry == null)
+    {
+      destination[0] = 0;
+      return 1;
+    }
+    return Encoding.Unicode.GetBytes(entry, destination);
+  }
 }

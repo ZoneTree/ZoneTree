@@ -1,10 +1,13 @@
 using System.IO.Hashing;
+using ZoneTree.Serializers;
 using ZoneTree.WAL;
 
 namespace ZoneTree.UnitTests;
 
 public sealed class LogEntryTests
 {
+  static readonly ByteArraySerializer Bytes = new();
+
   [TestCase(0, 0)]
   [TestCase(5, 8)]
   [TestCase(128, 4096)]
@@ -77,7 +80,7 @@ public sealed class LogEntryTests
     expected.Checksum = expected.CreateChecksum();
     using var stream = new MemoryStream();
     using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true);
-    LogEntry.AppendLogEntry(writer, expected.Key, expected.Value, expected.OpIndex);
+    LogEntry.AppendLogEntry(writer, Bytes, Bytes, expected.Key, expected.Value, expected.OpIndex);
     stream.Position = 0;
     using var reader = new BinaryReader(new NonSeekableReadStream(stream));
     LogEntry actual = default;
@@ -135,7 +138,7 @@ public sealed class LogEntryTests
     using var stream = new MemoryStream();
     using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true);
     foreach (var entry in entries)
-      LogEntry.AppendLogEntry(writer, entry.Key, entry.Value, entry.OpIndex);
+      LogEntry.AppendLogEntry(writer, Bytes, Bytes, entry.Key, entry.Value, entry.OpIndex);
 
     Assert.That(stream.Length, Is.EqualTo(entries.Sum(x => 20L + x.KeyLength + x.ValueLength)));
     stream.Position = 0;
@@ -181,7 +184,7 @@ public sealed class LogEntryTests
     var entry = CreateEntry(5, 8);
     using var stream = new MemoryStream();
     using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true);
-    LogEntry.AppendLogEntry(writer, entry.Key, entry.Value, entry.OpIndex);
+    LogEntry.AppendLogEntry(writer, Bytes, Bytes, entry.Key, entry.Value, entry.OpIndex);
     var length = stream.Length;
     using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, true);
     for (var missingBytes = 1; missingBytes <= sizeof(uint); ++missingBytes)
@@ -232,6 +235,25 @@ public sealed class LogEntryTests
 
     Assert.That(allocated, Is.Zero);
     Assert.That(checksum, Is.EqualTo(unchecked((uint)XxHash3.HashToUInt64(SerializeRecord(entry)))));
+  }
+
+  [TestCase(0, 0)]
+  [TestCase(5, 8)]
+  [TestCase(13, 228)]
+  [TestCase(128, 4096)]
+  public void RecordsHoldTheHeaderKeyValueAndChecksum(int keyLength, int valueLength)
+  {
+    // A legacy log keeps a zero checksum, which loading does not validate.
+    var entry = CreateEntry(keyLength, valueLength);
+    var expected = SerializeRecord(entry);
+    foreach (var isLegacyFormat in new[] { false, true })
+    {
+      var checksum = isLegacyFormat ? 0u : unchecked((uint)XxHash3.HashToUInt64(expected));
+      var record = LogEntry.SerializeLogEntry(Bytes, Bytes, entry.Key, entry.Value, entry.OpIndex, isLegacyFormat);
+      Assert.That(record[..^sizeof(uint)].ToArray(), Is.EqualTo(expected), $"legacy format: {isLegacyFormat}");
+      Assert.That(System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(record[^sizeof(uint)..]),
+          Is.EqualTo(checksum), $"legacy format: {isLegacyFormat}");
+    }
   }
 
   static LogEntry CreateEntry(int keyLength, int valueLength)

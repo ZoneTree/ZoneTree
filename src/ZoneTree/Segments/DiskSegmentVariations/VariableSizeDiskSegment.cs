@@ -139,11 +139,11 @@ public sealed partial class VariableSizeDiskSegment<TKey, TValue> : DiskSegment<
 
       var keyBytes = KeySerializer.Serialize(entry.Key);
       sparseArrayDevice.AppendBytesReturnPosition(BitConverter.GetBytes(keyBytes.Length));
-      sparseArrayDevice.AppendBytesReturnPosition(keyBytes);
+      sparseArrayDevice.AppendBytesReturnPosition(keyBytes.Span);
 
       var valueBytes = ValueSerializer.Serialize(entry.Value);
       sparseArrayDevice.AppendBytesReturnPosition(BitConverter.GetBytes(valueBytes.Length));
-      sparseArrayDevice.AppendBytesReturnPosition(valueBytes);
+      sparseArrayDevice.AppendBytesReturnPosition(valueBytes.Span);
 
       sparseArrayDevice.AppendBytesReturnPosition(BitConverter.GetBytes(entry.Index));
     }

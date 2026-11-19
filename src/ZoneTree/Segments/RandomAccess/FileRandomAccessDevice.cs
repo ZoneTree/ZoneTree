@@ -53,10 +53,10 @@ public sealed class FileRandomAccessDevice : IRandomAccessDevice
     }
   }
 
-  public long AppendBytesReturnPosition(Memory<byte> bytes)
+  public long AppendBytesReturnPosition(ReadOnlySpan<byte> bytes)
   {
     var pos = FileStream.Position;
-    FileStream.Write(bytes.Span);
+    FileStream.Write(bytes);
     FileStream.Flush(true);
     return pos;
   }

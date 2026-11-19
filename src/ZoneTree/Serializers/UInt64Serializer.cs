@@ -11,7 +11,15 @@ public sealed class UInt64Serializer : ISerializer<ulong>
   public Memory<byte> Serialize(in ulong entry)
   {
     var bytes = new byte[sizeof(ulong)];
-    BinaryPrimitives.WriteUInt64LittleEndian(bytes, entry);
+    Serialize(entry, bytes);
     return bytes;
+  }
+
+  public int GetMaxByteCount(in ulong entry) => sizeof(ulong);
+
+  public int Serialize(in ulong entry, Span<byte> destination)
+  {
+    BinaryPrimitives.WriteUInt64LittleEndian(destination, entry);
+    return sizeof(ulong);
   }
 }

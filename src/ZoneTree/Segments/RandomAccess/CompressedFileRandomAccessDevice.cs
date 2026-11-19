@@ -193,14 +193,14 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
     return length;
   }
 
-  public long AppendBytesReturnPosition(Memory<byte> bytes)
+  public long AppendBytesReturnPosition(ReadOnlySpan<byte> bytes)
   {
     var pos = GetLength();
     var len = bytes.Length;
     var copyLen = 0;
     while (copyLen < len)
     {
-      copyLen += AppendBytesInternal(bytes.Span.Slice(copyLen));
+      copyLen += AppendBytesInternal(bytes.Slice(copyLen));
     }
     return pos;
   }

@@ -11,7 +11,15 @@ public sealed class DateTimeSerializer : ISerializer<DateTime>
   public Memory<byte> Serialize(in DateTime entry)
   {
     var bytes = new byte[sizeof(long)];
-    BinaryPrimitives.WriteInt64LittleEndian(bytes, entry.Ticks);
+    Serialize(entry, bytes);
     return bytes;
+  }
+
+  public int GetMaxByteCount(in DateTime entry) => sizeof(long);
+
+  public int Serialize(in DateTime entry, Span<byte> destination)
+  {
+    BinaryPrimitives.WriteInt64LittleEndian(destination, entry.Ticks);
+    return sizeof(long);
   }
 }

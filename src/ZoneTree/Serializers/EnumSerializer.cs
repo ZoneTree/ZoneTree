@@ -31,9 +31,17 @@ public sealed class EnumSerializer<TEnum> : ISerializer<TEnum>
   public Memory<byte> Serialize(in TEnum entry)
   {
     var bytes = new byte[Unsafe.SizeOf<TEnum>()];
-    Unsafe.WriteUnaligned(ref bytes[0], entry);
-    if (!BitConverter.IsLittleEndian)
-      bytes.AsSpan().Reverse();
+    Serialize(entry, bytes);
     return bytes;
+  }
+
+  public int GetMaxByteCount(in TEnum entry) => Unsafe.SizeOf<TEnum>();
+
+  public int Serialize(in TEnum entry, Span<byte> destination)
+  {
+    Unsafe.WriteUnaligned(ref destination[0], entry);
+    if (!BitConverter.IsLittleEndian)
+      destination.Slice(0, Unsafe.SizeOf<TEnum>()).Reverse();
+    return Unsafe.SizeOf<TEnum>();
   }
 }

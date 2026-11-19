@@ -22,7 +22,7 @@ public interface IRandomAccessDevice : IDisposable
   /// </summary>
   /// <param name="bytes">Bytes</param>
   /// <returns>Position of the bytes.</returns>
-  long AppendBytesReturnPosition(Memory<byte> bytes);
+  long AppendBytesReturnPosition(ReadOnlySpan<byte> bytes);
 
   Memory<byte> GetBytes(long offset, int length, SingleBlockPin blockPin = null);
 

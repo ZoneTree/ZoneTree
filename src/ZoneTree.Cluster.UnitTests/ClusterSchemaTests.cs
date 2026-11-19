@@ -390,5 +390,14 @@ public sealed class ClusterSchemaTests
       Array.Reverse(value);
       return System.Text.Encoding.UTF8.GetBytes(value);
     }
+
+    public int GetMaxByteCount(in string entry) => System.Text.Encoding.UTF8.GetMaxByteCount(entry.Length);
+
+    public int Serialize(in string entry, Span<byte> destination)
+    {
+      var value = entry.ToCharArray();
+      Array.Reverse(value);
+      return System.Text.Encoding.UTF8.GetBytes(value, destination);
+    }
   }
 }

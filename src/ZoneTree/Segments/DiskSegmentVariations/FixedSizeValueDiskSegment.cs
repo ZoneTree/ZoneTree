@@ -137,8 +137,8 @@ public sealed class FixedSizeValueDiskSegment<TKey, TValue> : DiskSegment<TKey, 
       var entry = sparseArray[i];
       var keyBytes = KeySerializer.Serialize(entry.Key);
       sparseArrayDevice.AppendBytesReturnPosition(BitConverter.GetBytes(keyBytes.Length));
-      sparseArrayDevice.AppendBytesReturnPosition(keyBytes);
-      sparseArrayDevice.AppendBytesReturnPosition(ValueSerializer.Serialize(entry.Value));
+      sparseArrayDevice.AppendBytesReturnPosition(keyBytes.Span);
+      sparseArrayDevice.AppendBytesReturnPosition(ValueSerializer.Serialize(entry.Value).Span);
       sparseArrayDevice.AppendBytesReturnPosition(BitConverter.GetBytes(entry.Index));
     }
     sparseArrayDevice.SealDevice();

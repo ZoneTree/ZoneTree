@@ -1044,12 +1044,22 @@ public sealed class MvccZoneTreeTests
 
     public Memory<byte> Serialize(in int value)
     {
+      var bytes = new byte[sizeof(int)];
+      Serialize(value, bytes);
+      return bytes;
+    }
+
+    public int GetMaxByteCount(in int value) => sizeof(int);
+
+    public int Serialize(in int value, Span<byte> destination)
+    {
       if (FailNext)
       {
         FailNext = false;
         throw new InvalidDataException("Injected serialization failure.");
       }
-      return BitConverter.GetBytes(value);
+      BitConverter.TryWriteBytes(destination, value);
+      return sizeof(int);
     }
 
     public int Deserialize(Memory<byte> bytes) => BitConverter.ToInt32(bytes.Span);
@@ -1083,6 +1093,14 @@ public sealed class MvccZoneTreeTests
       var bytes = new byte[4];
       System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, value);
       return bytes;
+    }
+
+    public int GetMaxByteCount(in int value) => sizeof(int);
+
+    public int Serialize(in int value, Span<byte> destination)
+    {
+      System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(destination, value);
+      return sizeof(int);
     }
 
     public int Deserialize(Memory<byte> bytes)

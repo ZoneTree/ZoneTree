@@ -30,4 +30,14 @@ public sealed class DeletableRefSerializer<TValue> : ISerializer<Deletable<TValu
     b2[len] = entry.IsDeleted ? (byte)1 : (byte)0;
     return b2;
   }
+
+  public int GetMaxByteCount(in Deletable<TValue> entry)
+      => ValueSerializer.GetMaxByteCount(entry.Value) + 1;
+
+  public int Serialize(in Deletable<TValue> entry, Span<byte> destination)
+  {
+    var len = ValueSerializer.Serialize(entry.Value, destination);
+    destination[len] = entry.IsDeleted ? (byte)1 : (byte)0;
+    return len + 1;
+  }
 }

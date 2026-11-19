@@ -398,6 +398,10 @@ public sealed class RangeDeletionMergeTests
 
     public Memory<byte> Serialize(in int entry) => Serializer.Serialize(entry);
 
+    public int GetMaxByteCount(in int entry) => Serializer.GetMaxByteCount(entry);
+
+    public int Serialize(in int entry, Span<byte> destination) => Serializer.Serialize(entry, destination);
+
     public int Deserialize(Memory<byte> bytes)
     {
       var value = Serializer.Deserialize(bytes);

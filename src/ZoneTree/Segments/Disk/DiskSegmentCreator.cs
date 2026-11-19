@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using ZoneTree.Core;
 using ZoneTree.Options;
 using ZoneTree.Segments.Model;
@@ -14,6 +15,11 @@ public sealed class DiskSegmentCreator<TKey, TValue> : IDiskSegmentCreator<TKey,
   readonly ISerializer<TKey> KeySerializer;
 
   readonly ISerializer<TValue> ValueSerializer;
+
+  // Keys and values are serialized into this buffer, one at a time, and their devices copy them in. A creator
+  // writes one segment on one thread, so the buffer keeps any length: a segment of long values reuses one buffer
+  // instead of allocating one for each value.
+  readonly SerializationBuffer Buffer = new(int.MaxValue);
 
   IRandomAccessDevice DataHeaderDevice;
 
@@ -103,53 +109,66 @@ public sealed class DiskSegmentCreator<TKey, TValue> : IDiskSegmentCreator<TKey,
       DefaultSparseArray.Add(new(key, value, Length));
     }
     ++Length;
-    var keyBytes = KeySerializer.Serialize(key);
-    var valueBytes = ValueSerializer.Serialize(value);
     if (HasFixedSizeKeyAndValue)
     {
-      DataDevice.AppendBytesReturnPosition(keyBytes);
-      DataDevice.AppendBytesReturnPosition(valueBytes);
+      Append(DataDevice, KeySerializer, key, out _);
+      Append(DataDevice, ValueSerializer, value, out _);
       return;
     }
 
     if (HasFixedSizeKey)
     {
-      var valueHead = new ValueHead
+      var valueOffset = Append(DataDevice, ValueSerializer, value, out var valueLength);
+      Append(DataHeaderDevice, KeySerializer, key, out _);
+      AppendHead(DataHeaderDevice, new ValueHead
       {
-        ValueLength = valueBytes.Length,
-        ValueOffset = DataDevice.AppendBytesReturnPosition(valueBytes)
-      };
-      DataHeaderDevice.AppendBytesReturnPosition(keyBytes);
-      var valueHeadBytes = BinarySerializerHelper.ToByteArray(valueHead);
-      DataHeaderDevice.AppendBytesReturnPosition(valueHeadBytes);
+        ValueLength = valueLength,
+        ValueOffset = valueOffset
+      });
       return;
     }
 
     if (HasFixedSizeValue)
     {
-      var keyHead = new KeyHead
+      var keyOffset = Append(DataDevice, KeySerializer, key, out var keyLength);
+      AppendHead(DataHeaderDevice, new KeyHead
       {
-        KeyLength = keyBytes.Length,
-        KeyOffset = DataDevice.AppendBytesReturnPosition(keyBytes),
-      };
-      var keyHeadBytes = BinarySerializerHelper.ToByteArray(keyHead);
-      DataHeaderDevice.AppendBytesReturnPosition(keyHeadBytes);
-      DataHeaderDevice.AppendBytesReturnPosition(valueBytes);
+        KeyLength = keyLength,
+        KeyOffset = keyOffset,
+      });
+      Append(DataHeaderDevice, ValueSerializer, value, out _);
       return;
     }
 
-    var off1 = DataDevice.AppendBytesReturnPosition(keyBytes);
-    var off2 = DataDevice.AppendBytesReturnPosition(valueBytes);
-
-    var head = new EntryHead
+    var off1 = Append(DataDevice, KeySerializer, key, out var len1);
+    var off2 = Append(DataDevice, ValueSerializer, value, out var len2);
+    AppendHead(DataHeaderDevice, new EntryHead
     {
-      KeyLength = keyBytes.Length,
-      ValueLength = valueBytes.Length,
+      KeyLength = len1,
+      ValueLength = len2,
       KeyOffset = off1,
       ValueOffset = off2
-    };
-    var headBytes = BinarySerializerHelper.ToByteArray(head);
-    DataHeaderDevice.AppendBytesReturnPosition(headBytes);
+    });
+  }
+
+  // Serializes the entry into the buffer and appends its bytes. Returns their position.
+  long Append<T>(
+      IRandomAccessDevice device,
+      ISerializer<T> serializer,
+      in T entry,
+      out int length)
+  {
+    var bytes = Buffer.Get(serializer.GetMaxByteCount(in entry));
+    length = serializer.Serialize(in entry, bytes);
+    return device.AppendBytesReturnPosition(bytes[..length]);
+  }
+
+  // Appends the head's bytes from the head itself. A head made with new has zero padding, so the bytes are those
+  // BinarySerializerHelper.ToByteArray returns.
+  static void AppendHead<THead>(IRandomAccessDevice device, in THead head) where THead : unmanaged
+  {
+    device.AppendBytesReturnPosition(
+        MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref Unsafe.AsRef(in head), 1)));
   }
 
   public IDiskSegment<TKey, TValue> CreateReadOnlyDiskSegment()

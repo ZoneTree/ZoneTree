@@ -24,12 +24,10 @@ internal sealed partial class SharedWalStore<TKey, TValue>
           AppendRecord(new(SharedWalRecordKind.BeginReplacement, first, id, 0, default, default));
           for (var i = 0; i < keys.Length; ++i)
           {
-            var key = KeySerializer.Serialize(keys[i]);
-            var value = ValueSerializer.Serialize(values[i]);
-            var record = new SharedWalRecord(SharedWalRecordKind.Data, first + 1 + i,
-                id, Math.Max(0, maximumOpIndex - keys.LongLength + 1) + i, key, value);
-            AppendRecord(record);
-            size += record.Size;
+            var sequence = first + 1 + i;
+            var record = SharedWalRecord.SerializeData(KeySerializer, ValueSerializer, keys[i], values[i],
+                sequence, id, Math.Max(0, maximumOpIndex - keys.LongLength + 1) + i);
+            size += AppendRecord(record, sequence, id);
           }
           var count = new byte[sizeof(long)];
           BinaryPrimitives.WriteInt64LittleEndian(count, keys.LongLength);

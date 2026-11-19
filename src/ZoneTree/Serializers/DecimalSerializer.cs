@@ -29,17 +29,25 @@ public sealed class DecimalSerializer : ISerializer<decimal>
   public Memory<byte> Serialize(in decimal entry)
   {
     var bytes = new byte[sizeof(decimal)];
+    Serialize(entry, bytes);
+    return bytes;
+  }
+
+  public int GetMaxByteCount(in decimal entry) => sizeof(decimal);
+
+  public int Serialize(in decimal entry, Span<byte> destination)
+  {
     if (BitConverter.IsLittleEndian)
     {
-      Unsafe.WriteUnaligned(ref bytes[0], entry);
-      return bytes;
+      Unsafe.WriteUnaligned(ref destination[0], entry);
+      return sizeof(decimal);
     }
     Span<int> bits = stackalloc int[4];
     decimal.GetBits(entry, bits);
-    BinaryPrimitives.WriteInt32LittleEndian(bytes, bits[3]);
-    BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(4), bits[2]);
-    BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(8), bits[0]);
-    BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(12), bits[1]);
-    return bytes;
+    BinaryPrimitives.WriteInt32LittleEndian(destination, bits[3]);
+    BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(4), bits[2]);
+    BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(8), bits[0]);
+    BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(12), bits[1]);
+    return sizeof(decimal);
   }
 }

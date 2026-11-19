@@ -9,6 +9,12 @@ static class Database
   sealed class Bytes : ISerializer<byte[]>
   {
     public Memory<byte> Serialize(in byte[] value) => value;
+    public int GetMaxByteCount(in byte[] value) => value.Length;
+    public int Serialize(in byte[] value, Span<byte> destination)
+    {
+      value.CopyTo(destination);
+      return value.Length;
+    }
     public byte[] Deserialize(Memory<byte> bytes) => bytes.ToArray();
   }
 

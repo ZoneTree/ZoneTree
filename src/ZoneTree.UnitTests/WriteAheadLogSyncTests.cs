@@ -378,6 +378,15 @@ public sealed class WriteAheadLogSyncTests
         throw new InvalidOperationException("The serializer failed.");
       return Inner.Serialize(in entry);
     }
+
+    public int GetMaxByteCount(in int entry) => sizeof(int);
+
+    public int Serialize(in int entry, Span<byte> destination)
+    {
+      if (entry == failingValue)
+        throw new InvalidOperationException("The serializer failed.");
+      return Inner.Serialize(in entry, destination);
+    }
   }
 
   [Test]

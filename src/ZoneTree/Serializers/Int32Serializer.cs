@@ -11,7 +11,15 @@ public sealed class Int32Serializer : ISerializer<int>
   public Memory<byte> Serialize(in int entry)
   {
     var bytes = new byte[sizeof(int)];
-    BinaryPrimitives.WriteInt32LittleEndian(bytes, entry);
+    Serialize(entry, bytes);
     return bytes;
+  }
+
+  public int GetMaxByteCount(in int entry) => sizeof(int);
+
+  public int Serialize(in int entry, Span<byte> destination)
+  {
+    BinaryPrimitives.WriteInt32LittleEndian(destination, entry);
+    return sizeof(int);
   }
 }

@@ -15,9 +15,17 @@ public sealed class UInt128Serializer : ISerializer<UInt128>
   public Memory<byte> Serialize(in UInt128 entry)
   {
     var bytes = new byte[16];
-    BinaryPrimitives.WriteUInt64LittleEndian(bytes, (ulong)entry);
-    BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(8), (ulong)(entry >> 64));
+    Serialize(entry, bytes);
     return bytes;
+  }
+
+  public int GetMaxByteCount(in UInt128 entry) => 16;
+
+  public int Serialize(in UInt128 entry, Span<byte> destination)
+  {
+    BinaryPrimitives.WriteUInt64LittleEndian(destination, (ulong)entry);
+    BinaryPrimitives.WriteUInt64LittleEndian(destination.Slice(8), (ulong)(entry >> 64));
+    return 16;
   }
 }
 #endif

@@ -11,7 +11,15 @@ public sealed class DoubleSerializer : ISerializer<double>
   public Memory<byte> Serialize(in double entry)
   {
     var bytes = new byte[sizeof(double)];
-    BinaryPrimitives.WriteDoubleLittleEndian(bytes, entry);
+    Serialize(entry, bytes);
     return bytes;
+  }
+
+  public int GetMaxByteCount(in double entry) => sizeof(double);
+
+  public int Serialize(in double entry, Span<byte> destination)
+  {
+    BinaryPrimitives.WriteDoubleLittleEndian(destination, entry);
+    return sizeof(double);
   }
 }
