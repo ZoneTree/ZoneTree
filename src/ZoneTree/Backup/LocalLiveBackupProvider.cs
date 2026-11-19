@@ -341,6 +341,7 @@ public sealed class LocalLiveBackupProvider
   public async Task CompleteGenerationAsync(
       long generationId,
       long lastOpIndex,
+      string dbVersion,
       CancellationToken cancellationToken)
   {
     LocalLiveBackupGenerationCatalog catalog;
@@ -348,6 +349,7 @@ public sealed class LocalLiveBackupProvider
     {
       catalog = GetActiveGeneration(generationId);
       catalog.LastOpIndex = lastOpIndex;
+      catalog.DbVersion = dbVersion;
       ActiveGeneration = null;
     }
 
@@ -643,6 +645,7 @@ public sealed class LocalLiveBackupProvider
       TreeKind = model.TreeKind,
       GenerationId = model.GenerationId,
       LastOpIndex = model.LastOpIndex,
+      DbVersion = model.DbVersion,
       StartedAtUtc = model.StartedAtUtc,
       Files = model.Files,
       RecordBatch = model.RecordBatch
@@ -661,6 +664,7 @@ public sealed class LocalLiveBackupProvider
       TreeKind = catalog.TreeKind,
       GenerationId = catalog.GenerationId,
       LastOpIndex = catalog.LastOpIndex,
+      DbVersion = catalog.DbVersion,
       StartedAtUtc = catalog.StartedAtUtc,
       SegmentIds = catalog.SegmentIds,
       Files = catalog.Files,
@@ -750,6 +754,7 @@ public sealed class LocalLiveBackupProvider
       TreeKind = catalog.TreeKind,
       GenerationId = catalog.GenerationId,
       LastOpIndex = catalog.LastOpIndex,
+      DbVersion = catalog.DbVersion,
       SegmentIds = [.. catalog.SegmentIds],
       Files = [.. catalog.Files
           .Select(x => new LiveBackupFile
@@ -885,6 +890,8 @@ internal sealed class LocalLiveBackupGenerationCatalogJsonModel
 
   public long LastOpIndex { get; set; }
 
+  public string DbVersion { get; set; }
+
   public string StartedAtUtc { get; set; }
 
   public List<long> SegmentIds { get; set; } = [];
@@ -904,6 +911,9 @@ public sealed class LocalLiveBackupGenerationCatalog
   public long GenerationId { get; set; }
 
   public long LastOpIndex { get; set; }
+
+  /// <summary>The storage format version of the backed up tree, or null when it had none.</summary>
+  public string DbVersion { get; set; }
 
   public string StartedAtUtc { get; set; }
 

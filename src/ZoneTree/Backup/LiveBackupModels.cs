@@ -28,6 +28,12 @@ public sealed class LiveBackupGeneration : IDisposable, IAsyncDisposable
 
   public long LastOpIndex { get; set; }
 
+  /// <summary>
+  /// The storage format version of the backed up tree, see <see cref="Core.ZoneTreeMeta.DbVersion"/>,
+  /// or null when the tree had none.
+  /// </summary>
+  public string DbVersion { get; set; }
+
   public long[] SegmentIds { get; set; } = [];
 
   public LiveBackupFile[] Files { get; set; } = [];

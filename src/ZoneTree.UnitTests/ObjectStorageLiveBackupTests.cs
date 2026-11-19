@@ -274,11 +274,22 @@ public sealed class ObjectStorageLiveBackupTests
     await provider.BeginGenerationAsync(id, DateTime.UtcNow, LiveBackupTreeKind.Plain, default);
     var batch = new LiveBackupRecordBatch { BatchId = id };
     await using var writer = await provider.OpenRecordWriterAsync(id, batch, default);
-    Assert.ThrowsAsync<InvalidOperationException>(() => provider.CompleteGenerationAsync(id, 0, default));
+    Assert.ThrowsAsync<InvalidOperationException>(() => provider.CompleteGenerationAsync(id, 0, null, default));
     await writer.DisposeAsync();
-    await provider.CompleteGenerationAsync(id, 0, default);
+    await provider.CompleteGenerationAsync(id, 0, null, default);
     await using var generation = await provider.ReadLatestGenerationAsync(default);
     Assert.That(generation.RecordBatch.RecordCount, Is.Zero);
+  }
+
+  [Test]
+  public async Task GenerationKeepsTheDbVersionOfTheTree()
+  {
+    var provider = new ObjectStorageLiveBackupProvider(new MemoryStorage());
+    var id = await provider.GetNextGenerationIdAsync(default);
+    await provider.BeginGenerationAsync(id, DateTime.UtcNow, LiveBackupTreeKind.Plain, default);
+    await provider.CompleteGenerationAsync(id, 0, "2.1.10", default);
+    await using var generation = await provider.ReadLatestGenerationAsync(default);
+    Assert.That(generation.DbVersion, Is.EqualTo("2.1.10"));
   }
 
   [Test]

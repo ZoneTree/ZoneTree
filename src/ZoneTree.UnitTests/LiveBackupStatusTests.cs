@@ -450,7 +450,7 @@ public sealed class LiveBackupStatusTests
     { Interlocked.Increment(ref Calls); return Task.CompletedTask; }
     public Task<ILiveBackupRecordWriter> OpenRecordWriterAsync(long id, LiveBackupRecordBatch batch, CancellationToken token)
     { Interlocked.Increment(ref Calls); return Task.FromResult<ILiveBackupRecordWriter>(new EmptyWriter()); }
-    public async Task CompleteGenerationAsync(long id, long index, CancellationToken token)
+    public async Task CompleteGenerationAsync(long id, long index, string dbVersion, CancellationToken token)
     { Interlocked.Increment(ref Calls); if (Complete != null) await Complete(id, token); Interlocked.Increment(ref Published); }
     sealed class EmptyWriter : ILiveBackupRecordWriter
     {

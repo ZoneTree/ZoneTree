@@ -161,7 +161,8 @@ public sealed class ObjectStorageLiveBackupProvider : ILiveBackupStore, ILiveBac
     catch { await upload.DisposeAsync().ConfigureAwait(false); throw; }
   }
 
-  public async Task CompleteGenerationAsync(long generationId, long lastOpIndex, CancellationToken cancellationToken)
+  public async Task CompleteGenerationAsync(
+      long generationId, long lastOpIndex, string dbVersion, CancellationToken cancellationToken)
   {
     ObjectBackupCatalog catalog;
     lock (Gate)
@@ -169,6 +170,7 @@ public sealed class ObjectStorageLiveBackupProvider : ILiveBackupStore, ILiveBac
       catalog = GetActive(generationId);
       if (catalog.RecordBatchOpen) throw new InvalidOperationException("Complete the record writer before publishing its generation.");
       catalog.LastOpIndex = lastOpIndex;
+      catalog.DbVersion = dbVersion;
       catalog.CompletedAtUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
       catalog.Files = catalog.Files.OrderBy(x => x.Order).ThenBy(x => x.FileName, StringComparer.Ordinal).ToList();
     }
@@ -228,6 +230,7 @@ public sealed class ObjectStorageLiveBackupProvider : ILiveBackupStore, ILiveBac
       generation.GenerationId = catalog.GenerationId;
       generation.TreeKind = catalog.TreeKind;
       generation.LastOpIndex = catalog.LastOpIndex;
+      generation.DbVersion = catalog.DbVersion;
       generation.Files = catalog.Files.ToArray();
       generation.SegmentIds = catalog.Files.Select(x => x.SegmentId).Distinct().ToArray();
       generation.RecordBatch = catalog.RecordBatch;
@@ -598,6 +601,7 @@ internal sealed class ObjectBackupCatalog
   public long StartedAtUnixSeconds { get; set; }
   public long CompletedAtUnixSeconds { get; set; }
   public long LastOpIndex { get; set; }
+  public string DbVersion { get; set; }
   public List<LiveBackupFile> Files { get; set; } = [];
   public LiveBackupRecordBatch RecordBatch { get; set; }
   [JsonIgnore]

@@ -624,6 +624,40 @@ public sealed class LiveBackupTests
   }
 
   [Test]
+  public async Task LiveBackupRecordsTheDbVersionOfTheTree()
+  {
+    var dataPath = "data/LiveBackupRecordsTheDbVersionOfTheTree";
+    var backupPath = "data/LiveBackupRecordsTheDbVersionOfTheTree.Backup";
+    DeleteDirectory(dataPath);
+    DeleteDirectory(backupPath);
+    try
+    {
+      using (var zoneTree = new ZoneTreeFactory<int, int>()
+          .SetDataDirectory(dataPath)
+          .OpenOrCreate())
+      {
+        zoneTree.Upsert(1, 1);
+        using var backup = zoneTree.CreateLiveBackup(new LiveBackupOptions
+        {
+          Store = new LocalLiveBackupProvider(backupPath)
+        });
+        backup.Start();
+        backup.CreateGeneration();
+        backup.Stop();
+      }
+
+      await using var generation = await new LocalLiveBackupProvider(backupPath)
+          .ReadLatestGenerationAsync(default);
+      Assert.That(generation.DbVersion, Is.EqualTo(Core.ZoneTreeInfo.DbVersion.ToString()));
+    }
+    finally
+    {
+      DeleteDirectory(dataPath);
+      DeleteDirectory(backupPath);
+    }
+  }
+
+  [Test]
   public void LocalLiveBackupReadsLegacyJsonMetadata()
   {
     var backupPath = "data/LocalLiveBackupReadsLegacyJsonMetadata.Backup";
@@ -1209,6 +1243,7 @@ public sealed class LiveBackupTests
 
     public virtual Task CompleteGenerationAsync(
         long generationId, long lastOpIndex,
+        string dbVersion,
         CancellationToken cancellationToken)
     {
       Generations.Add(generationId);
@@ -1220,10 +1255,11 @@ public sealed class LiveBackupTests
   {
     public override async Task CompleteGenerationAsync(
         long generationId, long lastOpIndex,
+        string dbVersion,
         CancellationToken cancellationToken)
     {
       await Task.Delay(delay, cancellationToken);
-      await base.CompleteGenerationAsync(generationId, lastOpIndex, cancellationToken);
+      await base.CompleteGenerationAsync(generationId, lastOpIndex, dbVersion, cancellationToken);
     }
   }
 
@@ -1244,6 +1280,7 @@ public sealed class LiveBackupTests
 
     public override async Task CompleteGenerationAsync(
         long generationId, long lastOpIndex,
+        string dbVersion,
         CancellationToken cancellationToken)
     {
       var current = Interlocked.Increment(ref CurrentCompleteGenerations);
@@ -1252,7 +1289,7 @@ public sealed class LiveBackupTests
       try
       {
         await Task.Delay(Delay, cancellationToken);
-        await base.CompleteGenerationAsync(generationId, lastOpIndex, cancellationToken);
+        await base.CompleteGenerationAsync(generationId, lastOpIndex, dbVersion, cancellationToken);
       }
       finally
       {
@@ -1283,11 +1320,12 @@ public sealed class LiveBackupTests
   {
     public override Task CompleteGenerationAsync(
         long generationId, long lastOpIndex,
+        string dbVersion,
         CancellationToken cancellationToken)
     {
       if (generationId >= 2)
         throw new InvalidOperationException("Scheduled backup failed.");
-      return base.CompleteGenerationAsync(generationId, lastOpIndex, cancellationToken);
+      return base.CompleteGenerationAsync(generationId, lastOpIndex, dbVersion, cancellationToken);
     }
   }
 

@@ -59,8 +59,16 @@ public interface ILiveBackupStore
   /// <summary>
   /// Called when the generation is complete.
   /// </summary>
+  /// <param name="generationId">The generation.</param>
+  /// <param name="lastOpIndex">The last op index of the tree.</param>
+  /// <param name="dbVersion">
+  /// The storage format version of the tree, see <see cref="Core.ZoneTreeMeta.DbVersion"/>,
+  /// or null when the tree has none.
+  /// </param>
+  /// <param name="cancellationToken">The cancellation token.</param>
   Task CompleteGenerationAsync(
       long generationId,
       long lastOpIndex,
+      string dbVersion,
       CancellationToken cancellationToken);
 }

@@ -158,6 +158,11 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
   /// </summary>
   public long LastOpIndex => MutableSegment.OpIndexProvider.LastId;
 
+  /// <summary>
+  /// The storage format version of the tree, see <see cref="ZoneTreeMeta.DbVersion"/>.
+  /// </summary>
+  internal string DbVersion => ZoneTreeMeta.DbVersion;
+
   public ZoneTree(ZoneTreeOptions<TKey, TValue> options)
   {
     Logger = options.Logger;
