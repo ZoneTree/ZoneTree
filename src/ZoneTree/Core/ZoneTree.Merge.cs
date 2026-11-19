@@ -240,6 +240,9 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         new MultiPartDiskSegmentCreator<TKey, TValue>(Options, IncrementalIdProvider) :
         new DiskSegmentCreator<TKey, TValue>(Options, IncrementalIdProvider);
 
+    // The heap holds keys only. Each segment's iterator stays on the record its heap entry holds, so the value is
+    // read from the iterator once the record is the newest of its key. A record that a newer segment replaces is
+    // never deserialized.
     var heap = new FixedSizeMinHeap<HeapEntry<TKey, TValue>>(len + 1, MinHeapEntryComparer);
 
     void fillHeap()
@@ -249,10 +252,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         var s = mergingSegments[i];
         if (!s.Next())
           continue;
-        var key = s.CurrentKey;
-        var value = s.CurrentValue;
-        var entry = new HeapEntry<TKey, TValue>(key, value, i);
-        heap.Insert(entry);
+        heap.Insert(new HeapEntry<TKey, TValue>(s.CurrentKey, default, i));
       }
     }
 
@@ -262,15 +262,9 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     {
       var minSegment = mergingSegments[minSegmentIndex];
       if (minSegment.Next())
-      {
-        var key = minSegment.CurrentKey;
-        var value = minSegment.CurrentValue;
-        heap.ReplaceMin(new HeapEntry<TKey, TValue>(key, value, minSegmentIndex));
-      }
+        heap.ReplaceMin(new HeapEntry<TKey, TValue>(minSegment.CurrentKey, default, minSegmentIndex));
       else
-      {
         heap.RemoveMin();
-      }
     }
 
     fillHeap();
@@ -318,34 +312,40 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
       var minEntry = heap.MinValue;
       minSegmentIndex = minEntry.SegmentIndex;
+      var minSegment = mergingSegments[minSegmentIndex];
 
       // Drop deleted parts before deletion/duplicate handling consumes their first record.
+      // A part's first value comes from the part's metadata, so reading it does not deserialize the part.
       if (!hasBottomSegments && isRangeDeleted != null &&
           minSegmentIndex == diskSegmentIndex &&
-          mergingSegments[diskSegmentIndex].IsBeginningOfAPart)
+          minSegment.IsBeginningOfAPart)
       {
-        var partIndex = mergingSegments[diskSegmentIndex].GetPartIndex();
-        if (isRangeDeleted(minEntry.Key, minEntry.Value,
+        var partIndex = minSegment.GetPartIndex();
+        if (isRangeDeleted(minEntry.Key, minSegment.CurrentValue,
             lastKeysOfEveryPart[partIndex], lastValuesOfEveryPart[partIndex]))
         {
-          mergingSegments[diskSegmentIndex].Skip(oldDiskSegment.GetPart(partIndex).Length - 1);
+          minSegment.Skip(oldDiskSegment.GetPart(partIndex).Length - 1);
           skipElement();
           continue;
         }
       }
 
+      // The newest record of a key comes first, so a record with the previous key is an older duplicate. Checking
+      // that before deletion skips the same records as checking it after, without reading their values.
+      if (hasPrev && comparer.Compare(minEntry.Key, prevKey) == 0)
+      {
+        skipElement();
+        continue;
+      }
+
+      var value = minSegment.CurrentValue;
+
       // ignore deleted entries if bottom segments queue is empty.
-      if (!hasBottomSegments && IsDeleted(minEntry.Key, minEntry.Value))
+      if (!hasBottomSegments && IsDeleted(minEntry.Key, value))
       {
         skipElement();
         prevKey = minEntry.Key;
         hasPrev = true;
-        continue;
-      }
-
-      if (hasPrev && comparer.Compare(minEntry.Key, prevKey) == 0)
-      {
-        skipElement();
         continue;
       }
 
@@ -399,7 +399,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
                 part,
                 minEntry.Key,
                 lastKey,
-                minEntry.Value,
+                value,
                 lastValuesOfEveryPart[currentPartIndex]);
             mergingSegments[diskSegmentIndex].Skip(part.Length - 2);
             prevKey = lastKey;
@@ -416,14 +416,14 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       // Deleted records kept for older segments are not filtered.
       // prevKey is already set, so older duplicates of a dropped key are skipped too.
       if (mergeFilter != null &&
-          !IsDeleted(minEntry.Key, minEntry.Value) &&
-          !mergeFilter.Keep(minEntry.Key, minEntry.Value))
+          !IsDeleted(minEntry.Key, value) &&
+          !mergeFilter.Keep(minEntry.Key, value))
       {
         skipElement();
         continue;
       }
 
-      diskSegmentCreator.Append(minEntry.Key, minEntry.Value, iteratorPosition);
+      diskSegmentCreator.Append(minEntry.Key, value, iteratorPosition);
       skipElement();
     }
 
