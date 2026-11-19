@@ -19,10 +19,11 @@ public sealed class IteratorOptions
   public bool IncludeDeletedRecords { get; set; }
 
   /// <summary>
-  /// If true, disk segment reads performed by the iterator contribute to the
-  /// block cache.
+  /// If true, disk segment reads performed by the iterator contribute to the block cache, so later reads of the same
+  /// blocks are served from memory. True by default. Set it to false for a one-pass scan over much of the data, such
+  /// as an export or a full count, so that the scan does not fill the cache. Merges never contribute to the cache.
   /// </summary>
-  public bool ContributeToTheBlockCache { get; set; }
+  public bool ContributeToTheBlockCache { get; set; } = true;
 
   /// <summary>
   /// Gets or sets the number of sequential disk-segment records the iterator
