@@ -49,6 +49,15 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
 
   int LastBlockLength;
 
+  // The block that appends fill, and the buffer that takes each full block's compressed bytes. Both are reused for
+  // every block: new ones would be large arrays, which only full collections free, so a merge that writes hundreds
+  // of blocks would leave hundreds of megabytes of garbage. Reads never see the write block. A device is read only
+  // after it is sealed, and a read of bytes not yet written returns none, as a read past the end does. Sealing
+  // releases both.
+  DecompressedBlock WriteBlock;
+
+  byte[] CompressionBuffer;
+
   public string FilePath { get; }
 
   public long SegmentId { get; }
@@ -209,41 +218,38 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
   /// <returns>Appended bytes length.</returns>
   int AppendBytesInternal(ReadOnlySpan<byte> bytes)
   {
-    if (NextBlock == null)
+    var writeBlock = WriteBlock ??= new DecompressedBlock(
+        NextBlockIndex, BlockSize, CompressionMethod, CompressionLevel);
+    var copyLength = writeBlock.Append(bytes);
+    LastBlockLength = writeBlock.Length;
+    if (writeBlock.IsFull)
     {
-      NextBlock = new DecompressedBlock(
-          NextBlockIndex, BlockSize, CompressionMethod, CompressionLevel);
-    }
-    var nextBlock = NextBlock;
-    nextBlock.LastAccessTicks = Environment.TickCount64;
-
-    var copyLength = nextBlock.Append(bytes);
-    LastBlockLength = nextBlock.Length;
-    if (nextBlock.IsFull)
-    {
-      AppendBlock(nextBlock);
+      AppendBlock(writeBlock);
+      writeBlock.Reset(NextBlockIndex);
     }
     return copyLength;
   }
 
-  void AppendBlock(DecompressedBlock nextBlock)
+  void AppendBlock(DecompressedBlock writeBlock)
   {
-    var compressedBytes = nextBlock.Compress();
+    // The compressed bytes are written below, before the buffer is used again.
+    var compressedBytes = writeBlock.CompressInto(ref CompressionBuffer);
     var offset = CompressedBlockPositions.LastOrDefault(MetaDataSize);
     offset += CompressedBlockLengths.LastOrDefault();
     FileStream.Position = offset;
     CompressedBlockPositions.Add(offset);
     CompressedBlockLengths.Add(compressedBytes.Length);
-    DecompressedBlockLengths.Add(nextBlock.Length);
+    DecompressedBlockLengths.Add(writeBlock.Length);
     FileStream.Write(compressedBytes.Span);
     // Avoid forcing every compression block to stable storage. A compressed
     // device is not valid or publishable until SealDevice writes its terminal
     // block metadata and durably flushes the complete file.
     FileStream.Flush(false);
-    BlockCache.RemoveBlock(nextBlock.BlockIndex);
+    // Drop any copy of this block that reads have kept, such as the partial last block of a reopened device.
+    BlockCache.RemoveBlock(writeBlock.BlockIndex);
+    NextBlock = null;
     ++NextBlockIndex;
     LastBlockLength = 0;
-    NextBlock = null;
   }
 
   static int NextDeviceId = 1;
@@ -372,6 +378,8 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
   public void Close()
   {
     BlockCache.Clear();
+    WriteBlock = null;
+    CompressionBuffer = null;
     if (FileStream == null)
       return;
     FileStream.Flush(true);
@@ -401,19 +409,23 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
     CompressedBlockLengths.Clear();
     DecompressedBlockLengths.Clear();
     LastBlockLength = 0;
+    WriteBlock?.Reset(0);
     BlockCache.Clear();
   }
 
   public void SealDevice()
   {
-    var nextBlock = NextBlock;
-    if (nextBlock != null)
+    // An empty write block holds nothing to write: the last append filled a block and wrote it.
+    var writeBlock = WriteBlock;
+    if (writeBlock != null && writeBlock.Length > 0)
     {
-      AppendBlock(nextBlock);
-      LastBlockLength = nextBlock.Length;
+      AppendBlock(writeBlock);
+      LastBlockLength = writeBlock.Length;
       --NextBlockIndex;
-      NextBlock = null;
     }
+    // A sealed device is only read, so it keeps no write buffers.
+    WriteBlock = null;
+    CompressionBuffer = null;
     WriteCompressedBlockPositionsAndLengths();
   }
 

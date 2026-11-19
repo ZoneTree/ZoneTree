@@ -91,6 +91,20 @@ public sealed class DecompressedBlock
         Bytes.Slice(0, Length));
   }
 
+  /// <summary>
+  /// Compresses the block into a reusable buffer where the method supports it. The result can share the buffer, or
+  /// the block's own bytes, so it is valid until the buffer or the block changes.
+  /// </summary>
+  public Memory<byte> CompressInto(ref byte[] buffer)
+  {
+    return DataCompression
+        .CompressInto(
+        CompressionMethod,
+        CompressionLevel,
+        Bytes.Slice(0, Length),
+        ref buffer);
+  }
+
   public static DecompressedBlock FromCompressed(
       int blockIndex, Memory<byte> compressedBytes,
       CompressionMethod method, int compressionLevel,
