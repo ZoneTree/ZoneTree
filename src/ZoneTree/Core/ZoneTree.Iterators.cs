@@ -14,38 +14,32 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       bool contributeToTheBlockCache,
       int diskSegmentPrefetchSize)
   {
-    // Capture a consistent segment set and attach the disk segments under the
-    // locks, then create the iterators outside them. Iterator creation
-    // allocates buffers and takes B+tree locks, and doing it under the tree
-    // locks serializes every iterator creation in the process. Segments stay
-    // readable after they move forward or merge, as they must for iterators
-    // that are already open.
-    IMutableSegment<TKey, TValue> mutableSegment = null;
+    // The segments are read newest first and without the tree locks, as TryGet
+    // reads them. Every iterator creation would otherwise queue on the locks.
+    // The order is safe because every change publishes its result before it
+    // removes its inputs: a moved mutable segment is queued before the next one
+    // is published, a merge publishes its disk segment before it dequeues the
+    // merged segments and retires the old disk segment, and a bottom merge
+    // publishes the new queue before it retires the merged segments. So no
+    // record is missed. A record can be read twice, from a segment and from the
+    // merge that holds it, and the newer segment wins in the iterator's heap.
+    // Segments stay readable after they move forward or merge.
+    IMutableSegment<TKey, TValue> mutableSegment;
     List<IReadOnlySegment<TKey, TValue>> roSegments;
-    IDiskSegment<TKey, TValue> diskSegment = null;
-    List<IDiskSegment<TKey, TValue>> bottomSegments = null;
-    lock (ShortMergerLock)
-      lock (AtomicUpdateLock)
-      {
-        if (includeMutableSegment)
-          mutableSegment = MutableSegment;
-        roSegments = ReadOnlySegmentQueue.ToLastInFirstArray();
-        if (includeDiskSegment)
-        {
-          var segment = DiskSegment;
-          if (segment is not NullDiskSegment<TKey, TValue>)
-          {
-            segment.AttachIterator();
-            diskSegment = segment;
-          }
-        }
-        if (includeBottomSegments)
-        {
-          bottomSegments = BottomSegmentQueue.ToLastInFirstArray();
-          foreach (var bottom in bottomSegments)
-            bottom.AttachIterator();
-        }
-      }
+    IDiskSegment<TKey, TValue> diskSegment;
+    List<IDiskSegment<TKey, TValue>> bottomSegments;
+    while (!TryCollectSegments(
+        includeMutableSegment,
+        includeDiskSegment,
+        includeBottomSegments,
+        out mutableSegment,
+        out roSegments,
+        out diskSegment,
+        out bottomSegments))
+    {
+      // A disk segment refused the iterator because its retirement has started.
+      // Its records are in a segment published before that, so read again.
+    }
 
     try
     {
@@ -88,6 +82,88 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       }
       throw;
     }
+  }
+
+  /// <summary>
+  /// Reads the segments newest first and attaches the disk segments. Returns false, with nothing attached, if a merge
+  /// finished during the read or a disk segment's retirement started before it could be attached.
+  /// </summary>
+  /// <exception cref="InvalidOperationException">
+  /// A retired segment is still published, which happens only when the tree has been dropped.
+  /// </exception>
+  bool TryCollectSegments(
+      bool includeMutableSegment,
+      bool includeDiskSegment,
+      bool includeBottomSegments,
+      out IMutableSegment<TKey, TValue> mutableSegment,
+      out List<IReadOnlySegment<TKey, TValue>> roSegments,
+      out IDiskSegment<TKey, TValue> diskSegment,
+      out List<IDiskSegment<TKey, TValue>> bottomSegments)
+  {
+    // Every merge publishes a new disk segment, or a new NullDiskSegment when it moves its result to the bottom,
+    // before it dequeues what it merged. The same disk segment before and after reading the in-memory segments
+    // means no merge finished in between, so every read-only segment read is newer than everything on disk.
+    // Otherwise a read-only segment read before the merge could hold an older value than the merged disk segment
+    // and still win in the iterator's heap.
+    var publishedDiskSegment = DiskSegment;
+    mutableSegment = includeMutableSegment ? MutableSegment : null;
+    roSegments = ReadOnlySegmentQueue.ToLastInFirstArray();
+    diskSegment = null;
+    bottomSegments = null;
+    if (!ReferenceEquals(DiskSegment, publishedDiskSegment))
+      return false;
+    if (includeDiskSegment && publishedDiskSegment is not NullDiskSegment<TKey, TValue>)
+    {
+      if (!publishedDiskSegment.TryAttachIterator())
+      {
+        // A merge publishes the next disk segment before it retires this one, so a retired segment that is still
+        // published was dropped with the tree. Attaching to it throws, as it did when the tree locks were held.
+        if (!ReferenceEquals(DiskSegment, publishedDiskSegment))
+          return false;
+        publishedDiskSegment.AttachIterator();
+      }
+      diskSegment = publishedDiskSegment;
+    }
+    if (!includeBottomSegments)
+      return true;
+
+    var bottomQueue = BottomSegmentQueue;
+    var bottoms = bottomQueue.ToLastInFirstArray();
+    for (var i = 0; i < bottoms.Count; ++i)
+    {
+      if (bottoms[i].TryAttachIterator())
+        continue;
+      try
+      {
+        // A bottom merge publishes a new queue before it retires the merged segments, so a retired segment in the
+        // queue that is still published was dropped with the tree, and attaching to it throws.
+        if (ReferenceEquals(BottomSegmentQueue, bottomQueue))
+        {
+          bottoms[i].AttachIterator();
+          continue;
+        }
+      }
+      catch
+      {
+        DetachIterators(diskSegment, bottoms, i);
+        throw;
+      }
+      DetachIterators(diskSegment, bottoms, i);
+      diskSegment = null;
+      return false;
+    }
+    bottomSegments = bottoms;
+    return true;
+  }
+
+  static void DetachIterators(
+      IDiskSegment<TKey, TValue> diskSegment,
+      List<IDiskSegment<TKey, TValue>> bottoms,
+      int attachedBottomCount)
+  {
+    for (var i = 0; i < attachedBottomCount; ++i)
+      bottoms[i].DetachIterator();
+    diskSegment?.DetachIterator();
   }
 
   /// <summary>

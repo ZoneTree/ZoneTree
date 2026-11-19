@@ -239,10 +239,12 @@ public sealed class MultiPartDiskSegment<TKey, TValue> : IDiskSegment<TKey, TVal
 
   public void AttachIterator()
   {
-    if (!IteratorLeaseState.TryAcquire())
+    if (!TryAttachIterator())
       throw new InvalidOperationException(
           "Cannot attach an iterator after disk segment retirement has started.");
   }
+
+  public bool TryAttachIterator() => IteratorLeaseState.TryAcquire();
 
   public bool ContainsKey(in TKey key, ref KeyHashProvider<TKey> keyHashProvider)
   {

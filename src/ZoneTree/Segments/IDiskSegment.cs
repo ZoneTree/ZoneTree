@@ -35,6 +35,24 @@ public interface IDiskSegment<TKey, TValue> : IReadOnlySegment<TKey, TValue>, II
   void AttachIterator();
 
   /// <summary>
+  /// Attaches an iterator unless the segment's retirement has started, and returns whether it did. A segment is
+  /// retired only after the segment that holds its records has been published, so a caller that is refused can
+  /// find those records there.
+  /// </summary>
+  bool TryAttachIterator()
+  {
+    try
+    {
+      AttachIterator();
+      return true;
+    }
+    catch (InvalidOperationException)
+    {
+      return false;
+    }
+  }
+
+  /// <summary>
   /// Releases an iterator lease. The final lease completes a pending drop.
   /// </summary>
   void DetachIterator();

@@ -784,10 +784,12 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
 
   public void AttachIterator()
   {
-    if (!IteratorLeaseState.TryAcquire())
+    if (!TryAttachIterator())
       throw new InvalidOperationException(
           "Cannot attach an iterator after disk segment retirement has started.");
   }
+
+  public bool TryAttachIterator() => IteratorLeaseState.TryAcquire();
 
   public void DetachIterator()
   {

@@ -91,6 +91,8 @@ public sealed class NullDiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
     // Nothing to add
   }
 
+  public bool TryAttachIterator() => true;
+
   public void DetachIterator()
   {
     // Nothing to remove
