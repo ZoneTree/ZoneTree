@@ -33,7 +33,7 @@ public sealed partial class BTree<TKey, TValue>
         }
 
         if (root.IsFull)
-          root = SplitRoot(root);
+          root = SplitRoot(root, in key);
         return UpsertNonFull(root, in key, valueGetter, out value, out opIndex);
       }
     }
@@ -72,7 +72,7 @@ public sealed partial class BTree<TKey, TValue>
         child.WriteLock();
         if (child.IsFull)
         {
-          var splitted = TrySplitChild(node, position, child, out var busyNeighbour);
+          var splitted = TrySplitChild(node, position, child, in key, out var busyNeighbour);
           child.WriteUnlock();
           if (!splitted)
           {

@@ -31,14 +31,158 @@ public sealed class BTreeLeafWriteTests
         .GetValue(tree);
   }
 
+  static BTree<int, int>.LeafNode GetLastLeaf(BTree<int, int> tree)
+  {
+    return (BTree<int, int>.LeafNode)typeof(BTree<int, int>)
+        .GetField("LastLeafNode", BindingFlags.Instance | BindingFlags.NonPublic)
+        .GetValue(tree);
+  }
+
+  static List<int> GetLeafLengths(BTree<int, int> tree)
+  {
+    var lengths = new List<int>();
+    for (var leaf = GetFirstLeaf(tree); leaf != null; leaf = leaf.Next)
+      lengths.Add(leaf.Length);
+    return lengths;
+  }
+
+  public enum WriteMethod
+  {
+    Upsert,
+    UpsertWithValueGetter,
+    TryInsert,
+    AddOrUpdate,
+  }
+
+  static void Write(BTree<int, int> tree, WriteMethod method, int key)
+  {
+    switch (method)
+    {
+      case WriteMethod.Upsert:
+        tree.Upsert(key, key, out _);
+        break;
+      case WriteMethod.UpsertWithValueGetter:
+        tree.Upsert(key, _ => key, out _, out _);
+        break;
+      case WriteMethod.TryInsert:
+        tree.TryInsert(key, key, out _);
+        break;
+      case WriteMethod.AddOrUpdate:
+        tree.AddOrUpdate(key, (ref int value) => value = key, (ref int value) => value = -1, out _);
+        break;
+    }
+  }
+
+  [Test]
+  public void AscendingWritesFillTheLeaves(
+      [Values] BTreeLockMode lockMode, [Values] WriteMethod method)
+  {
+    var tree = CreateTree(lockMode);
+    for (var key = 0; key < 1000; ++key)
+      Write(tree, method, key);
+    // A split of the last leaf for a key after its last key moves only its last key.
+    var lengths = GetLeafLengths(tree);
+    Assert.That(lengths.Take(lengths.Count - 1), Is.All.EqualTo(7));
+    Assert.That(lengths.Sum(), Is.EqualTo(1000));
+    tree.Validate();
+    tree.ValidateLeafs();
+  }
+
+  [Test]
+  public void DescendingWritesFillTheLeaves(
+      [Values] BTreeLockMode lockMode, [Values] WriteMethod method)
+  {
+    var tree = CreateTree(lockMode);
+    for (var key = 999; key >= 0; --key)
+      Write(tree, method, key);
+    // A split of the first leaf for a key before its first key moves only its first key.
+    var lengths = GetLeafLengths(tree);
+    Assert.That(lengths.Skip(1), Is.All.EqualTo(7));
+    Assert.That(lengths.Sum(), Is.EqualTo(1000));
+    tree.Validate();
+    tree.ValidateLeafs();
+  }
+
+  [Test]
+  public void WritesBetweenTheKeysOfTheFirstAndLastLeafSplitItInTheMiddle([Values] WriteMethod method)
+  {
+    var tree = CreateTree(BTreeLockMode.NodeLevelMonitor);
+    for (var key = 0; key < 8; ++key)
+      Write(tree, method, key * 10);
+    Write(tree, method, 65);
+    Assert.That(GetLeafLengths(tree), Is.EqualTo(new[] { 4, 5 }));
+    tree.Validate();
+    tree.ValidateLeafs();
+  }
+
+  /// <summary>
+  /// Throws when it compares the two keys, in either order.
+  /// </summary>
+  sealed class FailingPairComparer : IRefComparer<int>
+  {
+    public int First;
+
+    public int Second;
+
+    public volatile bool IsFailing;
+
+    public int Compare(in int x, in int y)
+    {
+      if (IsFailing && (x == First && y == Second || x == Second && y == First))
+        throw new InvalidOperationException("The comparer failed.");
+      return x.CompareTo(y);
+    }
+  }
+
+  [TestCase(BTreeLockMode.NodeLevelMonitor, false)]
+  [TestCase(BTreeLockMode.NodeLevelMonitor, true)]
+  [TestCase(BTreeLockMode.NodeLevelReaderWriter, false)]
+  [TestCase(BTreeLockMode.NodeLevelReaderWriter, true)]
+  public void ComparerFailureWhileSplittingAnEndLeafReleasesIt(BTreeLockMode lockMode, bool descending)
+  {
+    var comparer = new FailingPairComparer();
+    var tree = new BTree<int, int>(comparer, lockMode, nodeSize: 8, leafSize: 8);
+    BTree<int, int>.LeafNode GetEndLeaf() => descending ? GetFirstLeaf(tree) : GetLastLeaf(tree);
+    var step = descending ? -1 : 1;
+    var key = 0;
+    var count = 0;
+    while (count < 100 || !GetEndLeaf().IsFull)
+    {
+      tree.Upsert(key, key, out _);
+      key += step;
+      ++count;
+    }
+    var endLeaf = GetEndLeaf();
+    comparer.First = key;
+    comparer.Second = descending ? endLeaf.Keys[0] : endLeaf.Keys[endLeaf.Length - 1];
+    comparer.IsFailing = true;
+
+    // The split compares the key with the end key of the leaf it holds,
+    // and the write in the new leaf compares them again.
+    Assert.Throws<InvalidOperationException>(() => tree.Upsert(key, key, out _));
+    comparer.IsFailing = false;
+
+    // A monitor is reentrant, so another thread checks that the leaf is free.
+    var write = Task.Factory.StartNew(
+        () => tree.Upsert(key, key, out _), TaskCreationOptions.LongRunning);
+    Assert.That(write.Wait(TimeSpan.FromSeconds(30)), Is.True, "The failed write keeps a leaf locked.");
+    Assert.That(tree.Length, Is.EqualTo(count + 1));
+    tree.Validate();
+    tree.ValidateLeafs();
+  }
+
   [TestCase(BTreeLockMode.NodeLevelMonitor)]
   [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
   public void WritesToALeafWithRoomDoNotWaitForALockedRoot(BTreeLockMode lockMode)
   {
     var tree = CreateTree(lockMode);
-    // Ascending inserts leave the first leaf half full after its split.
     for (var key = 0; key < 1000; ++key)
       tree.Upsert(key * 10, key, out _);
+    // Ascending inserts leave 7 keys in the first leaf. The first write fills it,
+    // and the second splits it in the middle, because it goes between its keys.
+    tree.Upsert(5, 5, out _);
+    tree.Upsert(15, 15, out _);
+    Assert.That(GetFirstLeaf(tree).Length, Is.EqualTo(5));
     var root = GetRoot(tree);
     Assert.That(root, Is.Not.InstanceOf<BTree<int, int>.LeafNode>());
 
@@ -195,10 +339,12 @@ public sealed class BTreeLeafWriteTests
   public void WritesAtTheEndOfTheLastLeafDoNotWaitForALockedRoot(BTreeLockMode lockMode)
   {
     var tree = CreateTree(lockMode);
-    // An ascending split of an 8 key leaf leaves 5 keys in the last leaf,
-    // which is full again after 3 more. So 1001 keys leave it with room.
+    // An ascending split of the full 8 key last leaf moves only its last key to
+    // the new last leaf, so the leaves after the first one start at multiples of 7,
+    // and 1001 keys leave 7 keys in the last one.
     for (var key = 0; key < 1001; ++key)
       tree.Upsert(key, key + 1, out _);
+    Assert.That(GetLastLeaf(tree).Length, Is.EqualTo(7));
     var root = GetRoot(tree);
     Assert.That(root, Is.Not.InstanceOf<BTree<int, int>.LeafNode>());
 

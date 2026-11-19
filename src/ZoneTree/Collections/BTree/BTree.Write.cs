@@ -31,7 +31,7 @@ public sealed partial class BTree<TKey, TValue>
         }
 
         if (root.IsFull)
-          root = SplitRoot(root);
+          root = SplitRoot(root, in key);
         return UpsertNonFull(root, in key, in value, out opIndex);
       }
     }
@@ -61,7 +61,7 @@ public sealed partial class BTree<TKey, TValue>
           continue;
         }
         if (root.IsFull)
-          root = SplitRoot(root);
+          root = SplitRoot(root, in key);
         return TryInsertNonFull(root, in key, in value, out opIndex);
       }
     }
@@ -99,7 +99,7 @@ public sealed partial class BTree<TKey, TValue>
           continue;
         }
         if (root.IsFull)
-          root = SplitRoot(root);
+          root = SplitRoot(root, in key);
         return TryAddOrUpdateNonFull(root, in key, adder, updater, out opIndex);
       }
     }
@@ -185,29 +185,30 @@ public sealed partial class BTree<TKey, TValue>
   }
 
   /// <summary>
-  /// Replaces the full root with a new root over its halves. The caller holds
-  /// the write lock of the full root, and gets the write lock of the new root.
+  /// Replaces the full root with a new root over its split parts for a write
+  /// of the key. The caller holds the write lock of the full root, and gets
+  /// the write lock of the new root.
   /// </summary>
   /// <remarks>
   /// The new root is published before the caller descends, so a write that
   /// fails below it leaves a valid tree, and writers waiting for the old root
   /// start over from the new one.
   /// </remarks>
-  Node SplitRoot(Node root)
+  Node SplitRoot(Node root, in TKey key)
   {
     var newRoot = new Node(GetNodeLocker(), NodeSize);
     newRoot.Children[0] = root;
     newRoot.WriteLock();
     // The root has no neighbours, so its split succeeds.
-    TrySplitChild(newRoot, 0, root, out _);
+    TrySplitChild(newRoot, 0, root, in key, out _);
     Root = newRoot;
     root.WriteUnlock();
     return newRoot;
   }
 
   /// <summary>
-  /// Splits the full child of a parent. The caller holds the write locks
-  /// of both, and keeps them when the split fails.
+  /// Splits the full child of a parent for a write of the key. The caller
+  /// holds the write locks of both, and keeps them when the split fails.
   /// </summary>
   /// <remarks>
   /// <para>
@@ -230,10 +231,10 @@ public sealed partial class BTree<TKey, TValue>
   /// </para>
   /// </remarks>
   bool TrySplitChild(
-      Node parent, int parentInsertPosition, Node child, out LeafNode busyNeighbour)
+      Node parent, int parentInsertPosition, Node child, in TKey key, out LeafNode busyNeighbour)
   {
     busyNeighbour = null;
-    var pivotPosition = (child.Length + 1) / 2;
+    var pivotPosition = GetPivotPosition(child, in key);
     ref var pivotKey = ref child.Keys[pivotPosition];
     if (child is LeafNode childLeaf)
     {
@@ -280,6 +281,36 @@ public sealed partial class BTree<TKey, TValue>
   }
 
   /// <summary>
+  /// Returns the position of the key that moves to the parent when the full
+  /// child splits. The last leaf splits before its last key when the written
+  /// key goes after it, and the first leaf splits after its first key when the
+  /// written key goes before it. Ascending writes never return to the left part
+  /// of the last leaf, and descending writes never return to the right part of
+  /// the first leaf, so a split in the middle would leave every leaf half full
+  /// and make twice as many splits. Other nodes split in the middle.
+  /// </summary>
+  int GetPivotPosition(Node child, in TKey key)
+  {
+    var length = child.Length;
+    if (child is LeafNode leaf)
+    {
+      try
+      {
+        if (leaf.Next == null && Comparer.Compare(in key, in leaf.Keys[length - 1]) > 0)
+          return length - 1;
+        if (leaf.Previous == null && Comparer.Compare(in key, in leaf.Keys[0]) < 0)
+          return 1;
+      }
+      catch (Exception)
+      {
+        // The caller would keep the child locked, so the failure stays here.
+        // A split in the middle is valid for any key.
+      }
+    }
+    return (length + 1) / 2;
+  }
+
+  /// <summary>
   /// Waits until the holder of a leaf releases it. The caller holds an inner
   /// node only. A writer holding a leaf waits only for other leaves, and an
   /// iterator copying a leaf waits for nothing, so the holder finishes
@@ -318,7 +349,7 @@ public sealed partial class BTree<TKey, TValue>
         child.WriteLock();
         if (child.IsFull)
         {
-          var splitted = TrySplitChild(node, position, child, out var busyNeighbour);
+          var splitted = TrySplitChild(node, position, child, in key, out var busyNeighbour);
           child.WriteUnlock();
           if (!splitted)
           {
@@ -392,7 +423,7 @@ public sealed partial class BTree<TKey, TValue>
         child.WriteLock();
         if (child.IsFull)
         {
-          var splitted = TrySplitChild(node, position, child, out var busyNeighbour);
+          var splitted = TrySplitChild(node, position, child, in key, out var busyNeighbour);
           child.WriteUnlock();
           if (!splitted)
           {
@@ -461,7 +492,7 @@ public sealed partial class BTree<TKey, TValue>
         child.WriteLock();
         if (child.IsFull)
         {
-          var splitted = TrySplitChild(node, position, child, out var busyNeighbour);
+          var splitted = TrySplitChild(node, position, child, in key, out var busyNeighbour);
           child.WriteUnlock();
           if (!splitted)
           {
