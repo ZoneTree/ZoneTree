@@ -280,6 +280,7 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
     var newZoneTreeMeta = new ZoneTreeMeta
     {
       Version = productVersion,
+      DbVersion = zoneTreeMeta.DbVersion,
       KeyType = zoneTreeMeta.KeyType,
       ValueType = zoneTreeMeta.ValueType,
       ComparerType = zoneTreeMeta.ComparerType,

@@ -7,6 +7,13 @@ public sealed class ZoneTreeMeta
 {
   public string Version { get; set; }
 
+  /// <summary>
+  /// The storage format version of the database. Unlike <see cref="Version"/>, which is
+  /// the version that saved the metadata last, it changes only when the database is
+  /// created or migrated. A database without it has version 1.0.0.
+  /// </summary>
+  public string DbVersion { get; set; }
+
   public string ComparerType { get; set; }
 
   public string KeyHasherType { get; set; }

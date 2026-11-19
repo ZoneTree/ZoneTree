@@ -590,7 +590,8 @@ public sealed class WriteAheadLogSyncTests
     using var stream = CreateCompressedFileStream(provider);
     stream.Write(newBytes.AsSpan(0, WalBlockSize / 2));
     var diskSyncCount = provider.DiskSyncCount;
-    stream.ReplaceContent(provider, binaryWriter => binaryWriter.Write(newBytes));
+    stream.ReplaceContent(
+        provider, binaryWriter => binaryWriter.Write(newBytes), CompressionMethod.LZ4, CompressionLevels.LZ4Fastest);
     // Both files are sealed once; invalidating the old fixed checkpoints and
     // closing the old tail adds a constant cost, independent of block count.
     Assert.That(provider.DiskSyncCount - diskSyncCount, Is.EqualTo(6));
@@ -644,7 +645,8 @@ public sealed class WriteAheadLogSyncTests
     provider.OnDurableChange = () => powerLossPoints.Enqueue(provider.SimulatePowerLoss());
     using (var stream = CreateCompressedFileStream(provider))
     {
-      var length = stream.ReplaceContent(provider, binaryWriter => binaryWriter.Write(newBytes));
+      var length = stream.ReplaceContent(
+          provider, binaryWriter => binaryWriter.Write(newBytes), CompressionMethod.LZ4, CompressionLevels.LZ4Fastest);
       Assert.That(length, Is.EqualTo(newLength));
     }
     provider.OnDurableChange = null;

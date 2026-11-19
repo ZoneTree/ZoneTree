@@ -355,6 +355,9 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
       FileStream.Flush(true);
     }
   }
+
+  // The log is not compressed.
+  public IReadOnlyList<string> GetFilesWithLegacyCompression() => [];
 }
 
 #pragma warning restore CA2213

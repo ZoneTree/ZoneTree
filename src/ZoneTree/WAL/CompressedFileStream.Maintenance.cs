@@ -1,5 +1,6 @@
 using System.Text;
 using ZoneTree.AbstractFileStream;
+using ZoneTree.Options;
 using ZoneTree.Segments.Block;
 
 namespace ZoneTree.WAL;
@@ -53,10 +54,14 @@ public sealed unsafe partial class CompressedFileStream
   /// </remarks>
   /// <param name="fileStreamProvider">The file stream provider of this stream.</param>
   /// <param name="writeContent">Writes the new content.</param>
+  /// <param name="compressionMethod">The compression method of the new content.</param>
+  /// <param name="compressionLevel">The compression level of the new content.</param>
   /// <returns>The length of the new content.</returns>
   internal long ReplaceContent(
       IFileStreamProvider fileStreamProvider,
-      Action<BinaryWriter> writeContent)
+      Action<BinaryWriter> writeContent,
+      CompressionMethod compressionMethod,
+      int compressionLevel)
   {
     lock (TailLock)
       lock (SyncRoot)
@@ -82,8 +87,8 @@ public sealed unsafe partial class CompressedFileStream
         BlockSize,
         false,
         0,
-        CompressionMethod,
-        CompressionLevel,
+        compressionMethod,
+        compressionLevel,
         UseMemoryMappedTail))
     {
       using (var binaryWriter = new BinaryWriter(tmpFileStream, Encoding.UTF8, true))

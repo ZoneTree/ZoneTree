@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using ZoneTree.Compression;
 using ZoneTree.Collections;
 using ZoneTree.Comparers;
 using ZoneTree.Hashers;
@@ -169,6 +170,12 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         options, IncrementalIdProvider.NextId(), new IncrementalIdProvider());
     IsDeleted = options.IsDeleted;
     FillZoneTreeMeta();
+    var legacyCompressionUses = LegacyCompression.FindInOptions(
+        options.WriteAheadLogOptions, options.DiskSegmentOptions);
+    if (legacyCompressionUses.Count == 0)
+      ZoneTreeMeta.DbVersion = ZoneTreeInfo.DbVersion.ToString();
+    else
+      LegacyCompression.Warn(Logger, legacyCompressionUses);
     ZoneTreeMeta.MaximumOpIndex = MutableSegment.OpIndexProvider.LastId;
     MetaWal.SaveMetaData(
         ZoneTreeMeta,

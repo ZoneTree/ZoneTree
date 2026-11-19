@@ -276,7 +276,8 @@ public sealed class CompressedFileStreamTests
     using (var stream = context.Open())
       stream.Write(content);
     var opened = context.Open();
-    var length = opened.ReplaceContent(context.Provider, writer => writer.Write(replacement));
+    var length = opened.ReplaceContent(
+        context.Provider, writer => writer.Write(replacement), CompressionMethod.LZ4, CompressionLevels.LZ4Fastest);
     Assert.That(length, Is.EqualTo(replacement.Length));
     using (var stream = context.Open())
     {

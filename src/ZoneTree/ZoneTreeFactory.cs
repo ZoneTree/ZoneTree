@@ -32,6 +32,8 @@ public sealed class ZoneTreeFactory<TKey, TValue>
 
   bool HasCustomWriteAheadLogProviderFactory;
 
+  bool IsZstdMigrationEnabled;
+
   /// <summary>
   /// True if the factory was given a write ahead log provider instead of creating its own.
   /// </summary>
@@ -250,6 +252,8 @@ public sealed class ZoneTreeFactory<TKey, TValue>
       var meta = ZoneTreeMetaWAL<TKey, TValue>
           .LoadZoneTreeMetaWithoutWALRecords(Options.RandomAccessDeviceManager);
       Options.WriteAheadLogProvider.MigrateWals(Version.Parse(meta.Version));
+      if (IsZstdMigrationEnabled)
+        new ZstdMigration<TKey, TValue>(Options).Run(meta);
     }
     IsWriteAheadLogProviderInitialized = true;
   }
@@ -660,6 +664,18 @@ public sealed class ZoneTreeFactory<TKey, TValue>
     FillMissingOptionsForKnownTypes();
     InitWriteAheadLogProvider(true);
     return MvccZoneTree<TKey, TValue>.Load(Options, canCreate: false, canOpen: true);
+  }
+
+  /// <summary>
+  /// Migrates an existing database from LZ4, Gzip and Brotli compression to the configured
+  /// compression when it opens, because version 2.2.0 opens only migrated databases.
+  /// The migration first backs up the database directories next to them, and keeps the backup.
+  /// </summary>
+  /// <returns>ZoneTree Factory</returns>
+  public ZoneTreeFactory<TKey, TValue> EnableZstdMigration()
+  {
+    IsZstdMigrationEnabled = true;
+    return this;
   }
 
   /// <summary>
