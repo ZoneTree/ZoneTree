@@ -240,7 +240,7 @@ public sealed partial class VariableSizeDiskSegment<TKey, TValue> : DiskSegment<
       {
         cache = MaterializedEntryCache<TKey, TValue>.GetOrCreate(
             pin1?.Device,
-            MaterializedEntryCacheSize);
+            MaterializedEntryCacheSize, headSize);
         if (cache != null && cache.TryCopy(
             startIndex,
             count,
