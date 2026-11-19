@@ -40,7 +40,7 @@ An `Upsert` enters the current mutable segment. Its concurrent B+Tree keeps keys
 
 Recent writes are also recorded through the configured write-ahead log. WAL mode determines the logging path and durability boundary. The mutable segment is where the application reads and updates current in-memory records; the WAL supports their recovery.
 
-The default B+Tree lock mode uses node-level synchronization. Multiple application threads can write to the same ZoneTree, and independent reads can run concurrently. Operations that need coordinated read-modify-write behavior have separate [atomic APIs](../usage/atomic-operations.mdx).
+The default B+Tree lock mode uses node-level synchronization. Multiple application threads can write to the same ZoneTree, and independent reads can run concurrently. A read-then-write of a key takes its [key lock](../usage/key-locks.mdx).
 
 ### 2. Move a full segment to read-only memory
 

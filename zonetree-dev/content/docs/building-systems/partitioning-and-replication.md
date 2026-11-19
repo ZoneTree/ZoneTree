@@ -31,7 +31,7 @@ This separation lets an engine instance remain focused on storage while the node
 | Concurrent access | Parallel writes and reads alongside background maintenance | Request admission, workload isolation, and backpressure |
 | Replication | Write operation indexes, version-aware value construction, and a replica-apply helper | Durable capture, transport, retries, epochs, and acknowledgement policy |
 | Data movement | Snapshot/range iterators and backup/restore abstractions | Stream boundaries, catch-up, validation, and routing cutover |
-| Consistency | Atomic operations and transactions within their local API boundaries | Replica read policy, failover, and cross-partition coordination |
+| Consistency | Key locks and transactions within their local API boundaries | Replica read policy, failover, and cross-partition coordination |
 | Operations | Segment lifecycle events, maintenance controls, and storage providers | Node scheduling, monitoring, capacity management, and repair |
 
 ## Choose the partition boundary
@@ -213,13 +213,13 @@ Console.WriteLine(replica.TryGet(42, out _) ? "present" : "deleted");
 // deleted
 ```
 
-`OnUpsert` runs synchronously in its caller. The companion tree?s atomic coordination serializes its apply callbacks, including the replica write. Scale delivery and apply across partition replicas, or implement the coordination required by another apply design. The helper manages maintenance for its companion index tree; the node still owns the supplied replica and its maintainer.
+`OnUpsert` runs synchronously in its caller. The companion tree's key lock serializes the apply of each key, including the replica write. Scale delivery and apply across partition replicas, or implement the coordination required by another apply design. The helper manages maintenance for its companion index tree; the node still owns the supplied replica and its maintainer.
 
 Route replica mutations through the chosen version-aware apply protocol; unversioned writes that bypass it cannot be protected by its freshness comparison.
 
 The helper's comparison is scoped to `TKey`. It does not compare owner epochs or merge unrelated producers' clocks. Route operations through a version domain the helper can compare, and fence obsolete producers before applying their traffic.
 
-The companion index update is synchronized with the replica write through the atomic-operation result callback. They remain writes to two separate trees, rather than one durable transaction spanning both. Recovery must restore their relationship through replay, reconciliation, or a different transactional apply design before trusting a persisted checkpoint. Receiver writes also receive their own local operation indexes; the original producer index is held in the companion tree.
+The companion index update and the replica write happen under the same key lock. They remain writes to two separate trees, rather than one durable transaction spanning both. Recovery must restore their relationship through replay, reconciliation, or a different transactional apply design before trusting a persisted checkpoint. Receiver writes also receive their own local operation indexes; the original producer index is held in the companion tree.
 
 ## Replicate deletions as versioned state changes
 
@@ -324,12 +324,12 @@ ZoneTree's local APIs give the node several useful choices:
 | Local requirement | Engine primitive | Scope |
 | --- | --- | --- |
 | Independent inserts or replacements | Ordinary `Upsert` | Fast, thread-safe local writes |
-| Read/decide/write on a key | Atomic methods | Synchronization with other atomic methods across the tree's LSM layers |
+| Read/decide/write on a key | Key locks | Exclusion from other writers that lock the key |
 | Coordinated changes to several keys | Transactional ZoneTree | A transaction within that transactional tree |
 | Stable export | Snapshot iterator | The collected engine view |
 | Recovery of local writes | Configured WAL mode and storage provider | Local recovery according to that mode and provider |
 
-Ordinary `Upsert` does not participate in the atomic methods' coordination lock. Use a compatible write discipline for keys whose correctness depends on atomic read-modify-write. Transactions in one tree also do not commit changes across another tree or node. See [atomic operations](../usage/atomic-operations.mdx) and [transactions](../usage/transactions.mdx).
+Ordinary `Upsert` does not take the key lock. Every writer of a key whose correctness depends on a read-then-write takes it. Transactions in one tree also do not commit changes across another tree or node. See [key locks](../usage/key-locks.mdx) and [transactions](../usage/transactions.mdx).
 
 Transactional trees expose `BeginTransaction`, `Commit` or `TryCommit`, and `Rollback`. There is no separate prepare step: a commit checks for conflicts and commits in one call, and a transaction that has not committed cannot be resumed after a restart. A distributed commit protocol must establish its own durable decision records and recovery rules above these local transactions.
 
@@ -368,7 +368,8 @@ See [maintenance](../usage/maintenance.mdx) and [file stream providers](../stora
 
 The behaviors described here can be traced to these implementations:
 
-* [Write path and atomic callbacks](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Core/ZoneTree.ReadWrite.cs)
+* [Write path](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Core/ZoneTree.ReadWrite.cs)
+* [Key locks](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Core/KeyLocks.cs)
 * [Operation-index allocation during value construction](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Collections/BTree/BTree.Write.OpIndex.cs)
 * [Replica apply and its companion index](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Core/Replicator.cs)
 * [Local transaction commit and rollback](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Transactional/Mvcc/MvccZoneTree.cs)

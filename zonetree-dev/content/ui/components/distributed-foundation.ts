@@ -88,7 +88,7 @@ export function defineDistributedFoundation() {
     <div>
       <dt>Local consistency &amp; lifecycle control</dt>
       <dd>
-        Atomic updates, local transactions, and maintenance events give each
+        Key locks, local transactions, and maintenance events give each
         node explicit control over its storage.
       </dd>
     </div>
