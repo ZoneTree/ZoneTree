@@ -64,7 +64,7 @@ public sealed class ClusterHostTests
         Is.InstanceOf<Utf8StringSerializer>());
     Assert.That(host.GetStandaloneColumnStorage<int, int>("visits").Maintenance.ActiveTransactionCount, Is.Zero);
     using (var maintainer = host.CreateColumnMaintainer("visits"))
-      maintainer.EnableJobForCleaningInactiveCaches = false;
+      maintainer.EnableInactiveCacheCleanup = false;
 
     Assert.Throws<SchemaConflictException>(() => host.GetRawColumnMaintenance<int, string>("visits"));
     Assert.Throws<SchemaConflictException>(() => host.GetStandaloneColumnStorage<long, long>("balances"));
@@ -133,7 +133,7 @@ public sealed class ClusterHostTests
     };
     var changes = new Action<ZoneTreeFactory<long, long>>[]
     {
-      storage => storage.ConfigureWriteAheadLogOptions(wal => wal.WriteAheadLogMode = WriteAheadLogMode.AsyncShared),
+      storage => storage.ConfigureWriteAheadLogOptions(wal => wal.Mode = WriteAheadLogMode.AsyncShared),
       storage => storage.ConfigureWriteAheadLogOptions(wal => wal.CompressionMethod = CompressionMethod.None),
       storage => storage.SetWriteAheadLogProvider(options => new WriteAheadLogProvider(options.Logger,
           new LocalFileStreamProvider(), Path.Combine(DataDirectory, "elsewhere")))
@@ -158,7 +158,7 @@ public sealed class ClusterHostTests
     {
       var accounts = client.GetDomain("accounts");
       Assert.That(await accounts.GetTransactionOutcomeAsync(1), Is.EqualTo(TransactionOutcome.Unknown));
-      await client.SyncWALAsync();
+      await client.SyncWalAsync();
     }
     finally { await client.DisposeAsync(); }
     Assert.ThrowsAsync<NotSupportedException>(async () => await Factory.ConnectAsync(

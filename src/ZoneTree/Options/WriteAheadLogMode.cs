@@ -42,14 +42,14 @@ public enum WriteAheadLogMode : byte
   /// <summary>
   /// All memory segments share one ordered WAL journal, and the caller writes each
   /// record to it. The segments recover one ordered prefix of records. Segment
-  /// rotation does not sync the journal. SyncWALAsync provides disk durability.
+  /// rotation does not sync the journal. SyncWalAsync provides disk durability.
   /// </summary>
   Shared = 4,
 
   /// <summary>
   /// All memory segments share one ordered WAL journal, and a background writer
   /// writes the records. Written records have the same ordered recovery prefix as
-  /// Shared; a process crash can lose queued records. SyncWALAsync drains the
+  /// Shared; a process crash can lose queued records. SyncWalAsync drains the
   /// preceding writes and syncs the journal.
   /// </summary>
   AsyncShared = 5,

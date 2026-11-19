@@ -119,7 +119,7 @@ static class EngineCatalog
   static void ConfigureJournal(WriteAheadLogOptions wal, BenchmarkOptions options)
   {
     wal.CompressionMethod = CompressionMethod.None;
-    wal.WriteAheadLogMode = options.WalMode;
+    wal.Mode = options.WalMode;
     wal.CompressionBlockSize = 1024 * 256;
   }
 

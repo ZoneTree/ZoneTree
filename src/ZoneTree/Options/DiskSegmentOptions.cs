@@ -9,8 +9,8 @@ public sealed class DiskSegmentOptions
   /// Gets or sets the mode for the disk segment.
   /// Default value is <see cref="DiskSegmentMode.MultiPartDiskSegment"/>.
   /// </summary>
-  public DiskSegmentMode DiskSegmentMode { get; set; }
-      = DiskSegmentDefaultValues.DiskSegmentMode;
+  public DiskSegmentMode Mode { get; set; }
+      = DiskSegmentDefaultValues.Mode;
 
   /// <summary>
   /// Gets or sets the block size for disk segment compression, in bytes.
@@ -109,18 +109,18 @@ public sealed class DiskSegmentOptions
       = DiskSegmentDefaultValues.SearchHintPrefetchSize;
 
   /// <summary>
-  /// Gets or sets the maximum lifetime of a record in the key cache, in milliseconds.
+  /// Gets or sets the maximum lifetime of a record in the key cache.
   /// Longer lifetimes can keep cached keys in memory for longer.
-  /// Default value is 10,000 milliseconds (10 seconds).
+  /// Default value is 10 seconds.
   /// </summary>
-  public int KeyCacheRecordLifeTimeInMillisecond { get; set; } = DiskSegmentDefaultValues.KeyCacheRecordLifeTimeInMillisecond;
+  public TimeSpan KeyCacheRecordLifeTime { get; set; } = DiskSegmentDefaultValues.KeyCacheRecordLifeTime;
 
   /// <summary>
-  /// Gets or sets the maximum lifetime of a record in the value cache, in milliseconds.
+  /// Gets or sets the maximum lifetime of a record in the value cache.
   /// Longer lifetimes can keep cached values in memory for longer.
-  /// Default value is 10,000 milliseconds (10 seconds).
+  /// Default value is 10 seconds.
   /// </summary>
-  public int ValueCacheRecordLifeTimeInMillisecond { get; set; } = DiskSegmentDefaultValues.ValueCacheRecordLifeTimeInMillisecond;
+  public TimeSpan ValueCacheRecordLifeTime { get; set; } = DiskSegmentDefaultValues.ValueCacheRecordLifeTime;
 
   /// <summary>
   /// Gets or sets the default step size for the default sparse array of disk segments.

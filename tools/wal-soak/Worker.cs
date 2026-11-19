@@ -26,7 +26,7 @@ static class Worker
     using var tree = Database.Factory(config, files, wire).CreateTransactional();
     using var maintainer = tree.CreateMaintainer();
     maintainer.MaximumReadOnlySegmentCount = 8;
-    maintainer.ThresholdForMergeOperationStart = config.Profile.MutableSize;
+    maintainer.MergeThreshold = config.Profile.MutableSize;
     maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(3);
     maintainer.BlockCacheLifeTime = TimeSpan.FromSeconds(3);
     var maintenance = tree.Maintenance.ZoneTree.Maintenance;
@@ -157,13 +157,13 @@ static class Worker
         var cut = Cut(); // Capture BEFORE the sync; later commits are not covered by this receipt.
         if (config.Profile.Workload != "queued" || iteration % 20 == 0)
         {
-          await tree.SyncWALAsync();
+          await tree.SyncWalAsync();
           wire.Send(new("synced", Sequences: cut));
           for (var lane = 0; lane < config.Lanes; ++lane) MarkSynced(lane, cut[lane]);
         }
         if (++iteration % 4 == 0) { maintenance.MoveMutableSegmentForward(); maintainer.StartMerge(); }
         if (iteration % 8 == 0) maintainer.StartBottomSegmentsMerge();
-        if (iteration % 6 == 0) tree.Maintenance.SaveMetaData();
+        if (iteration % 6 == 0) tree.Maintenance.SaveMetadata();
       }
     })));
     jobs.Add(Task.Run(() => Guard(async () =>
@@ -177,7 +177,7 @@ static class Worker
     wire.Send(new("ready"));
     await Task.WhenAll(jobs);
     tree.AutoSyncInterval = TimeSpan.Zero;
-    await tree.SyncWALAsync();
+    await tree.SyncWalAsync();
     using (var snapshot = tree.BeginReadOnlyTransaction()) LaneModel.Check(snapshot, config, LaneModel.Create(config), Cut(), Cut());
     await maintainer.WaitForBackgroundThreadsAsync();
     wire.Send(new("final", Sequences: Cut()));

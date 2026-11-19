@@ -27,7 +27,7 @@ public sealed class ZoneTreeEngine : ITransactionEngine
     Durable = options.Durability == DurabilityMode.PerCommit;
     var factory = CreateFactory(options, walMode);
     Tree = factory.OpenOrCreateTransactional();
-    var effectiveWalMode = factory.Options.WriteAheadLogOptions.WriteAheadLogMode;
+    var effectiveWalMode = factory.Options.WriteAheadLogOptions.Mode;
 
     Maintainer = Tree.CreateMaintainer();
     Maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(1);
@@ -89,7 +89,7 @@ public sealed class ZoneTreeEngine : ITransactionEngine
   static void ConfigureJournal(WriteAheadLogOptions wal, WriteAheadLogMode walMode)
   {
     wal.CompressionMethod = CompressionMethod.None;
-    wal.WriteAheadLogMode = walMode;
+    wal.Mode = walMode;
     wal.CompressionBlockSize = 1024 * 256;
   }
 
@@ -109,7 +109,7 @@ public sealed class ZoneTreeEngine : ITransactionEngine
   {
     Maintainer.EvictToDisk();
     Maintainer.WaitForBackgroundThreadsAsync().GetAwaiter().GetResult();
-    Tree.Maintenance.SaveMetaData();
+    Tree.Maintenance.SaveMetadata();
   }
 
   public void Dispose()

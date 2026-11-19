@@ -1389,7 +1389,7 @@ public sealed class LiveBackupTests
           .Configure(options => options.AllowUnsafeOptionValues = true)
           .ConfigureDiskSegmentOptions(x =>
           {
-            x.DiskSegmentMode = single ? DiskSegmentMode.SingleDiskSegment : DiskSegmentMode.MultiPartDiskSegment;
+            x.Mode = single ? DiskSegmentMode.SingleDiskSegment : DiskSegmentMode.MultiPartDiskSegment;
             x.MinimumRecordCount = 10;
             x.MaximumRecordCount = 20;
           })
@@ -1457,7 +1457,7 @@ public sealed class LiveBackupTests
         Assert.That(hasKey, Is.True);
         Assert.That(j, Is.EqualTo(i * 2));
       }
-      zoneTree.Maintenance.SaveMetaData();
+      zoneTree.Maintenance.SaveMetadata();
       //restored2.Maintenance.Drop();
       zoneTree.Maintenance.Drop();
       DeleteDirectory(backupPath);
@@ -1484,7 +1484,7 @@ public sealed class LiveBackupTests
           .SetDiskSegmentMaxItemCount(50)
           .ConfigureDiskSegmentOptions(x =>
           {
-            x.DiskSegmentMode = single ? DiskSegmentMode.SingleDiskSegment : DiskSegmentMode.MultiPartDiskSegment;
+            x.Mode = single ? DiskSegmentMode.SingleDiskSegment : DiskSegmentMode.MultiPartDiskSegment;
             x.MinimumRecordCount = 10;
             x.MaximumRecordCount = 20;
           })
@@ -1552,7 +1552,7 @@ public sealed class LiveBackupTests
         Assert.That(hasKey, Is.True);
         Assert.That(j, Is.EqualTo(i * 2));
       }
-      zoneTree.Maintenance.SaveMetaData();
+      zoneTree.Maintenance.SaveMetadata();
       restored2.Maintenance.Drop();
       zoneTree.Maintenance.Drop();
       DeleteDirectory(backupPath);

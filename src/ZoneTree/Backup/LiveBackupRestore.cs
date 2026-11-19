@@ -41,7 +41,7 @@ public sealed class LiveBackupRestore<TKey, TValue>
           $"This is a {generation.TreeKind} backup; restore requires the matching plain or transactional API.");
     if (generation.DbVersion == null || Version.Parse(generation.DbVersion) < ZoneTreeInfo.MinimumDbVersion)
       throw new LiveBackupVersionIsNotCompatibleException(generation.GenerationId, generation.DbVersion);
-    if (ZoneTreeMetaWAL<TKey, TValue>.Exists(Options))
+    if (ZoneTreeMetaWal<TKey, TValue>.Exists(Options))
       throw new LiveBackupRestoreTargetAlreadyExistsException();
 
     await RestoreDiskSegmentFiles(generation);
@@ -59,7 +59,7 @@ public sealed class LiveBackupRestore<TKey, TValue>
         .Skip(1)
         .ToArray();
 
-    SaveMetaData(
+    SaveMetadata(
         lastOpIndex,
         mutableSegmentId,
         diskSegmentId,
@@ -116,7 +116,7 @@ public sealed class LiveBackupRestore<TKey, TValue>
       return ([], maximumSegmentId, opIndex);
     }
     var segmentId = ++maximumSegmentId;
-    var wal = Options.WriteAheadLogProvider.GetOrCreateWAL(
+    var wal = Options.WriteAheadLogProvider.GetOrCreateWal(
         segmentId,
         ZoneTree<TKey, TValue>.SegmentWalCategory,
         restoreWalOptions,
@@ -136,7 +136,7 @@ public sealed class LiveBackupRestore<TKey, TValue>
     finally
     {
       wal.Dispose();
-      Options.WriteAheadLogProvider.RemoveWAL(
+      Options.WriteAheadLogProvider.RemoveWal(
           segmentId,
           ZoneTree<TKey, TValue>.SegmentWalCategory);
     }
@@ -149,18 +149,18 @@ public sealed class LiveBackupRestore<TKey, TValue>
     Options.WriteAheadLogProvider.InitCategory(
         ZoneTree<TKey, TValue>.SegmentWalCategory);
 
-    using var mutableWal = Options.WriteAheadLogProvider.GetOrCreateWAL(
+    using var mutableWal = Options.WriteAheadLogProvider.GetOrCreateWal(
         mutableWalSegmentId,
         ZoneTree<TKey, TValue>.SegmentWalCategory,
         restoreWalOptions,
         Options.KeySerializer,
         Options.ValueSerializer);
-    Options.WriteAheadLogProvider.RemoveWAL(
+    Options.WriteAheadLogProvider.RemoveWal(
         mutableWalSegmentId,
         ZoneTree<TKey, TValue>.SegmentWalCategory);
   }
 
-  void SaveMetaData(long lastOpIndex,
+  void SaveMetadata(long lastOpIndex,
       long mutableSegmentId,
       long diskSegmentId,
       long[] readOnlySegments,
@@ -183,8 +183,8 @@ public sealed class LiveBackupRestore<TKey, TValue>
       DiskSegmentOptions = Options.DiskSegmentOptions,
       MaximumOpIndex = lastOpIndex,
     };
-    using var metaWal = new ZoneTreeMetaWAL<TKey, TValue>(Options, false);
-    metaWal.SaveMetaData(
+    using var metaWal = new ZoneTreeMetaWal<TKey, TValue>(Options, false);
+    metaWal.SaveMetadata(
         meta,
         mutableSegmentId,
         diskSegmentId,

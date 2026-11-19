@@ -75,10 +75,10 @@ public sealed class DiskSegmentReadCountTests
           .SetDataDirectory(dataPath)
           .SetWriteAheadLogDirectory(dataPath)
           .ConfigureWriteAheadLogOptions(options =>
-              options.WriteAheadLogMode = WriteAheadLogMode.None)
+              options.Mode = WriteAheadLogMode.None)
           .ConfigureDiskSegmentOptions(options =>
           {
-            options.DiskSegmentMode = DiskSegmentMode.SingleDiskSegment;
+            options.Mode = DiskSegmentMode.SingleDiskSegment;
             options.KeyCacheSize = 8;
             options.ValueCacheSize = 8;
           })

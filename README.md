@@ -175,7 +175,7 @@ foreach (var (key, value) in snapshot.Range(1, 2))
     Console.WriteLine($"{key} = {value}");
 ```
 
-Transactions are multi-version and optimistic: reads never block, and a commit fails only when another transaction committed or prepared a conflicting write after this one began; `Execute` retries it. `Serializable`, the default, also protects the keys and ranges a transaction read; `Snapshot` checks only the keys it wrote or read with `TryGetForUpdate`. `Commit()` makes a transaction visible at once. `ExecuteDurableAsync` and `tx.CommitDurableAsync()` sync the WAL before making their commits visible, so readers cannot observe those commits before they are durable. Alternatively, `zoneTree.SyncWALAsync()` makes earlier ordinary commits durable after they have become visible. These durability guarantees require WAL to be enabled.
+Transactions are multi-version and optimistic: reads never block, and a commit fails only when another transaction committed or prepared a conflicting write after this one began; `Execute` retries it. `Serializable`, the default, also protects the keys and ranges a transaction read; `Snapshot` checks only the keys it wrote or read with `TryGetForUpdate`. `Commit()` makes a transaction visible at once. `ExecuteDurableAsync` and `tx.CommitDurableAsync()` sync the WAL before making their commits visible, so readers cannot observe those commits before they are durable. Alternatively, `zoneTree.SyncWalAsync()` makes earlier ordinary commits durable after they have become visible. These durability guarantees require WAL to be enabled.
 
 With the built-in WAL provider, transactional factories promote `Private` to `Shared`, and `AsyncPrivate` to `AsyncShared`, so recovery preserves commit order across segments. Compression settings, explicit shared modes and `None` are retained. Custom providers and provider factories keep their configured modes and supply their own transaction recovery guarantees.
 
@@ -273,7 +273,7 @@ Ordinary trees default to `AsyncPrivate`; transactional trees default to `AsyncS
 | One ordered recovery prefix across memory segments, with queued writes | Async shared WAL (`WriteAheadLogMode.AsyncShared`) |
 | Intentional no-WAL boundary for cache/temp/rebuildable data | No WAL |
 
-Ordinary record appends do not request a disk sync per write. When an ordinary write must survive a power loss before you acknowledge it, await `zoneTree.SyncWALAsync()`. Durable transaction methods sync before publishing their commits to readers. Concurrent callers share disk syncs.
+Ordinary record appends do not request a disk sync per write. When an ordinary write must survive a power loss before you acknowledge it, await `zoneTree.SyncWalAsync()`. Durable transaction methods sync before publishing their commits to readers. Concurrent callers share disk syncs.
 
 Shared modes keep one ordered journal per tree, split into physical chunks. Recovery stops at the first incomplete record or block across all chunks. Transactions recover a prefix of commits, including every commit covered by a successful sync; incomplete transactions remain invisible. The existing private modes can recover unsynced writes independently across segments.
 
@@ -282,7 +282,7 @@ var zoneTree = new ZoneTreeFactory<int, string>()
     .SetDataDirectory("data")
     .ConfigureWriteAheadLogOptions(wal =>
     {
-        wal.WriteAheadLogMode = WriteAheadLogMode.AsyncShared;
+        wal.Mode = WriteAheadLogMode.AsyncShared;
         wal.SharedModeOptions.MaximumChunkSize = 64L * 1024 * 1024;
     })
     .OpenOrCreate();

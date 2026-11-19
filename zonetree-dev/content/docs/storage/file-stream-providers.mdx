@@ -75,7 +75,7 @@ ZoneTreeFactory<long, string> CreateFactory() =>
     new ZoneTreeFactory<long, string>(provider)
         .SetDataDirectory("transfer-job")
         .ConfigureWriteAheadLogOptions(options =>
-            options.WriteAheadLogMode = WriteAheadLogMode.None);
+            options.Mode = WriteAheadLogMode.None);
 
 using (var tree = CreateFactory().OpenOrCreate())
 using (var maintainer = tree.CreateMaintainer())

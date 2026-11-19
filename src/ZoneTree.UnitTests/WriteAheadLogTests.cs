@@ -77,7 +77,7 @@ public sealed class WriteAheadLogTests
     var provider = new InMemoryFileStreamProvider();
     var options = new WriteAheadLogOptions
     {
-      WriteAheadLogMode = mode,
+      Mode = mode,
       CompressionBlockSize = 128
     };
     options.EnableSyncJob = false;
@@ -86,14 +86,14 @@ public sealed class WriteAheadLogTests
     var values = new[] { "", "value", new string('x', 4096), "last" };
     var walProvider = new WriteAheadLogProvider(SilentTestLogger.Instance, provider);
     walProvider.InitCategory(category);
-    using (var wal = walProvider.GetOrCreateWAL(0, category, options, serializer, serializer))
+    using (var wal = walProvider.GetOrCreateWal(0, category, options, serializer, serializer))
     {
       for (var i = 0; i < keys.Length; ++i)
         wal.Append(keys[i], values[i], i + 1);
     }
 
     walProvider = new WriteAheadLogProvider(SilentTestLogger.Instance, provider);
-    using var reopened = walProvider.GetOrCreateWAL(0, category, options, serializer, serializer);
+    using var reopened = walProvider.GetOrCreateWal(0, category, options, serializer, serializer);
     var result = reopened.ReadLogEntries(true, true, false);
 
     Assert.That(result.Success, Is.True);
@@ -200,7 +200,7 @@ public sealed class WriteAheadLogTests
         filePath,
         blockSize,
         false,
-        0,
+        TimeSpan.Zero,
         CompressionMethod.None,
         0);
   }
@@ -225,7 +225,7 @@ public sealed class WriteAheadLogTests
         filePath,
         blockSize,
         false,
-        0,
+        TimeSpan.Zero,
         CompressionMethod.None,
         0);
 
@@ -283,7 +283,7 @@ public sealed class WriteAheadLogTests
         filePath,
         16,
         false,
-        0,
+        TimeSpan.Zero,
         CompressionMethod.None,
         0);
 
@@ -324,7 +324,7 @@ public sealed class WriteAheadLogTests
         filePath,
         16,
         false,
-        0,
+        TimeSpan.Zero,
         CompressionMethod.None,
         0);
 
@@ -425,7 +425,7 @@ public sealed class WriteAheadLogTests
         filePath,
         16,
         false,
-        0,
+        TimeSpan.Zero,
         compressionMethod,
         0);
   }
@@ -477,7 +477,7 @@ public sealed class WriteAheadLogTests
         filePath,
         blockSize,
         false,
-        0,
+        TimeSpan.Zero,
         CompressionMethod.None,
         0);
 

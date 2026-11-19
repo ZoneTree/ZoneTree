@@ -26,7 +26,7 @@ public interface IMutableSegment<TKey, TValue> : IReadOnlySegment<TKey, TValue>
   /// <summary>
   /// Syncs the write ahead log records of the completed writes to the disk.
   /// </summary>
-  Task SyncWALAsync();
+  Task SyncWalAsync();
 
   /// <summary>
   /// Visits the records with keys greater than or equal to the given

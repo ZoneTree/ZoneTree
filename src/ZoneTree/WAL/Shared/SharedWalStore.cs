@@ -114,7 +114,7 @@ internal sealed partial class SharedWalStore<TKey, TValue> : ISharedWalStore, ID
         ReadManifest();
       else
       {
-        Mode = options.WriteAheadLogMode;
+        Mode = options.Mode;
         StoreId = BinaryPrimitives.ReadInt64LittleEndian(Guid.NewGuid().ToByteArray());
         WriteManifest();
       }
@@ -225,7 +225,7 @@ internal sealed partial class SharedWalStore<TKey, TValue> : ISharedWalStore, ID
   string ChunkPath(long id) => Path.Combine(DirectoryPath, id.ToString("D20", CultureInfo.InvariantCulture) + ".wal");
 
   CompressedFileStream OpenChunk(string path) => new(Logger, Files, path,
-      Options.CompressionBlockSize, false, 0, Options.CompressionMethod, Options.CompressionLevel);
+      Options.CompressionBlockSize, false, TimeSpan.Zero, Options.CompressionMethod, Options.CompressionLevel);
 
   Chunk CreateChunk(long id, long sequence)
   {

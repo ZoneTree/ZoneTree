@@ -250,7 +250,7 @@ public sealed class LiveBackupIntegrityTests
           .SetDataDirectory(Path.Combine(Root, "source"))
           .Configure(o => o.AllowUnsafeOptionValues = true)
           .SetMutableSegmentMaxItemCount(10000)
-          .ConfigureDiskSegmentOptions(o => { o.DiskSegmentMode = mode; o.MinimumRecordCount = 2; o.MaximumRecordCount = 8; })
+          .ConfigureDiskSegmentOptions(o => { o.Mode = mode; o.MinimumRecordCount = 2; o.MaximumRecordCount = 8; })
           .OpenOrCreate();
       for (var i = 0; i < 20; ++i) Tree.Upsert(i, i + 100);
       if (disk)

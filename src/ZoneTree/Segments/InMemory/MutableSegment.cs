@@ -47,7 +47,7 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
     SegmentId = segmentId;
     Options = options;
     WriteAheadLog = options.WriteAheadLogProvider
-        .GetOrCreateWAL(
+        .GetOrCreateWal(
             SegmentId,
             ZoneTree<TKey, TValue>.SegmentWalCategory,
             options.WriteAheadLogOptions,
@@ -269,7 +269,7 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
     new Thread(FreezeWriteAheadLog).Start();
   }
 
-  public Task SyncWALAsync()
+  public Task SyncWalAsync()
   {
     // The write ahead log syncs the records it got before this call.
     // When freezing closes it, it completes the task after its final sync.
@@ -315,7 +315,7 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
 
   public void Drop()
   {
-    Options.WriteAheadLogProvider.RemoveWAL(SegmentId, ZoneTree<TKey, TValue>.SegmentWalCategory);
+    Options.WriteAheadLogProvider.RemoveWal(SegmentId, ZoneTree<TKey, TValue>.SegmentWalCategory);
     WriteAheadLog?.Drop();
   }
 
@@ -340,7 +340,7 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
   public void ReleaseResources()
   {
     WriteAheadLog?.MarkFrozen();
-    Options.WriteAheadLogProvider.RemoveWAL(SegmentId, ZoneTree<TKey, TValue>.SegmentWalCategory);
+    Options.WriteAheadLogProvider.RemoveWal(SegmentId, ZoneTree<TKey, TValue>.SegmentWalCategory);
     WriteAheadLog?.Dispose();
   }
 }

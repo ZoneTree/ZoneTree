@@ -26,7 +26,7 @@ public sealed class RangeDeletionMergeTests
   {
     var values = new TrackingValueSerializer();
     var options = CreateOptions(values);
-    options.DiskSegmentOptions.DiskSegmentMode = outputMode;
+    options.DiskSegmentOptions.Mode = outputMode;
     var ranges = new List<(int, int, int, int)>();
     if (rangeResult.HasValue)
       options.IsRangeDeleted = (in int firstKey, in int firstValue, in int lastKey, in int lastValue) =>

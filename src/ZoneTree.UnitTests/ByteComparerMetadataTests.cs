@@ -24,7 +24,7 @@ public sealed class ByteComparerMetadataTests
     ZoneTreeFactory<Memory<byte>, int> CreateFactory()
     {
       var factory = new ZoneTreeFactory<Memory<byte>, int>(provider)
-          .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.Private);
+          .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.Private);
       if (descending)
         factory.SetComparer(new ByteArrayLexicographicComparerDescending());
       return factory;
@@ -36,7 +36,7 @@ public sealed class ByteComparerMetadataTests
       tree.Upsert(longer, 2);
       tree.Maintenance.MoveMutableSegmentForward();
       tree.Maintenance.StartMergeOperation().Join();
-      tree.Maintenance.SaveMetaData();
+      tree.Maintenance.SaveMetadata();
     }
 
     var metadataPath = provider.CombinePaths("data", "0.json");

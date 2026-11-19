@@ -10,7 +10,7 @@ public sealed class ZoneTreeTest2 : ZoneTreeTestBase<string, string>
   const string FolderName = "-str-str";
 
   public override string DataPath =>
-      RootPath + WALMode + "-" + Count.ToHuman()
+      RootPath + WalMode + "-" + Count.ToHuman()
           + "_" + CompressionMethod + "_"
           + FolderName;
 
@@ -49,7 +49,7 @@ public sealed class ZoneTreeTest2 : ZoneTreeTestBase<string, string>
 
     stats.AddStage("Inserted In", ConsoleColor.Green);
 
-    if (WALMode == WriteAheadLogMode.None)
+    if (WalMode == WriteAheadLogMode.None)
     {
       zoneTree.Maintenance.MoveMutableSegmentForward();
       zoneTree.Maintenance.StartMergeOperation()?.Join();

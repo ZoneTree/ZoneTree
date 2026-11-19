@@ -13,8 +13,8 @@ public sealed class WriteAheadLogOptions
   /// The default write ahead log mode. New WALs will be created
   /// based on this setting. Default value is AsyncPrivate.
   /// </summary>
-  public WriteAheadLogMode WriteAheadLogMode { get; set; }
-      = WriteAheadLogDefaultValues.WriteAheadLogMode;
+  public WriteAheadLogMode Mode { get; set; }
+      = WriteAheadLogDefaultValues.Mode;
 
   /// <summary>
   /// The custom options are reserved to be used
@@ -52,17 +52,17 @@ public sealed class WriteAheadLogOptions
   public bool EnableSyncJob { get; set; } = WriteAheadLogDefaultValues.EnableSyncJob;
 
   /// <summary>
-  /// The delay in milliseconds before the next run of the sync job.
+  /// The delay before the next run of the sync job.
   /// Default value is 500 ms.
   /// </summary>
-  public int SyncJobInterval { get; set; } = WriteAheadLogDefaultValues.SyncJobInterval;
+  public TimeSpan SyncJobInterval { get; set; } = WriteAheadLogDefaultValues.SyncJobInterval;
 
   /// <summary>
-  /// In the AsyncPrivate and AsyncShared modes, the delay in milliseconds
-  /// before the background writer polls its queue again when the queue is empty.
+  /// In the AsyncPrivate and AsyncShared modes, the delay before the background
+  /// writer polls its queue again when the queue is empty.
   /// Default value is 100 ms.
   /// </summary>
-  public int EmptyQueuePollInterval { get; set; } = WriteAheadLogDefaultValues.EmptyQueuePollInterval;
+  public TimeSpan EmptyQueuePollInterval { get; set; } = WriteAheadLogDefaultValues.EmptyQueuePollInterval;
 
   /// <summary>
   /// Options for the shared journal modes. Compression settings above also

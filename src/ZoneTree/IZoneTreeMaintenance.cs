@@ -119,7 +119,7 @@ public interface IZoneTreeMaintenance<TKey, TValue>
   /// 
   /// It is up to user to decide when and how frequently save the meta file.
   /// </summary>
-  void SaveMetaData();
+  void SaveMetadata();
 
   /// <summary>
   /// Releases internal read buffers that have not been used since the specified tick count.
@@ -131,13 +131,13 @@ public interface IZoneTreeMaintenance<TKey, TValue>
   /// Releases expired circular cache key records.
   /// </summary>
   /// <returns>The total number of released cached records.</returns>
-  int ReleaseCircularKeyCacheRecords();
+  int ReleaseKeyCacheRecords();
 
   /// <summary>
   /// Releases expired circular cache value records.
   /// </summary>
   /// <returns>The total number of released cached records.</returns>
-  int ReleaseCircularValueCacheRecords();
+  int ReleaseValueCacheRecords();
 
   /// <summary>
   /// Destroys the tree, deletes entire data and WAL store or folder.
@@ -188,21 +188,21 @@ public interface IZoneTreeMaintenance<TKey, TValue>
   /// This does not harm the database consistency.
   /// The cleanup task can be done later.
   /// </summary>
-  event CanNotDropReadOnlySegment<TKey, TValue> OnCanNotDropReadOnlySegment;
+  event CannotDropReadOnlySegment<TKey, TValue> OnCannotDropReadOnlySegment;
 
   /// <summary>
   /// Event is fired when a disk segment cannot be dropped.
   /// This does not harm the database consistency.
   /// The cleanup task can be done later.
   /// </summary>
-  event CanNotDropDiskSegment<TKey, TValue> OnCanNotDropDiskSegment;
+  event CannotDropDiskSegment<TKey, TValue> OnCannotDropDiskSegment;
 
   /// <summary>
   /// Event is fired when a disk segment creator cannot be dropped.
   /// This does not harm the database consistency.
   /// The cleanup task can be done later.
   /// </summary>
-  event CanNotDropDiskSegmentCreator<TKey, TValue> OnCanNotDropDiskSegmentCreator;
+  event CannotDropDiskSegmentCreator<TKey, TValue> OnCannotDropDiskSegmentCreator;
 
   /// <summary>
   /// Event is fired when the ZoneTree is disposing.
@@ -296,7 +296,7 @@ public delegate void DiskSegmentActivated<TKey, TValue>
 /// <typeparam name="TValue">The value type</typeparam>
 /// <param name="readOnlySegment">The read-only segment</param>
 /// <param name="e">The exception</param>
-public delegate void CanNotDropReadOnlySegment<TKey, TValue>
+public delegate void CannotDropReadOnlySegment<TKey, TValue>
     (IReadOnlySegment<TKey, TValue> readOnlySegment, Exception e);
 
 /// <summary>
@@ -306,7 +306,7 @@ public delegate void CanNotDropReadOnlySegment<TKey, TValue>
 /// <typeparam name="TValue">The value type</typeparam>
 /// <param name="diskSegment">The disk segment</param>
 /// <param name="e">The exception</param>
-public delegate void CanNotDropDiskSegment<TKey, TValue>
+public delegate void CannotDropDiskSegment<TKey, TValue>
     (IDiskSegment<TKey, TValue> diskSegment, Exception e);
 
 /// <summary>
@@ -316,7 +316,7 @@ public delegate void CanNotDropDiskSegment<TKey, TValue>
 /// <typeparam name="TValue">The value type</typeparam>
 /// <param name="diskSegmentCreator">The disk segment creator</param>
 /// <param name="e">The exception</param>
-public delegate void CanNotDropDiskSegmentCreator<TKey, TValue>
+public delegate void CannotDropDiskSegmentCreator<TKey, TValue>
     (IDiskSegmentCreator<TKey, TValue> diskSegmentCreator, Exception e);
 
 /// <summary>

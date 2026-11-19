@@ -238,8 +238,8 @@ public sealed class LiveBackupDurabilityTests
     public ZoneTreeFactory<int, int> Factory(string path, IFileStreamProvider files = null, WriteAheadLogMode wal = WriteAheadLogMode.AsyncShared)
         => new ZoneTreeFactory<int, int>(files).SetDataDirectory(path).SetWriteAheadLogDirectory(path + "-wal")
         .DisableDeletion().Configure(o => o.AllowUnsafeOptionValues = true).SetMutableSegmentMaxItemCount(1000)
-        .ConfigureDiskSegmentOptions(o => { o.DiskSegmentMode = Disk; o.MinimumRecordCount = 2; o.MaximumRecordCount = 4; })
-        .ConfigureWriteAheadLogOptions(o => { o.WriteAheadLogMode = wal; o.CompressionBlockSize = 1024; });
+        .ConfigureDiskSegmentOptions(o => { o.Mode = Disk; o.MinimumRecordCount = 2; o.MaximumRecordCount = 4; })
+        .ConfigureWriteAheadLogOptions(o => { o.Mode = wal; o.CompressionBlockSize = 1024; });
     void Write(int key, int value)
     {
       if (Plain != null) Plain.Upsert(key, value);

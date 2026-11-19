@@ -46,7 +46,7 @@ public sealed class CompressedFileStreamTests
           FilePath,
           blockSize,
           false,
-          0,
+          TimeSpan.Zero,
           CompressionMethod.Zstd,
           CompressionLevels.Zstd1,
           Tail == Tail.MemoryMapped);
@@ -119,7 +119,7 @@ public sealed class CompressedFileStreamTests
   {
     var provider = new PowerLossFileStreamProvider();
     using var stream = new CompressedFileStream(
-        SilentTestLogger.Instance, provider, "empty", BlockSize, false, 0, CompressionMethod.Zstd, 0);
+        SilentTestLogger.Instance, provider, "empty", BlockSize, false, TimeSpan.Zero, CompressionMethod.Zstd, 0);
     stream.SyncToDisk();
     var afterPowerLoss = provider.SimulatePowerLoss();
     Assert.That(afterPowerLoss.ReadAllBytes("empty"), Is.EqualTo(new[] { (byte)((byte)CompressionMethod.Zstd | WalBlockFrame.MetadataFlag) }));
@@ -139,7 +139,7 @@ public sealed class CompressedFileStreamTests
       file.Write(new[] { metadata, (byte)7 }, 0, 2);
 
     var exception = Assert.Throws<NotSupportedException>(() => new CompressedFileStream(
-        SilentTestLogger.Instance, provider, "old", BlockSize, false, 0, CompressionMethod.Zstd, 0));
+        SilentTestLogger.Instance, provider, "old", BlockSize, false, TimeSpan.Zero, CompressionMethod.Zstd, 0));
     Assert.That(exception.Message, Does.Contain("EnableZstdMigration()"));
   }
 
@@ -365,12 +365,12 @@ public sealed class CompressedFileStreamTests
       stream.SyncToDisk();
     }
     using var recovered = new CompressedFileStream(
-        SilentTestLogger.Instance, provider.SimulatePowerLoss(), "resized", originalBlockSize, false, 0,
+        SilentTestLogger.Instance, provider.SimulatePowerLoss(), "resized", originalBlockSize, false, TimeSpan.Zero,
         CompressionMethod.Zstd, CompressionLevels.Zstd1);
     Assert.That(ReadAll(recovered), Is.EqualTo(first.Concat(second).ToArray()));
 
     CompressedFileStream Open(int blockSize) => new(
-        SilentTestLogger.Instance, provider, "resized", blockSize, false, 0,
+        SilentTestLogger.Instance, provider, "resized", blockSize, false, TimeSpan.Zero,
         CompressionMethod.Zstd, CompressionLevels.Zstd1);
   }
 
@@ -390,13 +390,13 @@ public sealed class CompressedFileStreamTests
     {
       stream.WriteByte(42);
       using var recovered = new CompressedFileStream(
-          SilentTestLogger.Instance, provider.SimulatePowerLoss(), "resized", BlockSize, false, 0,
+          SilentTestLogger.Instance, provider.SimulatePowerLoss(), "resized", BlockSize, false, TimeSpan.Zero,
           CompressionMethod.Zstd, CompressionLevels.Zstd1);
       Assert.That(ReadAll(recovered).Take(content.Length), Is.EqualTo(content));
     }
 
     CompressedFileStream Open(int blockSize) => new(
-        SilentTestLogger.Instance, provider, "resized", blockSize, false, 0,
+        SilentTestLogger.Instance, provider, "resized", blockSize, false, TimeSpan.Zero,
         CompressionMethod.Zstd, CompressionLevels.Zstd1);
   }
 
@@ -419,7 +419,7 @@ public sealed class CompressedFileStreamTests
     Assert.That(ReadAll(afterPowerLoss), Is.EqualTo(content));
 
     static CompressedFileStream Open(IFileStreamProvider files) => new(
-        SilentTestLogger.Instance, files, "recovered", BlockSize, false, 0,
+        SilentTestLogger.Instance, files, "recovered", BlockSize, false, TimeSpan.Zero,
         CompressionMethod.Zstd, CompressionLevels.Zstd1);
   }
 
@@ -473,7 +473,7 @@ public sealed class CompressedFileStreamTests
     provider.CreateDirectory("data");
     var content = Content(3 * BlockSize + 100);
     using var stream = new CompressedFileStream(
-        SilentTestLogger.Instance, provider, "data/crash", BlockSize, false, 0, CompressionMethod.Zstd, CompressionLevels.Zstd1);
+        SilentTestLogger.Instance, provider, "data/crash", BlockSize, false, TimeSpan.Zero, CompressionMethod.Zstd, CompressionLevels.Zstd1);
     for (var position = 0; position < content.Length;)
     {
       var writeLength = Math.Min(211, content.Length - position);
@@ -481,7 +481,7 @@ public sealed class CompressedFileStreamTests
       position += writeLength;
       var afterCrash = CopyAsProcessCrash(provider, "data/crash", "data/crash.tail");
       using var recovered = new CompressedFileStream(
-          SilentTestLogger.Instance, afterCrash, "data/crash", BlockSize, false, 0, CompressionMethod.Zstd, CompressionLevels.Zstd1);
+          SilentTestLogger.Instance, afterCrash, "data/crash", BlockSize, false, TimeSpan.Zero, CompressionMethod.Zstd, CompressionLevels.Zstd1);
       Assert.That(ReadAll(recovered), Is.EqualTo(content.AsSpan(0, position).ToArray()));
     }
   }
@@ -501,12 +501,12 @@ public sealed class CompressedFileStreamTests
     // Zeros without compression look like a sector that did not persist.
     var content = new byte[BlockSize];
     using var stream = new CompressedFileStream(
-        SilentTestLogger.Instance, provider, "data/rollover", BlockSize, false, 0, CompressionMethod.None, 0);
+        SilentTestLogger.Instance, provider, "data/rollover", BlockSize, false, TimeSpan.Zero, CompressionMethod.None, 0);
     stream.Write(content);
     provider.AfterWrite = null;
 
     using var recovered = new CompressedFileStream(
-        SilentTestLogger.Instance, afterCrash, "data/rollover", BlockSize, false, 0, CompressionMethod.None, 0);
+        SilentTestLogger.Instance, afterCrash, "data/rollover", BlockSize, false, TimeSpan.Zero, CompressionMethod.None, 0);
     Assert.That(ReadAll(recovered), Is.EqualTo(content));
   }
 
@@ -517,7 +517,7 @@ public sealed class CompressedFileStreamTests
     provider.CreateDirectory("data");
     var content = Content(3 * BlockSize + 100);
     using var stream = new CompressedFileStream(
-        SilentTestLogger.Instance, provider, "data/sync", BlockSize, false, 0, CompressionMethod.Zstd, CompressionLevels.Zstd1);
+        SilentTestLogger.Instance, provider, "data/sync", BlockSize, false, TimeSpan.Zero, CompressionMethod.Zstd, CompressionLevels.Zstd1);
     for (var position = 0; position < content.Length;)
     {
       var writeLength = Math.Min(777, content.Length - position);
@@ -526,7 +526,7 @@ public sealed class CompressedFileStreamTests
       stream.SyncToDisk();
       var afterPowerLoss = provider.SimulatePowerLoss();
       using var recovered = new CompressedFileStream(
-          SilentTestLogger.Instance, afterPowerLoss, "data/sync", BlockSize, false, 0, CompressionMethod.Zstd, CompressionLevels.Zstd1);
+          SilentTestLogger.Instance, afterPowerLoss, "data/sync", BlockSize, false, TimeSpan.Zero, CompressionMethod.Zstd, CompressionLevels.Zstd1);
       Assert.That(ReadAll(recovered), Is.EqualTo(content.AsSpan(0, position).ToArray()));
     }
   }
@@ -537,7 +537,7 @@ public sealed class CompressedFileStreamTests
     var provider = new PowerLossFileStreamProvider();
     provider.CreateDirectory("data");
     using var stream = new CompressedFileStream(
-        SilentTestLogger.Instance, provider, "data/sync", BlockSize, false, 0, CompressionMethod.Zstd, CompressionLevels.Zstd1);
+        SilentTestLogger.Instance, provider, "data/sync", BlockSize, false, TimeSpan.Zero, CompressionMethod.Zstd, CompressionLevels.Zstd1);
     stream.Write(Content(10));
     var syncCount = provider.DiskSyncCount;
     stream.SyncToDisk();
@@ -589,7 +589,7 @@ public sealed class CompressedFileStreamTests
     }
 
     CompressedFileStream Open(IFileStreamProvider files) => new(
-        SilentTestLogger.Instance, files, "single-sync", BlockSize, false, 0, compression, 0);
+        SilentTestLogger.Instance, files, "single-sync", BlockSize, false, TimeSpan.Zero, compression, 0);
   }
 
   [Test]
@@ -634,7 +634,7 @@ public sealed class CompressedFileStreamTests
     }
 
     CompressedFileStream Open(IFileStreamProvider files) => new(
-        SilentTestLogger.Instance, files, "recovered-tail", BlockSize, false, 0, compression, 0);
+        SilentTestLogger.Instance, files, "recovered-tail", BlockSize, false, TimeSpan.Zero, compression, 0);
   }
 
   [Test]
@@ -676,7 +676,7 @@ public sealed class CompressedFileStreamTests
     Assert.That(ReadAll(final), Is.EqualTo(original.Concat(appended).ToArray()));
 
     CompressedFileStream Open(IFileStreamProvider files) => new(
-        SilentTestLogger.Instance, files, "concurrent-rollover", BlockSize, false, 0, CompressionMethod.None, 0);
+        SilentTestLogger.Instance, files, "concurrent-rollover", BlockSize, false, TimeSpan.Zero, CompressionMethod.None, 0);
   }
 
   [TestCase(CompressionMethod.None, 0)]
@@ -703,7 +703,7 @@ public sealed class CompressedFileStreamTests
     Assert.That(ReadAll(afterRollover), Is.EqualTo(content), "tail reuse must not destroy the background-synced prefix");
 
     CompressedFileStream Open(IFileStreamProvider files) => new(
-        SilentTestLogger.Instance, files, "background", BlockSize, false, 0, compression, 0);
+        SilentTestLogger.Instance, files, "background", BlockSize, false, TimeSpan.Zero, compression, 0);
   }
 
   [TestCase(CompressionMethod.None, 0)]
@@ -726,7 +726,7 @@ public sealed class CompressedFileStreamTests
     Assert.That(ReadAll(recovered), Is.EqualTo(original.Take(keptLength).Concat(appended).ToArray()));
 
     CompressedFileStream Open() => new(
-        SilentTestLogger.Instance, provider, "truncated", BlockSize, false, 0, compression, 0);
+        SilentTestLogger.Instance, provider, "truncated", BlockSize, false, TimeSpan.Zero, compression, 0);
   }
 
   [Test]
@@ -736,7 +736,7 @@ public sealed class CompressedFileStreamTests
     provider.CreateDirectory("data");
     var content = Content(BlockSize + 100);
     using var stream = new CompressedFileStream(
-        SilentTestLogger.Instance, provider, "data/sync", BlockSize, false, 0, CompressionMethod.Zstd, CompressionLevels.Zstd1);
+        SilentTestLogger.Instance, provider, "data/sync", BlockSize, false, TimeSpan.Zero, CompressionMethod.Zstd, CompressionLevels.Zstd1);
     stream.Write(content);
     stream.SyncToDisk();
     // Reusing and even persisting the active tail must not destroy the synced
@@ -744,7 +744,7 @@ public sealed class CompressedFileStreamTests
     stream.Write(Content(3 * BlockSize + 100, 2));
     stream.SyncIfModified();
     using var recovered = new CompressedFileStream(
-        SilentTestLogger.Instance, provider.SimulatePowerLoss(), "data/sync", BlockSize, false, 0, CompressionMethod.Zstd, CompressionLevels.Zstd1);
+        SilentTestLogger.Instance, provider.SimulatePowerLoss(), "data/sync", BlockSize, false, TimeSpan.Zero, CompressionMethod.Zstd, CompressionLevels.Zstd1);
     Assert.That(ReadAll(recovered).Take(content.Length), Is.EqualTo(content));
   }
 
@@ -754,14 +754,14 @@ public sealed class CompressedFileStreamTests
   {
     var provider = new PowerLossFileStreamProvider();
     using var stream = new CompressedFileStream(
-        SilentTestLogger.Instance, provider, "rollover", BlockSize, false, 0, method, 0);
+        SilentTestLogger.Instance, provider, "rollover", BlockSize, false, TimeSpan.Zero, method, 0);
     var syncs = provider.DiskSyncCount;
     var content = Content(20 * BlockSize + 100);
     stream.Write(content);
     Assert.That(provider.DiskSyncCount, Is.EqualTo(syncs), "ordinary block commits must not fsync");
     stream.SyncToDisk();
     using var recovered = new CompressedFileStream(
-        SilentTestLogger.Instance, provider.SimulatePowerLoss(), "rollover", BlockSize, false, 0, method, 0);
+        SilentTestLogger.Instance, provider.SimulatePowerLoss(), "rollover", BlockSize, false, TimeSpan.Zero, method, 0);
     Assert.That(ReadAll(recovered), Is.EqualTo(content));
   }
 
@@ -796,7 +796,7 @@ public sealed class CompressedFileStreamTests
     var first = Content(1000);
     var second = Content(1000, 2);
     using (var stream = new CompressedFileStream(
-        SilentTestLogger.Instance, provider, "checkpoint", BlockSize, false, 0, CompressionMethod.None, 0))
+        SilentTestLogger.Instance, provider, "checkpoint", BlockSize, false, TimeSpan.Zero, CompressionMethod.None, 0))
     {
       stream.Write(first);
       stream.SyncToDisk();
@@ -811,7 +811,7 @@ public sealed class CompressedFileStreamTests
     using (var tailFile = provider.CreateFileStream("checkpoint.tail", FileMode.Open, FileAccess.Write, FileShare.None))
       tailFile.Write(bytes);
     using var recovered = new CompressedFileStream(
-        SilentTestLogger.Instance, provider, "checkpoint", BlockSize, false, 0, CompressionMethod.None, 0);
+        SilentTestLogger.Instance, provider, "checkpoint", BlockSize, false, TimeSpan.Zero, CompressionMethod.None, 0);
     Assert.That(ReadAll(recovered), Is.EqualTo(first.Concat(second).ToArray()));
   }
 
@@ -858,7 +858,7 @@ public sealed class CompressedFileStreamTests
     Assert.That(WalTailFormat.ReadVersion(repairedTail), Is.EqualTo(WalTailFormat.CurrentVersion));
 
     CompressedFileStream Open(int blockSize) => new(
-        SilentTestLogger.Instance, provider, "torn-format", blockSize, false, 0, method, 0);
+        SilentTestLogger.Instance, provider, "torn-format", blockSize, false, TimeSpan.Zero, method, 0);
   }
 
   // Only the size of the metadata byte, of the first sector, or of the whole file with
@@ -900,7 +900,7 @@ public sealed class CompressedFileStreamTests
     Assert.That(ReadAll(reopened), Is.EqualTo(content));
 
     CompressedFileStream Open() => new(
-        SilentTestLogger.Instance, provider, "unwritten", BlockSize, false, 0, CompressionMethod.Zstd, 0);
+        SilentTestLogger.Instance, provider, "unwritten", BlockSize, false, TimeSpan.Zero, CompressionMethod.Zstd, 0);
 
     void Put(string path, byte[] bytes)
     {
@@ -975,7 +975,7 @@ public sealed class CompressedFileStreamTests
     var provider = new PowerLossFileStreamProvider();
     provider.CreateDirectory("data");
     using var stream = new CompressedFileStream(
-        SilentTestLogger.Instance, provider, "data/sync", BlockSize, true, 1, CompressionMethod.Zstd, CompressionLevels.Zstd1);
+        SilentTestLogger.Instance, provider, "data/sync", BlockSize, true, TimeSpan.FromMilliseconds(1), CompressionMethod.Zstd, CompressionLevels.Zstd1);
     var syncCount = provider.DiskSyncCount;
     stream.Write(Content(10));
     Assert.That(
@@ -993,7 +993,7 @@ public sealed class CompressedFileStreamTests
     for (var i = 0; i < 20; ++i)
     {
       var stream = new CompressedFileStream(
-          SilentTestLogger.Instance, provider, $"syncJob{i}", BlockSize, true, 1, CompressionMethod.None, 0);
+          SilentTestLogger.Instance, provider, $"syncJob{i}", BlockSize, true, TimeSpan.FromMilliseconds(1), CompressionMethod.None, 0);
       syncJobs.Add(stream.SyncJobTask);
       stream.Dispose();
     }
@@ -1005,7 +1005,7 @@ public sealed class CompressedFileStreamTests
   {
     var provider = new InMemoryFileStreamProvider();
     var stream = new CompressedFileStream(
-        SilentTestLogger.Instance, provider, "waiting", BlockSize, true, 60_000, CompressionMethod.None, 0);
+        SilentTestLogger.Instance, provider, "waiting", BlockSize, true, TimeSpan.FromMinutes(1), CompressionMethod.None, 0);
     // Let the job finish its first run and wait for the next one.
     Thread.Sleep(100);
     stream.Dispose();
@@ -1019,7 +1019,7 @@ public sealed class CompressedFileStreamTests
     var provider = new PowerLossFileStreamProvider();
     provider.CreateDirectory("data");
     using var stream = new CompressedFileStream(
-        SilentTestLogger.Instance, provider, "data/sync", BlockSize, false, 0, CompressionMethod.Zstd, CompressionLevels.Zstd1);
+        SilentTestLogger.Instance, provider, "data/sync", BlockSize, false, TimeSpan.Zero, CompressionMethod.Zstd, CompressionLevels.Zstd1);
     stream.Write(Content(10));
     provider.FailDiskSync = _ => true;
     Action sync = backgroundFlush ? stream.SyncIfModified : stream.SyncToDisk;

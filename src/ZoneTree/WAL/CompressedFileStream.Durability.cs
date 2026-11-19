@@ -103,7 +103,7 @@ public sealed unsafe partial class CompressedFileStream
       {
         Logger.LogError(e);
       }
-      if (SyncJobInterval == 0)
+      if (SyncJobInterval == TimeSpan.Zero)
         Thread.Yield();
       else
         WakeSyncJob.Wait(SyncJobInterval);
@@ -149,7 +149,7 @@ public sealed unsafe partial class CompressedFileStream
           try
           {
             writeCheckpoint = IsModified || IsTailPrepared || _length != 0 ||
-                FileStream.Length != MetaDataSize || TailStream.Length != 0;
+                FileStream.Length != MetadataSize || TailStream.Length != 0;
             var readPosition = Position;
             // Move the acknowledged bytes into the immutable main prefix.
             // The tail may be reused as soon as that copy reaches the OS.

@@ -33,7 +33,7 @@ public sealed class AsyncPrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKe
 
   readonly int CompressionLevel;
 
-  readonly int EmptyQueuePollInterval;
+  readonly TimeSpan EmptyQueuePollInterval;
 
   readonly ConcurrentQueue<QueueItem> Queue = new();
 
@@ -152,7 +152,7 @@ public sealed class AsyncPrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKe
         FilePath,
         CompressionBlockSize,
         false,
-        0,
+        TimeSpan.Zero,
         CompressionMethod,
         CompressionLevel);
     BinaryWriter = new BinaryWriter(FileStream, Encoding.UTF8, true);
@@ -250,7 +250,7 @@ public sealed class AsyncPrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKe
         }
         if (!isRunning)
           break;
-        if (EmptyQueuePollInterval == 0)
+        if (EmptyQueuePollInterval == TimeSpan.Zero)
         {
           Thread.Yield();
         }

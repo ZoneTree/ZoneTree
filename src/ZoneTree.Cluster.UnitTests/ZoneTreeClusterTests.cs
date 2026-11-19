@@ -510,7 +510,7 @@ public sealed class ZoneTreeClusterTests
       using var cancelled = new CancellationTokenSource();
       cancelled.Cancel();
       Assert.ThrowsAsync<OperationCanceledException>(async () => await cluster.GetDomain(Domain).BeginTransactionAsync(cancellationToken: cancelled.Token));
-      await cluster.SyncWALAsync();
+      await cluster.SyncWalAsync();
     }
     finally { cluster.Dispose(); }
     Assert.Throws<ObjectDisposedException>(() => cluster.GetDomain(Domain).BeginReadOnlyTransaction());
@@ -588,11 +588,11 @@ public sealed class ZoneTreeClusterTests
     numbers.Upsert(1, 42);
     using (var maintainer = cluster.CreateMaintainer())
     {
-      maintainer.EnableJobForCleaningInactiveCaches = false;
+      maintainer.EnableInactiveCacheCleanup = false;
       maintainer.EvictToDisk();
       await maintainer.WaitForBackgroundThreadsAsync();
     }
-    cluster.Maintenance.SaveMetaData();
+    cluster.Maintenance.SaveMetadata();
     Assert.That(numbers.TryGet(1, out var value), Is.True);
     Assert.That(value, Is.EqualTo(42));
     cluster.Maintenance.Drop();

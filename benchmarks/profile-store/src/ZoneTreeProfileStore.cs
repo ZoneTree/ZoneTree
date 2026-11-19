@@ -171,7 +171,7 @@ public sealed class ZoneTreeProfileStore : IProfileStoreEngine, IProfileStoreEng
       ct.ThrowIfCancellationRequested();
       await maintainer.WaitForBackgroundThreadsAsync();
     }
-    SaveMetaData();
+    SaveMetadata();
   }
 
   public Task<long> CountProfilesAsync(CancellationToken ct)
@@ -222,7 +222,7 @@ public sealed class ZoneTreeProfileStore : IProfileStoreEngine, IProfileStoreEng
           options.KeyCacheSize = keyCacheSize;
           options.ValueCacheSize = valueCacheSize;
         })
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.AsyncPrivate)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.AsyncPrivate)
         .OpenOrCreate();
   }
 
@@ -246,7 +246,7 @@ public sealed class ZoneTreeProfileStore : IProfileStoreEngine, IProfileStoreEng
           options.KeyCacheSize = keyCacheSize;
           options.ValueCacheSize = valueCacheSize;
         })
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.AsyncPrivate)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.AsyncPrivate)
         .OpenOrCreate();
   }
 
@@ -310,13 +310,13 @@ public sealed class ZoneTreeProfileStore : IProfileStoreEngine, IProfileStoreEng
     return results;
   }
 
-  void SaveMetaData()
+  void SaveMetadata()
   {
-    Profiles!.Maintenance.SaveMetaData();
-    EmailIndex!.Maintenance.SaveMetaData();
-    CountryStatusIndex!.Maintenance.SaveMetaData();
-    CreatedAtIndex!.Maintenance.SaveMetaData();
-    ReputationIndex!.Maintenance.SaveMetaData();
+    Profiles!.Maintenance.SaveMetadata();
+    EmailIndex!.Maintenance.SaveMetadata();
+    CountryStatusIndex!.Maintenance.SaveMetadata();
+    CreatedAtIndex!.Maintenance.SaveMetadata();
+    ReputationIndex!.Maintenance.SaveMetadata();
   }
 
   IZoneTreeIterator<string, long> CreateIndexIterator(IZoneTree<string, long> index)

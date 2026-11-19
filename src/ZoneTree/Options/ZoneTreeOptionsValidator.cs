@@ -129,8 +129,8 @@ internal static class ZoneTreeOptionsValidator
           options.SharedModeOptions.MaximumChunkSize, "Must be positive");
 
     Exception exception = ValidateDefinedEnum(
-        Option(owner, nameof(options.WriteAheadLogMode)),
-        options.WriteAheadLogMode);
+        Option(owner, nameof(options.Mode)),
+        options.Mode);
     if (exception != null)
       return exception;
 
@@ -141,16 +141,39 @@ internal static class ZoneTreeOptionsValidator
     if (exception != null)
       return exception;
 
-    // The background loops wait for these delays, so a negative one stops them.
-    exception = ZoneTreeOptionValidationRules.WriteAheadLogEmptyQueuePollInterval.Validate(
+    exception = ValidateDelay(
         Option(owner, nameof(options.EmptyQueuePollInterval)),
         options.EmptyQueuePollInterval);
     if (exception != null)
       return exception;
 
-    return ZoneTreeOptionValidationRules.WriteAheadLogSyncJobInterval.Validate(
+    return ValidateDelay(
         Option(owner, nameof(options.SyncJobInterval)),
         options.SyncJobInterval);
+  }
+
+  /// <summary>
+  /// Validates a delay that a background loop waits for. A wait takes at most
+  /// int.MaxValue milliseconds, and a negative delay would stop the loop.
+  /// </summary>
+  static InvalidOptionValueException ValidateDelay(string option, TimeSpan value)
+  {
+    if (value < TimeSpan.Zero || value.TotalMilliseconds > int.MaxValue)
+      return new InvalidOptionValueException(
+          option,
+          value,
+          $"Value must be from zero to {TimeSpan.FromMilliseconds(int.MaxValue)}");
+    return null;
+  }
+
+  static InvalidOptionValueException ValidateNotNegative(string option, TimeSpan value)
+  {
+    if (value < TimeSpan.Zero)
+      return new InvalidOptionValueException(
+          option,
+          value,
+          "Value must be greater than or equal to zero");
+    return null;
   }
 
   static Exception ValidateDiskSegmentOptions(DiskSegmentOptions options)
@@ -158,8 +181,8 @@ internal static class ZoneTreeOptionsValidator
     const string owner = nameof(ZoneTreeOptions<object, object>.DiskSegmentOptions);
 
     Exception exception = ValidateDefinedEnum(
-        Option(owner, nameof(options.DiskSegmentMode)),
-        options.DiskSegmentMode);
+        Option(owner, nameof(options.Mode)),
+        options.Mode);
     if (exception != null)
       return exception;
 
@@ -276,15 +299,15 @@ internal static class ZoneTreeOptionsValidator
     if (exception != null)
       return exception;
 
-    exception = ZoneTreeOptionValidationRules.DiskSegmentKeyCacheRecordLifeTimeInMillisecond.Validate(
-        Option(owner, nameof(options.KeyCacheRecordLifeTimeInMillisecond)),
-        options.KeyCacheRecordLifeTimeInMillisecond);
+    exception = ValidateNotNegative(
+        Option(owner, nameof(options.KeyCacheRecordLifeTime)),
+        options.KeyCacheRecordLifeTime);
     if (exception != null)
       return exception;
 
-    exception = ZoneTreeOptionValidationRules.DiskSegmentValueCacheRecordLifeTimeInMillisecond.Validate(
-        Option(owner, nameof(options.ValueCacheRecordLifeTimeInMillisecond)),
-        options.ValueCacheRecordLifeTimeInMillisecond);
+    exception = ValidateNotNegative(
+        Option(owner, nameof(options.ValueCacheRecordLifeTime)),
+        options.ValueCacheRecordLifeTime);
     if (exception != null)
       return exception;
 

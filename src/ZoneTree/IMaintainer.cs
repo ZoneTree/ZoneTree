@@ -14,7 +14,7 @@ public interface IMaintainer : IDisposable
   /// The threshold of record count in read-only segments that triggers the start of a merge operation.
   /// The default value is 0.
   /// </summary>
-  int ThresholdForMergeOperationStart { get; set; }
+  int MergeThreshold { get; set; }
 
   /// <summary>
   /// The maximum number of read-only segments allowed before triggering a merge operation.
@@ -28,7 +28,7 @@ public interface IMaintainer : IDisposable
   /// Toggling this property starts or stops the associated periodic timer.
   /// Maintainers created with <c>zoneTree.CreateMaintainer()</c> start this job by default.
   /// </summary>
-  bool EnableJobForCleaningInactiveCaches { get; set; }
+  bool EnableInactiveCacheCleanup { get; set; }
 
   /// <summary>
   /// Gets or sets the lifespan of the disk segment block cache.

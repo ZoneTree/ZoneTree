@@ -89,7 +89,7 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
 
   internal Task SyncJobTask { get; }
 
-  readonly int SyncJobInterval;
+  readonly TimeSpan SyncJobInterval;
 
   volatile bool IsClosed;
 
@@ -144,7 +144,7 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
 
   public override long Position { get; set; }
 
-  const int MetaDataSize = sizeof(byte);
+  const int MetadataSize = sizeof(byte);
 
   const int SectorSize = 512;
 
@@ -158,7 +158,7 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
   /// Syncs the complete stream periodically when it has unsynced changes.
   /// Completed syncs protect its prefix across later block rollovers.
   /// </param>
-  /// <param name="syncJobInterval">The delay of the job in milliseconds.</param>
+  /// <param name="syncJobInterval">The delay between the runs of the job.</param>
   /// <param name="compressionMethod">The compression method of a new file.</param>
   /// <param name="compressionLevel">The compression level.</param>
   /// <param name="useMemoryMappedTail">
@@ -171,7 +171,7 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
       string filePath,
       int blockSize,
       bool enableSyncJob,
-      int syncJobInterval,
+      TimeSpan syncJobInterval,
       CompressionMethod compressionMethod,
       int compressionLevel,
       bool useMemoryMappedTail = true)
@@ -201,7 +201,7 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
     {
       if (FileStream.Length > 0 && !IsFirstSectorUnwritten())
       {
-        CompressionMethod = ReadMetaData();
+        CompressionMethod = ReadMetadata();
         MainFileMayBeUnsynced = true;
       }
       else
@@ -209,7 +209,7 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
         // Recovery drops what follows an unwritten first sector, or reports
         // it as corruption when a checkpoint tells that it was synced.
         CompressionMethod = compressionMethod;
-        WriteMetaData();
+        WriteMetadata();
       }
       var hasCheckpoint = LoadSyncCheckpoint();
       RecoverMainFileAndTail();
@@ -246,7 +246,7 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
     return true;
   }
 
-  CompressionMethod ReadMetaData()
+  CompressionMethod ReadMetadata()
   {
     FileStream.Position = 0;
     var metadata = BinaryReader.ReadByte();
@@ -264,7 +264,7 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
     return method;
   }
 
-  void WriteMetaData()
+  void WriteMetadata()
   {
     FileStream.Position = 0;
     BinaryWriter.Write((byte)((byte)CompressionMethod | WalBlockFrame.MetadataFlag));

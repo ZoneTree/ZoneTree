@@ -22,7 +22,7 @@ public sealed class Test1
         .SetWriteAheadLogDirectory(dataPath)
         .ConfigureWriteAheadLogOptions(x =>
         {
-          x.WriteAheadLogMode = WriteAheadLogMode.Private;
+          x.Mode = WriteAheadLogMode.Private;
         })
         .OpenOrCreateTransactional();
     using var basicMaintainer = zoneTree.CreateMaintainer();
@@ -41,7 +41,7 @@ public sealed class Test1
     });
     Console.WriteLine("Elapsed: " + stopWatch.ElapsedMilliseconds);
     basicMaintainer.WaitForBackgroundThreads();
-    zoneTree.Maintenance.SaveMetaData();
+    zoneTree.Maintenance.SaveMetadata();
   }
 
   public static void TestReverseIterator(
@@ -61,11 +61,11 @@ public sealed class Test1
         .ConfigureWriteAheadLogOptions(x =>
         {
           x.CompressionBlockSize = 1024 * 1024 * 20;
-          x.WriteAheadLogMode = WriteAheadLogMode.AsyncPrivate;
+          x.Mode = WriteAheadLogMode.AsyncPrivate;
         })
         .ConfigureDiskSegmentOptions(x =>
         {
-          x.DiskSegmentMode = DiskSegmentMode.MultiPartDiskSegment;
+          x.Mode = DiskSegmentMode.MultiPartDiskSegment;
           x.CompressionBlockSize = 1024 * 1024 * 20;
           x.MinimumRecordCount = 10_000;
           x.MaximumRecordCount = 100_000;
@@ -75,7 +75,7 @@ public sealed class Test1
     using (var zoneTree1 = GetZoneTree())
     {
       using var maintainer = zoneTree1.CreateMaintainer();
-      maintainer.ThresholdForMergeOperationStart = 300000;
+      maintainer.MergeThreshold = 300000;
       for (int i = 0; i < 1_000_000; i++)
       {
         zoneTree1.Upsert(i, string.Join('+',
@@ -173,11 +173,11 @@ public sealed class Test1
         .ConfigureWriteAheadLogOptions(x =>
         {
           x.CompressionBlockSize = 1024 * 1024 * 20;
-          x.WriteAheadLogMode = WriteAheadLogMode.None;
+          x.Mode = WriteAheadLogMode.None;
         })
         .ConfigureDiskSegmentOptions(x =>
         {
-          x.DiskSegmentMode = DiskSegmentMode.SingleDiskSegment;
+          x.Mode = DiskSegmentMode.SingleDiskSegment;
         })
         .OpenOrCreate();
 

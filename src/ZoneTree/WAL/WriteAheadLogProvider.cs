@@ -16,7 +16,7 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
 
   readonly IFileStreamProvider FileStreamProvider;
 
-  readonly ConcurrentDictionary<string, object> WALTable = new();
+  readonly ConcurrentDictionary<string, object> WalTable = new();
 
   public string WalDirectory { get; }
 
@@ -31,21 +31,21 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
     FileStreamProvider.CreateDirectory(walDirectory);
   }
 
-  public IWriteAheadLog<TKey, TValue> GetOrCreateWAL<TKey, TValue>(
+  public IWriteAheadLog<TKey, TValue> GetOrCreateWal<TKey, TValue>(
       long segmentId,
       string category,
       WriteAheadLogOptions options,
       ISerializer<TKey> keySerializer,
       ISerializer<TValue> valueSerializer)
   {
-    if (WALTable.TryGetValue(segmentId + category, out var value))
+    if (WalTable.TryGetValue(segmentId + category, out var value))
     {
       return (IWriteAheadLog<TKey, TValue>)value;
     }
 
-    if (options.WriteAheadLogMode is WriteAheadLogMode.Shared or WriteAheadLogMode.AsyncShared ||
+    if (options.Mode is WriteAheadLogMode.Shared or WriteAheadLogMode.AsyncShared ||
         FileStreamProvider.FileExists(Path.Combine(WalDirectory, category, SharedWalStore<TKey, TValue>.DirectoryName, SharedWalStore<TKey, TValue>.ManifestName)))
-      return GetSharedWAL(segmentId, category, options, keySerializer, valueSerializer);
+      return GetSharedWal(segmentId, category, options, keySerializer, valueSerializer);
 
     (var walPath, var walMode) =
         DetectWalPathAndWriteAheadLogMode(segmentId, category, options);
@@ -65,7 +65,7 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
                 valueSerializer,
                 walPath,
                 options);
-            WALTable.TryAdd(segmentId + category, wal);
+            WalTable.TryAdd(segmentId + category, wal);
             return wal;
           }
 
@@ -78,7 +78,7 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
                 valueSerializer,
                 walPath,
                 options);
-            WALTable.TryAdd(segmentId + category, wal);
+            WalTable.TryAdd(segmentId + category, wal);
             return wal;
           }
       }
@@ -101,21 +101,21 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
       if (FileStreamProvider.FileExists(path))
         return (path, mode);
     }
-    return (walPath + Xxh3WalExtension + "." + (int)options.WriteAheadLogMode, options.WriteAheadLogMode);
+    return (walPath + Xxh3WalExtension + "." + (int)options.Mode, options.Mode);
   }
 
-  public IWriteAheadLog<TKey, TValue> GetWAL<TKey, TValue>(long segmentId, string category)
+  public IWriteAheadLog<TKey, TValue> GetWal<TKey, TValue>(long segmentId, string category)
   {
-    if (WALTable.TryGetValue(segmentId + category, out var value))
+    if (WalTable.TryGetValue(segmentId + category, out var value))
     {
       return (IWriteAheadLog<TKey, TValue>)value;
     }
     return null;
   }
 
-  public bool RemoveWAL(long segmentId, string category)
+  public bool RemoveWal(long segmentId, string category)
   {
-    return WALTable.Remove(segmentId + category, out _);
+    return WalTable.Remove(segmentId + category, out _);
   }
 
   public void DropStore()

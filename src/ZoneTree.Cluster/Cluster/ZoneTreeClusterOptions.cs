@@ -61,7 +61,7 @@ public sealed class ZoneTreeClusterOptions
   /// still queued in memory, and with them the commits that wrote them. Transactions stay atomic.
   /// </remarks>
   public WriteAheadLogOptions CoordinatedWriteAheadLog { get; init; }
-      = new() { WriteAheadLogMode = WriteAheadLogMode.Shared };
+      = new() { Mode = WriteAheadLogMode.Shared };
 
   /// <summary>The logger shared by the cluster and its columns.</summary>
   public ILogger Logger { get; init; } = new ConsoleLogger();

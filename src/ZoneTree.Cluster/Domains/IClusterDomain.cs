@@ -48,5 +48,5 @@ public interface IClusterDomain : IClusterTransactionSource<IDomainTransaction>
   /// <summary>
   /// Makes the domain's transactions committed before this call durable across power loss or an OS crash.
   /// </summary>
-  Task SyncWALAsync(CancellationToken cancellationToken = default);
+  Task SyncWalAsync(CancellationToken cancellationToken = default);
 }

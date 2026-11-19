@@ -182,7 +182,7 @@ All three engines can make every commit durable before it returns. The `durabili
 | --- | --- |
 | ZoneTree transactional | `TryCommitDurableAsync`: append the commit record, sync the shared WAL, then publish to readers. Concurrent commits share disk syncs. |
 | ZoneTreeCluster (one column) | `IClusterTransaction.TryCommitDurableAsync` waits for the benchmark column's durable commit. This does not test cross-column durability. |
-| ZoneTree raw | `SyncWALAsync` at each scenario boundary; raw writes do not provide multi-key transaction atomicity. |
+| ZoneTree raw | `SyncWalAsync` at each scenario boundary; raw writes do not provide multi-key transaction atomicity. |
 | RocksDB | `sync=true`, with RocksDB's group commit. |
 | SQLite | `synchronous=FULL`. |
 
@@ -195,7 +195,7 @@ The other categories use each engine's usual setting, where a commit does not wa
 | RocksDB | `sync=false` | Nothing. | What the OS has not written back since the last memtable flush. The WAL is not synced per commit or on a timer, and a flush makes its data durable, so at most the commits in the memtables: up to `max_write_buffer_number` buffers of `write_buffer_size`. |
 | SQLite | `synchronous=NORMAL` | Nothing. | What the OS has not written back since the last checkpoint. A checkpoint syncs, and runs about every `wal_autocheckpoint` WAL pages, so at most about that much WAL, or more while readers hold a checkpoint back. |
 
-`Shared` and `Private` hand completed appends to the OS. `AsyncShared` and `AsyncPrivate` can lose queued writes on a process crash as well as on a power loss. ZoneTree's automatic syncs protect the complete dirty WAL, but their scheduling does not provide a hard persistence deadline. Durable commit APIs sync before visibility; an explicit `SyncWALAsync` makes preceding ordinary commits or raw writes durable after they have become visible.
+`Shared` and `Private` hand completed appends to the OS. `AsyncShared` and `AsyncPrivate` can lose queued writes on a process crash as well as on a power loss. ZoneTree's automatic syncs protect the complete dirty WAL, but their scheduling does not provide a hard persistence deadline. Durable commit APIs sync before visibility; an explicit `SyncWalAsync` makes preceding ordinary commits or raw writes durable after they have become visible.
 
 Built-in transactional factories promote `Private` to `Shared` and `AsyncPrivate` to `AsyncShared`, preserving the benchmark's explicit choice to disable compression. Shared recovery retains a prefix of commits across all memory segments, including every commit covered by a successful sync, and hides incomplete transactions. The transactional `durability` scenarios use that sync before publication, so readers cannot observe a commit that is still waiting for durability. Ordinary commits can become visible earlier and be lost as a suffix. Raw private WALs retain their independent recovery boundaries and do not provide this transaction-prefix guarantee.
 

@@ -19,7 +19,7 @@ public sealed class WalReleaseRegressionTests
         .SetLogger(SilentTestLogger.Instance)
         .ConfigureWriteAheadLogOptions(options =>
         {
-          options.WriteAheadLogMode = mode;
+          options.Mode = mode;
           options.EnableSyncJob = false;
         });
     using var tree = Factory(provider).CreateTransactional();
@@ -37,7 +37,7 @@ public sealed class WalReleaseRegressionTests
       if (!releaseSync.Wait(TimeSpan.FromSeconds(30)))
         throw new TimeoutException("Shared WAL sync was not released.");
     };
-    var firstSync = Task.Run(() => tree.SyncWALAsync());
+    var firstSync = Task.Run(() => tree.SyncWalAsync());
     Task move = null;
     Task sync = null;
     try
@@ -48,7 +48,7 @@ public sealed class WalReleaseRegressionTests
       await move.WaitAsync(TimeSpan.FromSeconds(5));
       transaction.Upsert(2, 20);
       transaction.Commit();
-      sync = Task.Run(() => tree.SyncWALAsync());
+      sync = Task.Run(() => tree.SyncWalAsync());
       await Task.WhenAny(sync, Task.Delay(100));
       Assert.That(sync.IsCompleted, Is.False, "explicit sync must wait for the shared journal");
     }

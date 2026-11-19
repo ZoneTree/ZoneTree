@@ -299,8 +299,8 @@ public sealed class TransactionalLiveBackupTests
         .SetDataDirectory(DataPath(name))
         .Configure(o => o.AllowUnsafeOptionValues = true)
         .SetMutableSegmentMaxItemCount(17)
-        .ConfigureDiskSegmentOptions(o => { o.DiskSegmentMode = disk; o.MinimumRecordCount = 4; o.MaximumRecordCount = 8; })
-        .ConfigureWriteAheadLogOptions(o => { o.WriteAheadLogMode = wal; o.CompressionBlockSize = 1024; o.SharedModeOptions.MaximumChunkSize = 4096; });
+        .ConfigureDiskSegmentOptions(o => { o.Mode = disk; o.MinimumRecordCount = 4; o.MaximumRecordCount = 8; })
+        .ConfigureWriteAheadLogOptions(o => { o.Mode = wal; o.CompressionBlockSize = 1024; o.SharedModeOptions.MaximumChunkSize = 4096; });
     public void Dispose() { if (Directory.Exists(Root)) Directory.Delete(Root, true); }
   }
 }

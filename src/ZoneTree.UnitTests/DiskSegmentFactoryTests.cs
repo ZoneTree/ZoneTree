@@ -98,10 +98,10 @@ public sealed class DiskSegmentFactoryTests
         .SetDataDirectory(dataPath)
         .SetWriteAheadLogDirectory(dataPath)
         .ConfigureWriteAheadLogOptions(options =>
-            options.WriteAheadLogMode = WriteAheadLogMode.None)
+            options.Mode = WriteAheadLogMode.None)
         .ConfigureDiskSegmentOptions(options =>
         {
-          options.DiskSegmentMode = diskSegmentMode;
+          options.Mode = diskSegmentMode;
           configureDiskSegmentOptions?.Invoke(options);
         })
         .OpenOrCreate())

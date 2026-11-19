@@ -23,12 +23,6 @@ internal static class ZoneTreeOptionValidationRules
   public static readonly Rule DiskSegmentCompressionBlockSize =
       Rule.MinMB(1).MaxMB(64);
 
-  public static readonly Rule WriteAheadLogEmptyQueuePollInterval =
-      Rule.MinSeconds(0);
-
-  public static readonly Rule WriteAheadLogSyncJobInterval =
-      Rule.MinSeconds(0);
-
   public static readonly Rule DiskSegmentMinimumRecordCount =
       Rule.Min(1000);
 
@@ -46,12 +40,6 @@ internal static class ZoneTreeOptionValidationRules
 
   public static readonly Rule DiskSegmentSearchHintPrefetchSize =
       Rule.Min(0);
-
-  public static readonly Rule DiskSegmentKeyCacheRecordLifeTimeInMillisecond =
-      Rule.MinSeconds(0);
-
-  public static readonly Rule DiskSegmentValueCacheRecordLifeTimeInMillisecond =
-      Rule.MinSeconds(0);
 
   public static readonly Rule DiskSegmentDefaultSparseArrayStepSize =
       Rule.Min(0);

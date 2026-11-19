@@ -20,7 +20,7 @@ public sealed class RecoverFile
     var fileStreamProvider = new LocalFileStreamProvider();
     var logger = new ConsoleLogger();
     var deviceManager = new RandomAccessDeviceManager(logger, fileStreamProvider, path);
-    ZoneTreeMetaWAL<string, string>.LoadZoneTreeMetaWithoutWALRecords(deviceManager);
+    ZoneTreeMetaWal<string, string>.LoadZoneTreeMetaWithoutWalRecords(deviceManager);
     var options = new ZoneTreeOptions<string, string>
     {
       Logger = logger,
@@ -34,7 +34,7 @@ public sealed class RecoverFile
       ValueSerializer = new Utf8StringSerializer(),
       Comparer = new StringOrdinalComparerAscending()
     };
-    options.WriteAheadLogOptions.WriteAheadLogMode
+    options.WriteAheadLogOptions.Mode
         = WriteAheadLogMode.AsyncPrivate;
 
     var stopWatch = new Stopwatch();
@@ -50,7 +50,7 @@ public sealed class RecoverFile
     var logger = new ConsoleLogger();
     var fileStreamProvider = new LocalFileStreamProvider();
     var deviceManager = new RandomAccessDeviceManager(logger, fileStreamProvider, path);
-    var meta = ZoneTreeMetaWAL<int, int>.LoadZoneTreeMetaWithoutWALRecords(deviceManager);
+    var meta = ZoneTreeMetaWal<int, int>.LoadZoneTreeMetaWithoutWalRecords(deviceManager);
     var options = new ZoneTreeOptions<int, int>
     {
       Logger = logger,

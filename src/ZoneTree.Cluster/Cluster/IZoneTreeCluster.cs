@@ -36,5 +36,5 @@ public interface IZoneTreeCluster : IDisposable, IAsyncDisposable
   /// <summary>
   /// Makes completed raw writes and transactions committed before this call durable across power loss or an OS crash.
   /// </summary>
-  Task SyncWALAsync(CancellationToken cancellationToken = default);
+  Task SyncWalAsync(CancellationToken cancellationToken = default);
 }

@@ -158,7 +158,7 @@ public sealed unsafe partial class CompressedFileStream
     {
       case SeekOrigin.Begin:
         Position = 0;
-        FileStream.Position = MetaDataSize;
+        FileStream.Position = MetadataSize;
         CurrentBlockPosition = 0;
         Position = 0;
         LoadNextBlock();
@@ -271,7 +271,7 @@ public sealed unsafe partial class CompressedFileStream
         WalBlockFrame.Write(header, tailBlock.BlockIndex, tailBlock.Length, compressedBytes.Span);
         bw.Write(header);
         bw.Write(compressedBytes.Span);
-        FileStream.Flush(false); // Use SyncWALAsync for power-loss durability.
+        FileStream.Flush(false); // Use SyncWalAsync for power-loss durability.
       }
       catch (Exception e)
       {

@@ -215,7 +215,7 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
       maintainer.EvictToDisk();
     foreach (var maintainer in Maintainers)
       await maintainer.WaitForBackgroundThreadsAsync();
-    SaveMetaData();
+    SaveMetadata();
     sw.Stop();
     Console.WriteLine($"{sw.Elapsed.TotalMilliseconds:N0} ms");
     PrintLayout("profiles", Profiles!);
@@ -597,7 +597,7 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
           if (config.MaterializedEntryCacheSize >= 0)
             options.MaterializedEntryCacheSize = config.MaterializedEntryCacheSize;
         })
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.AsyncPrivate)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.AsyncPrivate)
         .OpenOrCreate();
   }
 
@@ -619,7 +619,7 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
           if (config.MaterializedEntryCacheSize >= 0)
             options.MaterializedEntryCacheSize = config.MaterializedEntryCacheSize;
         })
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.AsyncPrivate)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.AsyncPrivate)
         .OpenOrCreate();
   }
 
@@ -631,12 +631,12 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
     Maintainers.Add(maintainer);
   }
 
-  void SaveMetaData()
+  void SaveMetadata()
   {
-    Profiles!.Maintenance.SaveMetaData();
-    CountryStatusIndex!.Maintenance.SaveMetaData();
-    CreatedAtIndex!.Maintenance.SaveMetaData();
-    ReputationIndex!.Maintenance.SaveMetaData();
+    Profiles!.Maintenance.SaveMetadata();
+    CountryStatusIndex!.Maintenance.SaveMetadata();
+    CreatedAtIndex!.Maintenance.SaveMetadata();
+    ReputationIndex!.Maintenance.SaveMetadata();
   }
 
   public async ValueTask DisposeAsync()

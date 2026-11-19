@@ -9,12 +9,12 @@ public sealed partial class WriteAheadLogProvider
   readonly Lock SharedStoresLock = new();
   readonly Dictionary<string, ISharedWalStore> SharedStores = new();
 
-  IWriteAheadLog<TKey, TValue> GetSharedWAL<TKey, TValue>(long id, string category,
+  IWriteAheadLog<TKey, TValue> GetSharedWal<TKey, TValue>(long id, string category,
       WriteAheadLogOptions options, ISerializer<TKey> keys, ISerializer<TValue> values)
   {
     lock (SharedStoresLock)
     {
-      if (WALTable.TryGetValue(id + category, out var existing))
+      if (WalTable.TryGetValue(id + category, out var existing))
         return (IWriteAheadLog<TKey, TValue>)existing;
       if (SharedStores.TryGetValue(category, out var previous) && previous.IsClosing)
       {
@@ -64,7 +64,7 @@ public sealed partial class WriteAheadLogProvider
           store.Sync();
           privateWal.Drop();
         }
-        WALTable.TryAdd(id + category, handle);
+        WalTable.TryAdd(id + category, handle);
         var result = handle;
         handle = null; // The provider and owning segment now own the handle.
         return result;

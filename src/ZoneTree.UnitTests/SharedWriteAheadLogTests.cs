@@ -11,18 +11,18 @@ public sealed class SharedWriteAheadLogTests
 {
   static WriteAheadLogOptions Options(WriteAheadLogMode mode, CompressionMethod method = CompressionMethod.None) => new()
   {
-    WriteAheadLogMode = mode,
+    Mode = mode,
     CompressionBlockSize = 256,
     CompressionMethod = method,
     SharedModeOptions = new() { MaximumChunkSize = 1024 },
     EnableSyncJob = false,
-    EmptyQueuePollInterval = 10000
+    EmptyQueuePollInterval = TimeSpan.FromSeconds(10)
   };
 
   static WriteAheadLogProvider Provider(IFileStreamProvider files) => new(SilentTestLogger.Instance, files, "data");
 
   static IWriteAheadLog<int, int> Open(WriteAheadLogProvider provider, long id, WriteAheadLogOptions options)
-      => provider.GetOrCreateWAL(id, "seg", options, new Int32Serializer(), new Int32Serializer());
+      => provider.GetOrCreateWal(id, "seg", options, new Int32Serializer(), new Int32Serializer());
 
   static ZoneTreeFactory<int, int> Factory(IFileStreamProvider files, WriteAheadLogMode mode)
       => new ZoneTreeFactory<int, int>(files).SetDataDirectory("data").SetLogger(SilentTestLogger.Instance)
@@ -30,7 +30,7 @@ public sealed class SharedWriteAheadLogTests
           .SetMutableSegmentMaxItemCount(32)
           .ConfigureWriteAheadLogOptions(wal =>
           {
-            wal.WriteAheadLogMode = mode;
+            wal.Mode = mode;
             wal.CompressionBlockSize = 256;
             wal.SharedModeOptions.MaximumChunkSize = 1024;
           });
@@ -45,7 +45,7 @@ public sealed class SharedWriteAheadLogTests
     using var release = new ManualResetEventSlim();
     var files = new PowerLossFileStreamProvider();
     var serializer = new PausingKeySerializer(start, entered, release);
-    using var wal = Provider(files).GetOrCreateWAL(1, "seg", Options(mode), serializer, new Int32Serializer());
+    using var wal = Provider(files).GetOrCreateWal(1, "seg", Options(mode), serializer, new Int32Serializer());
     var initialSyncs = files.DiskSyncCount;
     var producer = Task.Run(() =>
     {
@@ -216,7 +216,7 @@ public sealed class SharedWriteAheadLogTests
     var files = new PowerLossFileStreamProvider();
     using var tree = Factory(files, mode).Create();
     for (var key = 0; key < 240; ++key) tree.Upsert(key, key + 1);
-    await tree.SyncWALAsync();
+    await tree.SyncWalAsync();
     var before = files.GetFiles("data/seg/shared").Count(path => path.EndsWith(".wal", StringComparison.Ordinal));
     tree.Maintenance.MoveMutableSegmentForward();
     tree.Maintenance.StartMergeOperation().Join();
@@ -383,7 +383,7 @@ public sealed class SharedWriteAheadLogTests
     var files = new PowerLossFileStreamProvider();
     using var tree = Factory(files, mode).Create();
     for (var key = 0; key < 120; ++key) tree.Upsert(key, key + 1);
-    await tree.SyncWALAsync();
+    await tree.SyncWalAsync();
     tree.Maintenance.MoveMutableSegmentForward();
     var images = new List<PowerLossFileStreamProvider>();
     files.OnDurableChange = () => images.Add(files.SimulatePowerLoss());
@@ -420,7 +420,7 @@ public sealed class SharedWriteAheadLogTests
         .OpenOrCreate();
     for (var key = 0; key < 150; ++key)
       tree.Upsert(key, key + 1);
-    await tree.SyncWALAsync();
+    await tree.SyncWalAsync();
   }
 
   [TestCase(WriteAheadLogMode.Shared)]
@@ -432,10 +432,10 @@ public sealed class SharedWriteAheadLogTests
     var options = Options(mode, CompressionMethod.Zstd);
     var payload = new byte[10000];
     new Random(31).NextBytes(payload);
-    using var wal = provider.GetOrCreateWAL(1, "seg", options, new Int32Serializer(), new ByteArraySerializer());
+    using var wal = provider.GetOrCreateWal(1, "seg", options, new Int32Serializer(), new ByteArraySerializer());
     for (var key = 0; key < 5; ++key) wal.Append(key, payload, key);
     await wal.SyncAsync();
-    using var recovered = Provider(files.SimulatePowerLoss()).GetOrCreateWAL(1, "seg", options,
+    using var recovered = Provider(files.SimulatePowerLoss()).GetOrCreateWal(1, "seg", options,
         new Int32Serializer(), new ByteArraySerializer());
     var read = recovered.ReadLogEntries(true, true, true);
     Assert.That(read.Keys, Is.EqualTo(Enumerable.Range(0, 5)));
@@ -487,7 +487,7 @@ public sealed class SharedWriteAheadLogTests
       using (var tree = Create().Create())
       {
         for (var key = 0; key < 200; ++key) tree.Upsert(key, key + 1);
-        await tree.SyncWALAsync();
+        await tree.SyncWalAsync();
         tree.Maintenance.MoveMutableSegmentForward();
         tree.Maintenance.StartMergeOperation().Join();
         tree.Upsert(201, 202);
@@ -529,7 +529,7 @@ public sealed class SharedWriteAheadLogTests
         Assert.That(value, Is.EqualTo(key + 1));
       }
       tree.Upsert(1000, 1001);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     using var recovered = Factory(files.SimulatePowerLoss(), WriteAheadLogMode.AsyncPrivate).Open();
     Assert.That(recovered.TryGet(1000, out var actual), Is.True);

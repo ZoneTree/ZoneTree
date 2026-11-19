@@ -643,21 +643,21 @@ public sealed class MultiPartDiskSegment<TKey, TValue> : IDiskSegment<TKey, TVal
     throw new NotSupportedException("SetDefaultSparseArray is not intended to be called for MultiPartDiskSegment");
   }
 
-  public int ReleaseCircularKeyCacheRecords()
+  public int ReleaseKeyCacheRecords()
   {
     var len = Parts.Count;
     var result = 0;
     for (var i = 0; i < len; ++i)
-      result += Parts[i].ReleaseCircularKeyCacheRecords();
+      result += Parts[i].ReleaseKeyCacheRecords();
     return result;
   }
 
-  public int ReleaseCircularValueCacheRecords()
+  public int ReleaseValueCacheRecords()
   {
     var len = Parts.Count;
     var result = 0;
     for (var i = 0; i < len; ++i)
-      result += Parts[i].ReleaseCircularValueCacheRecords();
+      result += Parts[i].ReleaseValueCacheRecords();
     return result;
   }
 

@@ -43,7 +43,7 @@ public sealed class ZoneTreeClusterStandaloneEngine : ITransactionEngine
     });
     Column = Cluster.GetStandaloneColumn<long, byte[]>("records");
     var tree = Cluster.GetStandaloneColumnStorage<long, byte[]>("records");
-    var effectiveWalMode = tree.Maintenance.ZoneTree.Maintenance.CloneOptions().WriteAheadLogOptions.WriteAheadLogMode;
+    var effectiveWalMode = tree.Maintenance.ZoneTree.Maintenance.CloneOptions().WriteAheadLogOptions.Mode;
     Maintainer = Cluster.CreateColumnMaintainer("records");
     Maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(1);
     Maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(30);
@@ -79,7 +79,7 @@ public sealed class ZoneTreeClusterStandaloneEngine : ITransactionEngine
   {
     Maintainer.EvictToDisk();
     Maintainer.WaitForBackgroundThreadsAsync().GetAwaiter().GetResult();
-    Cluster.Maintenance.SaveMetaData();
+    Cluster.Maintenance.SaveMetadata();
   }
 
   public void Dispose()

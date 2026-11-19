@@ -145,7 +145,7 @@ public sealed class WalTruncationRecoveryTests
         walPath,
         WalBlockSize,
         false,
-        0,
+        TimeSpan.Zero,
         CompressionMethod.None,
         0);
     stream.Seek(0, SeekOrigin.End);

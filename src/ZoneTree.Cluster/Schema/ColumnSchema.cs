@@ -18,7 +18,7 @@ internal static class ColumnSchema
     var coordinated = column.Kind == ColumnKind.Coordinated;
     var factory = new ZoneTreeFactory<TKey, TValue>(cluster.FileStreamProvider)
         .SetLogger(cluster.Logger)
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.Shared)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.Shared)
         .SetComparer(encodings.Comparer)
         .SetKeySerializer(encodings.KeySerializer)
         .SetValueSerializer(encodings.ValueSerializer);

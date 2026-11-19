@@ -36,7 +36,7 @@ public sealed class PrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TV
 
   public bool EnableSyncJob { get; }
 
-  public int SyncJobInterval { get; }
+  public TimeSpan SyncJobInterval { get; }
 
   public int InitialLength { get; private set; }
 

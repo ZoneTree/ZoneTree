@@ -169,9 +169,9 @@ public sealed unsafe partial class CompressedFileStream
   {
     Position = 0;
     _length = 0;
-    FileStream.Position = MetaDataSize;
+    FileStream.Position = MetadataSize;
     var length = FileStream.Length;
-    long position = MetaDataSize;
+    long position = MetadataSize;
     var lastIndex = -1;
     while (position < length)
     {

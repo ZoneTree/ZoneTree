@@ -78,7 +78,7 @@ public sealed class ZoneTreeClusterEngine : ITransactionEngine
   {
     Maintainer.EvictToDisk();
     Maintainer.WaitForBackgroundThreadsAsync().GetAwaiter().GetResult();
-    Cluster.Maintenance.SaveMetaData();
+    Cluster.Maintenance.SaveMetadata();
   }
 
   public void Dispose()

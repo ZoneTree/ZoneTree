@@ -30,5 +30,5 @@ public interface IStandaloneColumn<TKey, TValue> : IClusterTransactionSource<ISt
   /// <summary>
   /// Makes the column's transactions committed before this call durable across power loss or an OS crash.
   /// </summary>
-  Task SyncWALAsync(CancellationToken cancellationToken = default);
+  Task SyncWalAsync(CancellationToken cancellationToken = default);
 }

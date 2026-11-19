@@ -80,7 +80,7 @@ using var tree = new ZoneTreeFactory<int, string>()
     .SetDataDirectory("data/compression-profile")
     .ConfigureWriteAheadLogOptions(options =>
     {
-        options.WriteAheadLogMode = WriteAheadLogMode.AsyncPrivate;
+        options.Mode = WriteAheadLogMode.AsyncPrivate;
         options.CompressionMethod = CompressionMethod.Zstd;
         options.CompressionLevel = CompressionLevels.Zstd1;
         options.CompressionBlockSize = 256 * 1024;

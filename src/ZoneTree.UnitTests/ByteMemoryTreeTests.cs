@@ -185,10 +185,10 @@ public sealed class ByteMemoryTreeTests
   {
     return new ZoneTreeFactory<TKey, TValue>(provider)
         .Configure(options => options.AllowUnsafeOptionValues = true)
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.Private)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.Private)
         .ConfigureDiskSegmentOptions(options =>
         {
-          options.DiskSegmentMode = mode;
+          options.Mode = mode;
           options.MinimumRecordCount = 2;
           options.MaximumRecordCount = 3;
         });

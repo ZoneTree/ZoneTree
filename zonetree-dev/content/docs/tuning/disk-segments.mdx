@@ -65,7 +65,7 @@ using var tree = new ZoneTreeFactory<long, string>()
     .SetDiskSegmentMaxItemCount(2_000_000)
     .ConfigureDiskSegmentOptions(options =>
     {
-        options.DiskSegmentMode = DiskSegmentMode.MultiPartDiskSegment;
+        options.Mode = DiskSegmentMode.MultiPartDiskSegment;
         options.MinimumRecordCount = 100_000;
         options.MaximumRecordCount = 250_000;
     })

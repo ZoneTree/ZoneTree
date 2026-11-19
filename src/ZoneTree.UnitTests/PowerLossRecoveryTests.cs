@@ -33,7 +33,7 @@ public sealed class PowerLossRecoveryTests
     return new ZoneTreeFactory<int, int>(provider)
         .SetDataDirectory("data")
         .SetLogger(SilentTestLogger.Instance)
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = mode);
+        .ConfigureWriteAheadLogOptions(options => options.Mode = mode);
   }
 
   static ZoneTreeFactory<int, int> SmallBlockFactory(
@@ -144,7 +144,7 @@ public sealed class PowerLossRecoveryTests
   // Issue 201
 
   [Test]
-  public void PowerLossAfterSaveMetaDataKeepsTreeOpenable()
+  public void PowerLossAfterSaveMetadataKeepsTreeOpenable()
   {
     var provider = new InMemoryFileStreamProvider();
     byte[] metaWalBeforeSave;
@@ -153,7 +153,7 @@ public sealed class PowerLossRecoveryTests
       UpsertKeys(tree, 0, 100);
       tree.Maintenance.MoveMutableSegmentForward();
       metaWalBeforeSave = provider.ReadAllBytes(MetaWalPath);
-      tree.Maintenance.SaveMetaData();
+      tree.Maintenance.SaveMetadata();
     }
     // The meta file was replaced durably, but clearing the meta WAL was not.
     Overwrite(provider, MetaWalPath, metaWalBeforeSave);
@@ -163,7 +163,7 @@ public sealed class PowerLossRecoveryTests
   }
 
   [Test]
-  public void PowerLossDuringSaveMetaDataKeepsTheRecordsOfTheNewMetaWal()
+  public void PowerLossDuringSaveMetadataKeepsTheRecordsOfTheNewMetaWal()
   {
     var provider = new InMemoryFileStreamProvider();
     byte[] metaWalBeforeSave;
@@ -172,7 +172,7 @@ public sealed class PowerLossRecoveryTests
       UpsertKeys(tree, 0, 100);
       tree.Maintenance.MoveMutableSegmentForward();
       metaWalBeforeSave = provider.ReadAllBytes(MetaWalPath);
-      tree.Maintenance.SaveMetaData();
+      tree.Maintenance.SaveMetadata();
       UpsertKeys(tree, 100, 200);
       tree.Maintenance.MoveMutableSegmentForward();
     }
@@ -231,7 +231,7 @@ public sealed class PowerLossRecoveryTests
     {
       UpsertKeys(tree, 0, 100);
       olderMetaFile = provider.ReadAllBytes(MetaFilePath);
-      tree.Maintenance.SaveMetaData();
+      tree.Maintenance.SaveMetadata();
       UpsertKeys(tree, 100, 200);
       tree.Maintenance.MoveMutableSegmentForward();
     }
@@ -252,7 +252,7 @@ public sealed class PowerLossRecoveryTests
     using var tree = Factory(provider, WriteAheadLogMode.Private).OpenOrCreate();
     UpsertKeys(tree, 0, 100);
     tree.Maintenance.MoveMutableSegmentForward();
-    tree.Maintenance.SaveMetaData();
+    tree.Maintenance.SaveMetadata();
     return provider;
   }
 
@@ -300,7 +300,7 @@ public sealed class PowerLossRecoveryTests
     using (var tree = Factory(provider, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 9400);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     // First power loss: block 0 is committed, the tail is not rewritten for block 1.
     var mainPath = MainWalPath(provider);
@@ -327,7 +327,7 @@ public sealed class PowerLossRecoveryTests
     using (var tree = Factory(provider, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 9400);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     var mainPath = MainWalPath(provider);
     Overwrite(provider, mainPath + ".tail", new byte[8]);
@@ -359,14 +359,14 @@ public sealed class PowerLossRecoveryTests
     using (var tree = Factory(provider, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 9400);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     var mainPath = MainWalPath(provider);
     Overwrite(provider, mainPath + ".tail", new byte[8]);
 
     using var recovered = Factory(provider, mode).Open();
     UpsertKeys(recovered, RecordsPerBlock, 2 * RecordsPerBlock + 100);
-    await recovered.SyncWALAsync();
+    await recovered.SyncWalAsync();
 
     using var reopened = Factory(provider.SimulatePowerLoss(), mode).Open();
     Assert.That(MissingKeys(reopened, 2 * RecordsPerBlock + 100), Is.Empty);
@@ -381,7 +381,7 @@ public sealed class PowerLossRecoveryTests
     var provider = new InMemoryFileStreamProvider();
     using var tree = Factory(provider, mode).OpenOrCreate();
     UpsertKeys(tree, 0, 50);
-    await tree.SyncWALAsync();
+    await tree.SyncWalAsync();
 
     var image = Copy(provider);
     var tailPath = image.GetFiles("data/seg").Single(x => x.EndsWith(".tail", StringComparison.Ordinal));
@@ -405,7 +405,7 @@ public sealed class PowerLossRecoveryTests
     var provider = new InMemoryFileStreamProvider();
     using var tree = Factory(provider, mode).OpenOrCreate();
     UpsertKeys(tree, 0, 50);
-    await tree.SyncWALAsync();
+    await tree.SyncWalAsync();
 
     var image = Copy(provider);
     var tailPath = image.GetFiles("data/seg").Single(x => x.EndsWith(".tail", StringComparison.Ordinal));
@@ -429,7 +429,7 @@ public sealed class PowerLossRecoveryTests
     using (var tree = SmallBlockFactory(provider, mode, compressionMethod).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 1000);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     var mainPath = MainWalPath(provider);
     var bytes = provider.ReadAllBytes(mainPath);
@@ -450,12 +450,12 @@ public sealed class PowerLossRecoveryTests
     ZoneTreeFactory<int, int> LocalFactory() => new ZoneTreeFactory<int, int>()
         .SetDataDirectory(dataPath)
         .SetLogger(SilentTestLogger.Instance)
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = mode);
+        .ConfigureWriteAheadLogOptions(options => options.Mode = mode);
 
     using (var tree = LocalFactory().OpenOrCreate())
     {
       UpsertKeys(tree, 0, 50);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     var wal = Directory.GetFiles(Path.Combine(dataPath, "seg"), "*.wal*")
         .Single(path => path.EndsWith(".tail", StringComparison.Ordinal));
@@ -504,7 +504,7 @@ public sealed class PowerLossRecoveryTests
     using (var tree = SerializerFactory(provider).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 10);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     SwitchableInt32Serializer.FailDeserialize = true;
     try
@@ -529,7 +529,7 @@ public sealed class PowerLossRecoveryTests
     using (var tree = SmallBlockFactory(provider, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 200);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     // The sector with the start of the header did not persist, so the index
     // reads as zero. The tail file names a later block than this one seems to be.
@@ -552,7 +552,7 @@ public sealed class PowerLossRecoveryTests
     using (var tree = SmallBlockFactory(provider, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 500);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     // Header checksums protect block indexes as well as payload lengths.
     var mainPath = MainWalPath(provider);
@@ -591,11 +591,11 @@ public sealed class PowerLossRecoveryTests
     {
       mainPath = MainWalPath(provider);
       UpsertKeys(tree, 50, syncedCount);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
       syncedTail = provider.ReadAllBytes(mainPath + ".tail");
       commitStart = provider.ReadAllBytes(mainPath).Length;
       UpsertKeys(tree, syncedCount, 180);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
 
     var image = Copy(provider);
@@ -649,7 +649,7 @@ public sealed class PowerLossRecoveryTests
     using (var tree = SmallBlockFactory(provider, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 60);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     var mainPath = MainWalPath(provider);
     var main = provider.ReadAllBytes(mainPath);
@@ -684,7 +684,7 @@ public sealed class PowerLossRecoveryTests
     using (var tree = SmallBlockFactory(provider, mode, compressionMethod).OpenOrCreate())
     {
       UpsertKeys(tree, 0, syncedCount);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     // The commit of the block that the tail names persisted the index,
     // and the sector with the rest of the header did not persist.
@@ -705,7 +705,7 @@ public sealed class PowerLossRecoveryTests
     using (var tree = SmallBlockFactory(provider, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 60);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     var mainPath = MainWalPath(provider);
     var main = provider.ReadAllBytes(mainPath);
@@ -726,7 +726,7 @@ public sealed class PowerLossRecoveryTests
     using (var tree = Factory(provider, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 9400);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     var mainPath = MainWalPath(provider);
     Overwrite(provider, mainPath + ".tail", new byte[8]);
@@ -747,10 +747,10 @@ public sealed class PowerLossRecoveryTests
     using (var tree = SmallBlockFactory(source, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, syncedCount);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
       syncedTail = source.ReadAllBytes(MainWalPath(source) + ".tail");
       UpsertKeys(tree, syncedCount, 200);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
 
     // The process crashes after writing the blocks and before syncing them. The
@@ -781,7 +781,7 @@ public sealed class PowerLossRecoveryTests
     using (var tree = SmallBlockFactory(provider, mode, CompressionMethod.None).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 200);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     // The background sync job can replace a discarded tail with an empty one,
     // while the last block still holds a torn sector.
@@ -817,7 +817,7 @@ public sealed class PowerLossRecoveryTests
     using (var tree = SmallBlockFactory(provider, mode).Open())
     {
       UpsertKeys(tree, 0, count);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
 
     // Second power loss: the first sector of the main file is lost again, and the
@@ -833,7 +833,7 @@ public sealed class PowerLossRecoveryTests
     using (var tree = SmallBlockFactory(provider, mode).Open())
     {
       UpsertKeys(tree, 0, count);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     using var reopened = SmallBlockFactory(provider, mode).Open();
     Assert.That(MissingKeys(reopened, count), Is.Empty);
@@ -934,7 +934,7 @@ public sealed class PowerLossRecoveryTests
           return;
         // The recovered tree must accept writes, and they must survive too.
         UpsertKeys(tree, count, count + 100);
-        await tree.SyncWALAsync();
+        await tree.SyncWalAsync();
         image.BeforeDiskSync = null;
         using var reopened = ImageFactory(Tear(image)).Open();
         if (MissingKeys(reopened, synced).Length > 0 ||
@@ -973,7 +973,7 @@ public sealed class PowerLossRecoveryTests
         tree.Upsert(key, key + 1);
         if (key % 37 == 36)
         {
-          await tree.SyncWALAsync();
+          await tree.SyncWalAsync();
           Volatile.Write(ref syncedCount, key + 1);
         }
         if (key % 400 == 399)
@@ -981,7 +981,7 @@ public sealed class PowerLossRecoveryTests
         if (key % 900 == 899)
           tree.Maintenance.StartMergeOperation()?.Join();
         if (key % 500 == 499)
-          tree.Maintenance.SaveMetaData();
+          tree.Maintenance.SaveMetadata();
       }
       workload.BeforeDiskSync = null;
     }

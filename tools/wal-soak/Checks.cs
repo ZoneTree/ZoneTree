@@ -140,7 +140,7 @@ static class Checks
         {
           tree.Maintenance.ZoneTree.Maintenance.MoveMutableSegmentForward();
           tree.Maintenance.ZoneTree.Maintenance.StartMergeOperation()?.Join();
-          tree.Maintenance.SaveMetaData();
+          tree.Maintenance.SaveMetadata();
         }
       }
       Capture("");

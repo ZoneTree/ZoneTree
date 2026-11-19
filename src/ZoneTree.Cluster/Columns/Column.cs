@@ -90,7 +90,7 @@ internal abstract class Column : IDisposable
 
   internal abstract ColumnView CreateView(bool writing, TransactionIsolationLevel isolation,
       long transactionId, long snapshotTimestamp);
-  internal abstract Task SyncWALAsync();
+  internal abstract Task SyncWalAsync();
   internal abstract TimeSpan AutoSyncInterval { get; set; }
   internal abstract int AbortedTransactionCount { get; }
   internal abstract int ConflictIndexCount { get; }
@@ -101,7 +101,7 @@ internal abstract class Column : IDisposable
   /// </summary>
   internal virtual int ActiveTransactionCount => 0;
   internal virtual void SetReadOnly(bool value) { }
-  internal abstract void SaveMetaData();
+  internal abstract void SaveMetadata();
 
   /// <summary>
   /// Creates the column's part of a cluster backup generation, with the store in the options.

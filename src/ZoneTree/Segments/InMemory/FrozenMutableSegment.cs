@@ -60,9 +60,9 @@ public sealed class FrozenMutableSegment<TKey, TValue> : IMutableSegment<TKey, T
   {
   }
 
-  public Task SyncWALAsync()
+  public Task SyncWalAsync()
   {
-    return mutableSegment.SyncWALAsync();
+    return mutableSegment.SyncWalAsync();
   }
 
   public IIndexedReader<TKey, TValue> GetIndexedReader()

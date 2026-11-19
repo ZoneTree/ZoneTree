@@ -78,13 +78,13 @@ internal static class SharedJournalReader
         Logger = logger,
         RandomAccessDeviceManager = deviceManager
       };
-      if (!ZoneTreeMetaWAL<byte[], byte[]>.Exists(options))
+      if (!ZoneTreeMetaWal<byte[], byte[]>.Exists(options))
         return [];
-      var meta = ZoneTreeMetaWAL<byte[], byte[]>.LoadZoneTreeMetaWithoutWALRecords(deviceManager);
+      var meta = ZoneTreeMetaWal<byte[], byte[]>.LoadZoneTreeMetaWithoutWalRecords(deviceManager);
       var mutableSegment = meta.MutableSegment;
       // The newest read-only segment comes first, as the tree loads them.
       var readOnlySegments = meta.ReadOnlySegments?.ToList() ?? [];
-      using (var metaWal = new ZoneTreeMetaWAL<byte[], byte[]>(options, isReadOnly: true))
+      using (var metaWal = new ZoneTreeMetaWal<byte[], byte[]>(options, isReadOnly: true))
       {
         foreach (var record in metaWal.GetRecordsOfGeneration(meta.MetaWalGeneration))
         {

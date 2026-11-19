@@ -116,10 +116,10 @@ using var tree = new ZoneTreeFactory<int, string>()
 using var maintainer = tree.CreateMaintainer();
 
 // Restart the cleanup job so its timer uses the new interval.
-maintainer.EnableJobForCleaningInactiveCaches = false;
+maintainer.EnableInactiveCacheCleanup = false;
 maintainer.BlockCacheLifeTime = TimeSpan.FromSeconds(30);
 maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(10);
-maintainer.EnableJobForCleaningInactiveCaches = true;
+maintainer.EnableInactiveCacheCleanup = true;
 
 for (var key = 0; key < 1000; ++key)
     tree.Upsert(key, $"Record {key}");

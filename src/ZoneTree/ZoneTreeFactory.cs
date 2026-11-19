@@ -251,7 +251,7 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   void ConfigureTransactionalWriteAheadLog()
   {
     var wal = Options.WriteAheadLogOptions;
-    var configuredMode = wal.WriteAheadLogMode;
+    var configuredMode = wal.Mode;
     // One journal keeps unsynced transaction writes and commit records in the
     // same recovery prefix. Preserve caller-side versus queued appends, explicit
     // shared modes, and an intentional choice to disable WAL protection.
@@ -264,7 +264,7 @@ public sealed class ZoneTreeFactory<TKey, TValue>
     if (sharedMode == configuredMode)
       return;
 
-    wal.WriteAheadLogMode = sharedMode;
+    wal.Mode = sharedMode;
   }
 
 

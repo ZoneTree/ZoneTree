@@ -81,7 +81,7 @@ public sealed unsafe partial class CompressedFileStream
         tmpFilePath,
         BlockSize,
         false,
-        0,
+        TimeSpan.Zero,
         CompressionMethod,
         CompressionLevel,
         UseMemoryMappedTail))
@@ -132,8 +132,8 @@ public sealed unsafe partial class CompressedFileStream
           CheckpointTruncation();
           return;
         }
-        FileStream.SetLength(MetaDataSize);
-        FileStream.Position = MetaDataSize;
+        FileStream.SetLength(MetadataSize);
+        FileStream.Position = MetadataSize;
         TailBlock = CreateEmptyTail(0);
         TailHasDurableData = false;
         WriteTailHeader(TailBlock.BlockIndex, 0);
@@ -194,10 +194,10 @@ public sealed unsafe partial class CompressedFileStream
   /// </remarks>
   void TruncateMainFile(long truncatedLength)
   {
-    FileStream.Position = MetaDataSize;
+    FileStream.Position = MetadataSize;
     var len = FileStream.Length;
     // long: the main file and its decompressed content can exceed 2 GB.
-    long physicalPosition = MetaDataSize;
+    long physicalPosition = MetadataSize;
     long off = 0;
     while (true)
     {

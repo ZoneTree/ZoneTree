@@ -49,13 +49,13 @@ public interface IDiskSegment<TKey, TValue> : IReadOnlySegment<TKey, TValue>, II
   /// Releases expired circular cache key records.
   /// </summary>
   /// <returns>The total number of released cached records.</returns>
-  int ReleaseCircularKeyCacheRecords();
+  int ReleaseKeyCacheRecords();
 
   /// <summary>
   /// Releases expired circular cache value records.
   /// </summary>
   /// <returns>The total number of released cached records.</returns>
-  int ReleaseCircularValueCacheRecords();
+  int ReleaseValueCacheRecords();
 
   /// <summary>
   /// Returns the first keys of every part.

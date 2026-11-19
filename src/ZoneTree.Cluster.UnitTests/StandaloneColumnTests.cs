@@ -95,7 +95,7 @@ public sealed class StandaloneColumnTests
     using var cluster = Factory.CreateInProcess(Options());
     var visits = cluster.GetStandaloneColumn<int, int>("visits");
     visits.Execute(transaction => transaction.Upsert(1, 1));
-    await cluster.SyncWALAsync();
+    await cluster.SyncWalAsync();
     cluster.IsReadOnly = true;
     Assert.That(cluster.GetStandaloneColumnStorage<int, int>("visits").IsReadOnly, Is.True);
     Assert.Throws<ZoneTreeIsReadOnlyException>(() => visits.BeginTransaction());

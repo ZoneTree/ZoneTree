@@ -490,7 +490,7 @@ public sealed class LiveBackupStatusTests
     {
       var factory = new ZoneTreeFactory<int, int>(new InMemoryFileStreamProvider()).SetDataDirectory("source")
           .SetLogger(logger ?? SilentTestLogger.Instance)
-          .ConfigureWriteAheadLogOptions(o => o.WriteAheadLogMode = WriteAheadLogMode.Shared);
+          .ConfigureWriteAheadLogOptions(o => o.Mode = WriteAheadLogMode.Shared);
       if (transactional) Transactional = factory.CreateTransactional(); else Plain = factory.Create();
     }
     public ILiveBackup Create(ILiveBackupStore store)

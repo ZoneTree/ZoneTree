@@ -43,13 +43,13 @@ public sealed class MvccZoneTreeModelTests
         .SetMutableSegmentMaxItemCount(48)
         .ConfigureDiskSegmentOptions(options =>
         {
-          options.DiskSegmentMode = diskSegmentMode;
+          options.Mode = diskSegmentMode;
           options.MinimumRecordCount = 2;
           options.MaximumRecordCount = 8;
         })
         .ConfigureWriteAheadLogOptions(options =>
         {
-          options.WriteAheadLogMode = walMode;
+          options.Mode = walMode;
           options.CompressionBlockSize = 256;
           options.SharedModeOptions.MaximumChunkSize = 4096;
         });
@@ -488,7 +488,7 @@ public sealed class MvccZoneTreeModelTests
         if (choice < 2)
         {
           var stateCount = runner.CommittedStates.Count;
-          await runner.Tree.SyncWALAsync();
+          await runner.Tree.SyncWalAsync();
           syncedStateCount = stateCount;
           continue;
         }

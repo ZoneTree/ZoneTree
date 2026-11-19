@@ -10,7 +10,7 @@ using ZoneTree.WAL;
 namespace ZoneTree.UnitTests;
 
 /// <summary>
-/// SyncWALAsync acknowledges that completed writes survive a power loss.
+/// SyncWalAsync acknowledges that completed writes survive a power loss.
 /// These tests open the tree from the files a power loss leaves.
 /// </summary>
 public sealed class WriteAheadLogSyncTests
@@ -32,9 +32,9 @@ public sealed class WriteAheadLogSyncTests
         })
         .ConfigureWriteAheadLogOptions(options =>
         {
-          options.WriteAheadLogMode = mode;
+          options.Mode = mode;
           options.CompressionBlockSize = WalBlockSize;
-          options.EmptyQueuePollInterval = emptyQueuePollInterval;
+          options.EmptyQueuePollInterval = TimeSpan.FromMilliseconds(emptyQueuePollInterval);
         });
   }
 
@@ -57,7 +57,7 @@ public sealed class WriteAheadLogSyncTests
     {
       foreach (var key in keys)
         tree.Upsert(key, key + 1);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
       afterPowerLoss = provider.SimulatePowerLoss();
     }
     Assert.That(MissingKeys(afterPowerLoss, mode, keys), Is.Empty);
@@ -85,7 +85,7 @@ public sealed class WriteAheadLogSyncTests
     for (var key = 0; key < 24; ++key)
     {
       tree.Upsert(key, key + 1);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
       Assert.That(Volatile.Read(ref mainSyncs), Is.EqualTo(key + 1));
       Assert.That(Volatile.Read(ref tailSyncs), Is.Zero);
     }
@@ -101,7 +101,7 @@ public sealed class WriteAheadLogSyncTests
     var provider = new PowerLossFileStreamProvider();
     using var tree = CreateFactory(provider, mode, emptyQueuePollInterval: 1)
         .SetDataDirectory("data")
-        .ConfigureWriteAheadLogOptions(options => options.SyncJobInterval = 1)
+        .ConfigureWriteAheadLogOptions(options => options.SyncJobInterval = TimeSpan.FromMilliseconds(1))
         .Create();
     var mainPath = provider.GetFiles("data/seg").Single(path => !path.EndsWith(".tail", StringComparison.Ordinal));
     for (var key = 0; key < count; ++key)
@@ -159,7 +159,7 @@ public sealed class WriteAheadLogSyncTests
       tree.Maintenance.MoveMutableSegmentForward();
       foreach (var key in keys.Skip(300))
         tree.Upsert(key, key + 1);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
       afterPowerLoss = provider.SimulatePowerLoss();
     }
     Assert.That(MissingKeys(afterPowerLoss, mode, keys), Is.Empty);
@@ -179,7 +179,7 @@ public sealed class WriteAheadLogSyncTests
         foreach (var key in keys)
           tree.Upsert(key, key + 1);
         tree.Maintenance.MoveMutableSegmentForward();
-        await tree.SyncWALAsync();
+        await tree.SyncWalAsync();
         afterPowerLoss = provider.SimulatePowerLoss();
       }
       Assert.That(MissingKeys(afterPowerLoss, mode, keys), Is.Empty);
@@ -213,7 +213,7 @@ public sealed class WriteAheadLogSyncTests
           tree.Upsert(key, key + 1);
           if (i % 3 != 0)
             continue;
-          await tree.SyncWALAsync();
+          await tree.SyncWalAsync();
           Interlocked.Increment(ref syncCount);
           // The sync acknowledges every write of this writer so far.
           for (var j = i; j >= 0 && j > i - 3; --j)
@@ -255,7 +255,7 @@ public sealed class WriteAheadLogSyncTests
       {
         var key = writer * 1000 + i;
         tree.Upsert(key, key + 1);
-        tree.SyncWALAsync().GetAwaiter().GetResult();
+        tree.SyncWalAsync().GetAwaiter().GetResult();
       }
     })).ToArray();
     foreach (var writer in writers)
@@ -281,7 +281,7 @@ public sealed class WriteAheadLogSyncTests
         tree.Upsert(key, key + 1);
       foreach (var key in deletedKeys)
         tree.ForceDelete(key);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
 
     // Opening the tree compacts its mutable segment WAL.
@@ -307,12 +307,12 @@ public sealed class WriteAheadLogSyncTests
 
   [TestCase(WriteAheadLogMode.Private)]
   [TestCase(WriteAheadLogMode.AsyncPrivate)]
-  public async Task SyncWALAsyncKeepsFailingAfterADiskSyncFails(WriteAheadLogMode mode)
+  public async Task SyncWalAsyncKeepsFailingAfterADiskSyncFails(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
     using var tree = CreateFactory(provider, mode).Create();
     tree.Upsert(1, 2);
-    await tree.SyncWALAsync();
+    await tree.SyncWalAsync();
 
     var failDiskSync = true;
     provider.FailDiskSync = path => Volatile.Read(ref failDiskSync) && path.Contains("/seg/", StringComparison.Ordinal);
@@ -324,20 +324,20 @@ public sealed class WriteAheadLogSyncTests
     catch (IOException)
     {
     }
-    Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWALAsync());
+    Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWalAsync());
 
     Volatile.Write(ref failDiskSync, false);
     tree.Upsert(3, 4);
-    Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWALAsync());
+    Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWalAsync());
 
     // The next segment has a new WAL, but the failed one is not merged yet.
     tree.Maintenance.MoveMutableSegmentForward();
-    Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWALAsync());
+    Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWalAsync());
 
     // The merge moves the records from memory into a synced disk segment.
     tree.Maintenance.StartMergeOperation().Join();
     tree.Upsert(4, 5);
-    await tree.SyncWALAsync();
+    await tree.SyncWalAsync();
   }
 
   /// <summary>
@@ -379,7 +379,7 @@ public sealed class WriteAheadLogSyncTests
     {
       for (var key = 0; key < 100; ++key)
         tree.Upsert(key, key == 50 ? failingValue : key + 1);
-      Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWALAsync());
+      Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWalAsync());
     }
     using var reopened = CreateFactory(provider, WriteAheadLogMode.AsyncPrivate)
         .SetValueSerializer(new FailingValueSerializer(failingValue))
@@ -389,7 +389,7 @@ public sealed class WriteAheadLogSyncTests
   }
 
   [Test]
-  public async Task SyncWALAsyncFailsInsteadOfWaitingWhenTheLoggerThrows()
+  public async Task SyncWalAsyncFailsInsteadOfWaitingWhenTheLoggerThrows()
   {
     var provider = new PowerLossFileStreamProvider();
     using var tree = CreateFactory(provider, WriteAheadLogMode.AsyncPrivate)
@@ -398,14 +398,14 @@ public sealed class WriteAheadLogSyncTests
     var failDiskSync = true;
     provider.FailDiskSync = path => Volatile.Read(ref failDiskSync) && path.Contains("/seg/", StringComparison.Ordinal);
     tree.Upsert(1, 2);
-    var failedSync = tree.SyncWALAsync();
+    var failedSync = tree.SyncWalAsync();
     Assert.That(await Task.WhenAny(failedSync, Task.Delay(TimeSpan.FromSeconds(30))), Is.SameAs(failedSync));
     Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => failedSync);
 
     // The writer keeps running, so later requests are answered too.
     Volatile.Write(ref failDiskSync, false);
     tree.Upsert(2, 3);
-    var laterSync = tree.SyncWALAsync();
+    var laterSync = tree.SyncWalAsync();
     Assert.That(await Task.WhenAny(laterSync, Task.Delay(TimeSpan.FromSeconds(30))), Is.SameAs(laterSync));
     Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => laterSync);
   }
@@ -428,12 +428,12 @@ public sealed class WriteAheadLogSyncTests
   }
 
   [Test]
-  public async Task SyncWALAsyncDoesNotWaitForTheEmptyQueuePollInterval()
+  public async Task SyncWalAsyncDoesNotWaitForTheEmptyQueuePollInterval()
   {
     var provider = new PowerLossFileStreamProvider();
     using var tree = CreateFactory(provider, WriteAheadLogMode.AsyncPrivate, emptyQueuePollInterval: 600_000).Create();
     tree.Upsert(1, 2);
-    var sync = tree.SyncWALAsync();
+    var sync = tree.SyncWalAsync();
     var completed = await Task.WhenAny(sync, Task.Delay(TimeSpan.FromSeconds(30)));
     Assert.That(completed, Is.SameAs(sync));
     await sync;
@@ -444,7 +444,7 @@ public sealed class WriteAheadLogSyncTests
   {
     const int interval = AsyncPrivateWriteAheadLog<int, int>.WakeWriterRecordInterval;
     var options = new WriteAheadLogOptions { CompressionBlockSize = WalBlockSize };
-    options.EmptyQueuePollInterval = 600_000;
+    options.EmptyQueuePollInterval = TimeSpan.FromMinutes(10);
     using var wal = new AsyncPrivateWriteAheadLog<int, int>(
         new ConsoleLogger(LogLevel.Error),
         new PowerLossFileStreamProvider(),
@@ -472,7 +472,7 @@ public sealed class WriteAheadLogSyncTests
   }
 
   [Test]
-  public async Task SyncWALAsyncCanBeCancelledWhileTheDiskSyncRuns()
+  public async Task SyncWalAsyncCanBeCancelledWhileTheDiskSyncRuns()
   {
     var provider = new PowerLossFileStreamProvider();
     using var tree = CreateFactory(provider, WriteAheadLogMode.AsyncPrivate).Create();
@@ -487,12 +487,12 @@ public sealed class WriteAheadLogSyncTests
     };
     tree.Upsert(1, 2);
     using var cancellation = new CancellationTokenSource();
-    var cancelledSync = tree.SyncWALAsync(cancellation.Token);
+    var cancelledSync = tree.SyncWalAsync(cancellation.Token);
     Task sync;
     try
     {
       Assert.That(diskSyncStarted.Wait(TimeSpan.FromSeconds(30)), Is.True);
-      sync = tree.SyncWALAsync();
+      sync = tree.SyncWalAsync();
       cancellation.Cancel();
       Assert.CatchAsync<OperationCanceledException>(() => cancelledSync);
       Assert.That(sync.IsCompleted, Is.False);
@@ -507,25 +507,25 @@ public sealed class WriteAheadLogSyncTests
 
   [TestCase(WriteAheadLogMode.Private)]
   [TestCase(WriteAheadLogMode.AsyncPrivate)]
-  public async Task SyncWALAsyncCompletesAfterTheTreeIsDisposed(WriteAheadLogMode mode)
+  public async Task SyncWalAsyncCompletesAfterTheTreeIsDisposed(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
     var tree = CreateFactory(provider, mode).Create();
     tree.Upsert(1, 2);
-    var syncBeforeDispose = tree.SyncWALAsync();
+    var syncBeforeDispose = tree.SyncWalAsync();
     tree.Dispose();
     await syncBeforeDispose;
-    await tree.SyncWALAsync();
+    await tree.SyncWalAsync();
     Assert.That(MissingKeys(provider.SimulatePowerLoss(), mode, [1]), Is.Empty);
   }
 
   [Test]
-  public void SyncWALAsyncCompletesAtOnceInNoneMode()
+  public void SyncWalAsyncCompletesAtOnceInNoneMode()
   {
     var provider = new PowerLossFileStreamProvider();
     using var tree = CreateFactory(provider, WriteAheadLogMode.None).Create();
     tree.Upsert(1, 2);
-    Assert.That(tree.SyncWALAsync().IsCompletedSuccessfully, Is.True);
+    Assert.That(tree.SyncWalAsync().IsCompletedSuccessfully, Is.True);
   }
 
   [Test]
@@ -587,7 +587,7 @@ public sealed class WriteAheadLogSyncTests
       releaseDiskSync.Wait();
     };
     tree.Upsert(1, 2);
-    var sync = Task.Run(() => tree.SyncWALAsync());
+    var sync = Task.Run(() => tree.SyncWalAsync());
     try
     {
       Assert.That(diskSyncStarted.Wait(TimeSpan.FromSeconds(30)), Is.True);
@@ -600,7 +600,7 @@ public sealed class WriteAheadLogSyncTests
       releaseDiskSync.Set();
     }
     await sync;
-    await tree.SyncWALAsync();
+    await tree.SyncWalAsync();
     Assert.That(MissingKeys(provider.SimulatePowerLoss(), WriteAheadLogMode.Private, [1, 2]), Is.Empty);
   }
 
@@ -672,7 +672,7 @@ public sealed class WriteAheadLogSyncTests
         "data/sealed",
         WalBlockSize,
         false,
-        0,
+        TimeSpan.Zero,
         CompressionMethod.Zstd,
         CompressionLevels.Zstd1);
   }

@@ -14,7 +14,7 @@ public sealed class PointReadAllocationTests
     const int keyCount = 20_000;
     const int readCount = 20_000;
     using var tree = new ZoneTreeFactory<int, int>(new InMemoryFileStreamProvider())
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.None)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.None)
         .CreateTransactional();
     using (var writer = tree.BeginTransaction())
     {

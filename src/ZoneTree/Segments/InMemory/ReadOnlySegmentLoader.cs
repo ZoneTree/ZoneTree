@@ -17,7 +17,7 @@ public sealed class ReadOnlySegmentLoader<TKey, TValue>
 
   public IReadOnlySegment<TKey, TValue> LoadReadOnlySegment(long segmentId)
   {
-    var wal = Options.WriteAheadLogProvider.GetOrCreateWAL(
+    var wal = Options.WriteAheadLogProvider.GetOrCreateWal(
         segmentId,
         ZoneTree<TKey, TValue>.SegmentWalCategory,
         Options.WriteAheadLogOptions,
@@ -33,7 +33,7 @@ public sealed class ReadOnlySegmentLoader<TKey, TValue>
       }
       else
       {
-        Options.WriteAheadLogProvider.RemoveWAL(
+        Options.WriteAheadLogProvider.RemoveWal(
             segmentId,
             ZoneTree<TKey, TValue>.SegmentWalCategory);
         using var disposeWal = wal;
@@ -59,7 +59,7 @@ public sealed class ReadOnlySegmentLoader<TKey, TValue>
     {
       MaximumOpIndex = result.MaximumOpIndex
     };
-    Options.WriteAheadLogProvider.RemoveWAL(
+    Options.WriteAheadLogProvider.RemoveWal(
         segmentId,
         ZoneTree<TKey, TValue>.SegmentWalCategory);
     return ros;

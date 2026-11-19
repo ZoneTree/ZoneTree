@@ -13,9 +13,9 @@ internal sealed class ClusterMaintainer : IMaintainer
   bool Disposed;
 
   // The defaults of a ZoneTree maintainer, used until a column maintainer reports its own.
-  int thresholdForMergeOperationStart;
+  int mergeThreshold;
   int maximumReadOnlySegmentCount = 64;
-  bool enableJobForCleaningInactiveCaches;
+  bool enableInactiveCacheCleanup;
   TimeSpan blockCacheLifeTime = TimeSpan.FromMinutes(1);
   TimeSpan inactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(30);
 
@@ -37,9 +37,9 @@ internal sealed class ClusterMaintainer : IMaintainer
     if (Maintainers.Count == 0)
       return;
     var first = Maintainers.Values.First();
-    thresholdForMergeOperationStart = first.ThresholdForMergeOperationStart;
+    mergeThreshold = first.MergeThreshold;
     maximumReadOnlySegmentCount = first.MaximumReadOnlySegmentCount;
-    enableJobForCleaningInactiveCaches = first.EnableJobForCleaningInactiveCaches;
+    enableInactiveCacheCleanup = first.EnableInactiveCacheCleanup;
     blockCacheLifeTime = first.BlockCacheLifeTime;
     inactiveBlockCacheCleanupInterval = first.InactiveBlockCacheCleanupInterval;
   }
@@ -52,11 +52,11 @@ internal sealed class ClusterMaintainer : IMaintainer
       if (Disposed || !FollowsNewColumns)
         return;
       var maintainer = column.CreateMaintainer();
-      maintainer.ThresholdForMergeOperationStart = thresholdForMergeOperationStart;
+      maintainer.MergeThreshold = mergeThreshold;
       maintainer.MaximumReadOnlySegmentCount = maximumReadOnlySegmentCount;
       maintainer.BlockCacheLifeTime = blockCacheLifeTime;
       maintainer.InactiveBlockCacheCleanupInterval = inactiveBlockCacheCleanupInterval;
-      maintainer.EnableJobForCleaningInactiveCaches = enableJobForCleaningInactiveCaches;
+      maintainer.EnableInactiveCacheCleanup = enableInactiveCacheCleanup;
       Maintainers.Add(column, maintainer);
     }
   }
@@ -91,12 +91,12 @@ internal sealed class ClusterMaintainer : IMaintainer
     }
   }
 
-  public int ThresholdForMergeOperationStart
+  public int MergeThreshold
   {
-    get => thresholdForMergeOperationStart;
+    get => mergeThreshold;
     set
     {
-      Set(() => thresholdForMergeOperationStart = value, maintainer => maintainer.ThresholdForMergeOperationStart = value);
+      Set(() => mergeThreshold = value, maintainer => maintainer.MergeThreshold = value);
     }
   }
 
@@ -109,12 +109,12 @@ internal sealed class ClusterMaintainer : IMaintainer
     }
   }
 
-  public bool EnableJobForCleaningInactiveCaches
+  public bool EnableInactiveCacheCleanup
   {
-    get => enableJobForCleaningInactiveCaches;
+    get => enableInactiveCacheCleanup;
     set
     {
-      Set(() => enableJobForCleaningInactiveCaches = value, maintainer => maintainer.EnableJobForCleaningInactiveCaches = value);
+      Set(() => enableInactiveCacheCleanup = value, maintainer => maintainer.EnableInactiveCacheCleanup = value);
     }
   }
 

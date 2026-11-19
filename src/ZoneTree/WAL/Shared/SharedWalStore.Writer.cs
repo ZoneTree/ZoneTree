@@ -227,7 +227,7 @@ internal sealed partial class SharedWalStore<TKey, TValue>
         continue;
       var interval = IsAsync ? Options.EmptyQueuePollInterval :
           Options.SyncJobInterval;
-      if (interval == 0) Thread.Yield();
+      if (interval == TimeSpan.Zero) Thread.Yield();
       else WakeWriter.Wait(interval);
     }
   }

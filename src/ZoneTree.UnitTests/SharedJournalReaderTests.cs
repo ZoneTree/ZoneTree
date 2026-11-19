@@ -13,7 +13,7 @@ public sealed class SharedJournalReaderTests
   static ZoneTreeFactory<int, int> Factory(IFileStreamProvider provider)
       => new ZoneTreeFactory<int, int>(provider)
           .SetDataDirectory(Directory)
-          .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.Shared);
+          .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.Shared);
 
   static int[] ReadKeys(IFileStreamProvider provider)
       => SharedJournalReader.ReadLiveRecords(new ConsoleLogger(LogLevel.Error), provider, Directory, new WriteAheadLogOptions())

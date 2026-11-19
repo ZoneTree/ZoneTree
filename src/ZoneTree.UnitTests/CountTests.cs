@@ -30,7 +30,7 @@ public sealed class CountTests
         .SetValueSerializer(new Int32Serializer())
         .ConfigureDiskSegmentOptions(x =>
         {
-          x.DiskSegmentMode = diskSegmentMode;
+          x.Mode = diskSegmentMode;
           if (minimumRecordCount > 0)
             x.MinimumRecordCount = minimumRecordCount;
           if (maximumRecordCount > 0)

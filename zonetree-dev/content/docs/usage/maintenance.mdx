@@ -61,13 +61,13 @@ After the mutable segment moves forward, the default maintainer starts a normal 
 
 | Setting | Default | Trigger |
 | --- | ---: | --- |
-| `ThresholdForMergeOperationStart` | `0` | Read-only record count exceeds the threshold. |
+| `MergeThreshold` | `0` | Read-only record count exceeds the threshold. |
 | `MaximumReadOnlySegmentCount` | `64` | Read-only segment count exceeds the limit. |
 
 With the default record threshold, any non-empty read-only layer can trigger a merge after movement. To collect larger batches or bound the number of queued segments:
 
 ```csharp
-maintainer.ThresholdForMergeOperationStart = 500_000;
+maintainer.MergeThreshold = 500_000;
 maintainer.MaximumReadOnlySegmentCount = 32;
 ```
 
@@ -126,15 +126,15 @@ The standard maintainer starts periodic cleanup automatically:
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `EnableJobForCleaningInactiveCaches` | `true` | Enables the periodic cleanup job. |
+| `EnableInactiveCacheCleanup` | `true` | Enables the periodic cleanup job. |
 | `BlockCacheLifeTime` | `1 minute` | Controls how long inactive decompressed disk blocks remain eligible for retention. |
 | `InactiveBlockCacheCleanupInterval` | `30 seconds` | Sets the timer period when the cleanup job starts. Restart the job to apply a changed interval. |
 
 ```csharp
-maintainer.EnableJobForCleaningInactiveCaches = false;
+maintainer.EnableInactiveCacheCleanup = false;
 maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(2);
 maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(15);
-maintainer.EnableJobForCleaningInactiveCaches = true;
+maintainer.EnableInactiveCacheCleanup = true;
 ```
 
 The cleanup interval is captured when the periodic timer is created; assigning the property alone does not reconfigure an already running timer. `BlockCacheLifeTime` is read on each cleanup pass.
@@ -235,7 +235,7 @@ A `null` return is not proof that maintenance is finished. Observe the existing 
         <td>Request cancellation of the active bottom merge.</td>
       </tr>
       <tr>
-        <td><code>SaveMetaData()</code></td>
+        <td><code>SaveMetadata()</code></td>
         <td>
           Refresh the JSON metadata file and clear pending metadata records.
         </td>
@@ -246,8 +246,8 @@ A `null` return is not proof that maintenance is finished. Observe the existing 
       </tr>
       <tr>
         <td>
-          <code>ReleaseCircularKeyCacheRecords()</code> /
-          <code>ReleaseCircularValueCacheRecords()</code>
+          <code>ReleaseKeyCacheRecords()</code> /
+          <code>ReleaseValueCacheRecords()</code>
         </td>
         <td>Release expired circular-cache entries.</td>
       </tr>
@@ -274,9 +274,9 @@ A `null` return is not proof that maintenance is finished. Observe the existing 
       observe disk-segment publication.
     </li>
     <li>
-      <code>OnCanNotDropReadOnlySegment</code>,
-      <code>OnCanNotDropDiskSegment</code>, and
-      <code>OnCanNotDropDiskSegmentCreator</code>: investigate failed cleanup of
+      <code>OnCannotDropReadOnlySegment</code>,
+      <code>OnCannotDropDiskSegment</code>, and
+      <code>OnCannotDropDiskSegmentCreator</code>: investigate failed cleanup of
       obsolete files or unfinished merge output.
     </li>
   </ul>

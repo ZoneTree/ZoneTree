@@ -67,10 +67,10 @@ public sealed class MaterializedEntryIteratorTests
         .SetDataDirectory("materialized-entry-iterators")
         .DisableDeletion()
         .Configure(options => options.AllowUnsafeOptionValues = true)
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.None)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.None)
         .ConfigureDiskSegmentOptions(options =>
         {
-          options.DiskSegmentMode = mode;
+          options.Mode = mode;
           options.MinimumRecordCount = 500;
           options.MaximumRecordCount = 700;
           options.CompressionBlockSize = compressionBlockSize;

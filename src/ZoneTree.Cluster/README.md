@@ -242,7 +242,7 @@ static async Task Example()
   }
 
   // Batch ordinary commits, then make all previously published commits durable.
-  await cluster.SyncWALAsync();
+  await cluster.SyncWalAsync();
 
   // Create a domain and its columns while the cluster runs. GetOrCreate is idempotent.
   var orders = await cluster.Schema.GetOrCreateDomainAsync("orders");
@@ -288,7 +288,7 @@ The interfaces describe the guarantees the cluster is built to provide.
 | `Commit()` / `TryCommit()` | Atomic commit across columns; survives a process crash. |
 | `CommitAsync()` / `TryCommitAsync()` | The same process-crash guarantee, with asynchronous completion. |
 | `CommitDurableAsync()` / `TryCommitDurableAsync()` | Atomic commit across columns; survives power loss or an OS crash. |
-| `SyncWALAsync()` | Makes completed raw writes and transactions committed before the call durable across power loss or an OS crash. |
+| `SyncWalAsync()` | Makes completed raw writes and transactions committed before the call durable across power loss or an OS crash. |
 
 Transactions accept `Serializable` and `Snapshot` isolation across the columns of
 their domain. A transaction reads one snapshot of the domain in every column, and a
@@ -300,7 +300,7 @@ Raw and standalone handles cannot be passed to `transaction.GetColumn(...)`. Raw
 independent of transaction snapshots, commit and rollback, and use plain ZoneTree's
 value/deletion settings. Raw handles are thread-safe; dispose their iterators when done.
 `IsReadOnly` prevents raw writes and new writing transactions. Cluster-wide
-`SyncWALAsync`, automatic syncing and maintenance include every kind of column.
+`SyncWalAsync`, automatic syncing and maintenance include every kind of column.
 
 The catalog stores each column's kind, domain and encodings. Declaring or creating a
 column with others fails with `SchemaConflictException`.

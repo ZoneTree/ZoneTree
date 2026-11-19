@@ -132,7 +132,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
   /// size only change how new records are written.
   /// </summary>
   internal static bool SameJournal(WriteAheadLogOptions left, WriteAheadLogOptions right)
-      => left.WriteAheadLogMode == right.WriteAheadLogMode &&
+      => left.Mode == right.Mode &&
          left.CompressionBlockSize == right.CompressionBlockSize &&
          left.CompressionMethod == right.CompressionMethod;
 
@@ -473,7 +473,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
   internal IEnumerable<Column> OpenColumnsOf(ClusterDomain domain)
       => OpenColumns.Values.Where(column => column.Domain == domain);
 
-  public Task SyncWALAsync(CancellationToken cancellationToken = default)
+  public Task SyncWalAsync(CancellationToken cancellationToken = default)
   {
     ThrowIfDisposed();
     cancellationToken.ThrowIfCancellationRequested();
@@ -481,7 +481,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     // coordinated columns together.
     var sync = Task.WhenAll(OpenColumns.Values
         .Where(column => column.Domain == null)
-        .Select(column => column.SyncWALAsync())
+        .Select(column => column.SyncWalAsync())
         .Concat(Domains.Values.Select(domain => domain.Coordinator.SyncAsync())));
     return cancellationToken.CanBeCanceled ? sync.WaitAsync(cancellationToken) : sync;
   }
@@ -606,11 +606,11 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
       => (GetColumn<TKey, TValue>(name, ColumnKind.Standalone, null) as StandaloneColumn<TKey, TValue>
           ?? throw TypeMismatch(name)).Tree;
 
-  public void SaveMetaData()
+  public void SaveMetadata()
   {
     ThrowIfDisposed();
     foreach (var column in OpenColumns.Values)
-      column.SaveMetaData();
+      column.SaveMetadata();
   }
 
   public void Drop()

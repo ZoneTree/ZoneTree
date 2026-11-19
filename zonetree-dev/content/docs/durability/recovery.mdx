@@ -121,11 +121,11 @@ The stop flags control how far reading continues. With continuation enabled, ret
 | `WriteAheadLogProvider` and concrete WAL implementations | Select the log format and supply the matching key/value serializers. |
 | `IWriteAheadLog.ReadLogEntries()` | Read deserialized records and structured failure details. |
 | `WriteAheadLogEntryReader` and `LogEntry` | Inspect record framing and checksums or compose a reader with custom deserialization callbacks. |
-| `ZoneTreeMetaWAL` | Inspect saved metadata and metadata-log operations to identify the storage shape. |
+| `ZoneTreeMetaWal` | Inspect saved metadata and metadata-log operations to identify the storage shape. |
 | `DiskSegmentFactory` | Open sorted disk segments with compatible options. |
 | `MutableSegmentLoader`, `ReadOnlySegmentLoader`, and `ZoneTreeLoader` | Reuse startup-loading components where their validation and replay behavior fits the tool. |
 
-Work on a copy of the affected files: some APIs create, move, flush, truncate, or rewrite files. For example, `GetOrCreateWAL()` can create a missing log, and ordinary tree opening can update metadata.
+Work on a copy of the affected files: some APIs create, move, flush, truncate, or rewrite files. For example, `GetOrCreateWal()` can create a missing log, and ordinary tree opening can update metadata.
 
 ## Preserve the data contracts
 

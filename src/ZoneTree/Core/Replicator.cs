@@ -64,7 +64,7 @@ public sealed class Replicator<TKey, TValue> : IDisposable
     if (configure != null) configure(factory);
     LatestOpIndexes = factory.OpenOrCreate();
     Maintainer = LatestOpIndexes.CreateMaintainer();
-    Maintainer.EnableJobForCleaningInactiveCaches = true;
+    Maintainer.EnableInactiveCacheCleanup = true;
   }
 
   /// <summary>

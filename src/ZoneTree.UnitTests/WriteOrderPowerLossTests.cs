@@ -24,7 +24,7 @@ public sealed class WriteOrderPowerLossTests
         .SetMutableSegmentMaxItemCount(mutableSegmentMaxItemCount)
         .ConfigureWriteAheadLogOptions(options =>
         {
-          options.WriteAheadLogMode = mode;
+          options.Mode = mode;
           options.CompressionBlockSize = 256;
         });
   }
@@ -42,7 +42,7 @@ public sealed class WriteOrderPowerLossTests
         // The value 0 is the deletion marker of the default int value.
         tree.Upsert(key, key + 1);
         if (key == 199)
-          tree.SyncWALAsync().GetAwaiter().GetResult();
+          tree.SyncWalAsync().GetAwaiter().GetResult();
         if (key % 100 == 99)
           tree.Maintenance.MoveMutableSegmentForward();
       }
@@ -70,7 +70,7 @@ public sealed class WriteOrderPowerLossTests
     var provider = new PowerLossFileStreamProvider();
     PowerLossFileStreamProvider afterPowerLoss;
     using (var tree = CreateFactory(provider, mode, 1000)
-        .ConfigureDiskSegmentOptions(options => options.DiskSegmentMode = diskSegmentMode)
+        .ConfigureDiskSegmentOptions(options => options.Mode = diskSegmentMode)
         .CreateTransactional())
     {
       var storage = tree.Maintenance.ZoneTree.Maintenance;
@@ -79,7 +79,7 @@ public sealed class WriteOrderPowerLossTests
         tx.Upsert(1, 10);
         tx.Commit();
       }
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
       storage.MoveMutableSegmentForward();
       storage.StartMergeOperation()?.Join();
 
@@ -127,7 +127,7 @@ public sealed class WriteOrderPowerLossTests
         tx.Commit();
         provider.FailDiskSync = path => path.Contains("/seg/shared/", StringComparison.Ordinal) &&
             path.EndsWith(".wal", StringComparison.Ordinal);
-        Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWALAsync());
+        Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWalAsync());
       }
       Assert.That(ReadCommitted(tree, 0), Is.EqualTo(100), "reads keep working");
       afterPowerLoss = provider.SimulatePowerLoss();
@@ -160,7 +160,7 @@ public sealed class WriteOrderPowerLossTests
         tx.Upsert(2 * i + 1, i);
         tx.Commit();
         if (i == syncedCount - 1)
-          tree.SyncWALAsync().GetAwaiter().GetResult();
+          tree.SyncWalAsync().GetAwaiter().GetResult();
       }
       var open = tree.BeginTransaction();
       open.Upsert(-1, -1);

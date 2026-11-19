@@ -22,7 +22,7 @@ public sealed class MutableSegmentLoader<TKey, TValue>
       out IWriteAheadLog<TKey, TValue> wal)
   {
     wal = Options.WriteAheadLogProvider
-        .GetOrCreateWAL(
+        .GetOrCreateWal(
             segmentId,
             ZoneTree<TKey, TValue>.SegmentWalCategory,
             Options.WriteAheadLogOptions,
@@ -37,7 +37,7 @@ public sealed class MutableSegmentLoader<TKey, TValue>
       }
       else
       {
-        Options.WriteAheadLogProvider.RemoveWAL(
+        Options.WriteAheadLogProvider.RemoveWal(
             segmentId,
             ZoneTree<TKey, TValue>.SegmentWalCategory);
         using var disposeWal = wal;

@@ -30,7 +30,7 @@ These are `DiskSegmentOptions` settings. A multipart logical segment can contain
 | Setting | Default | Scope and disable behavior |
 | --- | --- | --- |
 | `KeyCacheSize` / `ValueCacheSize` | `1024` each | Circular record-cache slots per physical part; `0` disables the corresponding cache. |
-| `KeyCacheRecordLifeTimeInMillisecond` / `ValueCacheRecordLifeTimeInMillisecond` | `10_000` each | Inactive circular entries become eligible for cleanup. |
+| `KeyCacheRecordLifeTime` / `ValueCacheRecordLifeTime` | 10 seconds each | Inactive circular entries become eligible for cleanup. |
 | `MaterializedEntryCacheSize` | `4096` | Chunk slots per decompressed block when created; `0` disables this cache. Each chunk holds positions for 16 keys and 16 values. |
 | `SearchHintPrefetchSize` | `16` | Lazy buffers per physical segment and calling thread; `0` disables search hints. |
 

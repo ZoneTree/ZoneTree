@@ -2,7 +2,7 @@ namespace ZoneTree.Options;
 
 public static class DiskSegmentDefaultValues
 {
-  public static readonly DiskSegmentMode DiskSegmentMode = DiskSegmentMode.MultiPartDiskSegment;
+  public static readonly DiskSegmentMode Mode = DiskSegmentMode.MultiPartDiskSegment;
 
   public static readonly int CompressionBlockSize = 4 * 1024 * 1024;
 
@@ -22,9 +22,9 @@ public static class DiskSegmentDefaultValues
 
   public static readonly int SearchHintPrefetchSize = 16;
 
-  public static readonly int KeyCacheRecordLifeTimeInMillisecond = 10_000;
+  public static readonly TimeSpan KeyCacheRecordLifeTime = TimeSpan.FromSeconds(10);
 
-  public static readonly int ValueCacheRecordLifeTimeInMillisecond = 10_000;
+  public static readonly TimeSpan ValueCacheRecordLifeTime = TimeSpan.FromSeconds(10);
 
   public static readonly int DefaultSparseArrayStepSize = 1024;
 }

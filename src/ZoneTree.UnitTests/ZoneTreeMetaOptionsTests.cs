@@ -33,7 +33,7 @@ public sealed class ZoneTreeMetaOptionsTests
     try
     {
       using var zoneTree = OpenConfiguredZoneTree(dataPath, expected);
-      zoneTree.Maintenance.SaveMetaData();
+      zoneTree.Maintenance.SaveMetadata();
 
       Assert.That(
           zoneTree.Maintenance.CloneOptions().DiskSegmentOptions.MaterializedEntryCacheSize,
@@ -60,7 +60,7 @@ public sealed class ZoneTreeMetaOptionsTests
     {
       using (var zoneTree = OpenConfiguredZoneTree(dataPath, staleOptions))
       {
-        zoneTree.Maintenance.SaveMetaData();
+        zoneTree.Maintenance.SaveMetadata();
       }
 
       AssertMetadataOptions(dataPath, staleOptions);
@@ -89,7 +89,7 @@ public sealed class ZoneTreeMetaOptionsTests
         .SetDiskSegmentMaxItemCount(expected.DiskSegmentMaxItemCount)
         .ConfigureWriteAheadLogOptions(options =>
         {
-          options.WriteAheadLogMode = expected.WriteAheadLogMode;
+          options.Mode = expected.WriteAheadLogMode;
           options.CustomOptions = expected.WriteAheadLogCustomOptions;
           options.CompressionBlockSize = expected.WriteAheadLogCompressionBlockSize;
           options.CompressionMethod = expected.WriteAheadLogCompressionMethod;
@@ -103,7 +103,7 @@ public sealed class ZoneTreeMetaOptionsTests
         })
         .ConfigureDiskSegmentOptions(options =>
         {
-          options.DiskSegmentMode = expected.DiskSegmentMode;
+          options.Mode = expected.DiskSegmentMode;
           options.CompressionBlockSize = expected.DiskSegmentCompressionBlockSize;
           options.CompressionMethod = expected.DiskSegmentCompressionMethod;
           options.CompressionLevel = expected.DiskSegmentCompressionLevel;
@@ -113,10 +113,10 @@ public sealed class ZoneTreeMetaOptionsTests
           options.ValueCacheSize = expected.DiskSegmentValueCacheSize;
           options.MaterializedEntryCacheSize = expected.DiskSegmentMaterializedEntryCacheSize;
           options.SearchHintPrefetchSize = expected.DiskSegmentSearchHintPrefetchSize;
-          options.KeyCacheRecordLifeTimeInMillisecond =
-              expected.DiskSegmentKeyCacheRecordLifeTimeInMillisecond;
-          options.ValueCacheRecordLifeTimeInMillisecond =
-              expected.DiskSegmentValueCacheRecordLifeTimeInMillisecond;
+          options.KeyCacheRecordLifeTime =
+              expected.DiskSegmentKeyCacheRecordLifeTime;
+          options.ValueCacheRecordLifeTime =
+              expected.DiskSegmentValueCacheRecordLifeTime;
           options.DefaultSparseArrayStepSize = expected.DefaultSparseArrayStepSize;
         })
         .OpenOrCreate();
@@ -136,9 +136,9 @@ public sealed class ZoneTreeMetaOptionsTests
           WriteAheadLogCompressionBlockSize: 128 * 1024,
           WriteAheadLogCompressionMethod: CompressionMethod.None,
           WriteAheadLogCompressionLevel: 0,
-          EmptyQueuePollInterval: 17,
+          EmptyQueuePollInterval: TimeSpan.FromMilliseconds(17),
           EnableSyncJob: false,
-          SyncJobInterval: 19,
+          SyncJobInterval: TimeSpan.FromMilliseconds(19),
           DiskSegmentMode: DiskSegmentMode.SingleDiskSegment,
           DiskSegmentCompressionBlockSize: 256 * 1024,
           DiskSegmentCompressionMethod: CompressionMethod.None,
@@ -149,8 +149,8 @@ public sealed class ZoneTreeMetaOptionsTests
           DiskSegmentValueCacheSize: 13,
           DiskSegmentMaterializedEntryCacheSize: 17,
           DiskSegmentSearchHintPrefetchSize: 19,
-          DiskSegmentKeyCacheRecordLifeTimeInMillisecond: 23,
-          DiskSegmentValueCacheRecordLifeTimeInMillisecond: 29,
+          DiskSegmentKeyCacheRecordLifeTime: TimeSpan.FromMilliseconds(23),
+          DiskSegmentValueCacheRecordLifeTime: TimeSpan.FromMilliseconds(29),
           DefaultSparseArrayStepSize: 31),
 
       "active" => new ExpectedOptions(
@@ -162,9 +162,9 @@ public sealed class ZoneTreeMetaOptionsTests
           WriteAheadLogCompressionBlockSize: 192 * 1024,
           WriteAheadLogCompressionMethod: CompressionMethod.Zstd,
           WriteAheadLogCompressionLevel: CompressionLevels.Zstd1,
-          EmptyQueuePollInterval: 43,
+          EmptyQueuePollInterval: TimeSpan.FromMilliseconds(43),
           EnableSyncJob: true,
-          SyncJobInterval: 47,
+          SyncJobInterval: TimeSpan.FromMilliseconds(47),
           DiskSegmentMode: DiskSegmentMode.MultiPartDiskSegment,
           DiskSegmentCompressionBlockSize: 384 * 1024,
           DiskSegmentCompressionMethod: CompressionMethod.Zstd,
@@ -175,8 +175,8 @@ public sealed class ZoneTreeMetaOptionsTests
           DiskSegmentValueCacheSize: 19,
           DiskSegmentMaterializedEntryCacheSize: 23,
           DiskSegmentSearchHintPrefetchSize: 29,
-          DiskSegmentKeyCacheRecordLifeTimeInMillisecond: 31,
-          DiskSegmentValueCacheRecordLifeTimeInMillisecond: 37,
+          DiskSegmentKeyCacheRecordLifeTime: TimeSpan.FromMilliseconds(31),
+          DiskSegmentValueCacheRecordLifeTime: TimeSpan.FromMilliseconds(37),
           DefaultSparseArrayStepSize: 41),
 
       "created" => new ExpectedOptions(
@@ -188,9 +188,9 @@ public sealed class ZoneTreeMetaOptionsTests
           WriteAheadLogCompressionBlockSize: 224 * 1024,
           WriteAheadLogCompressionMethod: CompressionMethod.Zstd,
           WriteAheadLogCompressionLevel: CompressionLevels.Zstd3,
-          EmptyQueuePollInterval: 59,
+          EmptyQueuePollInterval: TimeSpan.FromMilliseconds(59),
           EnableSyncJob: false,
-          SyncJobInterval: 61,
+          SyncJobInterval: TimeSpan.FromMilliseconds(61),
           DiskSegmentMode: DiskSegmentMode.MultiPartDiskSegment,
           DiskSegmentCompressionBlockSize: 512 * 1024,
           DiskSegmentCompressionMethod: CompressionMethod.Zstd,
@@ -201,8 +201,8 @@ public sealed class ZoneTreeMetaOptionsTests
           DiskSegmentValueCacheSize: 29,
           DiskSegmentMaterializedEntryCacheSize: 31,
           DiskSegmentSearchHintPrefetchSize: 37,
-          DiskSegmentKeyCacheRecordLifeTimeInMillisecond: 41,
-          DiskSegmentValueCacheRecordLifeTimeInMillisecond: 43,
+          DiskSegmentKeyCacheRecordLifeTime: TimeSpan.FromMilliseconds(41),
+          DiskSegmentValueCacheRecordLifeTime: TimeSpan.FromMilliseconds(43),
           DefaultSparseArrayStepSize: 47),
 
       _ => throw new ArgumentOutOfRangeException(nameof(customOptions))
@@ -229,7 +229,7 @@ public sealed class ZoneTreeMetaOptionsTests
 
     var walOptions = meta.WriteAheadLogOptions;
     Assert.That(walOptions, Is.Not.Null);
-    Assert.That(walOptions.WriteAheadLogMode, Is.EqualTo(expected.WriteAheadLogMode));
+    Assert.That(walOptions.Mode, Is.EqualTo(expected.WriteAheadLogMode));
     Assert.That(walOptions.CompressionBlockSize, Is.EqualTo(expected.WriteAheadLogCompressionBlockSize));
     Assert.That(walOptions.CompressionMethod, Is.EqualTo(expected.WriteAheadLogCompressionMethod));
     Assert.That(walOptions.CompressionLevel, Is.EqualTo(expected.WriteAheadLogCompressionLevel));
@@ -242,7 +242,7 @@ public sealed class ZoneTreeMetaOptionsTests
 
     var diskOptions = meta.DiskSegmentOptions;
     Assert.That(diskOptions, Is.Not.Null);
-    Assert.That(diskOptions.DiskSegmentMode, Is.EqualTo(expected.DiskSegmentMode));
+    Assert.That(diskOptions.Mode, Is.EqualTo(expected.DiskSegmentMode));
     Assert.That(diskOptions.CompressionBlockSize, Is.EqualTo(expected.DiskSegmentCompressionBlockSize));
     Assert.That(diskOptions.CompressionMethod, Is.EqualTo(expected.DiskSegmentCompressionMethod));
     Assert.That(diskOptions.CompressionLevel, Is.EqualTo(expected.DiskSegmentCompressionLevel));
@@ -254,10 +254,10 @@ public sealed class ZoneTreeMetaOptionsTests
         Is.EqualTo(expected.DiskSegmentMaterializedEntryCacheSize));
     Assert.That(diskOptions.SearchHintPrefetchSize,
         Is.EqualTo(expected.DiskSegmentSearchHintPrefetchSize));
-    Assert.That(diskOptions.KeyCacheRecordLifeTimeInMillisecond,
-        Is.EqualTo(expected.DiskSegmentKeyCacheRecordLifeTimeInMillisecond));
-    Assert.That(diskOptions.ValueCacheRecordLifeTimeInMillisecond,
-        Is.EqualTo(expected.DiskSegmentValueCacheRecordLifeTimeInMillisecond));
+    Assert.That(diskOptions.KeyCacheRecordLifeTime,
+        Is.EqualTo(expected.DiskSegmentKeyCacheRecordLifeTime));
+    Assert.That(diskOptions.ValueCacheRecordLifeTime,
+        Is.EqualTo(expected.DiskSegmentValueCacheRecordLifeTime));
     Assert.That(diskOptions.DefaultSparseArrayStepSize,
         Is.EqualTo(expected.DefaultSparseArrayStepSize));
 
@@ -299,9 +299,9 @@ public sealed class ZoneTreeMetaOptionsTests
       int WriteAheadLogCompressionBlockSize,
       CompressionMethod WriteAheadLogCompressionMethod,
       int WriteAheadLogCompressionLevel,
-      int EmptyQueuePollInterval,
+      TimeSpan EmptyQueuePollInterval,
       bool EnableSyncJob,
-      int SyncJobInterval,
+      TimeSpan SyncJobInterval,
       DiskSegmentMode DiskSegmentMode,
       int DiskSegmentCompressionBlockSize,
       CompressionMethod DiskSegmentCompressionMethod,
@@ -312,7 +312,7 @@ public sealed class ZoneTreeMetaOptionsTests
       int DiskSegmentValueCacheSize,
       int DiskSegmentMaterializedEntryCacheSize,
       int DiskSegmentSearchHintPrefetchSize,
-      int DiskSegmentKeyCacheRecordLifeTimeInMillisecond,
-      int DiskSegmentValueCacheRecordLifeTimeInMillisecond,
+      TimeSpan DiskSegmentKeyCacheRecordLifeTime,
+      TimeSpan DiskSegmentValueCacheRecordLifeTime,
       int DefaultSparseArrayStepSize);
 }

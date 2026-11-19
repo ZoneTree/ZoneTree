@@ -46,7 +46,7 @@ public interface ITransactionalZoneTreeMaintenance<TKey, TValue>
   /// <summary>
   /// Saves the storage tree metadata.
   /// </summary>
-  void SaveMetaData();
+  void SaveMetadata();
 
   /// <summary>
   /// Disposes the tree and deletes its files.

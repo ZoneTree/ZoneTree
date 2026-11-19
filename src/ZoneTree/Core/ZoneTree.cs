@@ -19,7 +19,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
   readonly ZoneTreeMeta ZoneTreeMeta = new();
 
-  readonly ZoneTreeMetaWAL<TKey, TValue> MetaWal;
+  readonly ZoneTreeMetaWal<TKey, TValue> MetaWal;
 
   readonly ZoneTreeOptions<TKey, TValue> Options;
 
@@ -134,11 +134,11 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
   public event DiskSegmentCreated<TKey, TValue> OnDiskSegmentActivated;
 
-  public event CanNotDropReadOnlySegment<TKey, TValue> OnCanNotDropReadOnlySegment;
+  public event CannotDropReadOnlySegment<TKey, TValue> OnCannotDropReadOnlySegment;
 
-  public event CanNotDropDiskSegment<TKey, TValue> OnCanNotDropDiskSegment;
+  public event CannotDropDiskSegment<TKey, TValue> OnCannotDropDiskSegment;
 
-  public event CanNotDropDiskSegmentCreator<TKey, TValue> OnCanNotDropDiskSegmentCreator;
+  public event CannotDropDiskSegmentCreator<TKey, TValue> OnCannotDropDiskSegmentCreator;
 
   public event ZoneTreeIsDisposing<TKey, TValue> OnZoneTreeIsDisposing;
 
@@ -166,7 +166,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
   {
     Logger = options.Logger;
     options.WriteAheadLogProvider.InitCategory(SegmentWalCategory);
-    MetaWal = new ZoneTreeMetaWAL<TKey, TValue>(options, false);
+    MetaWal = new ZoneTreeMetaWal<TKey, TValue>(options, false);
     Options = options;
     MinHeapEntryComparer = new MinHeapEntryRefComparer<TKey, TValue>(options.Comparer);
     MaxHeapEntryComparer = new MaxHeapEntryRefComparer<TKey, TValue>(options.Comparer);
@@ -176,7 +176,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     FillZoneTreeMeta();
     ZoneTreeMeta.DbVersion = ZoneTreeInfo.DbVersion.ToString();
     ZoneTreeMeta.MaximumOpIndex = MutableSegment.OpIndexProvider.LastId;
-    MetaWal.SaveMetaData(
+    MetaWal.SaveMetadata(
         ZoneTreeMeta,
         MutableSegment.SegmentId,
         DiskSegment.SegmentId,
@@ -198,7 +198,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     Logger = options.Logger;
     options.WriteAheadLogProvider.InitCategory(SegmentWalCategory);
     IncrementalIdProvider.SetNextId(maximumSegmentId + 1);
-    MetaWal = new ZoneTreeMetaWAL<TKey, TValue>(options, false, meta.MetaWalGeneration);
+    MetaWal = new ZoneTreeMetaWal<TKey, TValue>(options, false, meta.MetaWalGeneration);
     ZoneTreeMeta = meta;
     Options = options;
     MinHeapEntryComparer = new MinHeapEntryRefComparer<TKey, TValue>(options.Comparer);
@@ -236,10 +236,10 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
   void ReportDropFailure(IDiskSegment<TKey, TValue> ds, Exception e)
   {
-    OnCanNotDropDiskSegment?.Invoke(ds, e);
+    OnCannotDropDiskSegment?.Invoke(ds, e);
   }
 
-  public void SaveMetaData()
+  public void SaveMetadata()
   {
     lock (ShortMergerLock)
       lock (AtomicUpdateLock)
@@ -263,7 +263,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         var readOnlySegments = ReadOnlySegmentQueue.Select(x => x.SegmentId);
         try
         {
-          MetaWal.SaveMetaData(
+          MetaWal.SaveMetadata(
               ZoneTreeMeta,
               next?.SegmentId ?? MutableSegment.SegmentId,
               DiskSegment.SegmentId,
@@ -279,7 +279,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       }
   }
 
-  public Task SyncWALAsync(CancellationToken cancellationToken = default)
+  public Task SyncWalAsync(CancellationToken cancellationToken = default)
   {
     // Read the mutable segment before the read-only segments.
     // MoveMutableSegmentForward queues the frozen segment before it
@@ -289,11 +289,11 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     var mutableSegment = MutableSegment;
     // One shared journal covers every logical segment. Avoid allocating a
     // sync request per frozen segment when the tree has a large merge backlog.
-    if (Options.WriteAheadLogProvider.GetWAL<TKey, TValue>(mutableSegment.SegmentId, SegmentWalCategory)
+    if (Options.WriteAheadLogProvider.GetWal<TKey, TValue>(mutableSegment.SegmentId, SegmentWalCategory)
         is ZoneTree.WAL.ISharedWriteAheadLogCoordinator sharedWal)
       return sharedWal.SyncAsync().WaitAsync(cancellationToken);
     var readOnlySegments = ReadOnlySegmentQueue.ToLastInFirstArray();
-    var task = mutableSegment.SyncWALAsync();
+    var task = mutableSegment.SyncWalAsync();
     List<Task> syncTasks = null;
     foreach (var segment in readOnlySegments)
     {
@@ -303,7 +303,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         continue;
       // Private WALs sync when closed. Shared WAL handles instead sync the
       // ordered journal and can share this call with the mutable segment.
-      var syncTask = frozenSegment.SyncWALAsync();
+      var syncTask = frozenSegment.SyncWalAsync();
       if (!syncTask.IsCompletedSuccessfully)
         (syncTasks ??= [task]).Add(syncTask);
     }
@@ -323,24 +323,24 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     return total;
   }
 
-  public int ReleaseCircularKeyCacheRecords()
+  public int ReleaseKeyCacheRecords()
   {
     var total = 0;
-    if (DiskSegment != null) total += DiskSegment.ReleaseCircularKeyCacheRecords();
+    if (DiskSegment != null) total += DiskSegment.ReleaseKeyCacheRecords();
     foreach (var bs in BottomSegments)
     {
-      total += bs.ReleaseCircularKeyCacheRecords();
+      total += bs.ReleaseKeyCacheRecords();
     }
     return total;
   }
 
-  public int ReleaseCircularValueCacheRecords()
+  public int ReleaseValueCacheRecords()
   {
     var total = 0;
-    if (DiskSegment != null) total += DiskSegment.ReleaseCircularValueCacheRecords();
+    if (DiskSegment != null) total += DiskSegment.ReleaseValueCacheRecords();
     foreach (var bs in BottomSegments)
     {
-      total += bs.ReleaseCircularValueCacheRecords();
+      total += bs.ReleaseValueCacheRecords();
     }
     return total;
   }
@@ -482,14 +482,14 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       CompressionLevel = dsk.CompressionLevel,
       CompressionMethod = dsk.CompressionMethod,
       DefaultSparseArrayStepSize = dsk.DefaultSparseArrayStepSize,
-      DiskSegmentMode = dsk.DiskSegmentMode,
-      KeyCacheRecordLifeTimeInMillisecond = dsk.KeyCacheRecordLifeTimeInMillisecond,
+      Mode = dsk.Mode,
+      KeyCacheRecordLifeTime = dsk.KeyCacheRecordLifeTime,
       KeyCacheSize = dsk.KeyCacheSize,
       MaterializedEntryCacheSize = dsk.MaterializedEntryCacheSize,
       SearchHintPrefetchSize = dsk.SearchHintPrefetchSize,
       MaximumRecordCount = dsk.MaximumRecordCount,
       MinimumRecordCount = dsk.MinimumRecordCount,
-      ValueCacheRecordLifeTimeInMillisecond = dsk.ValueCacheRecordLifeTimeInMillisecond,
+      ValueCacheRecordLifeTime = dsk.ValueCacheRecordLifeTime,
       ValueCacheSize = dsk.ValueCacheSize,
     };
 

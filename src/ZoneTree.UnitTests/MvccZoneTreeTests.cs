@@ -38,11 +38,11 @@ public sealed class MvccZoneTreeTests
         .SetMutableSegmentMaxItemCount(mutableSegmentMaxItemCount)
         .ConfigureDiskSegmentOptions(options =>
         {
-          options.DiskSegmentMode = diskSegmentMode;
+          options.Mode = diskSegmentMode;
           options.MinimumRecordCount = 2;
           options.MaximumRecordCount = 16;
         })
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = walMode);
+        .ConfigureWriteAheadLogOptions(options => options.Mode = walMode);
   }
 
   static void Write(ITransactionalZoneTree<int, int> tree, params (int Key, int Value)[] records)
@@ -1079,7 +1079,7 @@ public sealed class MvccZoneTreeTests
       Assert.Throws<TransactionAbortedException>(() => tx.Commit());
       Assert.That(ReadCommitted(tree, 1), Is.EqualTo(10));
       Write(tree, (2, 30));
-      tree.SyncWALAsync().GetAwaiter().GetResult();
+      tree.SyncWalAsync().GetAwaiter().GetResult();
     }
     using var reopened = CreateFactory().SetValueSerializer(serializer).OpenTransactional();
     Assert.That(ReadCommitted(reopened, 1), Is.EqualTo(10));

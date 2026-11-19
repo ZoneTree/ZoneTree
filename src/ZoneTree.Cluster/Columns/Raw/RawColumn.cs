@@ -132,14 +132,14 @@ internal sealed class RawColumn<TKey, TValue> : Column,
     DiskSegmentPrefetchSize = options.DiskSegmentPrefetchSize
   };
 
-  public Task SyncWALAsync(CancellationToken cancellationToken = default)
+  public Task SyncWalAsync(CancellationToken cancellationToken = default)
   {
     EnsureUsable();
-    return Tree.SyncWALAsync(cancellationToken);
+    return Tree.SyncWalAsync(cancellationToken);
   }
 
-  internal override Task SyncWALAsync() => SyncWALAsync(default);
-  internal override void SaveMetaData() => Tree.Maintenance.SaveMetaData();
+  internal override Task SyncWalAsync() => SyncWalAsync(default);
+  internal override void SaveMetadata() => Tree.Maintenance.SaveMetadata();
   internal override ColumnView CreateView(bool writing, TransactionIsolationLevel isolation,
       long transactionId, long snapshotTimestamp)
       => throw new InvalidOperationException("Raw columns cannot participate in cluster transactions.");
@@ -172,7 +172,7 @@ internal sealed class RawColumn<TKey, TValue> : Column,
     {
       while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
       {
-        try { await Tree.SyncWALAsync(cancellationToken).ConfigureAwait(false); }
+        try { await Tree.SyncWalAsync(cancellationToken).ConfigureAwait(false); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return; }
         catch (Exception error) { Tree.Logger.LogError(error); }
       }

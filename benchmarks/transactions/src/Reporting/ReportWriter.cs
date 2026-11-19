@@ -380,7 +380,7 @@ public static class ReportWriter
     }
     md.AppendLine("### Durability");
     md.AppendLine();
-    md.AppendLine("The `durability` scenarios wait for disk durability on every engine: transactional ZoneTree with `TryCommitDurableAsync`, RocksDB with `sync=true`, SQLite with `synchronous=FULL`. ZoneTree durable transactions sync their commit record before publication; raw ZoneTree calls `SyncWALAsync` at the scenario boundary without multi-key transaction atomicity.");
+    md.AppendLine("The `durability` scenarios wait for disk durability on every engine: transactional ZoneTree with `TryCommitDurableAsync`, RocksDB with `sync=true`, SQLite with `synchronous=FULL`. ZoneTree durable transactions sync their commit record before publication; raw ZoneTree calls `SyncWalAsync` at the scenario boundary without multi-key transaction atomicity.");
     md.AppendLine();
     md.AppendLine("The other scenarios use each engine's usual setting, where a commit does not wait for the disk:");
     md.AppendLine();

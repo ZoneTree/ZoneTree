@@ -390,7 +390,7 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// <see cref="Options.WriteAheadLogMode.None"/> mode there is no write
   /// ahead log, and the task completes at once without making writes durable.
   /// </returns>
-  Task SyncWALAsync(CancellationToken cancellationToken = default);
+  Task SyncWalAsync(CancellationToken cancellationToken = default);
 
   /// <summary>
   /// Returns maintenance object belongs to this ZoneTree.

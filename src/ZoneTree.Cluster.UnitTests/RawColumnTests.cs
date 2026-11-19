@@ -44,7 +44,7 @@ public sealed class RawColumnTests
       DataDirectory = DataDirectory,
       Logger = SilentTestLogger.Instance,
       FileStreamProvider = files,
-      CoordinatedWriteAheadLog = coordinatedWal ?? new() { WriteAheadLogMode = WriteAheadLogMode.Shared },
+      CoordinatedWriteAheadLog = coordinatedWal ?? new() { Mode = WriteAheadLogMode.Shared },
       Domains = ClusterTestDomains.Domains(columns),
       Columns = ClusterTestDomains.Others(columns)
     };
@@ -59,7 +59,7 @@ public sealed class RawColumnTests
       DataDirectory = DataDirectory,
       Logger = SilentTestLogger.Instance,
       StorageDefaults = defaults,
-      CoordinatedWriteAheadLog = new() { WriteAheadLogMode = WriteAheadLogMode.AsyncShared },
+      CoordinatedWriteAheadLog = new() { Mode = WriteAheadLogMode.AsyncShared },
       Domains =
       [
         new DomainDefinition(Domain)
@@ -91,11 +91,11 @@ public sealed class RawColumnTests
       var cache = cluster.GetRawColumnMaintenance<int, string>("cache").CloneOptions();
       var counters = cluster.GetRawColumnMaintenance<long, long>("counters").CloneOptions();
       Assert.That(balances.MutableSegmentMaxItemCount, Is.EqualTo(20_000));
-      Assert.That(balances.WriteAheadLogOptions.WriteAheadLogMode, Is.EqualTo(WriteAheadLogMode.AsyncShared));
+      Assert.That(balances.WriteAheadLogOptions.Mode, Is.EqualTo(WriteAheadLogMode.AsyncShared));
       Assert.That(names.MutableSegmentMaxItemCount, Is.EqualTo(10_000));
-      Assert.That(names.WriteAheadLogOptions.WriteAheadLogMode, Is.EqualTo(WriteAheadLogMode.AsyncShared));
+      Assert.That(names.WriteAheadLogOptions.Mode, Is.EqualTo(WriteAheadLogMode.AsyncShared));
       Assert.That(cache.MutableSegmentMaxItemCount, Is.EqualTo(10_000));
-      Assert.That(cache.WriteAheadLogOptions.WriteAheadLogMode, Is.EqualTo(WriteAheadLogMode.AsyncShared));
+      Assert.That(cache.WriteAheadLogOptions.Mode, Is.EqualTo(WriteAheadLogMode.AsyncShared));
       Assert.That(cache.DiskSegmentOptions.KeyCacheSize, Is.EqualTo(256));
       Assert.That(counters.MutableSegmentMaxItemCount, Is.EqualTo(10_000));
       Assert.That(counters.DiskSegmentOptions.KeyCacheSize, Is.EqualTo(128));
@@ -141,7 +141,7 @@ public sealed class RawColumnTests
           .ConfigureDiskSegmentOptions(disk => disk.KeyCacheSize = 128);
       // The cluster sets the journal of coordinated columns.
       if (column.Kind != ColumnKind.Coordinated)
-        storage.ConfigureWriteAheadLogOptions(wal => wal.WriteAheadLogMode = WriteAheadLogMode.AsyncShared);
+        storage.ConfigureWriteAheadLogOptions(wal => wal.Mode = WriteAheadLogMode.AsyncShared);
     }
   }
 
@@ -203,7 +203,7 @@ public sealed class RawColumnTests
       while (forward.Next()) keys.Add(forward.CurrentKey);
       Assert.That(keys, Is.EqualTo(new[] { 2, 4, 5 }));
     }
-    await cache.SyncWALAsync();
+    await cache.SyncWalAsync();
   }
 
   [Test]
@@ -256,13 +256,13 @@ public sealed class RawColumnTests
     var options = Options(new CoordinatedColumnDefinition<int, int>("balances"),
         new RawColumnDefinition<int, string>("cache")
         {
-          ConfigureStorage = factory => factory.ConfigureWriteAheadLogOptions(wal => wal.WriteAheadLogMode = mode)
+          ConfigureStorage = factory => factory.ConfigureWriteAheadLogOptions(wal => wal.Mode = mode)
         });
     using (var cluster = Factory.CreateInProcess(options))
     {
       cluster.GetDomain(Domain).GetColumn<int, int>("balances").Upsert(1, 100);
       cluster.GetRawColumn<int, string>("cache").Upsert(1, "value");
-      await cluster.SyncWALAsync();
+      await cluster.SyncWalAsync();
     }
     using var reopened = Factory.OpenInProcess(options);
     Assert.That(reopened.GetDomain(Domain).GetColumn<int, int>("balances").TryGet(1, out var balance), Is.True);
@@ -292,7 +292,7 @@ public sealed class RawColumnTests
     // The coordinated journals use the cluster's file streams; the raw column has its own log.
     var transactionalFiles = new PowerLossFileStreamProvider();
     var rawFiles = new PowerLossFileStreamProvider();
-    var coordinatedWal = new WriteAheadLogOptions { WriteAheadLogMode = WriteAheadLogMode.Shared };
+    var coordinatedWal = new WriteAheadLogOptions { Mode = WriteAheadLogMode.Shared };
     using var cluster = Factory.CreateInProcess(Options(transactionalFiles, coordinatedWal,
         new CoordinatedColumnDefinition<int, int>("balances"),
         new RawColumnDefinition<int, string>("cache")
@@ -307,7 +307,7 @@ public sealed class RawColumnTests
     cache.Upsert(1, "first");
     var beforeTransactional = transactionalFiles.DiskSyncCount;
     var beforeRaw = rawFiles.DiskSyncCount;
-    await cluster.SyncWALAsync();
+    await cluster.SyncWalAsync();
     Assert.That(transactionalFiles.DiskSyncCount, Is.GreaterThan(beforeTransactional));
     Assert.That(rawFiles.DiskSyncCount, Is.GreaterThan(beforeRaw));
     cache.Upsert(1, "second");
@@ -328,7 +328,7 @@ public sealed class RawColumnTests
       cache.Upsert([1, 5], [4]);
       cache.Upsert([9], [9]);
       cache.Delete([9]);
-      await cluster.SyncWALAsync();
+      await cluster.SyncWalAsync();
     }
     using var reopened = Factory.OpenInProcess(options);
     var restored = reopened.GetRawColumn<byte[], byte[]>("cache");
@@ -347,7 +347,7 @@ public sealed class RawColumnTests
     using (var cluster = Factory.CreateInProcess(Options(new RawColumnDefinition<Memory<byte>, Memory<byte>>("cache"))))
     {
       cluster.GetRawColumn<Memory<byte>, Memory<byte>>("cache").Upsert(new byte[] { 1 }, new byte[] { 7 });
-      await cluster.SyncWALAsync();
+      await cluster.SyncWalAsync();
     }
     using var reopened = Factory.OpenInProcess(new ZoneTreeClusterOptions
     {
@@ -369,11 +369,11 @@ public sealed class RawColumnTests
     Assert.That(cluster.Maintenance.ActiveTransactionCount, Is.Zero);
     using (var maintainer = cluster.CreateMaintainer())
     {
-      maintainer.EnableJobForCleaningInactiveCaches = false;
+      maintainer.EnableInactiveCacheCleanup = false;
       maintainer.EvictToDisk();
       await maintainer.WaitForBackgroundThreadsAsync();
     }
-    cluster.Maintenance.SaveMetaData();
+    cluster.Maintenance.SaveMetadata();
     Assert.That(cache.TryGet(499, out var value), Is.True);
     Assert.That(value, Is.EqualTo("499"));
     cluster.Maintenance.Drop();
