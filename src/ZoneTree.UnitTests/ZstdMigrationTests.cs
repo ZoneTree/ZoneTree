@@ -276,6 +276,33 @@ public sealed class ZstdMigrationTests
   }
 
   [Test]
+  public void MigrationLeavesTheWalsOfANestedTree()
+  {
+    var dataPath = CreateDataPath();
+    var nestedPath = Path.Combine(dataPath, "nested");
+    try
+    {
+      using (var tree = CreateFactory(
+          dataPath, SilentTestLogger.Instance, walMethod: CompressionMethod.LZ4).OpenOrCreate())
+        Insert(tree, 0, 100);
+      using (var nested = CreateFactory(
+          nestedPath, SilentTestLogger.Instance, walMethod: CompressionMethod.LZ4).OpenOrCreate())
+        Insert(nested, 0, 100);
+      var nestedWal = Directory.GetFiles(Path.Combine(nestedPath, "seg"), "*.wal_xxh3.1").Single();
+      var nestedWalBytes = File.ReadAllBytes(nestedWal);
+
+      using (var tree = CreateFactory(dataPath, SilentTestLogger.Instance).EnableZstdMigration().OpenOrCreate())
+        AssertRecords(tree, 100);
+      Assert.That(ReadDbVersion(dataPath), Is.EqualTo(CurrentDbVersion));
+      Assert.That(File.ReadAllBytes(nestedWal), Is.EqualTo(nestedWalBytes));
+    }
+    finally
+    {
+      DeleteDataPath(dataPath);
+    }
+  }
+
+  [Test]
   public void MigrationOfAMigratedDatabaseDoesNothing()
   {
     var dataPath = CreateDataPath();

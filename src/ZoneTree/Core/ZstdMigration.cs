@@ -82,15 +82,12 @@ sealed class ZstdMigration<TKey, TValue>
           return LegacyFormats.IsLegacy(method);
         })
         .ToArray();
-    var wals = WalDirectory == null
-        ? []
-        : GetFilesRecursively(WalDirectory)
-            .Where(IsCompressedWal)
-            .Where(path => LegacyFormats.IsLegacy(CompressedFileStream.ReadCompressionMethod(Files, path)))
-            .ToArray();
-    var syncWals = WalDirectory == null
-        ? []
-        : GetFilesRecursively(WalDirectory).Where(IsSyncWal).ToArray();
+    var walFiles = GetWalFiles();
+    var wals = walFiles
+        .Where(IsCompressedWal)
+        .Where(path => LegacyFormats.IsLegacy(CompressedFileStream.ReadCompressionMethod(Files, path)))
+        .ToArray();
+    var syncWals = walFiles.Where(IsSyncWal).ToArray();
     if (devices.Length == 0 && multiPartHeaders.Length == 0 && wals.Length == 0 && syncWals.Length == 0)
       return;
 
@@ -110,8 +107,21 @@ sealed class ZstdMigration<TKey, TValue>
       Files.SyncDirectory(directory);
   }
 
-  IEnumerable<string> GetFilesRecursively(string directory) =>
-      Files.GetFiles(directory).Concat(Files.GetDirectories(directory).SelectMany(GetFilesRecursively));
+  /// <summary>
+  /// Returns the WAL files of the segments and the chunks of a shared WAL. Other directories
+  /// in the WAL directory, such as the directory of another tree, are not searched.
+  /// </summary>
+  string[] GetWalFiles()
+  {
+    if (WalDirectory == null)
+      return [];
+    var segmentWals = Path.Combine(WalDirectory, ZoneTree<TKey, TValue>.SegmentWalCategory);
+    var sharedWal = Path.Combine(segmentWals, SharedWalStore<TKey, TValue>.DirectoryName);
+    return [.. FilesIn(segmentWals), .. FilesIn(sharedWal)];
+  }
+
+  IReadOnlyList<string> FilesIn(string directory) =>
+      Files.DirectoryExists(directory) ? Files.GetFiles(directory) : [];
 
   static bool IsCompressedWal(string path)
   {
