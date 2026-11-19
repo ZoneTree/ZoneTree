@@ -54,7 +54,7 @@ public sealed class ZoneTreeFactoryValidationTests
   public void InvalidNestedOptionsFail()
   {
     var factory = new ZoneTreeFactory<int, int>()
-        .ConfigureWriteAheadLogOptions(options => options.AsyncPrivateModeOptions = null);
+        .ConfigureWriteAheadLogOptions(options => options.SharedModeOptions = null);
 
     Assert.Throws<MissingOptionException>(() => factory.Validate());
   }

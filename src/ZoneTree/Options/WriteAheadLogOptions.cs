@@ -44,14 +44,25 @@ public sealed class WriteAheadLogOptions
   public int CompressionLevel { get; set; } = WriteAheadLogDefaultValues.CompressionLevel;
 
   /// <summary>
-  /// Options for the Private mode.
+  /// In the Private and Shared modes, if enabled, a background job syncs the
+  /// dirty WAL to the disk periodically. This limits what a power loss can lose.
+  /// Process crashes do not depend on it.
+  /// Default value is true.
   /// </summary>
-  public PrivateModeOptions PrivateModeOptions { get; set; } = new();
+  public bool EnableSyncJob { get; set; } = WriteAheadLogDefaultValues.EnableSyncJob;
 
   /// <summary>
-  /// Options for the AsyncPrivate mode.
+  /// The delay in milliseconds before the next run of the sync job.
+  /// Default value is 500 ms.
   /// </summary>
-  public AsyncPrivateModeOptions AsyncPrivateModeOptions { get; set; } = new();
+  public int SyncJobInterval { get; set; } = WriteAheadLogDefaultValues.SyncJobInterval;
+
+  /// <summary>
+  /// In the AsyncPrivate and AsyncShared modes, the delay in milliseconds
+  /// before the background writer polls its queue again when the queue is empty.
+  /// Default value is 100 ms.
+  /// </summary>
+  public int EmptyQueuePollInterval { get; set; } = WriteAheadLogDefaultValues.EmptyQueuePollInterval;
 
   /// <summary>
   /// Options for the shared journal modes. Compression settings above also

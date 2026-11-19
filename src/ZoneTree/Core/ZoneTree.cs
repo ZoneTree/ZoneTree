@@ -479,10 +479,9 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
     var clonedWal = new WriteAheadLogOptions()
     {
-      AsyncPrivateModeOptions = new()
-      {
-        EmptyQueuePollInterval = wal.AsyncPrivateModeOptions.EmptyQueuePollInterval,
-      },
+      EnableSyncJob = wal.EnableSyncJob,
+      SyncJobInterval = wal.SyncJobInterval,
+      EmptyQueuePollInterval = wal.EmptyQueuePollInterval,
       SharedModeOptions = new()
       {
         MaximumChunkSize = wal.SharedModeOptions.MaximumChunkSize,
@@ -491,11 +490,6 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       CompressionLevel = wal.CompressionLevel,
       CompressionMethod = wal.CompressionMethod,
       CustomOptions = wal.CustomOptions,
-      PrivateModeOptions = new()
-      {
-        EnableTailWriterJob = wal.PrivateModeOptions.EnableTailWriterJob,
-        TailWriterJobInterval = wal.PrivateModeOptions.TailWriterJobInterval
-      },
       WriteAheadLogMode = wal.WriteAheadLogMode,
     };
 

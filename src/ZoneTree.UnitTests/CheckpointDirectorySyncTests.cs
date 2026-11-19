@@ -24,7 +24,7 @@ public sealed class CheckpointDirectorySyncTests
             options.WriteAheadLogMode = mode;
             options.CompressionBlockSize = 256;
             options.SharedModeOptions.MaximumChunkSize = 1024;
-            options.PrivateModeOptions.EnableTailWriterJob = false;
+            options.EnableSyncJob = false;
           });
 
   [Test]

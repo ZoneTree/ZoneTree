@@ -20,7 +20,7 @@ public sealed class WalReleaseRegressionTests
         .ConfigureWriteAheadLogOptions(options =>
         {
           options.WriteAheadLogMode = mode;
-          options.PrivateModeOptions.EnableTailWriterJob = false;
+          options.EnableSyncJob = false;
         });
     using var tree = Factory(provider).CreateTransactional();
     using var transaction = tree.BeginTransaction();
@@ -75,7 +75,7 @@ public sealed class WalReleaseRegressionTests
   {
     var provider = new PowerLossFileStreamProvider();
     var options = new WriteAheadLogOptions { CompressionBlockSize = 4096, CompressionMethod = compression };
-    options.PrivateModeOptions.EnableTailWriterJob = false;
+    options.EnableSyncJob = false;
     PrivateWriteAheadLog<int, string> Open(IFileStreamProvider files) => new(
         SilentTestLogger.Instance, files, new Int32Serializer(), new UnicodeStringSerializer(),
         "record.wal_xxh3.1", options);

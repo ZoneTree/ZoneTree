@@ -970,7 +970,7 @@ public sealed class CompressedFileStreamTests
   }
 
   [Test]
-  public void TailWriterJobSyncsTheWalToTheDisk()
+  public void SyncJobSyncsTheWalToTheDisk()
   {
     var provider = new PowerLossFileStreamProvider();
     provider.CreateDirectory("data");
@@ -984,7 +984,7 @@ public sealed class CompressedFileStreamTests
   }
 
   [Test]
-  public void TailWriterStopsWhenClosedBeforeItStarts()
+  public void SyncJobStopsWhenClosedBeforeItStarts()
   {
     var provider = new InMemoryFileStreamProvider();
     // Closing right after construction runs before the tail writer
@@ -994,7 +994,7 @@ public sealed class CompressedFileStreamTests
     {
       var stream = new CompressedFileStream(
           SilentTestLogger.Instance, provider, $"tailWriter{i}", BlockSize, true, 1, CompressionMethod.None, 0);
-      tailWriters.Add(stream.TailWriterTask);
+      tailWriters.Add(stream.SyncJobTask);
       stream.Dispose();
     }
     Assert.That(Task.WaitAll(tailWriters.ToArray(), TimeSpan.FromSeconds(10)), Is.True);

@@ -206,12 +206,8 @@ public sealed class ZoneTreeOptionsValidationTests
         nameof(ZoneTreeOptions<int, int>.DiskSegmentOptions));
 
     yield return Missing(
-        options => options.WriteAheadLogOptions.AsyncPrivateModeOptions = null,
-        "WriteAheadLogOptions.AsyncPrivateModeOptions");
-
-    yield return Missing(
-        options => options.WriteAheadLogOptions.PrivateModeOptions = null,
-        "WriteAheadLogOptions.PrivateModeOptions");
+        options => options.WriteAheadLogOptions.SharedModeOptions = null,
+        "WriteAheadLogOptions.SharedModeOptions");
   }
 
   static IEnumerable<TestCaseData> InvalidOptionCases()
@@ -261,12 +257,12 @@ public sealed class ZoneTreeOptionsValidationTests
         "WriteAheadLogOptions.CompressionBlockSize");
 
     yield return Invalid(
-        options => options.WriteAheadLogOptions.AsyncPrivateModeOptions.EmptyQueuePollInterval = -1,
-        "WriteAheadLogOptions.AsyncPrivateModeOptions.EmptyQueuePollInterval");
+        options => options.WriteAheadLogOptions.EmptyQueuePollInterval = -1,
+        "WriteAheadLogOptions.EmptyQueuePollInterval");
 
     yield return Invalid(
-        options => options.WriteAheadLogOptions.PrivateModeOptions.TailWriterJobInterval = -1,
-        "WriteAheadLogOptions.PrivateModeOptions.TailWriterJobInterval");
+        options => options.WriteAheadLogOptions.SyncJobInterval = -1,
+        "WriteAheadLogOptions.SyncJobInterval");
 
     yield return Invalid(
         options => options.DiskSegmentOptions.DiskSegmentMode = (DiskSegmentMode)99,

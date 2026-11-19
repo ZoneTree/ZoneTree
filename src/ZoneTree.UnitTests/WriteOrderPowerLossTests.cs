@@ -109,7 +109,7 @@ public sealed class WriteOrderPowerLossTests
     var provider = new PowerLossFileStreamProvider();
     PowerLossFileStreamProvider afterPowerLoss;
     var tree = CreateFactory(provider, WriteAheadLogMode.Shared, 1000)
-        .ConfigureWriteAheadLogOptions(options => options.PrivateModeOptions.EnableTailWriterJob = false)
+        .ConfigureWriteAheadLogOptions(options => options.EnableSyncJob = false)
         .CreateTransactional();
     try
     {

@@ -94,12 +94,12 @@ public sealed class ZoneTreeMetaOptionsTests
           options.CompressionBlockSize = expected.WriteAheadLogCompressionBlockSize;
           options.CompressionMethod = expected.WriteAheadLogCompressionMethod;
           options.CompressionLevel = expected.WriteAheadLogCompressionLevel;
-          options.AsyncPrivateModeOptions.EmptyQueuePollInterval =
-              expected.AsyncPrivateModeEmptyQueuePollInterval;
-          options.PrivateModeOptions.EnableTailWriterJob =
-              expected.PrivateModeEnableTailWriterJob;
-          options.PrivateModeOptions.TailWriterJobInterval =
-              expected.PrivateModeTailWriterJobInterval;
+          options.EmptyQueuePollInterval =
+              expected.EmptyQueuePollInterval;
+          options.EnableSyncJob =
+              expected.EnableSyncJob;
+          options.SyncJobInterval =
+              expected.SyncJobInterval;
         })
         .ConfigureDiskSegmentOptions(options =>
         {
@@ -136,9 +136,9 @@ public sealed class ZoneTreeMetaOptionsTests
           WriteAheadLogCompressionBlockSize: 128 * 1024,
           WriteAheadLogCompressionMethod: CompressionMethod.None,
           WriteAheadLogCompressionLevel: 0,
-          AsyncPrivateModeEmptyQueuePollInterval: 17,
-          PrivateModeEnableTailWriterJob: false,
-          PrivateModeTailWriterJobInterval: 19,
+          EmptyQueuePollInterval: 17,
+          EnableSyncJob: false,
+          SyncJobInterval: 19,
           DiskSegmentMode: DiskSegmentMode.SingleDiskSegment,
           DiskSegmentCompressionBlockSize: 256 * 1024,
           DiskSegmentCompressionMethod: CompressionMethod.None,
@@ -162,9 +162,9 @@ public sealed class ZoneTreeMetaOptionsTests
           WriteAheadLogCompressionBlockSize: 192 * 1024,
           WriteAheadLogCompressionMethod: CompressionMethod.Zstd,
           WriteAheadLogCompressionLevel: CompressionLevels.Zstd1,
-          AsyncPrivateModeEmptyQueuePollInterval: 43,
-          PrivateModeEnableTailWriterJob: true,
-          PrivateModeTailWriterJobInterval: 47,
+          EmptyQueuePollInterval: 43,
+          EnableSyncJob: true,
+          SyncJobInterval: 47,
           DiskSegmentMode: DiskSegmentMode.MultiPartDiskSegment,
           DiskSegmentCompressionBlockSize: 384 * 1024,
           DiskSegmentCompressionMethod: CompressionMethod.Zstd,
@@ -188,9 +188,9 @@ public sealed class ZoneTreeMetaOptionsTests
           WriteAheadLogCompressionBlockSize: 224 * 1024,
           WriteAheadLogCompressionMethod: CompressionMethod.Zstd,
           WriteAheadLogCompressionLevel: CompressionLevels.Zstd3,
-          AsyncPrivateModeEmptyQueuePollInterval: 59,
-          PrivateModeEnableTailWriterJob: false,
-          PrivateModeTailWriterJobInterval: 61,
+          EmptyQueuePollInterval: 59,
+          EnableSyncJob: false,
+          SyncJobInterval: 61,
           DiskSegmentMode: DiskSegmentMode.MultiPartDiskSegment,
           DiskSegmentCompressionBlockSize: 512 * 1024,
           DiskSegmentCompressionMethod: CompressionMethod.Zstd,
@@ -233,12 +233,12 @@ public sealed class ZoneTreeMetaOptionsTests
     Assert.That(walOptions.CompressionBlockSize, Is.EqualTo(expected.WriteAheadLogCompressionBlockSize));
     Assert.That(walOptions.CompressionMethod, Is.EqualTo(expected.WriteAheadLogCompressionMethod));
     Assert.That(walOptions.CompressionLevel, Is.EqualTo(expected.WriteAheadLogCompressionLevel));
-    Assert.That(walOptions.AsyncPrivateModeOptions.EmptyQueuePollInterval,
-        Is.EqualTo(expected.AsyncPrivateModeEmptyQueuePollInterval));
-    Assert.That(walOptions.PrivateModeOptions.EnableTailWriterJob,
-        Is.EqualTo(expected.PrivateModeEnableTailWriterJob));
-    Assert.That(walOptions.PrivateModeOptions.TailWriterJobInterval,
-        Is.EqualTo(expected.PrivateModeTailWriterJobInterval));
+    Assert.That(walOptions.EmptyQueuePollInterval,
+        Is.EqualTo(expected.EmptyQueuePollInterval));
+    Assert.That(walOptions.EnableSyncJob,
+        Is.EqualTo(expected.EnableSyncJob));
+    Assert.That(walOptions.SyncJobInterval,
+        Is.EqualTo(expected.SyncJobInterval));
 
     var diskOptions = meta.DiskSegmentOptions;
     Assert.That(diskOptions, Is.Not.Null);
@@ -299,9 +299,9 @@ public sealed class ZoneTreeMetaOptionsTests
       int WriteAheadLogCompressionBlockSize,
       CompressionMethod WriteAheadLogCompressionMethod,
       int WriteAheadLogCompressionLevel,
-      int AsyncPrivateModeEmptyQueuePollInterval,
-      bool PrivateModeEnableTailWriterJob,
-      int PrivateModeTailWriterJobInterval,
+      int EmptyQueuePollInterval,
+      bool EnableSyncJob,
+      int SyncJobInterval,
       DiskSegmentMode DiskSegmentMode,
       int DiskSegmentCompressionBlockSize,
       CompressionMethod DiskSegmentCompressionMethod,

@@ -434,7 +434,7 @@ public sealed class InMemoryFileStreamProviderTests
     var serializer = new UnicodeStringSerializer();
     var provider = new InMemoryFileStreamProvider();
     var options = new WriteAheadLogOptions();
-    options.PrivateModeOptions.EnableTailWriterJob = false;
+    options.EnableSyncJob = false;
     var wal = new PrivateWriteAheadLog<string, string>(
         new ConsoleLogger(),
         provider,

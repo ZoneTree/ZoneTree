@@ -34,9 +34,9 @@ public sealed class PrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TV
 
   public int CompressionLevel { get; }
 
-  public bool EnableTailWriterJob { get; }
+  public bool EnableSyncJob { get; }
 
-  public int TailWriterJobInterval { get; }
+  public int SyncJobInterval { get; }
 
   public int InitialLength { get; private set; }
 
@@ -54,8 +54,8 @@ public sealed class PrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TV
     CompressionBlockSize = options.CompressionBlockSize;
     CompressionMethod = options.CompressionMethod;
     CompressionLevel = options.CompressionLevel;
-    EnableTailWriterJob = options.PrivateModeOptions.EnableTailWriterJob;
-    TailWriterJobInterval = options.PrivateModeOptions.TailWriterJobInterval;
+    EnableSyncJob = options.EnableSyncJob;
+    SyncJobInterval = options.SyncJobInterval;
     KeySerializer = keySerializer;
     ValueSerializer = valueSerializer;
     CreateFileStream();
@@ -68,8 +68,8 @@ public sealed class PrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TV
         FileStreamProvider,
         FilePath,
         CompressionBlockSize,
-        EnableTailWriterJob,
-        TailWriterJobInterval,
+        EnableSyncJob,
+        SyncJobInterval,
         CompressionMethod,
         CompressionLevel);
     BinaryWriter = new BinaryWriter(FileStream, Encoding.UTF8, true);

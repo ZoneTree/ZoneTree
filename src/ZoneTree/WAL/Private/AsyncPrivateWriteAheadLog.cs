@@ -133,7 +133,7 @@ public sealed class AsyncPrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKe
   {
     Logger = logger;
     FilePath = filePath;
-    EmptyQueuePollInterval = options.AsyncPrivateModeOptions.EmptyQueuePollInterval;
+    EmptyQueuePollInterval = options.EmptyQueuePollInterval;
     CompressionBlockSize = options.CompressionBlockSize;
     CompressionMethod = options.CompressionMethod;
     CompressionLevel = options.CompressionLevel;

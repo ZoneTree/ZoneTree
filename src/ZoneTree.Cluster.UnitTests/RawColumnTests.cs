@@ -298,7 +298,7 @@ public sealed class RawColumnTests
         new RawColumnDefinition<int, string>("cache")
         {
           ConfigureStorage = factory => factory
-              .ConfigureWriteAheadLogOptions(wal => wal.PrivateModeOptions.EnableTailWriterJob = false)
+              .ConfigureWriteAheadLogOptions(wal => wal.EnableSyncJob = false)
               .SetWriteAheadLogProvider(options => new WriteAheadLogProvider(
                   options.Logger, rawFiles, Path.Combine(DataDirectory, "raw-wal")))
         }));

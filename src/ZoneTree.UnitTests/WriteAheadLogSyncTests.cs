@@ -34,7 +34,7 @@ public sealed class WriteAheadLogSyncTests
         {
           options.WriteAheadLogMode = mode;
           options.CompressionBlockSize = WalBlockSize;
-          options.AsyncPrivateModeOptions.EmptyQueuePollInterval = emptyQueuePollInterval;
+          options.EmptyQueuePollInterval = emptyQueuePollInterval;
         });
   }
 
@@ -69,7 +69,7 @@ public sealed class WriteAheadLogSyncTests
   {
     var provider = new PowerLossFileStreamProvider();
     using var tree = CreateFactory(provider, mode)
-        .ConfigureWriteAheadLogOptions(wal => wal.PrivateModeOptions.EnableTailWriterJob = false)
+        .ConfigureWriteAheadLogOptions(wal => wal.EnableSyncJob = false)
         .Create();
     var mainSyncs = 0;
     var tailSyncs = 0;
@@ -101,7 +101,7 @@ public sealed class WriteAheadLogSyncTests
     var provider = new PowerLossFileStreamProvider();
     using var tree = CreateFactory(provider, mode, emptyQueuePollInterval: 1)
         .SetDataDirectory("data")
-        .ConfigureWriteAheadLogOptions(options => options.PrivateModeOptions.TailWriterJobInterval = 1)
+        .ConfigureWriteAheadLogOptions(options => options.SyncJobInterval = 1)
         .Create();
     var mainPath = provider.GetFiles("data/seg").Single(path => !path.EndsWith(".tail", StringComparison.Ordinal));
     for (var key = 0; key < count; ++key)
@@ -444,7 +444,7 @@ public sealed class WriteAheadLogSyncTests
   {
     const int interval = AsyncPrivateWriteAheadLog<int, int>.WakeWriterRecordInterval;
     var options = new WriteAheadLogOptions { CompressionBlockSize = WalBlockSize };
-    options.AsyncPrivateModeOptions.EmptyQueuePollInterval = 600_000;
+    options.EmptyQueuePollInterval = 600_000;
     using var wal = new AsyncPrivateWriteAheadLog<int, int>(
         new ConsoleLogger(LogLevel.Error),
         new PowerLossFileStreamProvider(),

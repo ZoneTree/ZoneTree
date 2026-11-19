@@ -10,9 +10,9 @@ public static class WriteAheadLogDefaultValues
 
   public static readonly int CompressionLevel = CompressionLevels.Zstd1;
 
-  public static readonly bool PrivateModeEnableTailWriterJob = true;
+  public static readonly bool EnableSyncJob = true;
 
-  public static readonly int PrivateModeTailWriterJobInterval = 500;
+  public static readonly int SyncJobInterval = 500;
 
-  public static readonly int AsyncPrivateModeEmptyQueuePollInterval = 100;
+  public static readonly int EmptyQueuePollInterval = 100;
 }

@@ -26,7 +26,7 @@ internal static class ZoneTreeOptionValidationRules
   public static readonly Rule WriteAheadLogEmptyQueuePollInterval =
       Rule.MinSeconds(0);
 
-  public static readonly Rule WriteAheadLogTailWriterJobInterval =
+  public static readonly Rule WriteAheadLogSyncJobInterval =
       Rule.MinSeconds(0);
 
   public static readonly Rule DiskSegmentMinimumRecordCount =

@@ -81,11 +81,11 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
 
   long _length;
 
-  volatile bool IsTailWriterRunning;
+  volatile bool IsSyncJobRunning;
 
-  internal Task TailWriterTask { get; }
+  internal Task SyncJobTask { get; }
 
-  readonly int TailWriterJobInterval;
+  readonly int SyncJobInterval;
 
   volatile bool IsClosed;
 
@@ -150,11 +150,11 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
   /// <param name="fileStreamProvider">The file stream provider.</param>
   /// <param name="filePath">The path of the main file.</param>
   /// <param name="blockSize">The size of a decompressed block.</param>
-  /// <param name="enableTailWriterJob">
+  /// <param name="enableSyncJob">
   /// Syncs the complete stream periodically when it has unsynced changes.
   /// Completed syncs protect its prefix across later block rollovers.
   /// </param>
-  /// <param name="tailWriterJobInterval">The delay of the job in milliseconds.</param>
+  /// <param name="syncJobInterval">The delay of the job in milliseconds.</param>
   /// <param name="compressionMethod">The compression method of a new file.</param>
   /// <param name="compressionLevel">The compression level.</param>
   /// <param name="useMemoryMappedTail">
@@ -166,8 +166,8 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
       IFileStreamProvider fileStreamProvider,
       string filePath,
       int blockSize,
-      bool enableTailWriterJob,
-      int tailWriterJobInterval,
+      bool enableSyncJob,
+      int syncJobInterval,
       CompressionMethod compressionMethod,
       int compressionLevel,
       bool useMemoryMappedTail = true)
@@ -219,9 +219,9 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
       FileStream.Dispose();
       throw;
     }
-    TailWriterJobInterval = tailWriterJobInterval;
-    if (enableTailWriterJob)
-      TailWriterTask = StartTailWriter();
+    SyncJobInterval = syncJobInterval;
+    if (enableSyncJob)
+      SyncJobTask = StartSyncJob();
   }
 
   /// <summary>
@@ -298,7 +298,7 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
         if (IsClosed)
           return;
         ThrowIfDurabilityFailed();
-        StopTailWriter();
+        StopSyncJob();
         if (TailBlock.Length > 0)
         {
           FileStream.Position = FileStream.Length;
@@ -339,7 +339,7 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
           return;
         if (!syncTail && (TailBlock.Length != 0 || MainFileMayBeUnsynced))
           throw new InvalidOperationException("The WAL must be sealed and synced before closing without a tail sync.");
-        StopTailWriter();
+        StopSyncJob();
         if (syncTail)
           SyncTailFile();
         SyncMainFileIfNeeded();

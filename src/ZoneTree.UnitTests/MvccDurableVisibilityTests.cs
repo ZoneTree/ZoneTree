@@ -16,8 +16,8 @@ public sealed class MvccDurableVisibilityTests
           {
             options.WriteAheadLogMode = mode;
             options.CompressionBlockSize = 4096;
-            options.PrivateModeOptions.EnableTailWriterJob = false;
-            options.AsyncPrivateModeOptions.EmptyQueuePollInterval = 10000;
+            options.EnableSyncJob = false;
+            options.EmptyQueuePollInterval = 10000;
           });
 
   static bool IsJournal(string path) => path.Contains("/seg/shared/", StringComparison.Ordinal) &&

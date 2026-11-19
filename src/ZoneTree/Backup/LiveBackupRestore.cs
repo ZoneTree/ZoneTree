@@ -243,16 +243,9 @@ public sealed class LiveBackupRestore<TKey, TValue>
       {
         MaximumChunkSize = options.SharedModeOptions.MaximumChunkSize
       },
-      PrivateModeOptions = new PrivateModeOptions
-      {
-        EnableTailWriterJob = options.PrivateModeOptions.EnableTailWriterJob,
-        TailWriterJobInterval = options.PrivateModeOptions.TailWriterJobInterval
-      },
-      AsyncPrivateModeOptions = new AsyncPrivateModeOptions
-      {
-        EmptyQueuePollInterval =
-            options.AsyncPrivateModeOptions.EmptyQueuePollInterval
-      }
+      EnableSyncJob = options.EnableSyncJob,
+      SyncJobInterval = options.SyncJobInterval,
+      EmptyQueuePollInterval = options.EmptyQueuePollInterval
     };
   }
 }

@@ -15,8 +15,8 @@ public sealed class SharedWriteAheadLogTests
     CompressionBlockSize = 256,
     CompressionMethod = method,
     SharedModeOptions = new() { MaximumChunkSize = 1024 },
-    PrivateModeOptions = new() { EnableTailWriterJob = false },
-    AsyncPrivateModeOptions = new() { EmptyQueuePollInterval = 10000 }
+    EnableSyncJob = false,
+    EmptyQueuePollInterval = 10000
   };
 
   static WriteAheadLogProvider Provider(IFileStreamProvider files) => new(SilentTestLogger.Instance, files, "data");

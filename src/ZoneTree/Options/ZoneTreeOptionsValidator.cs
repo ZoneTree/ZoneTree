@@ -128,12 +128,6 @@ internal static class ZoneTreeOptionsValidator
       return new InvalidOptionValueException(Option(owner, nameof(options.SharedModeOptions.MaximumChunkSize)),
           options.SharedModeOptions.MaximumChunkSize, "Must be positive");
 
-    if (options.PrivateModeOptions == null)
-      return new MissingOptionException(Option(owner, nameof(options.PrivateModeOptions)));
-
-    if (options.AsyncPrivateModeOptions == null)
-      return new MissingOptionException(Option(owner, nameof(options.AsyncPrivateModeOptions)));
-
     Exception exception = ValidateDefinedEnum(
         Option(owner, nameof(options.WriteAheadLogMode)),
         options.WriteAheadLogMode);
@@ -221,14 +215,14 @@ internal static class ZoneTreeOptionsValidator
       return exception;
 
     exception = ZoneTreeOptionValidationRules.WriteAheadLogEmptyQueuePollInterval.Validate(
-        Option(owner, $"{nameof(options.AsyncPrivateModeOptions)}.{nameof(options.AsyncPrivateModeOptions.EmptyQueuePollInterval)}"),
-        options.AsyncPrivateModeOptions.EmptyQueuePollInterval);
+        Option(owner, nameof(options.EmptyQueuePollInterval)),
+        options.EmptyQueuePollInterval);
     if (exception != null)
       return exception;
 
-    return ZoneTreeOptionValidationRules.WriteAheadLogTailWriterJobInterval.Validate(
-        Option(owner, $"{nameof(options.PrivateModeOptions)}.{nameof(options.PrivateModeOptions.TailWriterJobInterval)}"),
-        options.PrivateModeOptions.TailWriterJobInterval);
+    return ZoneTreeOptionValidationRules.WriteAheadLogSyncJobInterval.Validate(
+        Option(owner, nameof(options.SyncJobInterval)),
+        options.SyncJobInterval);
   }
 
   static Exception ValidateDiskSegmentOptionValues(DiskSegmentOptions options)

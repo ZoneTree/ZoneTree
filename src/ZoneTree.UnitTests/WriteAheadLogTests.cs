@@ -80,7 +80,7 @@ public sealed class WriteAheadLogTests
       WriteAheadLogMode = mode,
       CompressionBlockSize = 128
     };
-    options.PrivateModeOptions.EnableTailWriterJob = false;
+    options.EnableSyncJob = false;
     var serializer = new UnicodeStringSerializer();
     var keys = new[] { "", "small", "large", "tail" };
     var values = new[] { "", "value", new string('x', 4096), "last" };
@@ -150,7 +150,7 @@ public sealed class WriteAheadLogTests
       UnicodeStringSerializer serializer, string filePath)
   {
     var options = new WriteAheadLogOptions();
-    options.PrivateModeOptions.EnableTailWriterJob = false;
+    options.EnableSyncJob = false;
     return new PrivateWriteAheadLog<string, string>(
         SilentTestLogger.Instance,
         new InMemoryFileStreamProvider(),
@@ -206,7 +206,7 @@ public sealed class WriteAheadLogTests
   }
 
   [Test]
-  public void CompressedFileStreamTailWriterStopsWhenClosedBeforeItStarts()
+  public void CompressedFileStreamSyncJobStopsWhenClosedBeforeItStarts()
   {
     var provider = new InMemoryFileStreamProvider();
     // Closing right after construction runs before the tail writer
@@ -217,13 +217,13 @@ public sealed class WriteAheadLogTests
       var stream = new CompressedFileStream(
           SilentTestLogger.Instance,
           provider,
-          $"CompressedFileStreamTailWriterStopsWhenClosedBeforeItStarts{i}.wal",
+          $"CompressedFileStreamSyncJobStopsWhenClosedBeforeItStarts{i}.wal",
           16,
           true,
           1,
           CompressionMethod.None,
           0);
-      tailWriters.Add(stream.TailWriterTask);
+      tailWriters.Add(stream.SyncJobTask);
       stream.Dispose();
     }
 

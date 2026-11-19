@@ -17,7 +17,7 @@ public sealed class MutableSegmentRotationTests
           .ConfigureWriteAheadLogOptions(options =>
           {
             options.WriteAheadLogMode = mode;
-            options.PrivateModeOptions.EnableTailWriterJob = false;
+            options.EnableSyncJob = false;
           });
 
   static ZoneTree<int, int> Engine(IZoneTree<int, int> tree) => (ZoneTree<int, int>)tree;

@@ -60,7 +60,7 @@ Every WAL mode except `None` automatically syncs each dirty WAL at its backgroun
 | Mode | Writes lost on a process crash | Writes lost on a power loss |
 | --- | --- | --- |
 | `AsyncPrivate` | The writes still queued. Every write that the background writer has appended survives. | Queued records and writes since the last completed WAL sync. The background writer syncs the complete dirty WAL when its queue empties. A continuously busy queue can delay that sync across many blocks. |
-| `Private` | Nothing, because each write reaches the operating system before it returns. | Writes since the last completed WAL sync. The background job syncs the complete dirty WAL, with a `TailWriterJobInterval` delay between runs (500 ms by default). |
+| `Private` | Nothing, because each write reaches the operating system before it returns. | Writes since the last completed WAL sync. The background job syncs the complete dirty WAL, with a `SyncJobInterval` delay between runs (500 ms by default). |
 | `Shared` | Nothing from completed ordinary commits: appended records have reached the operating system. | Unsynced ordinary commits, recovered as one commit prefix across segments. A periodic job syncs the complete dirty journal by default. |
 | `AsyncShared` | Queued records and ordinary commits depending on them. Recovery retains a commit prefix. | Unsynced ordinary commits, recovered as one commit prefix. The writer syncs when its queue empties; continuous load can postpone that automatic sync. |
 
@@ -174,7 +174,7 @@ Automatic sync scheduling:
 | --- | --- |
 | `AsyncPrivate` | The background writer syncs the complete dirty WAL when its queue becomes empty. Explicit sync requests also trigger a sync, and closing drains the queue and syncs both files. |
 | `Private` | The tail-writer job syncs the complete dirty WAL, enabled by default with a 500 ms interval. Explicit sync requests and closing also protect the complete stream. |
-| `Shared` | The journal job syncs the complete dirty journal, including closed unsynced chunks. It uses `PrivateModeOptions.EnableTailWriterJob` (true by default) and `TailWriterJobInterval` (500 ms by default). |
+| `Shared` | The journal job syncs the complete dirty journal, including closed unsynced chunks. It uses `EnableSyncJob` (true by default) and `SyncJobInterval` (500 ms by default). |
 | `AsyncShared` | The writer syncs the complete dirty journal when its queue empties. Explicit requests, including durable commits, cause a sync after a bounded drain of the preceding queue. Closing drains and syncs the journal. |
 
 The async writer's default `EmptyQueuePollInterval` is 100 ms. These intervals control scheduling, not a maximum persistence delay. For transactional trees, `AutoSyncInterval` schedules explicit sync requests even while the queue stays busy and advances MVCC's durable bookkeeping. It defaults to zero. The WAL's own background job can sync bytes without updating that MVCC timestamp.

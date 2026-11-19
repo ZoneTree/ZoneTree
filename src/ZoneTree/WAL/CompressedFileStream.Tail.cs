@@ -10,22 +10,22 @@ namespace ZoneTree.WAL;
 
 public sealed unsafe partial class CompressedFileStream
 {
-  Task StartTailWriter()
+  Task StartSyncJob()
   {
-    // Mark the writer running before it starts.
-    // Setting it on the writer thread would undo a Close() that happens
-    // before the thread starts, leaving the writer loop running forever.
-    IsTailWriterRunning = true;
+    // Mark the job running before it starts.
+    // Setting it on the job thread would undo a Close() that happens
+    // before the thread starts, leaving the job loop running forever.
+    IsSyncJobRunning = true;
     return Task.Factory.StartNew(
-        TailWriteLoop,
+        SyncJobLoop,
         CancellationToken.None,
         TaskCreationOptions.LongRunning,
         TaskScheduler.Default);
   }
 
-  void TailWriteLoop()
+  void SyncJobLoop()
   {
-    while (IsTailWriterRunning)
+    while (IsSyncJobRunning)
     {
       try
       {
@@ -35,16 +35,16 @@ public sealed unsafe partial class CompressedFileStream
       {
         Logger.LogError(e);
       }
-      if (TailWriterJobInterval == 0)
+      if (SyncJobInterval == 0)
         Thread.Yield();
       else
-        Thread.Sleep(TailWriterJobInterval);
+        Thread.Sleep(SyncJobInterval);
     }
   }
 
-  void StopTailWriter()
+  void StopSyncJob()
   {
-    IsTailWriterRunning = false;
+    IsSyncJobRunning = false;
   }
 
   DecompressedBlock CreateEmptyTail(int blockIndex)
