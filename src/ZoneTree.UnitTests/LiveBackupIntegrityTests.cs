@@ -209,7 +209,7 @@ public sealed class LiveBackupIntegrityTests
     public Task<bool> UseSegmentAsync(long id, ZoneTree.Segments.Disk.DiskSegmentFile file, CancellationToken token) => Task.FromResult(false);
     public Task UploadSegmentFileAsync(long id, ZoneTree.Segments.Disk.DiskSegmentFile file, Stream source, CancellationToken token) => Task.CompletedTask;
     public Task<ILiveBackupRecordWriter> OpenRecordWriterAsync(long id, LiveBackupRecordBatch batch, CancellationToken token) => throw new NotSupportedException();
-    public Task CompleteGenerationAsync(long id, long opIndex, CancellationToken token) => Task.CompletedTask;
+    public Task CompleteGenerationAsync(long id, long opIndex, string dbVersion, CancellationToken token) => Task.CompletedTask;
   }
 
   sealed class NonSeekableStream(Stream inner, bool leaveOpen = false) : Stream

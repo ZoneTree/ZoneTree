@@ -497,6 +497,7 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
       await Store.CompleteGenerationAsync(
           generationId,
           CoreZoneTree.LastOpIndex,
+          CoreZoneTree.DbVersion,
           cancellationToken).ConfigureAwait(false);
       return generationId;
     }

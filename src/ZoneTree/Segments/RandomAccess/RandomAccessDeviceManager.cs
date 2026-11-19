@@ -6,6 +6,11 @@ namespace ZoneTree.Segments.RandomAccess;
 
 public sealed class RandomAccessDeviceManager : IRandomAccessDeviceManager
 {
+  /// <summary>
+  /// The extension that the file of a compressed device has after its category.
+  /// </summary>
+  internal const string CompressedFileExtension = ".z";
+
   readonly Lock SyncRoot = new();
 
   public ILogger Logger { get; }
@@ -70,7 +75,7 @@ public sealed class RandomAccessDeviceManager : IRandomAccessDeviceManager
       if (deleteIfExists) DeleteFileIfExists(backupIfDelete, filePath);
       if (isCompressed)
       {
-        filePath += ".z";
+        filePath += CompressedFileExtension;
       }
       if (deleteIfExists) DeleteFileIfExists(backupIfDelete, filePath);
       IRandomAccessDevice device = isCompressed ?
@@ -139,7 +144,7 @@ public sealed class RandomAccessDeviceManager : IRandomAccessDeviceManager
       {
         isCompressed = false;
       }
-      var compressedfilePath = filePath + ".z";
+      var compressedfilePath = filePath + CompressedFileExtension;
       if (!isCompressed && FileStreamProvider.FileExists(compressedfilePath))
       {
         isCompressed = true;
@@ -205,7 +210,7 @@ public sealed class RandomAccessDeviceManager : IRandomAccessDeviceManager
     lock (SyncRoot)
     {
       var filePath = GetFilePath(segmentId, category);
-      if (isCompressed) filePath += ".z";
+      if (isCompressed) filePath += CompressedFileExtension;
       return FileStreamProvider.FileExists(filePath);
     }
   }
@@ -215,7 +220,7 @@ public sealed class RandomAccessDeviceManager : IRandomAccessDeviceManager
     lock (SyncRoot)
     {
       var filePath = GetFilePath(segmentId, category);
-      if (isCompressed) filePath += ".z";
+      if (isCompressed) filePath += CompressedFileExtension;
       if (FileStreamProvider.FileExists(filePath))
         FileStreamProvider.DeleteFile(filePath);
     }

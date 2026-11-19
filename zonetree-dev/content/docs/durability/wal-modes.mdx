@@ -17,7 +17,7 @@ description: Compare ordinary and shared WALs, understand commit-prefix recovery
 | --- | --- | --- |
 | **`AsyncCompressed` default** | Enqueues records for background serialization, compression, and writing. | Persistent applications that benefit from keeping logging work off the caller's path. |
 | `SyncCompressed` | Serializes and appends on the caller into a compressed-block stream; the current block is in a companion tail file. | A specific need for caller-side compressed logging, after measuring the workload. |
-| `Sync` | Serializes and appends on the caller through a plain WAL stream, flushing that stream per record. | A specific need for the plain synchronous logging path, accepting its throughput cost. |
+| `Sync` | Serializes and appends on the caller through a plain WAL stream, flushing that stream per record. | A specific need for the plain synchronous logging path, accepting its throughput cost. ZoneTree 2.2.0 removes this mode, and ZoneTree 2.1.10 migrates its WALs to `SyncCompressed`; see [the migration](../storage/compression.mdx). |
 | `Shared` | Appends on the caller to one ordered, chunked journal shared by all memory segments. | Commit-prefix recovery across segments with caller-side logging. |
 | `AsyncShared` | Enqueues records for one background writer into the shared journal. | Commit-prefix recovery with serialization and writing off the caller's path; the default transactional logging path. |
 | `None` | Does not log segment records. Metadata and merged disk segments still exist. | Disposable data or a dataset you intentionally rebuild from another source. |
@@ -169,7 +169,7 @@ A write to the stream reaches the operating system before it returns, so it surv
 
 A sync seals the current tail into the main file and syncs that file once. Each new block has a 32-byte header containing its index, stored and logical lengths, a checksum of the stored payload, and a checksum of the header. Recovery validates the blocks themselves, so the tail checkpoint does not need a second disk sync. It is written after the main-file sync as a recovery hint: any copy that persists identifies a durable prefix, but recovery also works when that hint is absent or older than the latest sync. Explicit and automatic syncs use the same path, and later appends reuse the tail without overwriting the durable main prefix.
 
-WALs from 2.0.8 and earlier remain readable, including their variable-size tails. Before a legacy tail is reused, its content is sealed into a new checksummed main-file block and synced. The original main-file blocks remain readable, while subsequent appends use the new block format. The tail allocation keeps format version 1.
+WALs from 2.0.8 and earlier remain readable, including their variable-size tails. Before a legacy tail is reused, its content is sealed into a new checksummed main-file block and synced. The original main-file blocks remain readable, while subsequent appends use the new block format. The tail allocation keeps format version 1. ZoneTree 2.2.0 removes this format, and `EnableZstdMigration()` converts these WALs; see [the migration](../storage/compression.mdx).
 
 A recovered unfinished tail can also hold the only durable copy of records saved by a clean close. Its first rollover syncs the main-file copy before reusing that tail. This protection applies once to the recovered tail; subsequent ordinary rollovers do not issue disk syncs.
 

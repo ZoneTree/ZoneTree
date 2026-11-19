@@ -156,6 +156,33 @@ Use the same records, key order, concurrency, and read/write mix for each candid
 
 Compare newly written datasets when you want a clean profile comparison. Reopening an old tree with new options can leave a mixture of old and new files, making a filename or factory configuration alone misleading evidence of the active codecs.
 
+## Migrate to Zstd before 2.2.0
+
+ZoneTree 2.2.0 removes LZ4, Gzip, and Brotli compression, the `Sync` WAL mode, and the WAL formats of versions before 2.1.0. It opens only databases that ZoneTree 2.1.10 found free of them, which the `DbVersion` field of the metadata records.
+
+ZoneTree 2.1.10 checks every database it opens: its options, disk segment files, multipart headers, WAL files, and shared WAL chunks. A database free of LZ4, Gzip, Brotli, `Sync` WALs, and WALs of versions before 2.1.0 moves to `DbVersion` 2.1.10 without any action. Otherwise ZoneTree logs a warning that lists what still uses them. A new database starts at 2.1.10 when its options use Zstd or no compression and a WAL mode other than `Sync`.
+
+To migrate a database that still uses them:
+
+1. Upgrade to ZoneTree 2.1.10.
+2. Configure Zstd or `None` compression for the WAL and the disk segments, and a WAL mode other than `Sync`. Zstd and `AsyncCompressed` are the defaults.
+3. Open the database once with `EnableZstdMigration()`.
+4. Check that the log has no migration warning, and delete the backup when the database works.
+5. Upgrade to ZoneTree 2.2.0.
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<int, string>()
+    .SetDataDirectory("data")
+    .EnableZstdMigration()
+    .OpenOrCreate();
+```
+
+The migration first copies the data directory, and the WAL directory when it is elsewhere, next to it as `<directory>.zstd-migration-backup-<timestamp>`, so it needs free disk space for one more copy of the database. Then it converts every file that uses LZ4, Gzip, or Brotli to the configured compression in place, every `Sync` WAL to a `SyncCompressed` WAL with the same records, and every WAL of a version before 2.1.0 to the current WAL format with the same records. Each converted file replaces the old one atomically, so a database that crashes or stops during the migration opens again, and the next migration continues. A database at `DbVersion` 2.1.10 no longer opens with LZ4, Gzip, or Brotli options or the `Sync` WAL mode.
+
+ZoneTree 2.2.0 does not restore live backups of databases that were not migrated. Take a new backup after the migration. A custom WAL provider owns its files: the migration does not convert them, and the database moves to 2.1.10 only when its WALs report no such files through `IWriteAheadLog.GetLegacyFiles`.
+
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Evaluate compression as part of the storage budget</strong>
   <p>

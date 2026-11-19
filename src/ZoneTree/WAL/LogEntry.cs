@@ -129,6 +129,16 @@ public struct LogEntry : IEquatable<LogEntry>
         BinaryPrimitives.ReadUInt32LittleEndian(record[^sizeof(uint)..]);
   }
 
+  /// <summary>
+  /// Writes the checksum of the bytes of a whole record.
+  /// </summary>
+  internal static void WriteChecksum(Span<byte> record)
+  {
+    BinaryPrimitives.WriteUInt32LittleEndian(
+        record[^sizeof(uint)..],
+        unchecked((uint)XxHash3.HashToUInt64(record[..^sizeof(uint)])));
+  }
+
   [MethodImpl(MethodImplOptions.AggressiveInlining)]
   public static void ReadLogEntry(BinaryReader reader, ref LogEntry entry)
   {

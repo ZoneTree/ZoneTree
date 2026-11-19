@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Globalization;
 using System.IO.Hashing;
 using ZoneTree.AbstractFileStream;
+using ZoneTree.Core;
 using ZoneTree.Exceptions;
 using ZoneTree.Logger;
 using ZoneTree.Options;
@@ -27,6 +28,8 @@ internal interface ISharedWalStore
 internal sealed partial class SharedWalStore<TKey, TValue> : ISharedWalStore, IDisposable
 {
   internal const string DirectoryName = "shared";
+
+  internal const string ChunkExtension = ".wal";
   internal const string ManifestName = "manifest";
   const ulong ManifestMagic = 0x314C41574853545A; // ZTSHWAL1
   const int ManifestSize = 48;
@@ -72,6 +75,8 @@ internal sealed partial class SharedWalStore<TKey, TValue> : ISharedWalStore, ID
     internal bool DurableSeal;
     internal bool NameSynced;
     internal CompressedFileStream Stream;
+    // Recorded when the chunk opens, because the stream closes after a seal.
+    internal CompressionMethod CompressionMethod;
     // Rotation holds StorageLock; syncs release it while flushing. This lock
     // protects handle lifetime without making those two locks depend on each other.
     internal readonly object StreamLock = new();
@@ -222,10 +227,19 @@ internal sealed partial class SharedWalStore<TKey, TValue> : ISharedWalStore, ID
     catch { /* Logging cannot strand queued sync requests. */ }
   }
 
-  string ChunkPath(long id) => Path.Combine(DirectoryPath, id.ToString("D20", CultureInfo.InvariantCulture) + ".wal");
+  string ChunkPath(long id) => Path.Combine(DirectoryPath, id.ToString("D20", CultureInfo.InvariantCulture) + ChunkExtension);
 
   CompressedFileStream OpenChunk(string path) => new(Logger, Files, path,
       Options.CompressionBlockSize, false, 0, Options.CompressionMethod, Options.CompressionLevel);
+
+  internal IReadOnlyList<string> GetLegacyFiles()
+  {
+    lock (StorageLock)
+      return Chunks
+          .Where(chunk => LegacyFormats.IsLegacy(chunk.CompressionMethod))
+          .Select(chunk => chunk.Path)
+          .ToArray();
+  }
 
   Chunk CreateChunk(long id, long sequence)
   {
@@ -235,6 +249,7 @@ internal sealed partial class SharedWalStore<TKey, TValue> : ISharedWalStore, ID
       LastSequence = sequence, Length = SharedWalRecord.MinimumSize
     };
     chunk.Stream = OpenChunk(chunk.Path);
+    chunk.CompressionMethod = chunk.Stream.CompressionMethod;
     new SharedWalRecord(SharedWalRecordKind.ChunkHeader, sequence, id, StoreId, default, default).Write(chunk.Stream);
     Chunks.Add(chunk);
     return chunk;

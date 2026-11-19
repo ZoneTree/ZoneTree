@@ -1,5 +1,6 @@
 using System.Text;
 using ZoneTree.AbstractFileStream;
+using ZoneTree.Core;
 using ZoneTree.Exceptions.WAL;
 using ZoneTree.Logger;
 using ZoneTree.Options;
@@ -164,7 +165,9 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
       {
         var length = FileStream.ReplaceContent(
             FileStreamProvider,
-            binaryWriter => AppendLogEntries(binaryWriter, keys, values));
+            binaryWriter => AppendLogEntries(binaryWriter, keys, values),
+            FileStream.CompressionMethod,
+            CompressionLevel);
         CreateFileStream();
         return existingLength - length;
       }
@@ -204,6 +207,10 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
       FileStream.SetLength(incompleteTailException.RecordPosition);
     }
   }
+
+  public IReadOnlyList<string> GetLegacyFiles() =>
+      IsLegacyFormat || FileStream.HasLegacyBlocks || LegacyFormats.IsLegacy(FileStream.CompressionMethod)
+          ? [FilePath] : [];
 }
 
 #pragma warning restore CA2213

@@ -355,6 +355,9 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
       FileStream.Flush(true);
     }
   }
+
+  // Version 2.2.0 removes the Sync WAL mode.
+  public IReadOnlyList<string> GetLegacyFiles() => [FilePath];
 }
 
 #pragma warning restore CA2213

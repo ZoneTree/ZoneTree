@@ -55,9 +55,15 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
 
   readonly int BlockSize;
 
-  readonly CompressionMethod CompressionMethod;
+  /// <summary>
+  /// The compression method that the file records.
+  /// </summary>
+  public CompressionMethod CompressionMethod { get; }
 
-  readonly bool HasLegacyBlocks;
+  /// <summary>
+  /// Whether the file is of version 2.0.8 or earlier, which wrote blocks without frames.
+  /// </summary>
+  internal readonly bool HasLegacyBlocks;
 
   readonly int CompressionLevel;
 
@@ -256,6 +262,22 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
         return false;
     }
     return true;
+  }
+
+  /// <summary>
+  /// Reads the compression method that a compressed file records, and whether its blocks
+  /// have no frames, without opening it, so nothing recovers or changes the file.
+  /// </summary>
+  internal static CompressionMethod ReadCompressionMethod(
+      IFileStreamProvider fileStreamProvider, string filePath, out bool hasLegacyBlocks)
+  {
+    using var file = fileStreamProvider.CreateFileStream(
+        filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+    var metadata = file.ToStream().ReadByte();
+    hasLegacyBlocks = metadata >= 0 && (metadata & WalBlockFrame.MetadataFlag) == 0;
+    return metadata < 0
+        ? CompressionMethod.None
+        : (CompressionMethod)(metadata & ~WalBlockFrame.MetadataFlag);
   }
 
   CompressionMethod ReadMetaData(out bool hasLegacyBlocks)

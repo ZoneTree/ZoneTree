@@ -287,7 +287,7 @@ public sealed class TransactionalLiveBackupTests
     public Task<bool> UseSegmentAsync(long id, DiskSegmentFile file, CancellationToken token) => Inner.UseSegmentAsync(id, file, token);
     public Task UploadSegmentFileAsync(long id, DiskSegmentFile file, Stream stream, CancellationToken token) => Inner.UploadSegmentFileAsync(id, file, stream, token);
     public Task<ILiveBackupRecordWriter> OpenRecordWriterAsync(long id, LiveBackupRecordBatch batch, CancellationToken token) => Inner.OpenRecordWriterAsync(id, batch, token);
-    public Task CompleteGenerationAsync(long id, long index, CancellationToken token) => Inner.CompleteGenerationAsync(id, index, token);
+    public Task CompleteGenerationAsync(long id, long index, string dbVersion, CancellationToken token) => Inner.CompleteGenerationAsync(id, index, dbVersion, token);
   }
 
   sealed class Fixture(WriteAheadLogMode wal, DiskSegmentMode disk) : IDisposable

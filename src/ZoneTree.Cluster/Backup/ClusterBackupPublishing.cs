@@ -56,11 +56,11 @@ internal sealed class ClusterBackupPublishing
         => inner.OpenRecordWriterAsync(generationId, batch, cancellationToken);
 
     public async Task CompleteGenerationAsync(long generationId, long lastOpIndex,
-        CancellationToken cancellationToken)
+        string dbVersion, CancellationToken cancellationToken)
     {
       if (!await publishing.ArriveAsync().WaitAsync(cancellationToken).ConfigureAwait(false))
         throw new InvalidOperationException("Another column of the cluster backup generation failed.");
-      await inner.CompleteGenerationAsync(generationId, lastOpIndex, cancellationToken).ConfigureAwait(false);
+      await inner.CompleteGenerationAsync(generationId, lastOpIndex, dbVersion, cancellationToken).ConfigureAwait(false);
     }
   }
 }

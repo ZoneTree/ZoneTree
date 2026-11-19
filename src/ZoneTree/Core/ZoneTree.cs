@@ -157,6 +157,11 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
   /// </summary>
   public long LastOpIndex => MutableSegment.OpIndexProvider.LastId;
 
+  /// <summary>
+  /// The storage format version of the tree, see <see cref="ZoneTreeMeta.DbVersion"/>.
+  /// </summary>
+  internal string DbVersion => ZoneTreeMeta.DbVersion;
+
   public ZoneTree(ZoneTreeOptions<TKey, TValue> options)
   {
     Logger = options.Logger;
@@ -169,6 +174,12 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         options, IncrementalIdProvider.NextId(), new IncrementalIdProvider());
     IsDeleted = options.IsDeleted;
     FillZoneTreeMeta();
+    var legacyCompressionUses = LegacyFormats.FindInOptions(
+        options.WriteAheadLogOptions, options.DiskSegmentOptions);
+    if (legacyCompressionUses.Count == 0)
+      ZoneTreeMeta.DbVersion = ZoneTreeInfo.DbVersion.ToString();
+    else
+      LegacyFormats.Warn(Logger, legacyCompressionUses);
     ZoneTreeMeta.MaximumOpIndex = MutableSegment.OpIndexProvider.LastId;
     MetaWal.SaveMetaData(
         ZoneTreeMeta,
