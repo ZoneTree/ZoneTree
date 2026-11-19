@@ -124,7 +124,7 @@ sealed class ProfileSerializer : ISerializer<Profile?>
 
 This prints `Ada`, then `False`. JSON is an explicit format choice here; the engine does not supply or infer this serializer for `Profile`.
 
-JSON cannot tell the size of an entry without serializing it, so this example serializes each disk segment record twice. A format that can bound its size from the entry, as the built-in serializers do, writes once and allocates nothing.
+JSON cannot tell the size of an entry without serializing it, so this example serializes an entry twice each time a disk segment or a write-ahead log writes it. A format that can bound its size from the entry, as the built-in serializers do, writes once and allocates nothing.
 
 The serializer can be called from concurrent application, recovery, or maintenance work. Keep it safe for concurrent use. Do not retain or mutate input buffers without owning a copy, and do not return a reusable scratch buffer that another operation can overwrite.
 

@@ -40,21 +40,18 @@ internal sealed partial class SharedWalStore<TKey, TValue>
   void WriteData(long id, long sequence, in TKey key, in TValue value, long opIndex)
   {
     ThrowIfFailed();
-    var keyBytes = KeySerializer.Serialize(key);
-    var valueBytes = ValueSerializer.Serialize(value);
+    var record = SharedWalRecord.SerializeData(KeySerializer, ValueSerializer, key, value, sequence, id, opIndex);
     lock (StorageLock)
     {
       var channel = GetChannel(id);
       // A write that passed its handle's check just before a drop retired the segment.
       if (channel.Retired)
         throw new WriteAheadLogClosedException(DirectoryPath);
-      var record = new SharedWalRecord(SharedWalRecordKind.Data, sequence, id, opIndex, keyBytes, valueBytes);
       // Serialization and validation above have not changed the journal. Once
       // writing starts, any failure can leave a partial record and is permanent.
       try
       {
-        AppendRecord(record);
-        channel.ContentSize += record.Size;
+        channel.ContentSize += AppendRecord(record, sequence, id);
         channel.HasHistory = true;
         channel.CacheValid = false;
         channel.MaximumOpIndex = Math.Max(channel.MaximumOpIndex, opIndex);

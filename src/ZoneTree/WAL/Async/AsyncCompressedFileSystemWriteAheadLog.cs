@@ -278,9 +278,7 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
       return;
     try
     {
-      var keyBytes = KeySerializer.Serialize(q.Key);
-      var valueBytes = ValueSerializer.Serialize(q.Value);
-      AppendLogEntry(keyBytes, valueBytes, q.OpIndex);
+      AppendLogEntry(LogEntry.SerializeLogEntry(KeySerializer, ValueSerializer, q.Key, q.Value, q.OpIndex, IsLegacyFormat));
     }
     catch (Exception e)
     {
@@ -430,13 +428,14 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
     CompleteSyncRequest(closedSyncRequest, null);
   }
 
-  void AppendLogEntry(Memory<byte> keyBytes, Memory<byte> valueBytes, long opIndex)
+  void AppendLogEntry(ReadOnlySpan<byte> record)
   {
     lock (AppendLock)
     {
       if (isWriterCancelled)
         return;
-      LogEntry.AppendLogEntry(BinaryWriter, keyBytes, valueBytes, opIndex, IsLegacyFormat);
+      BinaryWriter.Write(record);
+      BinaryWriter.Flush();
     }
   }
 
@@ -511,11 +510,7 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
   {
     var len = keys.Length;
     for (var i = 0; i < len; ++i)
-    {
-      var keyBytes = KeySerializer.Serialize(keys[i]);
-      var valueBytes = ValueSerializer.Serialize(values[i]);
-      LogEntry.AppendLogEntry(binaryWriter, keyBytes, valueBytes, 0, IsLegacyFormat);
-    }
+      LogEntry.AppendLogEntry(binaryWriter, KeySerializer, ValueSerializer, keys[i], values[i], 0, IsLegacyFormat);
   }
 
   public void MarkFrozen()

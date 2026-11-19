@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.IO.Hashing;
 using System.Runtime.CompilerServices;
+using ZoneTree.Serializers;
 
 namespace ZoneTree.WAL;
 
@@ -59,51 +60,45 @@ public struct LogEntry : IEquatable<LogEntry>
     return CreateChecksum() == Checksum;
   }
 
-  [MethodImpl(MethodImplOptions.AggressiveInlining)]
-  public static void AppendLogEntry(
-      BinaryWriter binaryWriter,
-      Memory<byte> keyBytes,
-      Memory<byte> valueBytes,
+  /// <summary>
+  /// Serializes the entry's record, its header, key, value and checksum, into the calling thread's buffer, so the
+  /// record is written in one write without allocating. The record is valid until the thread serializes its next
+  /// record.
+  /// </summary>
+  public static ReadOnlySpan<byte> SerializeLogEntry<TKey, TValue>(
+      ISerializer<TKey> keySerializer,
+      ISerializer<TValue> valueSerializer,
+      in TKey key,
+      in TValue value,
       long opIndex,
       bool isLegacyFormat = false)
   {
-    var recordLength = HeaderLength + (long)keyBytes.Length + valueBytes.Length + sizeof(uint);
-    if (recordLength <= StackBufferLength)
-    {
-      // Build small records once and write them in a single call. The checksum
-      // covers the same bytes that CreateChecksum hashes for small records.
-      Span<byte> record = stackalloc byte[(int)recordLength];
-      BinaryPrimitives.WriteInt64LittleEndian(record, opIndex);
-      BinaryPrimitives.WriteInt32LittleEndian(record[sizeof(long)..], keyBytes.Length);
-      BinaryPrimitives.WriteInt32LittleEndian(record[(sizeof(long) + sizeof(int))..], valueBytes.Length);
-      keyBytes.Span.CopyTo(record[HeaderLength..]);
-      valueBytes.Span.CopyTo(record[(HeaderLength + keyBytes.Length)..]);
-      var checksum = isLegacyFormat
-          ? 0
-          : unchecked((uint)XxHash3.HashToUInt64(record[..^sizeof(uint)]));
-      BinaryPrimitives.WriteUInt32LittleEndian(record[^sizeof(uint)..], checksum);
-      binaryWriter.Write(record);
-      binaryWriter.Flush();
-      return;
-    }
+    var record = WalEntrySerializer.SerializeRecord(
+        keySerializer, valueSerializer, in key, in value, HeaderLength, sizeof(uint),
+        out var keyLength, out var valueLength);
+    BinaryPrimitives.WriteInt64LittleEndian(record, opIndex);
+    BinaryPrimitives.WriteInt32LittleEndian(record[sizeof(long)..], keyLength);
+    BinaryPrimitives.WriteInt32LittleEndian(record[(sizeof(long) + sizeof(int))..], valueLength);
+    var checksum = isLegacyFormat
+        ? 0
+        : unchecked((uint)XxHash3.HashToUInt64(record[..^sizeof(uint)]));
+    BinaryPrimitives.WriteUInt32LittleEndian(record[^sizeof(uint)..], checksum);
+    return record;
+  }
 
-    var entry = new LogEntry
-    {
-      OpIndex = opIndex,
-      KeyLength = keyBytes.Length,
-      ValueLength = valueBytes.Length,
-      Key = keyBytes,
-      Value = valueBytes
-    };
-    entry.Checksum = isLegacyFormat ? 0 : entry.CreateChecksum();
-    binaryWriter.Write(entry.OpIndex);
-    binaryWriter.Write(entry.KeyLength);
-    binaryWriter.Write(entry.ValueLength);
-    if (!entry.Key.IsEmpty)
-      binaryWriter.Write(entry.Key.Span);
-    if (!entry.Value.IsEmpty)
-      binaryWriter.Write(entry.Value.Span);
-    binaryWriter.Write(entry.Checksum);
+  /// <summary>
+  /// Writes the entry's record in one write and flushes the writer.
+  /// </summary>
+  public static void AppendLogEntry<TKey, TValue>(
+      BinaryWriter binaryWriter,
+      ISerializer<TKey> keySerializer,
+      ISerializer<TValue> valueSerializer,
+      in TKey key,
+      in TValue value,
+      long opIndex,
+      bool isLegacyFormat = false)
+  {
+    binaryWriter.Write(SerializeLogEntry(keySerializer, valueSerializer, in key, in value, opIndex, isLegacyFormat));
     binaryWriter.Flush();
   }
 

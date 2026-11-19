@@ -242,6 +242,23 @@ internal sealed partial class SharedWalStore<TKey, TValue> : ISharedWalStore, ID
 
   void AppendRecord(in SharedWalRecord record)
   {
+    PrepareChunk(record.Size);
+    record.Write(Current.Stream);
+    OnRecordAppended(record.Size, record.Sequence, record.SegmentId);
+  }
+
+  // Appends a data record that SharedWalRecord.SerializeData built, and returns its size.
+  long AppendRecord(ReadOnlySpan<byte> record, long sequence, long segmentId)
+  {
+    PrepareChunk(record.Length);
+    SharedWalRecord.WriteRecord(Current.Stream, record);
+    OnRecordAppended(record.Length, sequence, segmentId);
+    return record.Length;
+  }
+
+  // Makes the current chunk one that takes a record of the size, sealing a full one.
+  void PrepareChunk(long recordSize)
+  {
     if (Current == null)
       Current = CreateChunk(FirstChunkId, WrittenSequence);
     if (Current.Sealed)
@@ -250,7 +267,7 @@ internal sealed partial class SharedWalStore<TKey, TValue> : ISharedWalStore, ID
       Current = CreateChunk(Current.Id + 1, WrittenSequence);
     }
     if (Current.Length > SharedWalRecord.MinimumSize &&
-        Current.Length + record.Size > Options.SharedModeOptions.MaximumChunkSize)
+        Current.Length + recordSize > Options.SharedModeOptions.MaximumChunkSize)
     {
       new SharedWalRecord(SharedWalRecordKind.SealChunk, WrittenSequence, Current.Id + 1, 0, default, default).Write(Current.Stream);
       Current.Length += SharedWalRecord.MinimumSize;
@@ -258,10 +275,13 @@ internal sealed partial class SharedWalStore<TKey, TValue> : ISharedWalStore, ID
       CloseInactiveChunk(Current);
       Current = CreateChunk(Current.Id + 1, WrittenSequence);
     }
-    record.Write(Current.Stream);
-    Current.Length += record.Size;
-    Current.LastSequence = WrittenSequence = record.Sequence;
-    Current.References[record.SegmentId] = record.Sequence;
+  }
+
+  void OnRecordAppended(long recordSize, long sequence, long segmentId)
+  {
+    Current.Length += recordSize;
+    Current.LastSequence = WrittenSequence = sequence;
+    Current.References[segmentId] = sequence;
     HasNewWrites = true;
   }
 

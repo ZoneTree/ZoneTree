@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 using System.IO.Hashing;
-using System.Runtime.CompilerServices;
+using ZoneTree.Serializers;
 
 namespace ZoneTree.WAL;
 
@@ -34,34 +34,71 @@ internal readonly record struct SharedWalRecord(
 
   internal long Size => MinimumSize + (long)Key.Length + Value.Length;
 
-  [MethodImpl(MethodImplOptions.AggressiveInlining)]
+  // A record is written from this struct only as a control record: a chunk header, a seal or a replacement marker,
+  // whose value is at most a count. Data records are serialized with SerializeData.
+  const int MaxControlRecordSize = MinimumSize + sizeof(long);
+
+  /// <summary>
+  /// Writes the control record in one write. It is built on the stack, and not in the calling thread's buffer,
+  /// because the buffer can hold a data record that is written after it, such as when a seal precedes the data
+  /// record that does not fit the chunk.
+  /// </summary>
   internal void Write(CompressedFileStream stream)
   {
-    var size = Size;
-    Span<byte> bytes = stackalloc byte[size <= 512 ? (int)size : HeaderSize];
-    BinaryPrimitives.WriteUInt32LittleEndian(bytes, Magic);
-    BinaryPrimitives.WriteInt32LittleEndian(bytes[4..], (int)Kind);
-    BinaryPrimitives.WriteInt64LittleEndian(bytes[8..], Sequence);
-    BinaryPrimitives.WriteInt64LittleEndian(bytes[16..], SegmentId);
-    BinaryPrimitives.WriteInt64LittleEndian(bytes[24..], OpIndex);
-    BinaryPrimitives.WriteInt32LittleEndian(bytes[32..], Key.Length);
-    BinaryPrimitives.WriteInt32LittleEndian(bytes[36..], Value.Length);
+    if (Size > MaxControlRecordSize)
+      throw new InvalidOperationException("Only control records are written from a record. Data records are serialized.");
+    Span<byte> record = stackalloc byte[MaxControlRecordSize];
+    record = record[..(int)Size];
+    WriteHeader(record, Kind, Sequence, SegmentId, OpIndex, Key.Length, Value.Length);
+    Key.Span.CopyTo(record[HeaderSize..]);
+    Value.Span.CopyTo(record[(HeaderSize + Key.Length)..]);
+    WriteChecksum(record);
+    WriteRecord(stream, record);
+  }
+
+  /// <summary>
+  /// Serializes a data record of the entry, its header, key, value and checksum, into the calling thread's buffer,
+  /// and returns its bytes. They are valid until the thread serializes its next record.
+  /// </summary>
+  internal static ReadOnlySpan<byte> SerializeData<TKey, TValue>(
+      ISerializer<TKey> keySerializer, ISerializer<TValue> valueSerializer, in TKey key, in TValue value,
+      long sequence, long segmentId, long opIndex)
+  {
+    var record = WalEntrySerializer.SerializeRecord(
+        keySerializer, valueSerializer, in key, in value, HeaderSize, sizeof(ulong),
+        out var keyLength, out var valueLength);
+    WriteHeader(record, SharedWalRecordKind.Data, sequence, segmentId, opIndex, keyLength, valueLength);
+    WriteChecksum(record);
+    return record;
+  }
+
+  /// <summary>
+  /// Writes the bytes of a whole record in one write.
+  /// </summary>
+  internal static void WriteRecord(CompressedFileStream stream, ReadOnlySpan<byte> record)
+  {
     using var recordWrite = stream.BeginRecordWrite();
-    if (size <= bytes.Length)
-    {
-      Key.Span.CopyTo(bytes[HeaderSize..]);
-      Value.Span.CopyTo(bytes[(HeaderSize + Key.Length)..]);
-      BinaryPrimitives.WriteUInt64LittleEndian(bytes[^sizeof(ulong)..], XxHash3.HashToUInt64(bytes[..^sizeof(ulong)]));
-      stream.Write(bytes);
-      return;
-    }
-    var checksum = Checksum(bytes, Key.Span, Value.Span);
-    stream.Write(bytes);
-    stream.Write(Key.Span);
-    stream.Write(Value.Span);
-    Span<byte> footer = stackalloc byte[sizeof(ulong)];
-    BinaryPrimitives.WriteUInt64LittleEndian(footer, checksum);
-    stream.Write(footer);
+    stream.Write(record);
+  }
+
+  // Writes the checksum of the record's bytes before it, at its end. It is the checksum Read checks.
+  static void WriteChecksum(Span<byte> record)
+  {
+    BinaryPrimitives.WriteUInt64LittleEndian(
+        record[^sizeof(ulong)..], XxHash3.HashToUInt64(record[..^sizeof(ulong)]));
+  }
+
+  static void WriteHeader(
+      Span<byte> bytes, SharedWalRecordKind kind, long sequence, long segmentId, long opIndex,
+      int keyLength, int valueLength)
+  {
+    BinaryPrimitives.WriteUInt32LittleEndian(bytes, Magic);
+    BinaryPrimitives.WriteInt32LittleEndian(bytes[4..], (int)kind);
+    BinaryPrimitives.WriteInt64LittleEndian(bytes[8..], sequence);
+    BinaryPrimitives.WriteInt64LittleEndian(bytes[16..], segmentId);
+    BinaryPrimitives.WriteInt64LittleEndian(bytes[24..], opIndex);
+    BinaryPrimitives.WriteInt32LittleEndian(bytes[32..], keyLength);
+    BinaryPrimitives.WriteInt32LittleEndian(bytes[36..], valueLength);
   }
 
   internal static SharedWalRecord Read(CompressedFileStream stream)
@@ -81,7 +118,7 @@ internal readonly record struct SharedWalRecord(
     ReadExactly(stream, body);
     Span<byte> footer = stackalloc byte[sizeof(ulong)];
     ReadExactly(stream, footer);
-    if (BinaryPrimitives.ReadUInt64LittleEndian(footer) != Checksum(header, body, default))
+    if (BinaryPrimitives.ReadUInt64LittleEndian(footer) != Checksum(header, body))
       throw new InvalidDataException("Invalid shared WAL record checksum.");
     return new(kind,
         BinaryPrimitives.ReadInt64LittleEndian(header[8..]),
@@ -90,13 +127,13 @@ internal readonly record struct SharedWalRecord(
         body.AsMemory(0, keyLength), body.AsMemory(keyLength, valueLength));
   }
 
-  static ulong Checksum(ReadOnlySpan<byte> header, ReadOnlySpan<byte> key, ReadOnlySpan<byte> value)
+  // The checksum of a record read as a header and a body, the one WriteChecksum writes for the whole record.
+  static ulong Checksum(ReadOnlySpan<byte> header, ReadOnlySpan<byte> body)
   {
     var hasher = Hasher ??= new XxHash3();
     hasher.Reset();
     hasher.Append(header);
-    hasher.Append(key);
-    hasher.Append(value);
+    hasher.Append(body);
     return hasher.GetCurrentHashAsUInt64();
   }
 

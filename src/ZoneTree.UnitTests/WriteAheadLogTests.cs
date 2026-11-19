@@ -10,13 +10,15 @@ namespace ZoneTree.UnitTests;
 
 public sealed class WriteAheadLogTests
 {
+  static readonly BytesSerializer Bytes = new();
+
   [Test]
   public void WalReaderQueriesStreamLengthOnceForMultipleRecords()
   {
     using var stream = new LengthCountingMemoryStream();
     using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true);
     for (var i = 0; i < 32; ++i)
-      LogEntry.AppendLogEntry(writer, new byte[] { 1, 2 }, new byte[] { 3 }, i);
+      LogEntry.AppendLogEntry(writer, Bytes, Bytes, new byte[] { 1, 2 }, new byte[] { 3 }, i);
     stream.LengthReadCount = 0;
 
     var result = WriteAheadLogEntryReader.ReadLogEntries<Memory<byte>, Memory<byte>, LogEntry>(
@@ -38,7 +40,7 @@ public sealed class WriteAheadLogTests
   {
     using var stream = new MemoryStream();
     using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true);
-    LogEntry.AppendLogEntry(writer, new byte[] { 1, 2 }, new byte[] { 3 }, 1);
+    LogEntry.AppendLogEntry(writer, Bytes, Bytes, new byte[] { 1, 2 }, new byte[] { 3 }, 1);
     var tailPosition = stream.Position;
     writer.Write(2L);
     writer.Write(int.MaxValue);

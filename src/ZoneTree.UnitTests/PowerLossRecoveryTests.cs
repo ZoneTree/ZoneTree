@@ -105,7 +105,7 @@ public sealed class PowerLossRecoveryTests
     for (var key = fromKey; key < toKey; ++key)
     {
       var value = key + 1;
-      LogEntry.AppendLogEntry(writer, serializer.Serialize(key), serializer.Serialize(value), key + 1);
+      LogEntry.AppendLogEntry(writer, serializer, serializer, key, value, key + 1);
     }
     writer.Flush();
     return stream.ToArray();
@@ -740,8 +740,9 @@ public sealed class PowerLossRecoveryTests
     using var records = new MemoryStream();
     using (var writer = new BinaryWriter(records, System.Text.Encoding.UTF8, true))
     {
+      var serializer = new Int32Serializer();
       for (var key = 0; key < 200; ++key)
-        LogEntry.AppendLogEntry(writer, BitConverter.GetBytes(key), BitConverter.GetBytes(key + 1), key + 1);
+        LogEntry.AppendLogEntry(writer, serializer, serializer, key, key + 1, key + 1);
     }
     var content = records.ToArray();
     using var legacyMain = new MemoryStream();

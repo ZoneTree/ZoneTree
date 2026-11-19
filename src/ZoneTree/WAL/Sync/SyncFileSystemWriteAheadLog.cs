@@ -81,13 +81,15 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
 
   public void Append(in TKey key, in TValue value, long opIndex)
   {
-    var keyBytes = KeySerializer.Serialize(key);
-    var valueBytes = ValueSerializer.Serialize(value);
+    // The record is built before the lock, so concurrent appends serialize in
+    // parallel and a failing serializer leaves the log unchanged.
+    var record = LogEntry.SerializeLogEntry(KeySerializer, ValueSerializer, key, value, opIndex, IsLegacyFormat);
     lock (SyncRoot)
     {
       try
       {
-        LogEntry.AppendLogEntry(BinaryWriter, keyBytes, valueBytes, opIndex, IsLegacyFormat);
+        BinaryWriter.Write(record);
+        BinaryWriter.Flush();
       }
       catch (Exception e)
       {
@@ -283,11 +285,7 @@ public sealed class SyncFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<T
 #pragma warning restore CA2000
         var len = keys.Length;
         for (var i = 0; i < len; ++i)
-        {
-          var keyBytes = KeySerializer.Serialize(keys[i]);
-          var valueBytes = ValueSerializer.Serialize(values[i]);
-          LogEntry.AppendLogEntry(binaryWriter, keyBytes, valueBytes, i, IsLegacyFormat);
-        }
+          LogEntry.AppendLogEntry(binaryWriter, KeySerializer, ValueSerializer, keys[i], values[i], i, IsLegacyFormat);
 
         FileStream.Dispose();
         BinaryWriter = null;
