@@ -74,17 +74,24 @@ public sealed class SingleProducerSingleConsumerQueue<TQueueItem>
       return list;
     }
 
+    /// <summary>
+    /// Returns the items from the newest to the oldest. Start is read before End, so items that the producer
+    /// enqueues during the walk are either in the range or newer than it. Each slot is read with acquire semantics,
+    /// so the caller's later reads happen after the walk's reads. The queue checks for dequeues during the walk.
+    /// </summary>
     public List<TQueueItem> ToLastInFirstArray()
     {
       var items = Items;
       var size = items.Length;
-      var end = (size + End - 1) % size;
       var start = (size + Start - 1) % size;
+      var end = (size + End - 1) % size;
       var list = new List<TQueueItem>(ItemsCount);
 
       while (start != end)
       {
-        list.Add(items[end]);
+        var item = Volatile.Read(ref items[end]);
+        if (item != null)
+          list.Add(item);
         end = (size + end - 1) % size;
       }
       return list;
@@ -92,6 +99,12 @@ public sealed class SingleProducerSingleConsumerQueue<TQueueItem>
   }
 
   readonly Lock SyncRoot = new();
+
+  // Odd while a dequeue runs, and grows by two with every dequeue. A dequeue during a newest-first walk lets the
+  // producer wrap around past the Start the walk read, and the walk then skips items that stayed queued. A walk
+  // that sees the same even version before and after had no dequeue during it. Ring positions repeat, so the walk
+  // cannot check Start instead.
+  long DequeueVersion;
 
   public int Length => Chunk.ItemsCount;
 
@@ -164,17 +177,38 @@ public sealed class SingleProducerSingleConsumerQueue<TQueueItem>
         items = chunk.Items;
         size = items.Length;
       }
+      // Full fences, so the walks see the odd version before any change below, and these changes before the even one.
+      Interlocked.Increment(ref DequeueVersion);
       items[start] = null;
       chunk.Start = (start + 1) % size;
+      Interlocked.Increment(ref DequeueVersion);
     }
     return true;
   }
 
+  /// <summary>
+  /// Returns the items from the newest to the oldest. It is safe while the producer and the consumer run, and it
+  /// walks again if a dequeue ran during the walk.
+  /// </summary>
   [System.Diagnostics.CodeAnalysis.SuppressMessage(
     "Design",
     "CA1002:Do not expose generic lists",
     Justification = "List<T> is intentionally exposed here to avoid extra allocation and preserve the concrete return type.")]
-  public List<TQueueItem> ToLastInFirstArray() => Chunk.ToLastInFirstArray();
+  public List<TQueueItem> ToLastInFirstArray()
+  {
+    var spinner = new SpinWait();
+    while (true)
+    {
+      var version = Volatile.Read(ref DequeueVersion);
+      if ((version & 1) == 0)
+      {
+        var list = Chunk.ToLastInFirstArray();
+        if (Volatile.Read(ref DequeueVersion) == version)
+          return list;
+      }
+      spinner.SpinOnce();
+    }
+  }
 
   [System.Diagnostics.CodeAnalysis.SuppressMessage(
       "Design",
