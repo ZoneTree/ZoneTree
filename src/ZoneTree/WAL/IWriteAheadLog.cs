@@ -77,7 +77,7 @@ public interface IWriteAheadLog<TKey, TValue> : IDisposable
 
   /// <summary>
   /// Returns the files of the log in a format that version 2.2.0 removes:
-  /// LZ4, Gzip or Brotli compression, or the Sync WAL mode.
+  /// LZ4, Gzip or Brotli compression, the Sync WAL mode, or a WAL format of a version before 2.1.0.
   /// </summary>
   IReadOnlyList<string> GetLegacyFiles();
 }

@@ -374,8 +374,8 @@ public sealed class ZoneTreeLoader<TKey, TValue>
 
   /// <summary>
   /// Moves the database to the current storage format when nothing in it uses LZ4, Gzip or
-  /// Brotli compression or the Sync WAL mode, which version 2.2.0 removes. Otherwise it warns
-  /// about the uses.
+  /// Brotli compression, the Sync WAL mode or a WAL format of a version before 2.1.0, which
+  /// version 2.2.0 removes. Otherwise it warns about the uses.
   /// </summary>
   void UpdateDbVersion(IWriteAheadLog<TKey, TValue> mutableSegmentWal)
   {

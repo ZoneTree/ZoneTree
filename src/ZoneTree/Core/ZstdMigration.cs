@@ -13,7 +13,8 @@ namespace ZoneTree.Core;
 
 /// <summary>
 /// Migrates the files of a database from LZ4, Gzip and Brotli compression to the configured
-/// compression, and Sync WALs to SyncCompressed WALs, because version 2.2.0 removes them.
+/// compression, Sync WALs to SyncCompressed WALs, and WALs of versions before 2.1.0 to the
+/// current WAL format, because version 2.2.0 removes them.
 /// It backs up the database directories, converts the files that need it in place, and the
 /// loader then moves the database to the current <see cref="ZoneTreeMeta.DbVersion"/>.
 /// </summary>
@@ -28,13 +29,18 @@ sealed class ZstdMigration<TKey, TValue>
   const string ConvertedSuffix = ".zstd";
 
   static readonly string[] CompressedSegmentWalEndings =
-      (from extension in new[] { WriteAheadLogProvider.Xxh3WalExtension, WriteAheadLogProvider.LegacyWalExtension }
-       from mode in new[] { WriteAheadLogMode.SyncCompressed, WriteAheadLogMode.AsyncCompressed }
-       select $"{extension}.{(int)mode}").ToArray();
+      [.. from mode in new[] { WriteAheadLogMode.SyncCompressed, WriteAheadLogMode.AsyncCompressed }
+          select $"{WriteAheadLogProvider.Xxh3WalExtension}.{(int)mode}"];
 
-  static readonly string[] SyncWalEndings =
-      [.. from extension in new[] { WriteAheadLogProvider.Xxh3WalExtension, WriteAheadLogProvider.LegacyWalExtension }
-          select $"{extension}.{(int)WriteAheadLogMode.Sync}"];
+  static readonly string SyncWalEnding =
+      $"{WriteAheadLogProvider.Xxh3WalExtension}.{(int)WriteAheadLogMode.Sync}";
+
+  /// <summary>
+  /// The WALs of versions before 2.0, which have no XXH3 record checksums.
+  /// </summary>
+  static readonly string[] CrcWalEndings =
+      [.. from mode in new[] { WriteAheadLogMode.Sync, WriteAheadLogMode.SyncCompressed, WriteAheadLogMode.AsyncCompressed }
+          select $"{WriteAheadLogProvider.LegacyWalExtension}.{(int)mode}"];
 
   readonly ZoneTreeOptions<TKey, TValue> Options;
 
@@ -85,10 +91,14 @@ sealed class ZstdMigration<TKey, TValue>
     var walFiles = GetWalFiles();
     var wals = walFiles
         .Where(IsCompressedWal)
-        .Where(path => LegacyFormats.IsLegacy(CompressedFileStream.ReadCompressionMethod(Files, path)))
+        .Where(path =>
+        {
+          var method = CompressedFileStream.ReadCompressionMethod(Files, path, out var hasLegacyBlocks);
+          return hasLegacyBlocks || LegacyFormats.IsLegacy(method);
+        })
         .ToArray();
-    var syncWals = walFiles.Where(IsSyncWal).ToArray();
-    if (devices.Length == 0 && multiPartHeaders.Length == 0 && wals.Length == 0 && syncWals.Length == 0)
+    var rewrittenWals = walFiles.Where(path => IsSyncWal(path) || IsCrcWal(path)).ToArray();
+    if (devices.Length == 0 && multiPartHeaders.Length == 0 && wals.Length == 0 && rewrittenWals.Length == 0)
       return;
 
     Backup();
@@ -98,12 +108,12 @@ sealed class ZstdMigration<TKey, TValue>
       ConvertMultiPartHeader(path);
     foreach (var path in wals)
       ConvertWal(path);
-    foreach (var path in syncWals)
-      ConvertSyncWal(path);
-    // The WAL replacement renames and the Sync WAL deletion do not sync the directory.
+    foreach (var path in rewrittenWals)
+      RewriteWal(path);
+    // The WAL replacement renames and the WAL deletions do not sync the directory.
     // Without a sync, a power loss could bring back a legacy WAL after the loader moves
     // the database to the current DbVersion.
-    foreach (var directory in wals.Concat(syncWals).Select(Path.GetDirectoryName).Distinct())
+    foreach (var directory in wals.Concat(rewrittenWals).Select(Path.GetDirectoryName).Distinct())
       Files.SyncDirectory(directory);
   }
 
@@ -132,7 +142,10 @@ sealed class ZstdMigration<TKey, TValue>
   }
 
   static bool IsSyncWal(string path) =>
-      SyncWalEndings.Any(ending => Path.GetFileName(path).EndsWith(ending, StringComparison.Ordinal));
+      Path.GetFileName(path).EndsWith(SyncWalEnding, StringComparison.Ordinal);
+
+  static bool IsCrcWal(string path) =>
+      CrcWalEndings.Any(ending => Path.GetFileName(path).EndsWith(ending, StringComparison.Ordinal));
 
   void Backup()
   {
@@ -210,26 +223,41 @@ sealed class ZstdMigration<TKey, TValue>
     DurableFiles.WriteAllBytes(path, MultiPartMetadataCodec.Encode(decoded).Span);
   }
 
+  CompressedFileStream OpenWal(string path)
+  {
+    var options = Options.WriteAheadLogOptions;
+    return new CompressedFileStream(
+        Options.Logger, Files, path, options.CompressionBlockSize, false, 0,
+        options.CompressionMethod, options.CompressionLevel);
+  }
+
   /// <summary>
-  /// Copies the content of a WAL file or a shared WAL chunk as the WAL reads it, with its
-  /// records, their op indexes and a torn last record as they are.
+  /// Reads the content of a WAL as the WAL reads it, with its records, their op indexes
+  /// and a torn last record as they are.
+  /// </summary>
+  static byte[] ReadContent(CompressedFileStream stream, string path)
+  {
+    // Setting the position does not move the stream to the first block.
+    stream.Seek(0, SeekOrigin.Begin);
+    using var reader = new BinaryReader(stream, Encoding.UTF8, true);
+    var content = reader.ReadBytes(checked((int)stream.Length));
+    if (content.Length != stream.Length)
+      throw new InvalidDataException(
+          $"The WAL {path} could not be read to its end. Restore the database from the migration backup.");
+    return content;
+  }
+
+  /// <summary>
+  /// Copies the content of a WAL file or a shared WAL chunk in the current format.
   /// </summary>
   void ConvertWal(string path)
   {
     var options = Options.WriteAheadLogOptions;
-    var stream = new CompressedFileStream(
-        Options.Logger, Files, path, options.CompressionBlockSize, false, 0,
-        options.CompressionMethod, options.CompressionLevel);
+    var stream = OpenWal(path);
     byte[] content;
     try
     {
-      // Setting the position does not move the stream to the first block.
-      stream.Seek(0, SeekOrigin.Begin);
-      using var reader = new BinaryReader(stream, Encoding.UTF8, true);
-      content = reader.ReadBytes(checked((int)stream.Length));
-      if (content.Length != stream.Length)
-        throw new InvalidDataException(
-            $"The WAL {path} could not be read to its end. Restore the database from the migration backup.");
+      content = ReadContent(stream, path);
     }
     catch
     {
@@ -245,16 +273,59 @@ sealed class ZstdMigration<TKey, TValue>
   }
 
   /// <summary>
-  /// Rewrites a Sync WAL as a SyncCompressed WAL of the same segment. The Sync WAL reader
-  /// checks the records, and they are copied as they are, with their op indexes. A torn
-  /// last record is left out. The reader reads keys and values as bytes, because a
-  /// transactional tree stores versioned records, not records of the tree types.
+  /// Rewrites a Sync WAL as a SyncCompressed WAL of the same segment, and a WAL of a version
+  /// before 2.0 as a WAL of the current format with the same mode. The records are copied as
+  /// they are, with their op indexes, and the records of a version before 2.0 get XXH3
+  /// checksums. The Sync WAL reader checks the records of a Sync WAL and leaves out a torn
+  /// last record. It reads keys and values as bytes, because a transactional tree stores
+  /// versioned records, not records of the tree types.
   /// </summary>
   /// <remarks>
-  /// While both WALs exist, the provider loads the Sync WAL, so a crash before its deletion
-  /// leaves it in use, and the next migration converts it again.
+  /// While both WALs exist, the provider loads a Sync WAL, so a crash before its deletion
+  /// leaves it in use, and the next migration converts it again. It loads the current format
+  /// before the format of versions before 2.0, so the next migration deletes the old WAL.
   /// </remarks>
-  void ConvertSyncWal(string path)
+  void RewriteWal(string path)
+  {
+    var isCrcWal = IsCrcWal(path);
+    var mode = (WriteAheadLogMode)(path[^1] - '0');
+    var targetMode = mode == WriteAheadLogMode.Sync ? WriteAheadLogMode.SyncCompressed : mode;
+    var extension = isCrcWal ? WriteAheadLogProvider.LegacyWalExtension : WriteAheadLogProvider.Xxh3WalExtension;
+    var target = path[..^(extension.Length + 2)] + WriteAheadLogProvider.Xxh3WalExtension + "." +
+        ((int)targetMode).ToString(CultureInfo.InvariantCulture);
+    if (isCrcWal && Files.FileExists(target))
+    {
+      DeleteWal(path, mode);
+      return;
+    }
+
+    byte[] records;
+    if (mode == WriteAheadLogMode.Sync)
+      records = ReadSyncWalRecords(path);
+    else
+      using (var stream = OpenWal(path))
+        records = ReadContent(stream, path);
+    if (isCrcWal)
+      WriteChecksums(records);
+
+    var converted = target + ConvertedSuffix;
+    var convertedTail = converted + ".tail";
+    if (Files.FileExists(converted))
+      Files.DeleteFile(converted);
+    if (Files.FileExists(convertedTail))
+      Files.DeleteFile(convertedTail);
+    using (var stream = OpenWal(converted))
+    {
+      stream.Write(records);
+      stream.SealTail();
+    }
+    // The sealed main file holds the records, so the target opens with a new tail.
+    Files.DeleteFile(convertedTail);
+    DurableFiles.MoveFile(converted, target, overwrite: true);
+    DeleteWal(path, mode);
+  }
+
+  byte[] ReadSyncWalRecords(string path)
   {
     long length;
     var bytes = new ByteArraySerializer();
@@ -269,27 +340,29 @@ sealed class ZstdMigration<TKey, TValue>
       length = result.HasFoundIncompleteTailRecord ? result.IncompleteTailRecord.RecordPosition : -1;
     }
     var records = Files.ReadAllBytes(path);
-    if (length >= 0)
-      records = records[..(int)length];
+    return length >= 0 ? records[..(int)length] : records;
+  }
 
-    var target = path[..^1] + ((int)WriteAheadLogMode.SyncCompressed).ToString(CultureInfo.InvariantCulture);
-    var converted = target + ConvertedSuffix;
-    var convertedTail = converted + ".tail";
-    if (Files.FileExists(converted))
-      Files.DeleteFile(converted);
-    if (Files.FileExists(convertedTail))
-      Files.DeleteFile(convertedTail);
-    var options = Options.WriteAheadLogOptions;
-    using (var stream = new CompressedFileStream(
-        Options.Logger, Files, converted, options.CompressionBlockSize, false, 0,
-        options.CompressionMethod, options.CompressionLevel))
+  /// <summary>
+  /// Writes the XXH3 checksums of the records. A torn last record stays as it is.
+  /// </summary>
+  static void WriteChecksums(Span<byte> records)
+  {
+    while (records.Length >= LogEntry.MinimumRecordLength)
     {
-      stream.Write(records);
-      stream.SealTail();
+      var length = LogEntry.ReadRecordLength(records);
+      if (length < 0 || length > records.Length)
+        return;
+      LogEntry.WriteChecksum(records[..(int)length]);
+      records = records[(int)length..];
     }
-    // The sealed main file holds the records, so the target opens with a new tail.
-    Files.DeleteFile(convertedTail);
-    DurableFiles.MoveFile(converted, target, overwrite: true);
+  }
+
+  void DeleteWal(string path, WriteAheadLogMode mode)
+  {
+    var tail = path + ".tail";
+    if (mode != WriteAheadLogMode.Sync && Files.FileExists(tail))
+      Files.DeleteFile(tail);
     Files.DeleteFile(path);
   }
 }

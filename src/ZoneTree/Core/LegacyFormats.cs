@@ -5,8 +5,8 @@ using ZoneTree.Options;
 namespace ZoneTree.Core;
 
 /// <summary>
-/// Finds the uses of LZ4, Gzip and Brotli compression and of the Sync WAL mode,
-/// which version 2.2.0 removes.
+/// Finds the uses of LZ4, Gzip and Brotli compression, of the Sync WAL mode and of the WAL
+/// formats of versions before 2.1.0, which version 2.2.0 removes.
 /// </summary>
 static class LegacyFormats
 {
@@ -76,8 +76,9 @@ static class LegacyFormats
   public static void Warn(ILogger logger, IEnumerable<string> uses)
   {
     logger?.LogWarning(
-        "This database uses LZ4, Gzip or Brotli compression or the Sync WAL mode, which ZoneTree 2.2.0 " +
-        "removes: " + string.Join(", ", uses) + ". Before you upgrade to ZoneTree 2.2.0, set Zstd or None " +
+        "This database uses LZ4, Gzip or Brotli compression, the Sync WAL mode or a WAL format of a version " +
+        "before 2.1.0, which ZoneTree 2.2.0 removes: " + string.Join(", ", uses) + ". " +
+        "Before you upgrade to ZoneTree 2.2.0, set Zstd or None " +
         "compression and a WAL mode other than Sync, and open the database once with " +
         "ZoneTreeFactory.EnableZstdMigration().");
   }

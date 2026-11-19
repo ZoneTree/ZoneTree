@@ -252,6 +252,82 @@ public sealed class LegacyWalMigrationTests
     Assert.That(value, Is.EqualTo(222));
   }
 
+  [TestCase(WriteAheadLogMode.Sync)]
+  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  public void MigrationRewritesTheWalsOfVersionsBefore2_0(WriteAheadLogMode mode)
+  {
+    CopyFixture(mode);
+    var targetMode = mode == WriteAheadLogMode.Sync ? WriteAheadLogMode.SyncCompressed : mode;
+    var logger = new DbVersionTests.RecordingLogger();
+    using (var tree = CreateFactory(targetMode).SetLogger(logger).EnableZstdMigration().Open())
+    {
+      AssertValue(tree, 1, 10);
+      AssertValue(tree, 2, 999);
+      AssertValue(tree, 3, 30);
+      AssertValue(tree, 4, 40);
+    }
+    Assert.That(logger.GetWarnings(), Has.None.Contains("2.2.0 removes"));
+    Assert.That(DbVersionTests.ReadDbVersion(DataDirectory), Is.EqualTo(DbVersionTests.CurrentDbVersion));
+    Assert.That(Directory.GetFiles(Path.Combine(DataDirectory, "seg"), "*.wal_crc.*"), Is.Empty);
+    foreach (var segmentId in new[] { 1, 2 })
+    {
+      var entries = ReadEntries(WalPath("seg", segmentId, "wal_xxh3", targetMode), targetMode);
+      Assert.That(entries, Is.Not.Empty);
+      Assert.That(entries.All(x => x.ValidateChecksum()), Is.True);
+    }
+
+    logger = new DbVersionTests.RecordingLogger();
+    using (var tree = CreateFactory(targetMode).SetLogger(logger).Open())
+    {
+      AssertValue(tree, 2, 999);
+      AssertValue(tree, 4, 40);
+    }
+    Assert.That(logger.GetWarnings(), Is.Empty);
+  }
+
+  [TestCase(WriteAheadLogMode.Sync, CompressionMethod.None)]
+  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.None)]
+  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.LZ4)]
+  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.Zstd)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.None)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.LZ4)]
+  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.Zstd)]
+  public void MigrationFramesTheBlocksOf208Wals(WriteAheadLogMode mode, CompressionMethod method)
+  {
+    CopyFixtureDirectory(Path.Combine("Legacy208Wals", $"{mode}-{method}"));
+    var targetMode = mode == WriteAheadLogMode.Sync ? WriteAheadLogMode.SyncCompressed : mode;
+    var logger = new DbVersionTests.RecordingLogger();
+    using (var tree = CreateFactory(targetMode).SetLogger(logger).EnableZstdMigration().Open())
+      for (var key = 0; key < 150; ++key)
+        AssertValue(tree, key, key + 1);
+    Assert.That(logger.GetWarnings(), Has.None.Contains("2.2.0 removes"));
+    Assert.That(DbVersionTests.ReadDbVersion(DataDirectory), Is.EqualTo(DbVersionTests.CurrentDbVersion));
+    var files = new LocalFileStreamProvider();
+    var wals = Directory.GetFiles(Path.Combine(DataDirectory, "seg"), $"*.wal_xxh3.{(int)targetMode}");
+    Assert.That(wals, Has.Length.EqualTo(2));
+    foreach (var wal in wals)
+    {
+      CompressedFileStream.ReadCompressionMethod(files, wal, out var hasLegacyBlocks);
+      Assert.That(hasLegacyBlocks, Is.False, wal);
+    }
+
+    using var reopened = CreateFactory(targetMode).Open();
+    for (var key = 0; key < 150; ++key)
+      AssertValue(reopened, key, key + 1);
+  }
+
+  [TestCase("LegacyCrcWals/SyncCompressed", WriteAheadLogMode.SyncCompressed)]
+  [TestCase("Legacy208Wals/AsyncCompressed-Zstd", WriteAheadLogMode.AsyncCompressed)]
+  public void WalsOfVersionsBefore2_1_0KeepTheOldDbVersion(string fixture, WriteAheadLogMode mode)
+  {
+    CopyFixtureDirectory(fixture);
+    var logger = new DbVersionTests.RecordingLogger();
+    using (CreateFactory(mode).SetLogger(logger).Open()) { }
+    Assert.That(DbVersionTests.ReadDbVersion(DataDirectory), Is.Null);
+    Assert.That(logger.GetWarnings(), Has.One.Contains("2.2.0 removes").And.Contains($".{(int)mode}"));
+  }
+
   ZoneTreeFactory<int, int> CreateFactory(WriteAheadLogMode mode)
   {
     return new ZoneTreeFactory<int, int>()

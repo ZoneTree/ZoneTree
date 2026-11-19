@@ -209,7 +209,8 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
   }
 
   public IReadOnlyList<string> GetLegacyFiles() =>
-      LegacyFormats.IsLegacy(FileStream.CompressionMethod) ? [FilePath] : [];
+      IsLegacyFormat || FileStream.HasLegacyBlocks || LegacyFormats.IsLegacy(FileStream.CompressionMethod)
+          ? [FilePath] : [];
 }
 
 #pragma warning restore CA2213
