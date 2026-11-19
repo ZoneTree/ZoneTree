@@ -11,7 +11,15 @@ public sealed class HalfSerializer : ISerializer<Half>
   public Memory<byte> Serialize(in Half entry)
   {
     var bytes = new byte[sizeof(short)];
-    BinaryPrimitives.WriteInt16LittleEndian(bytes, BitConverter.HalfToInt16Bits(entry));
+    Serialize(entry, bytes);
     return bytes;
+  }
+
+  public int GetMaxByteCount(in Half entry) => sizeof(short);
+
+  public int Serialize(in Half entry, Span<byte> destination)
+  {
+    BinaryPrimitives.WriteInt16LittleEndian(destination, BitConverter.HalfToInt16Bits(entry));
+    return sizeof(short);
   }
 }

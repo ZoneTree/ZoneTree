@@ -11,7 +11,15 @@ public sealed class TimeOnlySerializer : ISerializer<TimeOnly>
   public Memory<byte> Serialize(in TimeOnly entry)
   {
     var bytes = new byte[sizeof(long)];
-    BinaryPrimitives.WriteInt64LittleEndian(bytes, entry.Ticks);
+    Serialize(entry, bytes);
     return bytes;
+  }
+
+  public int GetMaxByteCount(in TimeOnly entry) => sizeof(long);
+
+  public int Serialize(in TimeOnly entry, Span<byte> destination)
+  {
+    BinaryPrimitives.WriteInt64LittleEndian(destination, entry.Ticks);
+    return sizeof(long);
   }
 }

@@ -682,6 +682,10 @@ public sealed class PowerLossRecoveryTests
     }
 
     public Memory<byte> Serialize(in int entry) => BinarySerializerHelper.ToByteArray(entry);
+
+    public int GetMaxByteCount(in int entry) => sizeof(int);
+
+    public int Serialize(in int entry, Span<byte> destination) => BinarySerializerHelper.Write(entry, destination);
   }
 
   [TestCase(WriteAheadLogMode.Sync)]

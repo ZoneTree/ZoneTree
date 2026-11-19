@@ -16,10 +16,18 @@ public sealed class UIntPtrSerializer : ISerializer<nuint>
   public Memory<byte> Serialize(in nuint entry)
   {
     var bytes = new byte[UIntPtr.Size];
-    if (UIntPtr.Size == sizeof(ulong))
-      BinaryPrimitives.WriteUInt64LittleEndian(bytes, entry);
-    else
-      BinaryPrimitives.WriteUInt32LittleEndian(bytes, (uint)entry);
+    Serialize(entry, bytes);
     return bytes;
+  }
+
+  public int GetMaxByteCount(in nuint entry) => UIntPtr.Size;
+
+  public int Serialize(in nuint entry, Span<byte> destination)
+  {
+    if (UIntPtr.Size == sizeof(ulong))
+      BinaryPrimitives.WriteUInt64LittleEndian(destination, entry);
+    else
+      BinaryPrimitives.WriteUInt32LittleEndian(destination, (uint)entry);
+    return UIntPtr.Size;
   }
 }

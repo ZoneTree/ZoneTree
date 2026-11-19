@@ -11,7 +11,15 @@ public sealed class Int16Serializer : ISerializer<short>
   public Memory<byte> Serialize(in short entry)
   {
     var bytes = new byte[sizeof(short)];
-    BinaryPrimitives.WriteInt16LittleEndian(bytes, entry);
+    Serialize(entry, bytes);
     return bytes;
+  }
+
+  public int GetMaxByteCount(in short entry) => sizeof(short);
+
+  public int Serialize(in short entry, Span<byte> destination)
+  {
+    BinaryPrimitives.WriteInt16LittleEndian(destination, entry);
+    return sizeof(short);
   }
 }

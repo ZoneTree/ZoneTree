@@ -11,7 +11,15 @@ public sealed class DateOnlySerializer : ISerializer<DateOnly>
   public Memory<byte> Serialize(in DateOnly entry)
   {
     var bytes = new byte[sizeof(int)];
-    BinaryPrimitives.WriteInt32LittleEndian(bytes, entry.DayNumber);
+    Serialize(entry, bytes);
     return bytes;
+  }
+
+  public int GetMaxByteCount(in DateOnly entry) => sizeof(int);
+
+  public int Serialize(in DateOnly entry, Span<byte> destination)
+  {
+    BinaryPrimitives.WriteInt32LittleEndian(destination, entry.DayNumber);
+    return sizeof(int);
   }
 }

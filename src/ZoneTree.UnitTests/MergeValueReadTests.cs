@@ -64,5 +64,9 @@ public sealed class MergeValueReadTests
     }
 
     public Memory<byte> Serialize(in string entry) => Inner.Serialize(entry);
+
+    public int GetMaxByteCount(in string entry) => Inner.GetMaxByteCount(entry);
+
+    public int Serialize(in string entry, Span<byte> destination) => Inner.Serialize(entry, destination);
   }
 }

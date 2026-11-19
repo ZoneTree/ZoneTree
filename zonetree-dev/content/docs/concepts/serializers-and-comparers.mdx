@@ -78,7 +78,7 @@ Setting `MutableSegmentBloomFilterBitsPerItem` to `0` removes the filter's hashe
 
 ## Supply a serializer for custom values
 
-`ISerializer<T>` has two operations: `Serialize(in T entry)` returns `Memory<byte>`, and `Deserialize(Memory<byte> bytes)` returns the value. Custom serializers must support every value that can be written, including deletion markers.
+`ISerializer<T>` has four operations. `Serialize(in T entry)` returns `Memory<byte>`, and `Deserialize(Memory<byte> bytes)` returns the value. Disk segments and write-ahead logs write through the other two, into buffers they reuse: `GetMaxByteCount(in T entry)` returns at least the number of bytes the entry needs, and `Serialize(in T entry, Span<byte> destination)` writes them at the start of the destination and returns how many it wrote. A reused destination can hold earlier bytes, so every byte the returned count covers must be written. Both `Serialize` forms must produce the same bytes. Custom serializers must support every value that can be written, including deletion markers.
 
 This complete example stores an immutable reference record as JSON. The nullable serializer also preserves the default `null` tombstone:
 
@@ -107,12 +107,24 @@ sealed class ProfileSerializer : ISerializer<Profile?>
     public Memory<byte> Serialize(in Profile? entry) =>
         JsonSerializer.SerializeToUtf8Bytes(entry);
 
+    public int GetMaxByteCount(in Profile? entry) =>
+        JsonSerializer.SerializeToUtf8Bytes(entry).Length;
+
+    public int Serialize(in Profile? entry, Span<byte> destination)
+    {
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(entry);
+        bytes.CopyTo(destination);
+        return bytes.Length;
+    }
+
     public Profile? Deserialize(Memory<byte> bytes) =>
         JsonSerializer.Deserialize<Profile>(bytes.Span);
 }
 ```
 
 This prints `Ada`, then `False`. JSON is an explicit format choice here; the engine does not supply or infer this serializer for `Profile`.
+
+JSON cannot tell the size of an entry without serializing it, so this example serializes each disk segment record twice. A format that can bound its size from the entry, as the built-in serializers do, writes once and allocates nothing.
 
 The serializer can be called from concurrent application, recovery, or maintenance work. Keep it safe for concurrent use. Do not retain or mutate input buffers without owning a copy, and do not return a reusable scratch buffer that another operation can overwrite.
 

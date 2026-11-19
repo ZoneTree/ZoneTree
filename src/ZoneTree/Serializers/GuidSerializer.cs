@@ -15,7 +15,15 @@ public sealed class GuidSerializer : ISerializer<Guid>
   public Memory<byte> Serialize(in Guid entry)
   {
     var bytes = new byte[16];
-    entry.TryWriteBytes(bytes);
+    Serialize(entry, bytes);
     return bytes;
+  }
+
+  public int GetMaxByteCount(in Guid entry) => 16;
+
+  public int Serialize(in Guid entry, Span<byte> destination)
+  {
+    entry.TryWriteBytes(destination);
+    return 16;
   }
 }

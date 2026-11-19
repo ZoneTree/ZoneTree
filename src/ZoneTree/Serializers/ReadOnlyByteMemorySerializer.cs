@@ -13,4 +13,12 @@ public sealed class ReadOnlyByteMemorySerializer : ISerializer<ReadOnlyMemory<by
 
   public Memory<byte> Serialize(in ReadOnlyMemory<byte> entry)
     => MemoryMarshal.AsMemory(entry);
+
+  public int GetMaxByteCount(in ReadOnlyMemory<byte> entry) => entry.Length;
+
+  public int Serialize(in ReadOnlyMemory<byte> entry, Span<byte> destination)
+  {
+    entry.Span.CopyTo(destination);
+    return entry.Length;
+  }
 }

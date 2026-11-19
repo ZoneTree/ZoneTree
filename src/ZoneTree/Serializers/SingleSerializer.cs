@@ -11,7 +11,15 @@ public sealed class SingleSerializer : ISerializer<float>
   public Memory<byte> Serialize(in float entry)
   {
     var bytes = new byte[sizeof(float)];
-    BinaryPrimitives.WriteSingleLittleEndian(bytes, entry);
+    Serialize(entry, bytes);
     return bytes;
+  }
+
+  public int GetMaxByteCount(in float entry) => sizeof(float);
+
+  public int Serialize(in float entry, Span<byte> destination)
+  {
+    BinaryPrimitives.WriteSingleLittleEndian(destination, entry);
+    return sizeof(float);
   }
 }

@@ -87,13 +87,23 @@ public sealed class SharedWriteAheadLogTests
 
     public Memory<byte> Serialize(in int entry)
     {
+      var bytes = new byte[sizeof(int)];
+      Serialize(entry, bytes);
+      return bytes;
+    }
+
+    public int GetMaxByteCount(in int entry) => sizeof(int);
+
+    public int Serialize(in int entry, Span<byte> destination)
+    {
       if (entry == 0 && !start.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException();
       if (entry == -1)
       {
         entered.Set();
         if (!release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException();
       }
-      return BitConverter.GetBytes(entry);
+      BitConverter.TryWriteBytes(destination, entry);
+      return sizeof(int);
     }
   }
 

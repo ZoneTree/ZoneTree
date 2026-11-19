@@ -66,4 +66,26 @@ public sealed class VersionedKeySerializer<TKey> : ISerializer<VersionedKey<TKey
     keyBytes.Span.CopyTo(bytes.AsSpan(HeaderSize));
     return bytes;
   }
+
+  /// <inheritdoc/>
+  public int GetMaxByteCount(in VersionedKey<TKey> entry)
+  {
+    var keySize = entry.Kind == VersionedKeyKind.Data ? KeySerializer.GetMaxByteCount(in entry.Key) : 0;
+    return Math.Max(FixedSize, HeaderSize + keySize);
+  }
+
+  /// <inheritdoc/>
+  public int Serialize(in VersionedKey<TKey> entry, Span<byte> destination)
+  {
+    destination[0] = (byte)entry.Kind;
+    BinaryPrimitives.WriteInt64LittleEndian(destination.Slice(1), entry.Version);
+    var keySize = entry.Kind == VersionedKeyKind.Data ?
+        KeySerializer.Serialize(in entry.Key, destination.Slice(HeaderSize)) :
+        0;
+    // The array form pads fixed size records with zeros.
+    var written = HeaderSize + keySize;
+    var size = Math.Max(FixedSize, written);
+    destination.Slice(written, size - written).Clear();
+    return size;
+  }
 }

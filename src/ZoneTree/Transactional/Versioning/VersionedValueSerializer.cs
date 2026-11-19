@@ -76,4 +76,38 @@ public sealed class VersionedValueSerializer<TValue> : ISerializer<VersionedValu
     bytes[0] = (byte)entry.Kind;
     return bytes;
   }
+
+  /// <inheritdoc/>
+  public int GetMaxByteCount(in VersionedValue<TValue> entry)
+  {
+    var payloadSize = entry.Kind switch
+    {
+      VersionedValueKind.Value => ValueSerializer.GetMaxByteCount(in entry.Value),
+      VersionedValueKind.System => sizeof(long),
+      _ => 0,
+    };
+    return Math.Max(FixedSize, 1 + payloadSize);
+  }
+
+  /// <inheritdoc/>
+  public int Serialize(in VersionedValue<TValue> entry, Span<byte> destination)
+  {
+    var payloadSize = 0;
+    switch (entry.Kind)
+    {
+      case VersionedValueKind.Value:
+        payloadSize = ValueSerializer.Serialize(in entry.Value, destination.Slice(1));
+        break;
+      case VersionedValueKind.System:
+        BinaryPrimitives.WriteInt64LittleEndian(destination.Slice(1), entry.Meta);
+        payloadSize = sizeof(long);
+        break;
+    }
+    destination[0] = (byte)entry.Kind;
+    // The array form pads fixed size records with zeros.
+    var written = 1 + payloadSize;
+    var size = Math.Max(FixedSize, written);
+    destination.Slice(written, size - written).Clear();
+    return size;
+  }
 }
