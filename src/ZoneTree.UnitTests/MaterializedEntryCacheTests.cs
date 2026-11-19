@@ -56,10 +56,85 @@ public sealed class MaterializedEntryCacheTests
   }
 
   [Test]
-  public void DefaultSizeIs4096Chunks()
+  public void DefaultLimitIs65536ChunksWhichHoldsA4MBBlockOfRecordsAsSmallAs8Bytes()
   {
-    Assert.That(DiskSegmentDefaultValues.MaterializedEntryCacheSize, Is.EqualTo(4096));
-    Assert.That(new DiskSegmentOptions().MaterializedEntryCacheSize, Is.EqualTo(4096));
+    const int blockLength = 4 * 1024 * 1024;
+
+    Assert.Multiple(() =>
+    {
+      Assert.That(DiskSegmentDefaultValues.MaterializedEntryCacheSize, Is.EqualTo(65536));
+      Assert.That(new DiskSegmentOptions().MaterializedEntryCacheSize, Is.EqualTo(65536));
+      Assert.That(
+          MaterializedEntryCache<int, int>.GetChunkCount(blockLength, int.MaxValue, 8),
+          Is.LessThanOrEqualTo(65536));
+    });
+  }
+
+  // A 4 MB block of 20-byte records holds 209,715 records. With one record more on each side for the records that
+  // straddle the block's edges, that is 13,108 chunks, plus one for the block's unaligned start.
+  [TestCase(4 * 1024 * 1024, 20, 13109)]
+  [TestCase(4 * 1024 * 1024, 16, 16386)]
+  [TestCase(4 * 1024 * 1024, 1024, 258)]
+  [TestCase(1000, 20, 5)]
+  [TestCase(0, 20, 2)]
+  public void EachBlockGetsJustEnoughChunksForItsRecords(int blockLength, int recordSize, int expected)
+  {
+    Assert.That(
+        MaterializedEntryCache<int, int>.GetChunkCount(blockLength, 65536, recordSize),
+        Is.EqualTo(expected));
+  }
+
+  [Test]
+  public void TheLimitCapsTheChunkCount()
+  {
+    Assert.That(MaterializedEntryCache<int, int>.GetChunkCount(4 * 1024 * 1024, 4096, 20), Is.EqualTo(4096));
+  }
+
+  [Test]
+  public void WithoutARecordSizeTheLimitIsTheChunkCount()
+  {
+    Assert.That(MaterializedEntryCache<int, int>.GetChunkCount(4 * 1024 * 1024, 100, 0), Is.EqualTo(100));
+  }
+
+  [Test]
+  public void ACacheSizedForItsBlockKeepsEveryChunkOfTheBlock()
+  {
+    // The third block of 20-byte records. Its records start at an index that is not a multiple of 16.
+    const int recordSize = 20;
+    const int blockLength = 64 * 1024;
+    const long recordsPerBlock = blockLength / recordSize;
+    var block = new DecompressedBlock(2, new byte[blockLength], CompressionMethod.None, 0);
+    var cache = MaterializedEntryCache<int, int>.GetOrCreate(block, 65536, recordSize);
+    var firstChunk = 2 * recordsPerBlock / 16;
+    var lastChunk = (3 * recordsPerBlock - 1) / 16;
+
+    for (var chunk = firstChunk; chunk <= lastChunk; ++chunk)
+      AddFullChunk(cache, chunk);
+
+    for (var chunk = firstChunk; chunk <= lastChunk; ++chunk)
+      Assert.That(TryCopyFullChunk(cache, chunk), Is.True, $"chunk {chunk}");
+  }
+
+  [Test]
+  public void AReadThatDoesNotContributeToTheBlockCacheOnlyUsesAnExistingCache()
+  {
+    var block = CreateBlock();
+    var oneTimeRead = new SingleBlockPin(block, contributeToTheBlockCache: false);
+    var cachingRead = new SingleBlockPin(block, contributeToTheBlockCache: true);
+
+    Assert.Multiple(() =>
+    {
+      Assert.That(MaterializedEntryCache<int, int>.GetOrCreate((SingleBlockPin)null, 16, 8), Is.Null);
+      Assert.That(MaterializedEntryCache<int, int>.GetOrCreate(oneTimeRead, 16, 8), Is.Null);
+      Assert.That(block.MaterializedEntries, Is.Null);
+    });
+    var cache = MaterializedEntryCache<int, int>.GetOrCreate(cachingRead, 16, 8);
+    Assert.Multiple(() =>
+    {
+      Assert.That(cache, Is.Not.Null);
+      Assert.That(MaterializedEntryCache<int, int>.GetOrCreate(oneTimeRead, 16, 8), Is.SameAs(cache));
+      Assert.That(MaterializedEntryCache<int, int>.GetOrCreate(oneTimeRead, 0, 8), Is.Null);
+    });
   }
 
   [Test]

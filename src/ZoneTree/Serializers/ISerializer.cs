@@ -9,7 +9,10 @@ public interface ISerializer<TEntry>
   /// <summary>
   /// Deserialize the bytes into entry type.
   /// </summary>
-  /// <param name="bytes">The bytes to be deserialized.</param>
+  /// <param name="bytes">
+  /// The bytes to be deserialized. They are usually part of a disk segment's decompressed block, so the entry must
+  /// copy any bytes it keeps. An entry that kept a slice would keep the whole block in memory.
+  /// </param>
   /// <returns>The deserialized entry.</returns>
   TEntry Deserialize(Memory<byte> bytes);
 

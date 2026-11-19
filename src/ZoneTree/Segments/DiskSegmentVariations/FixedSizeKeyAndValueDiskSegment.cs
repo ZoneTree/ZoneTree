@@ -201,8 +201,8 @@ public sealed class FixedSizeKeyAndValueDiskSegment<TKey, TValue> : DiskSegment<
       if (count > 1)
       {
         cache = MaterializedEntryCache<TKey, TValue>.GetOrCreate(
-            pin1?.Device,
-            MaterializedEntryCacheSize);
+            pin1,
+            MaterializedEntryCacheSize, itemSize);
         if (cache != null && cache.TryCopy(
             startIndex,
             count,

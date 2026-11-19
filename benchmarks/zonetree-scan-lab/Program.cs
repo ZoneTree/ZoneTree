@@ -23,6 +23,8 @@ if (config.Reset && Directory.Exists(config.EngineDataDirectory))
   Directory.Delete(config.EngineDataDirectory, recursive: true);
 Directory.CreateDirectory(config.EngineDataDirectory);
 
+AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+    Console.WriteLine($"peak working set={System.Diagnostics.Process.GetCurrentProcess().PeakWorkingSet64 / (1024.0 * 1024 * 1024):N2} GB");
 await using var store = CreateStore(config);
 store.Open();
 
@@ -30,6 +32,12 @@ if (config.Mode is RunMode.Insert or RunMode.All)
 {
   await store.InsertAsync(config.Profiles);
   await store.SettleAsync();
+}
+
+if (config.Mode is RunMode.Alloc)
+{
+  await store.SettleAsync();
+  ((ZoneTreeScanStore)store).ProfileScanAllocations(10_000);
 }
 
 if (config.Mode is RunMode.Read or RunMode.TryGet or RunMode.RepeatedTryGet or RunMode.RepeatedDiskTryGet or RunMode.Seek or RunMode.RepeatedSeek or RunMode.PrefixSeek or RunMode.Scan or RunMode.Query or RunMode.All)
@@ -210,6 +218,22 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
     SaveMetaData();
     sw.Stop();
     Console.WriteLine($"{sw.Elapsed.TotalMilliseconds:N0} ms");
+    PrintLayout("profiles", Profiles!);
+    PrintLayout("country/status", CountryStatusIndex!);
+    PrintLayout("created-at", CreatedAtIndex!);
+    PrintLayout("reputation", ReputationIndex!);
+  }
+
+  /// <summary>Shows where a tree's records are, so a run never measures the mutable segment by mistake.</summary>
+  static void PrintLayout<TKey, TValue>(string name, IZoneTree<TKey, TValue> tree)
+  {
+    var maintenance = tree.Maintenance;
+    var bottom = maintenance.BottomSegments;
+    Console.WriteLine(
+        $"  layout {name}: mutable={maintenance.MutableSegment.Length:N0}; " +
+        $"read-only={maintenance.ReadOnlySegmentsCount} ({maintenance.ReadOnlySegmentsRecordCount:N0}); " +
+        $"disk={maintenance.DiskSegment.Length:N0}; " +
+        $"bottom={bottom.Count} ({bottom.Sum(segment => segment.Length):N0})");
   }
 
   public Task RunProfileReadAsync(ProfileReadPlan plan) =>
@@ -243,7 +267,8 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
         {
           for (var i = start; i < start + count; i++)
           {
-            if (diskSegment.TryGet(keys[i].Text, out var userId))
+            var keyHashProvider = new ZoneTree.Hashers.KeyHashProvider<string>();
+            if (diskSegment.TryGet(keys[i].Text, out var userId, ref keyHashProvider))
               checksum.Add(userId);
           }
         });
@@ -432,6 +457,48 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
     ScanStringIndexValues(iterator, startKey, keepGoing, checksum);
   }
 
+  /// <summary>
+  /// Measures the bytes that each step of a short created-at scan allocates, on one thread. The first pass also
+  /// brings the blocks and their entries into memory; the second pass shows what every later scan pays.
+  /// </summary>
+  public void ProfileScanAllocations(int scans)
+  {
+    var random = new Random(config.Seed);
+    var starts = new string[scans];
+    for (var i = 0; i < scans; i++)
+      starts[i] = ProfileKeys.CreatedAt(Generator.Create(random.NextInt64(1, config.Profiles)).CreatedAtUnixMs, 0);
+
+    for (var pass = 1; pass <= 2; pass++)
+    {
+      long create = 0, seek = 0, first = 0, rest = 0, dispose = 0;
+      foreach (var start in starts)
+      {
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var iterator = CreateStringIndexIterator(CreatedAtIndex!);
+        var created = GC.GetAllocatedBytesForCurrentThread();
+        iterator.Seek(start);
+        var sought = GC.GetAllocatedBytesForCurrentThread();
+        iterator.Next();
+        var firstRead = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 1; i < config.Limit && iterator.Next(); i++)
+        {
+        }
+        var read = GC.GetAllocatedBytesForCurrentThread();
+        iterator.Dispose();
+        var disposed = GC.GetAllocatedBytesForCurrentThread();
+        create += created - before;
+        seek += sought - created;
+        first += firstRead - sought;
+        rest += read - firstRead;
+        dispose += disposed - read;
+      }
+      double perScan(long bytes) => bytes / (double)scans;
+      Console.WriteLine(
+          $"pass {pass}, bytes per scan: create={perScan(create):N0}; seek={perScan(seek):N0}; " +
+          $"first next={perScan(first):N0}; next {config.Limit - 1} entries={perScan(rest):N0}; dispose={perScan(dispose):N0}");
+    }
+  }
+
   IZoneTreeIterator<string, long> CreateStringIndexIterator(
       IZoneTree<string, long> index) =>
       index.CreateIterator(new IteratorOptions
@@ -527,6 +594,8 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
           options.DefaultSparseArrayStepSize = config.SparseArrayStepSize;
           options.KeyCacheSize = config.KeyCacheSize;
           options.ValueCacheSize = config.ValueCacheSize;
+          if (config.MaterializedEntryCacheSize >= 0)
+            options.MaterializedEntryCacheSize = config.MaterializedEntryCacheSize;
         })
         .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed)
         .OpenOrCreate();
@@ -547,6 +616,8 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
           options.DefaultSparseArrayStepSize = config.SparseArrayStepSize;
           options.KeyCacheSize = config.KeyCacheSize;
           options.ValueCacheSize = config.ValueCacheSize;
+          if (config.MaterializedEntryCacheSize >= 0)
+            options.MaterializedEntryCacheSize = config.MaterializedEntryCacheSize;
         })
         .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed)
         .OpenOrCreate();
@@ -1013,15 +1084,22 @@ static class ScanExecution
     }
 
     workersReady.Wait();
+    var allocatedBefore = GC.GetTotalAllocatedBytes();
+    var gen0Before = GC.CollectionCount(0);
+    var gen2Before = GC.CollectionCount(2);
     var sw = Stopwatch.StartNew();
     startGate.Set();
     var checksums = await Task.WhenAll(tasks);
     sw.Stop();
+    var allocated = GC.GetTotalAllocatedBytes() - allocatedBefore;
 
     var checksum = new Checksum();
     foreach (var value in checksums)
       checksum.Add(value);
-    Console.WriteLine($"{sw.Elapsed.TotalMilliseconds:N0} ms ({operations / Math.Max(sw.Elapsed.TotalSeconds, 0.001):N0}/s); checksum={checksum.Hex}");
+    Console.WriteLine(
+        $"{sw.Elapsed.TotalMilliseconds:N0} ms ({operations / Math.Max(sw.Elapsed.TotalSeconds, 0.001):N0}/s); " +
+        $"allocated={allocated / (1024.0 * 1024 * 1024):N2} GB; gc0={GC.CollectionCount(0) - gen0Before}; " +
+        $"gc2={GC.CollectionCount(2) - gen2Before}; checksum={checksum.Hex}");
   }
 
   static (int Start, int Count) GetPartition(int total, int index, int partitions)
@@ -1370,6 +1448,8 @@ sealed record ScanLabConfig
   public int SparseArrayStepSize { get; init; } = 16;
   public int KeyCacheSize { get; init; } = 1024;
   public int ValueCacheSize { get; init; } = 1024;
+  // Negative keeps the library default; zero disables the cache.
+  public int MaterializedEntryCacheSize { get; init; } = -1;
   public int PrefetchSize { get; init; } = 16;
   public BTreeLockMode BTreeLockMode { get; init; } = BTreeLockMode.NodeLevelMonitor;
   public CreatedAtQueryMode CreatedAtMode { get; init; } = CreatedAtQueryMode.Random;
@@ -1412,6 +1492,7 @@ sealed record ScanLabConfig
         "--sparse-step" => config with { SparseArrayStepSize = ParseCount(next()) },
         "--key-cache" => config with { KeyCacheSize = ParseCount(next()) },
         "--value-cache" => config with { ValueCacheSize = ParseCount(next()) },
+        "--materialized-cache" => config with { MaterializedEntryCacheSize = ParseCount(next()) },
         "--prefetch" => config with { PrefetchSize = ParseCount(next()) },
         "--btree-lock" => config with { BTreeLockMode = ParseBTreeLockMode(next()) },
         "--created-at" => config with { CreatedAtMode = ParseCreatedAtMode(next()) },
@@ -1465,6 +1546,7 @@ sealed record ScanLabConfig
         "scan" => RunMode.Scan,
         "query" => RunMode.Query,
         "all" => RunMode.All,
+        "alloc" => RunMode.Alloc,
         _ => throw new ArgumentException($"Unknown mode: {value}")
       };
 
@@ -1531,6 +1613,7 @@ enum RunMode
   PrefixSeek,
   Scan,
   Query,
+  Alloc,
   All
 }
 

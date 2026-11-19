@@ -199,7 +199,7 @@ The report records the effective engine settings. Important defaults are:
 
 | Engine | Configuration |
 | --- | --- |
-| ZoneTree | Async-compressed WAL, live background maintainers, 250,000 mutable-segment items, sparse step 16, key/value caches 1,024, iterator prefetch 16 |
+| ZoneTree | Async-compressed WAL, live background maintainers, 250,000 mutable-segment items, sparse step 16, key cache 1,024, value cache 8,192, iterator prefetch 16 |
 | RocksDB | WAL enabled, Zstd compression, five database instances, 1,024 MB write buffer per database, four write buffers, unsynchronized writes |
 | SQLite | WAL, `synchronous=NORMAL`, 1,024 MB page cache, 1,024 MB mmap allowance, memory temp storage, autocommit writes |
 | MySQL | InnoDB, native indexes, autocommit writes; bundled Docker durability settings described above |

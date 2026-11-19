@@ -82,10 +82,18 @@ public sealed class DiskSegmentOptions
   /// per decompressed disk block. Chunks are aligned by absolute disk index,
   /// allowing iterators with different
   /// <see cref="IteratorOptions.DiskSegmentPrefetchSize"/> values to reuse the
-  /// same entries without retaining overlapping batches. The default value of
-  /// 4096 chunks retains at most 65,536 materialized entries per decompressed
-  /// block. Setting this value to zero disables the cache.
+  /// same entries without retaining overlapping batches. Setting this value to
+  /// zero disables the cache.
   /// </summary>
+  /// <remarks>
+  /// Each block gets just enough chunks to hold all of its records, up to this
+  /// limit, so a hot block never evicts entries it will need again. Entries are
+  /// built only when they are read, and they are released with their block when
+  /// the block cache expires it. The default of 65,536 chunks holds a whole
+  /// 4 MB block of records of 8 bytes or more, such as an int key with an int
+  /// value. A lower value caps memory per block, at the cost of rebuilding
+  /// evicted entries under random access.
+  /// </remarks>
   public int MaterializedEntryCacheSize { get; set; }
       = DiskSegmentDefaultValues.MaterializedEntryCacheSize;
 

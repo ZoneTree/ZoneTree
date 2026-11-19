@@ -51,7 +51,7 @@ public sealed record BenchmarkConfig
 
   public int ZoneTreeKeyCacheSize { get; init; } = 1_024;
 
-  public int ZoneTreeValueCacheSize { get; init; } = 1_024;
+  public int ZoneTreeValueCacheSize { get; init; } = 8_192;
 
   public int ZoneTreeIteratorPrefetchSize { get; init; } = 16;
 
