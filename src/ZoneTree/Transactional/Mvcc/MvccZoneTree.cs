@@ -230,7 +230,8 @@ public sealed class MvccZoneTree<TKey, TValue> :
 
   /// <summary>
   /// The storage tree holds versions, not user records, so the options that act on
-  /// user records cannot apply. They are rejected rather than silently ignored.
+  /// user records cannot apply. They are rejected rather than silently ignored. The key
+  /// locks are not used either, so the tree gets one lock stripe.
   /// </summary>
   static void RejectUnsupportedOptions(ZoneTreeOptions<TKey, TValue> options)
   {
@@ -244,6 +245,9 @@ public sealed class MvccZoneTree<TKey, TValue> :
           nameof(options.IsRangeDeleted),
           options.IsRangeDeleted,
           "A transactional tree deletes keys only with transactions");
+    // A transactional tree has no key locks: its transactions coordinate the keys. One stripe
+    // also skips the check that the key hasher matches the comparer, which only the locks need.
+    options.LockStripeCount = 1;
   }
 
   internal static ZoneTreeOptions<VersionedKey<TKey>, VersionedValue<TValue>> CreateStorageOptions(
@@ -255,6 +259,8 @@ public sealed class MvccZoneTree<TKey, TValue> :
       MutableSegmentMaxItemCount = options.MutableSegmentMaxItemCount,
       // Reads seek the versions of a key, so lookups by exact key never happen.
       MutableSegmentBloomFilterBitsPerItem = 0,
+      // The storage tree has no key hasher, and no key is locked.
+      LockStripeCount = 1,
       DiskSegmentMaxItemCount = options.DiskSegmentMaxItemCount,
       Comparer = new VersionedKeyComparer<TKey>(options.Comparer),
       KeySerializer = new VersionedKeySerializer<TKey>(options.KeySerializer),

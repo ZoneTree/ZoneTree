@@ -73,6 +73,10 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// <summary>
   /// Tries to add the specified key and value to the collection.
   /// </summary>
+  /// <remarks>
+  /// It checks the key and then writes it, without a lock. When other threads write the key,
+  /// take its lock around the call with <see cref="Lock(in TKey)"/>, or two callers can both add it.
+  /// </remarks>
   /// <param name="key">The key of the element to add.</param>
   /// <param name="value">The value of the element to add.</param>
   /// <param name="opIndex">The operation index assigned to the successful write.</param>
@@ -83,6 +87,10 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// Tries to get the value of the given key and
   /// updates the value using value updater if found any.
   /// </summary>
+  /// <remarks>
+  /// It reads the key and then writes it, without a lock. When other threads write the key,
+  /// take its lock around the call with <see cref="Lock(in TKey)"/>, or a write in between is lost.
+  /// </remarks>
   /// <param name="key">The key of the element.</param>
   /// <param name="value">The value of the element associated with the key.</param>
   /// <param name="valueUpdater">The delegate function that updates the value.</param>
@@ -95,118 +103,17 @@ public interface IZoneTree<TKey, TValue> : IDisposable
       out long opIndex);
 
   /// <summary>
-  /// Tries to get the value of the given key and
-  /// updates the value atomically using value updater if found any.
-  /// </summary>
-  /// <remarks>
-  /// Atomic methods are synchronized with other atomic methods across LSM-tree segments.
-  /// Use them when the new value depends on the current value. For simple inserts
-  /// or replacements, prefer <see cref="Upsert(in TKey, in TValue)"/> because it is faster.
-  /// </remarks>
-  /// <param name="key">The key of the element.</param>
-  /// <param name="value">The value of the element associated with the key.</param>
-  /// <param name="valueUpdater">The delegate function that updates the value.</param>
-  /// <returns>true if the key is found; otherwise, false</returns>
-  bool TryAtomicGetAndUpdate(
-      in TKey key,
-      out TValue value,
-      ValueUpdaterDelegate<TValue> valueUpdater);
-
-  /// <summary>
-  /// Attempts to add the specified key and value atomically across LSM-Tree segments.
-  /// </summary>
-  /// <param name="key">The key of the element to add.</param>
-  /// <param name="value">The value of the element to add. It can be null.</param>
-  /// <param name="opIndex">The operation index assigned to the successful write.</param>
-  /// <returns>true if the key/value pair was added successfully;
-  /// otherwise, false.</returns>
-  bool TryAtomicAdd(in TKey key, in TValue value, out long opIndex);
-
-  /// <summary>
-  /// Attempts to update the specified key's value atomically across LSM-Tree segments.
-  /// </summary>
-  /// <param name="key">The key of the element to update.</param>
-  /// <param name="value">The value of the element to update. It can be null.</param>
-  /// <param name="opIndex">The operation index assigned to the successful update.</param>
-  /// <returns>true if the key/value pair was updated successfully;
-  /// otherwise, false.</returns>
-  bool TryAtomicUpdate(in TKey key, in TValue value, out long opIndex);
-
-  /// <summary>
-  /// Attempts to add or update the specified key and value atomically across LSM-Tree segments  and calls the result delegate atomically.
-  /// valueUpdater can be called one or more times. Keep it deterministic and avoid side effects that cannot be repeated.
-  /// When TValue is a mutable reference type, assigning a new object is the safest pattern.
-  /// In-place mutation should be idempotent and must not be followed by cancellation.
-  /// </summary>
-  /// <param name="key">The key of the element to add.</param>
-  /// <param name="valueToAdd">The value of the element to add. It can be null.</param>
-  /// <param name="valueUpdater">The delegate function that updates the value.</param>
-  /// <param name="result">The operation result delegate.</param>
-  /// <returns>true if the key/value pair was added;
-  /// false, if the key/value pair was updated.</returns>
-  bool TryAtomicAddOrUpdate(
-      in TKey key,
-      in TValue valueToAdd,
-      ValueUpdaterDelegate<TValue> valueUpdater,
-      OperationResultDelegate<TValue> result = null);
-
-  /// <summary>
-  /// Attempts to add or update the specified key and value atomically across LSM-Tree segments and calls the result delegate atomically.
-  /// valueAdder can be called one or more times.
-  /// valueUpdater can be called one or more times. Keep delegates deterministic and avoid side effects that cannot be repeated.
-  /// When TValue is a mutable reference type, assigning a new object is the safest pattern.
-  /// In-place mutation should be idempotent and must not be followed by cancellation.
-  /// </summary>
-  /// <param name="key">The key of the element to add.</param>
-  /// <param name="valueAdder">The delegate function that adds the value.</param>
-  /// <param name="valueUpdater">The delegate function that updates the value.</param>
-  /// <param name="result">The operation result delegate.</param>
-  /// <returns>true if the key/value pair was added;
-  /// false, if the key/value pair was updated.</returns>
-  bool TryAtomicAddOrUpdate(
-      in TKey key,
-      ValueAdderDelegate<TValue> valueAdder,
-      ValueUpdaterDelegate<TValue> valueUpdater,
-      OperationResultDelegate<TValue> result = null);
-
-  /// <summary>
-  /// Adds or updates the specified key/value pair atomically across LSM-Tree segments.
-  /// </summary>
-  /// <param name="key">The key of the element to upsert.</param>
-  /// <param name="value">The value of the element to upsert.</param>
-  /// <returns>The operation index assigned to the write.</returns>
-  long AtomicUpsert(in TKey key, in TValue value);
-
-  /// <summary>
   /// Adds or updates the specified key/value pair.
   /// </summary>
   /// <remarks>
-  /// This is a thread-safe method, but it is not synchronized
-  /// with other atomic add/update/upsert methods.
-  /// Using the Upsert method in parallel to atomic methods breaks the atomicity
-  /// of the atomic methods.
-  ///
-  /// For example:
-  /// TryAtomicAddOrUpdate(key) does the following 3 things
-  /// within lock to preserve atomicity across segments of LSM-Tree.
-  ///  1. tries to get the value of the key
-  ///  2. if it can find the key, it updates the value
-  ///  3. if it cannot find the key, inserts the new key/value
-  ///
-  /// All atomic methods respect this order using the same lock.
-  ///
-  /// The Upsert method does not respect to the atomicity of atomic methods,
-  /// because it does upsert without lock.
-  ///
-  /// On the other hand,
-  /// the Upsert method is atomic in the mutable segment scope but not across all segments.
-  /// This makes Upsert method thread-safe.
-  ///
-  /// This is the fastest add or update function.
+  /// It is thread-safe and the fastest write: it writes without reading the key, so it needs
+  /// no lock. It does not take the key lock either. When callers read the key and write it back
+  /// under <see cref="Lock(in TKey)"/>, an upsert of that key without the lock can overwrite
+  /// their write or be overwritten by it.
   /// </remarks>
   /// <param name="key">The key of the element to upsert.</param>
   /// <param name="value">The value of the element to upsert.</param>
-  /// <returns>The operation index. It can be used to distrubute the operations in stable order.</returns>
+  /// <returns>The operation index. It can be used to distribute the operations in stable order.</returns>
   long Upsert(in TKey key, in TValue value);
 
   /// <summary>
@@ -222,6 +129,10 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// <summary>
   /// Attempts to delete the specified key.
   /// </summary>
+  /// <remarks>
+  /// It checks the key and then deletes it, without a lock. When other threads write the key,
+  /// take its lock around the call with <see cref="Lock(in TKey)"/>.
+  /// </remarks>
   /// <param name="key">The key of the element to delete.</param>
   /// <param name="opIndex">The operation index assigned to the successful delete marker.</param>
   /// <returns>true if the key was found and deleted;
@@ -236,6 +147,106 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// <param name="key">The key of the element to delete.</param>
   /// <returns>The operation index assigned to the delete marker.</returns>
   long ForceDelete(in TKey key);
+
+  /// <summary>
+  /// Locks the key until the returned scope is disposed.
+  /// </summary>
+  /// <remarks>
+  /// <para>
+  /// Take the lock around a write that depends on what it reads, such as an increment:
+  /// no other caller that locks the key can write it between the read and the write.
+  /// The lock only orders callers that take it. A write of the key without the lock can
+  /// still happen in between.
+  /// </para>
+  /// <para>
+  /// The tree has <see cref="ZoneTreeOptions{TKey, TValue}.LockStripeCount"/> locks, and a key
+  /// takes the lock of its stripe, which the key hasher chooses. Keys that the comparer
+  /// considers equal share a lock, and different keys can share a lock too.
+  /// </para>
+  /// <para>
+  /// The lock is not reentrant: locking a key whose lock the caller already holds waits
+  /// forever. Lock several keys with one <see cref="LockMany(ReadOnlySpan{TKey})"/> call
+  /// instead. Sync and async callers exclude each other, and the lock can be held across
+  /// an await.
+  /// </para>
+  /// <para>
+  /// The locks are semaphores, so an uncontended lock costs about twice a plain lock statement.
+  /// When every writer of the keys is synchronous, a plain lock on objects that all writers share
+  /// is faster. Plain locks and key locks do not exclude each other: use one of them for all
+  /// writers of a key.
+  /// </para>
+  /// </remarks>
+  /// <example>
+  /// <code>
+  /// using (tree.Lock(key))
+  /// {
+  ///   tree.TryGet(key, out var count);
+  ///   tree.Upsert(key, count + 1);
+  /// }
+  /// </code>
+  /// </example>
+  /// <param name="key">The key to lock.</param>
+  /// <returns>The scope that releases the lock when it is disposed.</returns>
+  KeyLockScope Lock(in TKey key);
+
+  /// <summary>
+  /// Locks the keys until the returned scope is disposed.
+  /// </summary>
+  /// <remarks>
+  /// It takes the lock of each key once, in a fixed order, so callers that lock the same keys
+  /// in a different order do not deadlock, and keys that share a lock do not wait for themselves.
+  /// See <see cref="Lock(in TKey)"/> for how the locks work.
+  /// </remarks>
+  /// <param name="keys">The keys to lock.</param>
+  /// <returns>The scope that releases the locks when it is disposed.</returns>
+  KeyLockScope LockMany(params ReadOnlySpan<TKey> keys);
+
+  /// <summary>
+  /// Locks the keys until the returned scope is disposed. C# 13 and later choose
+  /// <see cref="LockMany(ReadOnlySpan{TKey})"/>, which needs no array for the keys; earlier
+  /// versions call this overload. Either way, holding more than two distinct locks
+  /// allocates an array for them.
+  /// </summary>
+  /// <param name="keys">The keys to lock.</param>
+  /// <returns>The scope that releases the locks when it is disposed.</returns>
+  /// <exception cref="ArgumentNullException">The keys are null.</exception>
+  KeyLockScope LockMany(params TKey[] keys);
+
+  /// <summary>
+  /// Locks the key until the returned scope is disposed, if its lock is free within the timeout.
+  /// See <see cref="Lock(in TKey)"/> for how the locks work.
+  /// </summary>
+  /// <param name="key">The key to lock.</param>
+  /// <param name="timeout">How long to wait for the lock. Zero does not wait.</param>
+  /// <param name="scope">The scope that releases the lock when it is disposed, or the default
+  /// value, which holds nothing, if the timeout passed.</param>
+  /// <returns>true if the key is locked; otherwise, false.</returns>
+  bool TryLock(in TKey key, TimeSpan timeout, out KeyLockScope scope);
+
+  /// <summary>
+  /// Locks the key until the returned scope is disposed, without blocking the thread while
+  /// it waits. See <see cref="Lock(in TKey)"/> for how the locks work.
+  /// </summary>
+  /// <remarks>
+  /// A released lock goes to a waiting synchronous caller first. On a key that synchronous
+  /// callers lock without pause, an asynchronous caller can wait a long time.
+  /// </remarks>
+  /// <param name="key">The key to lock.</param>
+  /// <param name="cancellationToken">Cancels the wait for the lock.</param>
+  /// <returns>The scope that releases the lock when it is disposed.</returns>
+  /// <exception cref="OperationCanceledException">The wait was cancelled, and nothing is locked.</exception>
+  ValueTask<KeyLockScope> LockAsync(TKey key, CancellationToken cancellationToken = default);
+
+  /// <summary>
+  /// Locks the keys until the returned scope is disposed, without blocking the thread while
+  /// it waits. See <see cref="LockMany(ReadOnlySpan{TKey})"/> for how several keys are locked.
+  /// </summary>
+  /// <param name="keys">The keys to lock.</param>
+  /// <param name="cancellationToken">Cancels the wait for the locks.</param>
+  /// <returns>The scope that releases the locks when it is disposed.</returns>
+  /// <exception cref="OperationCanceledException">The wait was cancelled, and nothing is locked.</exception>
+  /// <exception cref="ArgumentNullException">The keys are null.</exception>
+  ValueTask<KeyLockScope> LockManyAsync(IEnumerable<TKey> keys, CancellationToken cancellationToken = default);
 
   /// <summary>
   /// Counts Keys in the entire database.
@@ -420,27 +431,3 @@ public interface IZoneTree<TKey, TValue> : IDisposable
 /// <param name="value">The value as a reference to be updated.</param>
 /// <returns>true if the value is updated, false otherwise.</returns>
 public delegate bool ValueUpdaterDelegate<TValue>(ref TValue value);
-
-/// <summary>
-/// Value adder delegate.
-/// </summary>
-/// <typeparam name="TValue">The value type</typeparam>
-/// <param name="value">The value as a reference to be added.</param>
-/// <returns>true if the value is added, false otherwise.</returns>
-public delegate bool ValueAdderDelegate<TValue>(ref TValue value);
-
-public enum OperationResult
-{
-  Added,
-  Updated,
-  Cancelled
-}
-
-/// <summary>
-/// Value adder delegate.
-/// </summary>
-/// <typeparam name="TValue">The value type</typeparam>
-/// <param name="value">The value that has been updated or added.</param>
-/// <param name="opIndex">The operation index assigned to the write.</param>
-/// <param name="operationResult">The operation result.</param>
-public delegate void OperationResultDelegate<TValue>(in TValue value, long opIndex, OperationResult operationResult);

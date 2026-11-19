@@ -80,14 +80,27 @@ public sealed class ZoneTreeOptionsValidationTests
   }
 
   [Test]
-  public void MissingKeyHasherPassesValidationWhenBloomFilterIsDisabled()
+  public void MissingKeyHasherPassesValidationWithoutBloomFilterAndWithOneLock()
+  {
+    var options = CreateValidOptions();
+    options.KeyHasher = null;
+    options.MutableSegmentBloomFilterBitsPerItem = 0;
+    options.LockStripeCount = 1;
+
+    Assert.That(options.TryValidate(out var exception), Is.True);
+    Assert.That(exception, Is.Null);
+  }
+
+  [Test]
+  public void MissingKeyHasherExplainsHowToUseOneLock()
   {
     var options = CreateValidOptions();
     options.KeyHasher = null;
     options.MutableSegmentBloomFilterBitsPerItem = 0;
 
-    Assert.That(options.TryValidate(out var exception), Is.True);
-    Assert.That(exception, Is.Null);
+    var exception = Assert.Throws<MissingOptionException>(options.Validate);
+
+    Assert.That(exception.Message, Does.Contain($"set {nameof(options.LockStripeCount)} to 1"));
   }
 
   [Test]

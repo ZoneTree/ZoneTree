@@ -426,7 +426,7 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   /// <summary>
   /// Opens or creates a ZoneTree.
   /// </summary>
-  /// <returns>ZoneTree Factory</returns>
+  /// <returns>The ZoneTree.</returns>
   public IZoneTree<TKey, TValue> OpenOrCreate()
   {
     FillMissingOptionsForKnownTypes();
@@ -443,7 +443,7 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   /// <summary>
   /// Creates a ZoneTree.
   /// </summary>
-  /// <returns>ZoneTree Factory</returns>
+  /// <returns>The ZoneTree.</returns>
   /// <exception cref="DatabaseAlreadyExistsException">Thrown when the database exists in the location.</exception>
   public IZoneTree<TKey, TValue> Create()
   {
@@ -458,7 +458,7 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   /// <summary>
   /// Opens a ZoneTree.
   /// </summary>
-  /// <returns>ZoneTree Factory</returns>
+  /// <returns>The ZoneTree.</returns>
   /// <exception cref="DatabaseNotFoundException">Thrown when database is not found in the location.</exception>
   public IZoneTree<TKey, TValue> Open()
   {

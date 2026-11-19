@@ -27,7 +27,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
   /// </remarks>
   void MoveMutableSegmentForward(IMutableSegment<TKey, TValue> mutableSegment)
   {
-    lock (AtomicUpdateLock)
+    lock (SegmentLock)
     {
       // move segment zero only if
       // the given mutable segment is the current mutable segment (not already moved)
@@ -58,7 +58,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
   /// mutable segment as read-only, then the next one as mutable, each synced. A crash before
   /// the move only makes the mutable segment read-only with every record its WAL holds. The
   /// records are separate, so a crash between them leaves the mutable segment among the
-  /// read-only ones, which the loader handles. Called under the atomic update lock.
+  /// read-only ones, which the loader handles. Called under the segment lock.
   /// </summary>
   MutableSegment<TKey, TValue> RecordNextMutableSegment(IMutableSegment<TKey, TValue> mutableSegment)
   {
@@ -85,7 +85,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
   {
     try
     {
-      lock (AtomicUpdateLock)
+      lock (SegmentLock)
       {
         if (IsNextMutableSegmentStopped || NextMutableSegment != null ||
             mutableSegment.IsFrozen || !ReferenceEquals(mutableSegment, MutableSegment))
@@ -109,7 +109,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
   void StopNextMutableSegment(bool drop)
   {
     IMutableSegment<TKey, TValue> next;
-    lock (AtomicUpdateLock)
+    lock (SegmentLock)
     {
       IsNextMutableSegmentStopped = true;
       next = NextMutableSegment;

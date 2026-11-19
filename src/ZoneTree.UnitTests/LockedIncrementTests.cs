@@ -3,13 +3,13 @@ using ZoneTree.Options;
 
 namespace ZoneTree.UnitTests;
 
-public sealed class AtomicUpdateTests
+public sealed class LockedIncrementTests
 {
   [TestCase(WriteAheadLogMode.AsyncPrivate)]
   [TestCase(WriteAheadLogMode.Private)]
-  public void IntIntAtomicIncrement(WriteAheadLogMode walMode)
+  public void IntIntLockedIncrement(WriteAheadLogMode walMode)
   {
-    var dataPath = "data/IntIntAtomicIncrement." + walMode;
+    var dataPath = "data/IntIntLockedIncrement." + walMode;
     if (Directory.Exists(dataPath))
       Directory.Delete(dataPath, true);
     var counterKey = -3999;
@@ -29,35 +29,23 @@ public sealed class AtomicUpdateTests
     data.Maintenance.MoveMutableSegmentForward();
     data.Maintenance.StartMergeOperation().Join();
     var random = Random.Shared;
-    var off = -1;
+    var off = 0;
     Parallel.For(0, 1001, (x) =>
     {
-      try
+      var len = random.Next(1501);
+      for (var i = 0; i < len; ++i)
       {
-        var len = random.Next(1501);
-        for (var i = 0; i < len; ++i)
-        {
-          data.Upsert(i, i + i);
-        }
-        len = random.Next(1501);
-        for (var i = 0; i < len; ++i)
-        {
-          data.TryAtomicAddOrUpdate(counterKey, 0,
-                  bool (ref int y) =>
-                  {
-                    ++y;
-                    return true;
-                  },
-                  (in int _, long _, OperationResult result) =>
-                  {
-                  }
-              );
-          Interlocked.Increment(ref off);
-        }
+        data.Upsert(i, i + i);
       }
-      catch (Exception e)
+      len = random.Next(1501);
+      for (var i = 0; i < len; ++i)
       {
-        Console.WriteLine(e.ToString());
+        using (data.Lock(counterKey))
+        {
+          data.TryGet(counterKey, out var y);
+          data.Upsert(counterKey, y + 1);
+        }
+        Interlocked.Increment(ref off);
       }
     });
 
@@ -81,9 +69,9 @@ public sealed class AtomicUpdateTests
 
   [TestCase(WriteAheadLogMode.AsyncPrivate)]
   [TestCase(WriteAheadLogMode.Private)]
-  public void IntIntAtomicIncrementForBTree(WriteAheadLogMode walMode)
+  public void IntIntLockedIncrementForBTree(WriteAheadLogMode walMode)
   {
-    var dataPath = "data/IntIntAtomicIncrementForBTree." + walMode;
+    var dataPath = "data/IntIntLockedIncrementForBTree." + walMode;
     if (Directory.Exists(dataPath))
       Directory.Delete(dataPath, true);
 
@@ -99,33 +87,25 @@ public sealed class AtomicUpdateTests
       data.Upsert(i, i + i);
     }
     var random = Random.Shared;
-    var off = -1;
+    var off = 0;
     Parallel.For(0, 1001, (x) =>
     {
-      try
+      var len = random.Next(300);
+      for (var i = 0; i < len; ++i)
       {
-        var len = random.Next(300);
-        for (var i = 0; i < len; ++i)
+        data.Upsert(i, i + i);
+      }
+      len = random.Next(1501);
+      for (var i = 0; i < len; ++i)
+      {
+        using (data.Lock(3999))
         {
-          data.Upsert(i, i + i);
+          data.TryGet(3999, out var y);
+          data.Upsert(3999, y + 1);
         }
-        len = random.Next(1501);
-        for (var i = 0; i < len; ++i)
-        {
-          data.TryAtomicAddOrUpdate(3999, 0,
-                  bool (ref int y) =>
-                  {
-                    ++y;
-                    return true;
-                  });
-          Interlocked.Increment(ref off);
-        }
+        Interlocked.Increment(ref off);
+      }
 
-      }
-      catch (Exception e)
-      {
-        Console.WriteLine(e.ToString());
-      }
     });
 
     for (var i = 0; i < 2000; ++i)
@@ -146,9 +126,9 @@ public sealed class AtomicUpdateTests
 
   [TestCase(WriteAheadLogMode.AsyncPrivate)]
   [TestCase(WriteAheadLogMode.Private)]
-  public void IntIntMutableSegmentOnlyAtomicIncrement(WriteAheadLogMode walMode)
+  public void IntIntMutableSegmentOnlyLockedIncrement(WriteAheadLogMode walMode)
   {
-    var dataPath = "data/IntIntMutableSegmentOnlyAtomicIncrement." + walMode;
+    var dataPath = "data/IntIntMutableSegmentOnlyLockedIncrement." + walMode;
     if (Directory.Exists(dataPath))
       Directory.Delete(dataPath, true);
     var counterKey = -3999;
@@ -164,33 +144,25 @@ public sealed class AtomicUpdateTests
       data.Upsert(i, i + i);
     }
     var random = Random.Shared;
-    var off = -1;
+    var off = 0;
     Parallel.For(0, 1001, (x) =>
     {
-      try
+      var len = random.Next(1501);
+      for (var i = 0; i < len; ++i)
       {
-        var len = random.Next(1501);
-        for (var i = 0; i < len; ++i)
+        data.Upsert(i, i + i);
+      }
+      len = random.Next(1501);
+      for (var i = 0; i < len; ++i)
+      {
+        using (data.Lock(counterKey))
         {
-          data.Upsert(i, i + i);
+          data.TryGet(counterKey, out var y);
+          data.Upsert(counterKey, y + 1);
         }
-        len = random.Next(1501);
-        for (var i = 0; i < len; ++i)
-        {
-          data.TryAtomicAddOrUpdate(counterKey, 0,
-                  bool (ref int y) =>
-                  {
-                    ++y;
-                    return true;
-                  });
-          Interlocked.Increment(ref off);
-        }
+        Interlocked.Increment(ref off);
+      }
 
-      }
-      catch (Exception e)
-      {
-        Console.WriteLine(e.ToString());
-      }
     });
 
     for (var i = 0; i < 2000; ++i)
@@ -227,20 +199,13 @@ public sealed class AtomicUpdateTests
     var random = Random.Shared;
     Parallel.For(0, 1000, (x) =>
     {
-      try
+      var len = random.Next(n);
+      for (var i = 0; i < len; ++i)
       {
-        var len = random.Next(n);
-        for (var i = 0; i < len; ++i)
-        {
-          var k = random.Next();
-          data.Upsert(k, k + k);
-        }
+        var k = random.Next();
+        data.Upsert(k, k + k);
+      }
 
-      }
-      catch (Exception e)
-      {
-        Console.WriteLine(e.ToString());
-      }
     });
     using var iterator = data.CreateIterator(IteratorType.NoRefresh);
     while (iterator.Next())
@@ -255,46 +220,5 @@ public sealed class AtomicUpdateTests
     }
 
     data.Maintenance.Drop();
-  }
-
-  [Test]
-  public void TryAtomicAddOrUpdate_ResultDelegate_ReceivesAddedValue()
-  {
-    var dataPath = "data/TryAtomicAddOrUpdate_ResultDelegate_ReceivesAddedValue";
-    if (Directory.Exists(dataPath))
-      Directory.Delete(dataPath, true);
-    using var tree = new ZoneTreeFactory<int, int>()
-        .DisableDeletion()
-        .SetDataDirectory(dataPath)
-        .SetWriteAheadLogDirectory(dataPath)
-        .OpenOrCreate();
-
-    int callbackValue = -1;
-    long callbackOpIndex = -1;
-    OperationResult callbackResult = default;
-
-    var added = tree.TryAtomicAddOrUpdate(
-        1,
-        123,
-        valueUpdater: (ref int value) =>
-        {
-          value++;
-          return true;
-        },
-        result: (in int value, long opIndex, OperationResult result) =>
-        {
-          callbackValue = value;
-          callbackOpIndex = opIndex;
-          callbackResult = result;
-        });
-
-    Assert.That(added, Is.True);
-    Assert.That(tree.TryGet(1, out var stored), Is.True);
-    Assert.That(stored, Is.EqualTo(123));
-
-    // This is the disputed assertion.
-    Assert.That(callbackValue, Is.EqualTo(123));
-    Assert.That(callbackResult, Is.EqualTo(OperationResult.Added));
-    Assert.That(callbackOpIndex, Is.GreaterThan(0));
   }
 }

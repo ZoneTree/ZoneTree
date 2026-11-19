@@ -109,7 +109,9 @@ public sealed class ZoneTreeOptions<TKey, TValue>
   /// <summary>
   /// The key hasher. Keys considered equal by <see cref="Comparer"/> must
   /// produce the same hash code. Required when
-  /// <see cref="MutableSegmentBloomFilterBitsPerItem"/> is greater than zero.
+  /// <see cref="MutableSegmentBloomFilterBitsPerItem"/> is greater than zero, and for
+  /// <see cref="IZoneTree{TKey, TValue}.Lock(in TKey)"/> when <see cref="LockStripeCount"/>
+  /// is greater than one.
   /// </summary>
   public IKeyHasher<TKey> KeyHasher { get; set; }
 
@@ -176,6 +178,15 @@ public sealed class ZoneTreeOptions<TKey, TValue>
   /// Larger values can improve scan locality, but each leaf holds more records in memory.
   /// </summary>
   public int BTreeLeafSize { get; set; } = DefaultValues.BTreeLeafSize;
+
+  /// <summary>
+  /// The number of locks that <see cref="IZoneTree{TKey, TValue}.Lock(in TKey)"/> chooses from.
+  /// A key takes the lock of its stripe, which the <see cref="KeyHasher"/> chooses, so different
+  /// keys can share a lock and wait for each other. More stripes make that rarer and cost
+  /// memory once the tree locks a key. The value is rounded up to a power of two,
+  /// and 1 makes every key use the same lock. Default value is 1024.
+  /// </summary>
+  public int LockStripeCount { get; set; } = DefaultValues.LockStripeCount;
 
   /// <summary>
   /// Allows unsafe numeric option values for advanced or test configurations.

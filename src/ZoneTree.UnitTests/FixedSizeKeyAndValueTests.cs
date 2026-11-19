@@ -110,9 +110,9 @@ public sealed class FixedSizeKeyAndValueTests
     using var data = new ZoneTreeFactory<int, string>()
         .SetDataDirectory(dataPath)
         .OpenOrCreate();
-    data.TryAtomicAdd(1, "1", out _);
-    data.TryAtomicAdd(2, "2", out _);
-    data.TryAtomicAdd(3, "3", out _);
+    data.TryAdd(1, "1", out _);
+    data.TryAdd(2, "2", out _);
+    data.TryAdd(3, "3", out _);
     data.TryDelete(2, out _);
     Assert.That(data.ContainsKey(1), Is.True);
     Assert.That(data.ContainsKey(2), Is.False);
@@ -131,12 +131,12 @@ public sealed class FixedSizeKeyAndValueTests
       using var data = new ZoneTreeFactory<int, string>()
           .SetDataDirectory(dataPath)
           .OpenOrCreate();
-      data.TryAtomicAdd(1, "1", out _);
-      data.TryAtomicAdd(2, "2", out _);
-      data.TryAtomicAdd(3, "3", out _);
+      data.TryAdd(1, "1", out _);
+      data.TryAdd(2, "2", out _);
+      data.TryAdd(3, "3", out _);
       data.TryDelete(2, out _);
-      data.TryAtomicAdd(4, "4", out _);
-      data.TryAtomicUpdate(3, "33", out _);
+      data.TryAdd(4, "4", out _);
+      data.Upsert(3, "33");
       data.TryDelete(2, out _);
       Assert.That(data.ContainsKey(1), Is.True);
       Assert.That(data.ContainsKey(2), Is.False);
@@ -176,12 +176,12 @@ public sealed class FixedSizeKeyAndValueTests
       using var data = new ZoneTreeFactory<int, string>()
           .SetDataDirectory(dataPath)
           .OpenOrCreate();
-      data.TryAtomicAdd(1, "1", out _);
-      data.TryAtomicAdd(2, "2", out _);
-      data.TryAtomicAdd(3, "3", out _);
+      data.TryAdd(1, "1", out _);
+      data.TryAdd(2, "2", out _);
+      data.TryAdd(3, "3", out _);
       data.TryDelete(2, out _);
-      data.TryAtomicAdd(4, "4", out _);
-      data.TryAtomicUpdate(3, "33", out _);
+      data.TryAdd(4, "4", out _);
+      data.Upsert(3, "33");
       data.TryDelete(2, out _);
       Assert.That(data.ContainsKey(1), Is.True);
       Assert.That(data.ContainsKey(2), Is.False);
@@ -222,7 +222,7 @@ public sealed class FixedSizeKeyAndValueTests
       using var data = new ZoneTreeFactory<int, string>()
           .SetDataDirectory(dataPath)
           .OpenOrCreate();
-      data.TryAtomicAdd(1, "1", out _);
+      data.TryAdd(1, "1", out _);
       data.Maintenance.MoveMutableSegmentForward();
       readOnlySegmentId = data.Maintenance.ReadOnlySegments[0].SegmentId;
     }
@@ -256,9 +256,9 @@ public sealed class FixedSizeKeyAndValueTests
       using var data = new ZoneTreeFactory<int, string>()
           .SetDataDirectory(dataPath)
           .OpenOrCreate();
-      data.TryAtomicAdd(1, "1", out _);
-      data.TryAtomicAdd(2, "2", out _);
-      data.TryAtomicAdd(3, "3", out _);
+      data.TryAdd(1, "1", out _);
+      data.TryAdd(2, "2", out _);
+      data.TryAdd(3, "3", out _);
       data.TryDelete(2, out _);
       Assert.That(data.ContainsKey(1), Is.True);
       Assert.That(data.ContainsKey(2), Is.False);

@@ -17,6 +17,9 @@ internal static class ZoneTreeOptionValidationRules
   public static readonly Rule BTreeLeafSize =
       Rule.Min(16);
 
+  public static readonly Rule LockStripeCount =
+      Rule.Min(1).Max(Core.KeyLocks<object>.MaximumStripeCount);
+
   public static readonly Rule WriteAheadLogCompressionBlockSize =
       Rule.MinKB(1).MaxMB(16);
 

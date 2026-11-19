@@ -16,4 +16,6 @@ public static class DefaultValues
   public static readonly int BTreeNodeSize = 128;
 
   public static readonly int BTreeLeafSize = 128;
+
+  public static readonly int LockStripeCount = 1024;
 }

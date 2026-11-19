@@ -3,6 +3,7 @@ namespace ZoneTree.Core;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using ZoneTree.Collections;
+using ZoneTree.PresetTypes;
 
 /// <summary>
 /// The <see cref="Replicator{TKey, TValue}"/> class provides asynchronous replication for 
@@ -62,14 +63,18 @@ public sealed class Replicator<TKey, TValue> : IDisposable
     var factory = new ZoneTreeFactory<TKey, long>()
         .SetDataDirectory(dataPath);
     if (configure != null) configure(factory);
+    // The index locks a key with its key hasher. Without one, every key shares one lock.
+    if ((factory.Options.KeyHasher ?? ComponentsForKnownTypes.GetKeyHasher<TKey>()) == null)
+      factory.Options.LockStripeCount = 1;
     LatestOpIndexes = factory.OpenOrCreate();
     Maintainer = LatestOpIndexes.CreateMaintainer();
     Maintainer.EnableInactiveCacheCleanup = true;
   }
 
   /// <summary>
-  /// Handles the upsert operation in the replicator, ensuring atomic updates 
-  /// to both the <see cref="LatestOpIndexes"/> and the <see cref="Replica"/>.
+  /// Handles the upsert operation in the replicator. It locks the key, so the check of the
+  /// latest index and the writes to the <see cref="LatestOpIndexes"/> and the
+  /// <see cref="Replica"/> are one step for the key.
   /// </summary>
   /// <param name="key">The key of the element to be upserted.</param>
   /// <param name="value">The value of the element to be upserted.</param>
@@ -78,31 +83,18 @@ public sealed class Replicator<TKey, TValue> : IDisposable
   /// only with the latest index stored for the same key.
   /// </param>
   /// <remarks>
-  /// The upsert operation ensures that the <see cref="LatestOpIndexes"/> is updated atomically.
   /// If the new operation index (<paramref name="opIndex"/>) is greater than or equal to the existing index,
   /// the key-value pair is upserted into the <see cref="Replica"/>.
   /// </remarks>
   public void OnUpsert(TKey key, TValue value, long opIndex)
   {
-    LatestOpIndexes.TryAtomicAddOrUpdate(
-            key,
-            (ref long newOpIndex) =>
-            {
-              newOpIndex = opIndex;
-              return true;
-            },
-            (ref long existingOpIndex) =>
-            {
-              if (opIndex < existingOpIndex)
-                return false;
-              existingOpIndex = opIndex;
-              return true;
-            },
-            (in long _, long _, OperationResult result) =>
-            {
-              if (result == OperationResult.Cancelled) return;
-              Replica.Upsert(key, value);
-            });
+    using (LatestOpIndexes.Lock(key))
+    {
+      if (LatestOpIndexes.TryGet(key, out var latestOpIndex) && opIndex < latestOpIndex)
+        return;
+      LatestOpIndexes.Upsert(key, opIndex);
+      Replica.Upsert(key, value);
+    }
   }
 
   /// <summary>
