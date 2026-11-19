@@ -132,6 +132,21 @@ public sealed class ZoneTreeOptionsValidationTests
     Assert.That(exception, Is.TypeOf<InvalidOptionValueException>());
   }
 
+  [TestCase(true)]
+  [TestCase(false)]
+  public void AllowUnsafeOptionValuesKeepsTheIntervalValidation(bool syncJobInterval)
+  {
+    var options = CreateValidOptions();
+    options.AllowUnsafeOptionValues = true;
+    if (syncJobInterval)
+      options.WriteAheadLogOptions.SyncJobInterval = -2;
+    else
+      options.WriteAheadLogOptions.EmptyQueuePollInterval = -2;
+
+    Assert.That(options.TryValidate(out var exception), Is.False);
+    Assert.That(exception, Is.TypeOf<InvalidOptionValueException>());
+  }
+
   [Test]
   public void CaseInsensitiveComparerRejectsIncompatibleKeyHasher()
   {

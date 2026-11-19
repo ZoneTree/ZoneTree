@@ -141,7 +141,16 @@ internal static class ZoneTreeOptionsValidator
     if (exception != null)
       return exception;
 
-    return null;
+    // The background loops wait for these delays, so a negative one stops them.
+    exception = ZoneTreeOptionValidationRules.WriteAheadLogEmptyQueuePollInterval.Validate(
+        Option(owner, nameof(options.EmptyQueuePollInterval)),
+        options.EmptyQueuePollInterval);
+    if (exception != null)
+      return exception;
+
+    return ZoneTreeOptionValidationRules.WriteAheadLogSyncJobInterval.Validate(
+        Option(owner, nameof(options.SyncJobInterval)),
+        options.SyncJobInterval);
   }
 
   static Exception ValidateDiskSegmentOptions(DiskSegmentOptions options)
@@ -204,25 +213,13 @@ internal static class ZoneTreeOptionsValidator
     return ValidateDiskSegmentOptionValues(options.DiskSegmentOptions);
   }
 
-  static Exception ValidateWriteAheadLogOptionValues(WriteAheadLogOptions options)
+  static InvalidOptionValueException ValidateWriteAheadLogOptionValues(WriteAheadLogOptions options)
   {
     const string owner = nameof(ZoneTreeOptions<object, object>.WriteAheadLogOptions);
 
-    Exception exception = ZoneTreeOptionValidationRules.WriteAheadLogCompressionBlockSize.Validate(
+    return ZoneTreeOptionValidationRules.WriteAheadLogCompressionBlockSize.Validate(
         Option(owner, nameof(options.CompressionBlockSize)),
         options.CompressionBlockSize);
-    if (exception != null)
-      return exception;
-
-    exception = ZoneTreeOptionValidationRules.WriteAheadLogEmptyQueuePollInterval.Validate(
-        Option(owner, nameof(options.EmptyQueuePollInterval)),
-        options.EmptyQueuePollInterval);
-    if (exception != null)
-      return exception;
-
-    return ZoneTreeOptionValidationRules.WriteAheadLogSyncJobInterval.Validate(
-        Option(owner, nameof(options.SyncJobInterval)),
-        options.SyncJobInterval);
   }
 
   static Exception ValidateDiskSegmentOptionValues(DiskSegmentOptions options)
