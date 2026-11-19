@@ -15,12 +15,7 @@ public sealed class ReadOnlySegmentLoader<TKey, TValue>
     Options = options;
   }
 
-  /// <summary>
-  /// Loads the read-only segment from its WAL, and returns the WAL files in a format
-  /// that version 2.2.0 removes.
-  /// </summary>
-  public IReadOnlySegment<TKey, TValue> LoadReadOnlySegment(
-      long segmentId, out IReadOnlyList<string> legacyFiles)
+  public IReadOnlySegment<TKey, TValue> LoadReadOnlySegment(long segmentId)
   {
     var wal = Options.WriteAheadLogProvider.GetOrCreateWAL(
         segmentId,
@@ -45,7 +40,6 @@ public sealed class ReadOnlySegmentLoader<TKey, TValue>
         throw new WriteAheadLogCorruptionException(segmentId, result.Exceptions);
       }
     }
-    legacyFiles = wal.GetLegacyFiles();
     wal.MarkFrozen();
 
     (var newKeys, var newValues) = WriteAheadLogUtility

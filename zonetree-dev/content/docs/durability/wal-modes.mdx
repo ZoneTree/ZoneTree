@@ -17,14 +17,13 @@ description: Compare ordinary and shared WALs, understand commit-prefix recovery
 | --- | --- | --- |
 | **`AsyncCompressed` default** | Enqueues records for background serialization, compression, and writing. | Persistent applications that benefit from keeping logging work off the caller's path. |
 | `SyncCompressed` | Serializes and appends on the caller into a compressed-block stream; the current block is in a companion tail file. | A specific need for caller-side compressed logging, after measuring the workload. |
-| `Sync` | Serializes and appends on the caller through a plain WAL stream, flushing that stream per record. | A specific need for the plain synchronous logging path, accepting its throughput cost. ZoneTree 2.2.0 removes this mode, and ZoneTree 2.1.10 migrates its WALs to `SyncCompressed`; see [the migration](../storage/compression.mdx). |
 | `Shared` | Appends on the caller to one ordered, chunked journal shared by all memory segments. | Commit-prefix recovery across segments with caller-side logging. |
 | `AsyncShared` | Enqueues records for one background writer into the shared journal. | Commit-prefix recovery with serialization and writing off the caller's path; the default transactional logging path. |
 | `None` | Does not log segment records. Metadata and merged disk segments still exist. | Disposable data or a dataset you intentionally rebuild from another source. |
 
 `AsyncCompressed` and `AsyncShared` let the caller continue before background logging finishes. An abrupt process exit can lose queued records; normal disposal drains them.
 
-With the built-in provider, transactional factories promote `Sync` and `SyncCompressed` to `Shared`, and `AsyncCompressed` to `AsyncShared`. Compression settings, explicit shared modes, and `None` are retained. Custom providers and provider factories keep their configured modes and define their own recovery guarantees.
+With the built-in provider, transactional factories promote `SyncCompressed` to `Shared`, and `AsyncCompressed` to `AsyncShared`. Compression settings, explicit shared modes, and `None` are retained. Custom providers and provider factories keep their configured modes and define their own recovery guarantees.
 
 ## Acknowledge durable writes
 
@@ -64,7 +63,6 @@ Compressed modes automatically sync each dirty WAL at their background flush poi
 | `SyncCompressed` | Nothing, because each write reaches the operating system before it returns. | Writes since the last completed WAL sync. The background job syncs the complete dirty WAL, with a `TailWriterJobInterval` delay between runs (500 ms by default). |
 | `Shared` | Nothing from completed ordinary commits: appended records have reached the operating system. | Unsynced ordinary commits, recovered as one commit prefix across segments. A periodic job syncs the complete dirty journal by default. |
 | `AsyncShared` | Queued records and ordinary commits depending on them. Recovery retains a commit prefix. | Unsynced ordinary commits, recovered as one commit prefix. The writer syncs when its queue empties; continuous load can postpone that automatic sync. |
-| `Sync` | Nothing, because each record reaches the operating system. | Writes not covered by an explicit sync or a segment's completed closing sync and not yet written back by the OS. There is no periodic sync job. |
 
 Automatic syncs seal the tail into checksummed blocks in the main file and sync that file once. That immutable prefix remains protected across later tail rollovers, even if the tail checkpoint is lost. Unchanged WALs skip repeated disk syncs. Full-block rollovers themselves do not fsync, and background intervals are scheduling settings rather than a guaranteed persistence deadline. Await `SyncWALAsync` to wait for the complete write prefix across all segments before acknowledging it.
 
@@ -116,7 +114,6 @@ The task completes when the WAL records of every write that completed before the
 | --- | --- |
 | `AsyncCompressed` | The background writer. The calling thread does not block, and writes keep queuing during the sync. |
 | `SyncCompressed` | The calling thread. Appends into the active tail can continue during the main-file sync; a rollover waits before writing another block to the main file. |
-| `Sync` | The calling thread. WAL appends wait until the sync finishes. |
 | `Shared` | The caller of `SyncWALAsync`, or the periodic shared-journal job. Durable transaction methods use a commit worker so their caller can await publication. |
 | `AsyncShared` | The shared journal's background writer, after processing the preceding queued records. |
 | `None` | Nothing. The task completes at once, and unmerged writes stay in memory only. |
@@ -125,7 +122,7 @@ If a WAL write or disk sync fails, the task faults with `WriteAheadLogSyncFailed
 
 With shared WALs, moving a memory segment forward freezes its logical journal handle and gives the new segment another handle into the same ordered journal. Rotation does not wait for a WAL sync. Recovery validates records in global journal order and stops at the first incomplete suffix across all chunks. Transactions recover one prefix of commits, including every synced commit; incomplete transactions remain invisible. Missing required chunks or broken sequence continuity are corruption.
 
-Ordinary trees can still use the per-segment modes `Sync`, `SyncCompressed`, and `AsyncCompressed`. Their unsynced records can persist independently across segments; operation indexes order surviving records but do not restore missing ones. The built-in transactional factories use shared WALs to avoid that limitation.
+Ordinary trees can still use the per-segment modes `SyncCompressed` and `AsyncCompressed`. Their unsynced records can persist independently across segments; operation indexes order surviving records but do not restore missing ones. The built-in transactional factories use shared WALs to avoid that limitation.
 
 Shared WAL syncs also persist new journal file names with a directory sync on platforms that require it. Merge publication persists the replacement disk files' directory entries before publishing metadata or reclaiming old segments and WAL chunks. Metadata snapshots persist their rename before clearing the preceding metadata WAL. Custom file providers must supply equivalent namespace durability through `SyncDirectory`.
 
@@ -159,7 +156,7 @@ tree.Upsert(42, "Logged in the background");
 
 For codec defaults and block-size controls, see [compression](../storage/compression.mdx).
 
-Existing private WALs keep their detected logging mode and recorded compression format; their filenames identify the mode. Existing shared journals keep the mode in their manifest. Preserve the full WAL directory when moving a database. When selecting shared logging for a database with legacy per-segment WALs, the built-in provider migrates each live WAL and tail into the shared journal and syncs the replacement before deleting the legacy files. Released WALs from 2.0.8 and earlier remain supported.
+Existing private WALs keep their detected logging mode and recorded compression format; their filenames identify the mode. Existing shared journals keep the mode in their manifest. Preserve the full WAL directory when moving a database. When selecting shared logging for a database with per-segment WALs, the built-in provider moves each live WAL and tail into the shared journal and syncs the replacement before deleting the per-segment files.
 
 ## Compressed blocks and the tail file
 
@@ -167,9 +164,7 @@ Compressed WALs have a main file of committed blocks and a companion `.tail` fil
 
 A write to the stream reaches the operating system before it returns, so it survives a process crash. With the local file stream provider, the active tail is mapped into memory, and appending within it is a memory copy into the operating system's file cache. The prepared tail allocation holds an 8-byte header and one compression block, rounded up to a 512-byte boundary, followed by two 512-byte checkpoint sectors. A 16-byte format descriptor occupies the end of the reserved space. With the default 256 KiB block size, this totals 263,680 bytes. Other file stream providers write the payload and updated length header through their streams.
 
-A sync seals the current tail into the main file and syncs that file once. Each new block has a 32-byte header containing its index, stored and logical lengths, a checksum of the stored payload, and a checksum of the header. Recovery validates the blocks themselves, so the tail checkpoint does not need a second disk sync. It is written after the main-file sync as a recovery hint: any copy that persists identifies a durable prefix, but recovery also works when that hint is absent or older than the latest sync. Explicit and automatic syncs use the same path, and later appends reuse the tail without overwriting the durable main prefix.
-
-WALs from 2.0.8 and earlier remain readable, including their variable-size tails. Before a legacy tail is reused, its content is sealed into a new checksummed main-file block and synced. The original main-file blocks remain readable, while subsequent appends use the new block format. The tail allocation keeps format version 1. ZoneTree 2.2.0 removes this format, and `EnableZstdMigration()` converts these WALs; see [the migration](../storage/compression.mdx).
+A sync seals the current tail into the main file and syncs that file once. Each block has a 32-byte header containing its index, stored and logical lengths, a checksum of the stored payload, and a checksum of the header. Recovery validates the blocks themselves, so the tail checkpoint does not need a second disk sync. It is written after the main-file sync as a recovery hint: any copy that persists identifies a durable prefix, but recovery also works when that hint is absent or older than the latest sync. Explicit and automatic syncs use the same path, and later appends reuse the tail without overwriting the durable main prefix.
 
 A recovered unfinished tail can also hold the only durable copy of records saved by a clean close. Its first rollover syncs the main-file copy before reusing that tail. This protection applies once to the recovered tail; subsequent ordinary rollovers do not issue disk syncs.
 

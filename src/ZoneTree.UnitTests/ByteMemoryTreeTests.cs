@@ -185,7 +185,7 @@ public sealed class ByteMemoryTreeTests
   {
     return new ZoneTreeFactory<TKey, TValue>(provider)
         .Configure(options => options.AllowUnsafeOptionValues = true)
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.Sync)
+        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.SyncCompressed)
         .ConfigureDiskSegmentOptions(options =>
         {
           options.DiskSegmentMode = mode;

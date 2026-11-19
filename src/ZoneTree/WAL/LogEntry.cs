@@ -70,8 +70,7 @@ public struct LogEntry : IEquatable<LogEntry>
       ISerializer<TValue> valueSerializer,
       in TKey key,
       in TValue value,
-      long opIndex,
-      bool isLegacyFormat = false)
+      long opIndex)
   {
     var record = WalEntrySerializer.SerializeRecord(
         keySerializer, valueSerializer, in key, in value, HeaderLength, sizeof(uint),
@@ -79,9 +78,7 @@ public struct LogEntry : IEquatable<LogEntry>
     BinaryPrimitives.WriteInt64LittleEndian(record, opIndex);
     BinaryPrimitives.WriteInt32LittleEndian(record[sizeof(long)..], keyLength);
     BinaryPrimitives.WriteInt32LittleEndian(record[(sizeof(long) + sizeof(int))..], valueLength);
-    var checksum = isLegacyFormat
-        ? 0
-        : unchecked((uint)XxHash3.HashToUInt64(record[..^sizeof(uint)]));
+    var checksum = unchecked((uint)XxHash3.HashToUInt64(record[..^sizeof(uint)]));
     BinaryPrimitives.WriteUInt32LittleEndian(record[^sizeof(uint)..], checksum);
     return record;
   }
@@ -95,10 +92,9 @@ public struct LogEntry : IEquatable<LogEntry>
       ISerializer<TValue> valueSerializer,
       in TKey key,
       in TValue value,
-      long opIndex,
-      bool isLegacyFormat = false)
+      long opIndex)
   {
-    binaryWriter.Write(SerializeLogEntry(keySerializer, valueSerializer, in key, in value, opIndex, isLegacyFormat));
+    binaryWriter.Write(SerializeLogEntry(keySerializer, valueSerializer, in key, in value, opIndex));
     binaryWriter.Flush();
   }
 
@@ -127,16 +123,6 @@ public struct LogEntry : IEquatable<LogEntry>
   {
     return unchecked((uint)XxHash3.HashToUInt64(record[..^sizeof(uint)])) ==
         BinaryPrimitives.ReadUInt32LittleEndian(record[^sizeof(uint)..]);
-  }
-
-  /// <summary>
-  /// Writes the checksum of the bytes of a whole record.
-  /// </summary>
-  internal static void WriteChecksum(Span<byte> record)
-  {
-    BinaryPrimitives.WriteUInt32LittleEndian(
-        record[^sizeof(uint)..],
-        unchecked((uint)XxHash3.HashToUInt64(record[..^sizeof(uint)])));
   }
 
   [MethodImpl(MethodImplOptions.AggressiveInlining)]

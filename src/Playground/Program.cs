@@ -44,10 +44,7 @@ if (testCase == 3)
   };
   var methods = new (CompressionMethod method, int level)[]
   {
-        (CompressionMethod.LZ4, CompressionLevels.LZ4Fastest),
         (CompressionMethod.Zstd, CompressionLevels.Zstd1),
-        (CompressionMethod.Brotli, CompressionLevels.BrotliFastest),
-        (CompressionMethod.Gzip, CompressionLevels.GzipFastest),
         (CompressionMethod.None, 0),
   };
 

@@ -28,7 +28,7 @@ public sealed class ZoneTreeMetaOptionsTests
   public void CreatePersistsActiveOptionsInMetadata()
   {
     var dataPath = CreateDataPath();
-    var expected = CreateExpectedOptions("created", CompressionMethod.Brotli);
+    var expected = CreateExpectedOptions("created");
 
     try
     {
@@ -53,8 +53,8 @@ public sealed class ZoneTreeMetaOptionsTests
   public void OpenExistingTreePersistsActiveOptionsOverLoadedMetadata()
   {
     var dataPath = CreateDataPath();
-    var staleOptions = CreateExpectedOptions("stale", CompressionMethod.LZ4);
-    var activeOptions = CreateExpectedOptions("active", CompressionMethod.Zstd);
+    var staleOptions = CreateExpectedOptions("stale");
+    var activeOptions = CreateExpectedOptions("active");
 
     try
     {
@@ -123,27 +123,26 @@ public sealed class ZoneTreeMetaOptionsTests
   }
 
   static ExpectedOptions CreateExpectedOptions(
-      string customOptions,
-      CompressionMethod compressionMethod)
+      string customOptions)
   {
-    return compressionMethod switch
+    return customOptions switch
     {
-      CompressionMethod.LZ4 => new ExpectedOptions(
+      "stale" => new ExpectedOptions(
           MutableSegmentMaxItemCount: 37,
           MutableSegmentBloomFilterBitsPerItem: 5,
           DiskSegmentMaxItemCount: 73,
-          WriteAheadLogMode: WriteAheadLogMode.Sync,
+          WriteAheadLogMode: WriteAheadLogMode.AsyncCompressed,
           WriteAheadLogCustomOptions: customOptions,
           WriteAheadLogCompressionBlockSize: 128 * 1024,
-          WriteAheadLogCompressionMethod: CompressionMethod.LZ4,
-          WriteAheadLogCompressionLevel: CompressionLevels.LZ4HighCompression3,
+          WriteAheadLogCompressionMethod: CompressionMethod.None,
+          WriteAheadLogCompressionLevel: 0,
           AsyncCompressedModeEmptyQueuePollInterval: 17,
           SyncCompressedModeEnableTailWriterJob: false,
           SyncCompressedModeTailWriterJobInterval: 19,
           DiskSegmentMode: DiskSegmentMode.SingleDiskSegment,
           DiskSegmentCompressionBlockSize: 256 * 1024,
-          DiskSegmentCompressionMethod: CompressionMethod.LZ4,
-          DiskSegmentCompressionLevel: CompressionLevels.LZ4HighCompression4,
+          DiskSegmentCompressionMethod: CompressionMethod.None,
+          DiskSegmentCompressionLevel: 0,
           DiskSegmentMaximumRecordCount: 101,
           DiskSegmentMinimumRecordCount: 51,
           DiskSegmentKeyCacheSize: 11,
@@ -154,7 +153,7 @@ public sealed class ZoneTreeMetaOptionsTests
           DiskSegmentValueCacheRecordLifeTimeInMillisecond: 29,
           DefaultSparseArrayStepSize: 31),
 
-      CompressionMethod.Zstd => new ExpectedOptions(
+      "active" => new ExpectedOptions(
           MutableSegmentMaxItemCount: 41,
           MutableSegmentBloomFilterBitsPerItem: 7,
           DiskSegmentMaxItemCount: 83,
@@ -180,22 +179,22 @@ public sealed class ZoneTreeMetaOptionsTests
           DiskSegmentValueCacheRecordLifeTimeInMillisecond: 37,
           DefaultSparseArrayStepSize: 41),
 
-      CompressionMethod.Brotli => new ExpectedOptions(
+      "created" => new ExpectedOptions(
           MutableSegmentMaxItemCount: 43,
           MutableSegmentBloomFilterBitsPerItem: 11,
           DiskSegmentMaxItemCount: 89,
           WriteAheadLogMode: WriteAheadLogMode.SyncCompressed,
           WriteAheadLogCustomOptions: customOptions,
           WriteAheadLogCompressionBlockSize: 224 * 1024,
-          WriteAheadLogCompressionMethod: CompressionMethod.Brotli,
-          WriteAheadLogCompressionLevel: CompressionLevels.BrotliFastest,
+          WriteAheadLogCompressionMethod: CompressionMethod.Zstd,
+          WriteAheadLogCompressionLevel: CompressionLevels.Zstd3,
           AsyncCompressedModeEmptyQueuePollInterval: 59,
           SyncCompressedModeEnableTailWriterJob: false,
           SyncCompressedModeTailWriterJobInterval: 61,
           DiskSegmentMode: DiskSegmentMode.MultiPartDiskSegment,
           DiskSegmentCompressionBlockSize: 512 * 1024,
-          DiskSegmentCompressionMethod: CompressionMethod.Brotli,
-          DiskSegmentCompressionLevel: CompressionLevels.BrotliSmallestSize,
+          DiskSegmentCompressionMethod: CompressionMethod.Zstd,
+          DiskSegmentCompressionLevel: CompressionLevels.ZstdMax,
           DiskSegmentMaximumRecordCount: 109,
           DiskSegmentMinimumRecordCount: 59,
           DiskSegmentKeyCacheSize: 23,
@@ -206,7 +205,7 @@ public sealed class ZoneTreeMetaOptionsTests
           DiskSegmentValueCacheRecordLifeTimeInMillisecond: 43,
           DefaultSparseArrayStepSize: 47),
 
-      _ => throw new ArgumentOutOfRangeException(nameof(compressionMethod))
+      _ => throw new ArgumentOutOfRangeException(nameof(customOptions))
     };
   }
 

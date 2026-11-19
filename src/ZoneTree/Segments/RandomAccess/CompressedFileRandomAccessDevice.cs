@@ -17,10 +17,7 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
 
   readonly IFileStreamProvider FileStreamProvider;
 
-  /// <summary>
-  /// The decompressed size of the blocks.
-  /// </summary>
-  public int BlockSize { get; }
+  readonly int BlockSize;
 
   readonly CompressionMethod CompressionMethod;
 
@@ -171,21 +168,6 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
     {
       WriteMetaData();
     }
-  }
-
-  /// <summary>
-  /// Reads the compression method that a compressed device file records, without opening it.
-  /// </summary>
-  internal static CompressionMethod ReadCompressionMethod(
-      IFileStreamProvider fileStreamProvider, string filePath)
-  {
-    using var file = fileStreamProvider.CreateFileStream(
-        filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-    var stream = file.ToStream();
-    if (stream.Length < sizeof(int) + 1)
-      return CompressionMethod.None;
-    stream.Position = sizeof(int);
-    return (CompressionMethod)stream.ReadByte();
   }
 
   CompressedFileMeta ReadMetaData()

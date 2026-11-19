@@ -29,7 +29,6 @@ public sealed class WriteOrderPowerLossTests
         });
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
   public void ExplicitlySyncedWritesSurviveLaterSegmentMoves(WriteAheadLogMode mode)
@@ -60,8 +59,6 @@ public sealed class WriteOrderPowerLossTests
     return tx.TryGet(key, out var value) ? value : null;
   }
 
-  [TestCase(WriteAheadLogMode.Sync, DiskSegmentMode.SingleDiskSegment)]
-  [TestCase(WriteAheadLogMode.Sync, DiskSegmentMode.MultiPartDiskSegment)]
   [TestCase(WriteAheadLogMode.SyncCompressed, DiskSegmentMode.SingleDiskSegment)]
   [TestCase(WriteAheadLogMode.AsyncCompressed, DiskSegmentMode.MultiPartDiskSegment)]
   [TestCase(WriteAheadLogMode.Shared, DiskSegmentMode.SingleDiskSegment)]
@@ -142,11 +139,10 @@ public sealed class WriteOrderPowerLossTests
           "a failed shared journal must keep reporting its durability failure");
       Assert.That(provider.OpenStreamCount, Is.Zero, "failed disposal must release every file");
     }
-    using var recovered = CreateFactory(afterPowerLoss, WriteAheadLogMode.Sync, 1000).OpenTransactional();
+    using var recovered = CreateFactory(afterPowerLoss, WriteAheadLogMode.SyncCompressed, 1000).OpenTransactional();
     Assert.That(ReadCommitted(recovered, 0), Is.EqualTo(100));
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
   public void RecoveryKeepsSyncedCommitsAfterUnsyncedWrites(WriteAheadLogMode mode)

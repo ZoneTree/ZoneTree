@@ -128,7 +128,7 @@ above 32,768 also stop the run; their trend is visible in the progress log.
 
 ## What each case exercises
 
-The seeded matrix mixes both shared WAL modes, None/LZ4/Zstd compression, both
+The seeded matrix mixes both shared WAL modes, None/Zstd compression, both
 disk segment formats, 1/4/128/256 KiB WAL blocks, 256 KiB/4 MiB/64 MiB chunks,
 1,024/8,192-record mutable segments, and four workloads:
 

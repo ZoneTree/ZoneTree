@@ -74,7 +74,6 @@ public sealed class LiveBackupDurabilityTests
 
   [TestCase(false, DiskSegmentMode.SingleDiskSegment, WriteAheadLogMode.Shared)]
   [TestCase(false, DiskSegmentMode.MultiPartDiskSegment, WriteAheadLogMode.AsyncShared)]
-  [TestCase(false, DiskSegmentMode.SingleDiskSegment, WriteAheadLogMode.Sync)]
   [TestCase(false, DiskSegmentMode.MultiPartDiskSegment, WriteAheadLogMode.SyncCompressed)]
   [TestCase(false, DiskSegmentMode.SingleDiskSegment, WriteAheadLogMode.AsyncCompressed)]
   [TestCase(true, DiskSegmentMode.SingleDiskSegment, WriteAheadLogMode.Shared)]

@@ -1,6 +1,5 @@
 using System.Text;
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Options;
 using ZoneTree.Segments.Block;
 
 namespace ZoneTree.WAL;
@@ -54,14 +53,10 @@ public sealed unsafe partial class CompressedFileStream
   /// </remarks>
   /// <param name="fileStreamProvider">The file stream provider of this stream.</param>
   /// <param name="writeContent">Writes the new content.</param>
-  /// <param name="compressionMethod">The compression method of the new content.</param>
-  /// <param name="compressionLevel">The compression level of the new content.</param>
   /// <returns>The length of the new content.</returns>
   internal long ReplaceContent(
       IFileStreamProvider fileStreamProvider,
-      Action<BinaryWriter> writeContent,
-      CompressionMethod compressionMethod,
-      int compressionLevel)
+      Action<BinaryWriter> writeContent)
   {
     lock (TailLock)
       lock (SyncRoot)
@@ -87,8 +82,8 @@ public sealed unsafe partial class CompressedFileStream
         BlockSize,
         false,
         0,
-        compressionMethod,
-        compressionLevel,
+        CompressionMethod,
+        CompressionLevel,
         UseMemoryMappedTail))
     {
       using (var binaryWriter = new BinaryWriter(tmpFileStream, Encoding.UTF8, true))
@@ -116,8 +111,8 @@ public sealed unsafe partial class CompressedFileStream
       lock (SyncRoot)
       {
         // Truncation intentionally changes the durable prefix. First make the
-        // current legacy main/tail representation durable, then invalidate its
-        // old checkpoint before changing that representation.
+        // current main and tail files durable, then invalidate their old
+        // checkpoint before changing them.
         if (SyncedMainLength > 0 && value < SyncedContentLength)
         {
           SyncMainFile();
@@ -142,7 +137,7 @@ public sealed unsafe partial class CompressedFileStream
         TailBlock = CreateEmptyTail(0);
         TailHasDurableData = false;
         WriteTailHeader(TailBlock.BlockIndex, 0);
-        SkipToTheEnd(out _);
+        SkipToTheEnd();
         CurrentBlockPosition = 0;
         SyncTailFile();
         CheckpointTruncation();
@@ -245,7 +240,7 @@ public sealed unsafe partial class CompressedFileStream
         _length = truncatedLength;
         break;
       }
-      physicalPosition += header.Size;
+      physicalPosition += WalBlockFrame.HeaderSize;
       physicalPosition += compressedBlockSize;
       FileStream.Position = physicalPosition;
       off += blockSize;

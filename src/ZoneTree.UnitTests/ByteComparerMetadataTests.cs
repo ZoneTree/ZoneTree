@@ -24,7 +24,7 @@ public sealed class ByteComparerMetadataTests
     ZoneTreeFactory<Memory<byte>, int> CreateFactory()
     {
       var factory = new ZoneTreeFactory<Memory<byte>, int>(provider)
-          .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.Sync);
+          .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.SyncCompressed);
       if (descending)
         factory.SetComparer(new ByteArrayLexicographicComparerDescending());
       return factory;

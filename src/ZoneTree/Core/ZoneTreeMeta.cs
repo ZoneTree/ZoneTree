@@ -10,7 +10,8 @@ public sealed class ZoneTreeMeta
   /// <summary>
   /// The storage format version of the database. Unlike <see cref="Version"/>, which is
   /// the version that saved the metadata last, it changes only when the database is
-  /// created or migrated. A database without it has version 1.0.0.
+  /// created or a version with a newer storage format opens it. Versions before 2.1.10
+  /// did not write it, and ZoneTree does not open a database without it.
   /// </summary>
   public string DbVersion { get; set; }
 
@@ -63,7 +64,6 @@ public sealed class ZoneTreeMeta
   /// Saving the metadata and clearing the meta WAL are two steps. After a
   /// power loss between them, the meta WAL still holds the records that the
   /// metadata includes. Their older generation tells loading to skip them.
-  /// Zero means an older version saved the metadata and its records.
   /// </remarks>
   public long MetaWalGeneration { get; set; }
 

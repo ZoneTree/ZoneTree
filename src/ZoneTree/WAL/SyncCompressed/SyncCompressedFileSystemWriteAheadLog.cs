@@ -1,6 +1,5 @@
 using System.Text;
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Core;
 using ZoneTree.Exceptions.WAL;
 using ZoneTree.Logger;
 using ZoneTree.Options;
@@ -29,8 +28,6 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
 
   public string FilePath { get; }
 
-  readonly bool IsLegacyFormat;
-
   public int CompressionBlockSize { get; }
 
   public CompressionMethod CompressionMethod { get; }
@@ -54,7 +51,6 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
     Logger = logger;
     FileStreamProvider = fileStreamProvider;
     FilePath = filePath;
-    IsLegacyFormat = Path.GetFileNameWithoutExtension(filePath).EndsWith(WriteAheadLogProvider.LegacyWalExtension, StringComparison.Ordinal);
     CompressionBlockSize = options.CompressionBlockSize;
     CompressionMethod = options.CompressionMethod;
     CompressionLevel = options.CompressionLevel;
@@ -83,7 +79,7 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
   {
     // The record is built before the lock, so concurrent appends serialize in
     // parallel and a failing serializer leaves the log unchanged.
-    var record = LogEntry.SerializeLogEntry(KeySerializer, ValueSerializer, key, value, opIndex, IsLegacyFormat);
+    var record = LogEntry.SerializeLogEntry(KeySerializer, ValueSerializer, key, value, opIndex);
     lock (SyncRoot)
     {
       using var recordWrite = FileStream.BeginRecordWrite();
@@ -135,14 +131,14 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
         LogEntry.ReadLogEntryWithStreamLength,
         DeserializeLogEntry,
         sortByOpIndexes,
-        IsLegacyFormat ? null : (recordPosition, readPosition) => FileStream.IsUnsyncedTail(recordPosition, readPosition));
+        (recordPosition, readPosition) => FileStream.IsUnsyncedTail(recordPosition, readPosition));
     InitialLength = result.Keys.Count;
     return result;
   }
 
   (bool isValid, TKey key, TValue value, long opIndex) DeserializeLogEntry(in LogEntry logEntry)
   {
-    var isValid = IsLegacyFormat || logEntry.ValidateChecksum();
+    var isValid = logEntry.ValidateChecksum();
     // The bytes of a record that fails its checksum cannot be deserialized.
     if (!isValid)
       return (false, default, default, logEntry.OpIndex);
@@ -165,9 +161,7 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
       {
         var length = FileStream.ReplaceContent(
             FileStreamProvider,
-            binaryWriter => AppendLogEntries(binaryWriter, keys, values),
-            FileStream.CompressionMethod,
-            CompressionLevel);
+            binaryWriter => AppendLogEntries(binaryWriter, keys, values));
         CreateFileStream();
         return existingLength - length;
       }
@@ -185,7 +179,7 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
   {
     var len = keys.Length;
     for (var i = 0; i < len; ++i)
-      LogEntry.AppendLogEntry(binaryWriter, KeySerializer, ValueSerializer, keys[i], values[i], i, IsLegacyFormat);
+      LogEntry.AppendLogEntry(binaryWriter, KeySerializer, ValueSerializer, keys[i], values[i], i);
   }
 
   public void MarkFrozen()
@@ -207,10 +201,6 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
       FileStream.SetLength(incompleteTailException.RecordPosition);
     }
   }
-
-  public IReadOnlyList<string> GetLegacyFiles() =>
-      IsLegacyFormat || FileStream.HasLegacyBlocks || LegacyFormats.IsLegacy(FileStream.CompressionMethod)
-          ? [FilePath] : [];
 }
 
 #pragma warning restore CA2213

@@ -42,20 +42,19 @@ public sealed partial class WriteAheadLogProvider
       {
         handle = new SharedWriteAheadLog<TKey, TValue>(store, id, keys, values);
         // The append-only replacement end record is durable before deleting a
-        // legacy WAL. An interrupted migration can safely use the old file again.
+        // per-segment WAL. An interrupted move can safely use the old file again.
         var (path, mode) = DetectWalPathAndWriteAheadLogMode(id, category, options);
         if (FileStreamProvider.FileExists(path))
         {
-          using IWriteAheadLog<TKey, TValue> legacy = mode switch
+          using IWriteAheadLog<TKey, TValue> perSegmentWal = mode switch
           {
-            WriteAheadLogMode.Sync => new SyncFileSystemWriteAheadLog<TKey, TValue>(Logger, FileStreamProvider, keys, values, path),
             WriteAheadLogMode.SyncCompressed => new SyncCompressedFileSystemWriteAheadLog<TKey, TValue>(Logger, FileStreamProvider, keys, values, path, options),
             WriteAheadLogMode.AsyncCompressed => new AsyncCompressedFileSystemWriteAheadLog<TKey, TValue>(Logger, FileStreamProvider, keys, values, path, options),
-            _ => throw new InvalidDataException("Invalid legacy WAL mode.")
+            _ => throw new InvalidDataException("Invalid per-segment WAL mode.")
           };
           if (!store.HasHistory(id))
           {
-            var read = legacy.ReadLogEntries(true, true, true);
+            var read = perSegmentWal.ReadLogEntries(true, true, true);
             if (!read.Success && !read.HasFoundIncompleteTailRecord)
               throw new WriteAheadLogCorruptionException(id, read.Exceptions);
             store.Replace(id, read.Keys.ToArray(), read.Values.ToArray(), read.MaximumOpIndex);
@@ -63,7 +62,7 @@ public sealed partial class WriteAheadLogProvider
           // Recovery can observe a completed replacement before its original
           // sync acknowledgement. Sync it again before removing the fallback.
           store.Sync();
-          legacy.Drop();
+          perSegmentWal.Drop();
         }
         WALTable.TryAdd(id + category, handle);
         var result = handle;

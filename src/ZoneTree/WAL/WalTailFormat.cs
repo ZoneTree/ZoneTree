@@ -8,7 +8,8 @@ namespace ZoneTree.WAL;
 /// A fixed descriptor at the end of the tail, in unused checkpoint-sector space.
 /// Its position and encoding stay the same across future tail format versions.
 /// Layout: magic (8 bytes), version (4 bytes), checksum (4 bytes), little endian.
-/// Version zero means no descriptor: a legacy tail or an incomplete new allocation.
+/// Version zero means no descriptor: a tail without an allocation, or an allocation that a
+/// power loss kept without its descriptor.
 /// </summary>
 internal static class WalTailFormat
 {
@@ -39,7 +40,7 @@ internal static class WalTailFormat
       throw new InvalidDataException("The WAL tail format descriptor checksum is invalid.");
     var version = BinaryPrimitives.ReadInt32LittleEndian(bytes[8..]);
     if (version == 0)
-      throw new InvalidDataException("A versioned WAL tail cannot declare legacy version zero.");
+      throw new InvalidDataException("A versioned WAL tail cannot declare version zero.");
     return version;
   }
 

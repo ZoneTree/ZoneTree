@@ -200,7 +200,7 @@ public sealed class OpIndexTests
     const int recordCount = 16;
 
     using (var zoneTree = new ZoneTreeFactory<int, int>()
-        .Configure(options => options.WriteAheadLogOptions.WriteAheadLogMode = WriteAheadLogMode.Sync)
+        .Configure(options => options.WriteAheadLogOptions.WriteAheadLogMode = WriteAheadLogMode.SyncCompressed)
         .SetDataDirectory(dataPath)
         .OpenOrCreate())
     {
@@ -214,7 +214,7 @@ public sealed class OpIndexTests
         .Configure(options =>
         {
           options.EnableSingleSegmentGarbageCollection = true;
-          options.WriteAheadLogOptions.WriteAheadLogMode = WriteAheadLogMode.Sync;
+          options.WriteAheadLogOptions.WriteAheadLogMode = WriteAheadLogMode.SyncCompressed;
         })
         .SetDataDirectory(dataPath)
         .Open())
@@ -222,7 +222,7 @@ public sealed class OpIndexTests
     }
 
     using (var zoneTree = new ZoneTreeFactory<int, int>()
-        .Configure(options => options.WriteAheadLogOptions.WriteAheadLogMode = WriteAheadLogMode.Sync)
+        .Configure(options => options.WriteAheadLogOptions.WriteAheadLogMode = WriteAheadLogMode.SyncCompressed)
         .SetDataDirectory(dataPath)
         .Open())
     {

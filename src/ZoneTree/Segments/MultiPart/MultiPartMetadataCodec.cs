@@ -59,22 +59,12 @@ internal static class MultiPartMetadataCodec
     return result;
   }
 
-  /// <summary>
-  /// Decodes the metadata, and returns the compression method it was written with.
-  /// Metadata without an envelope is LZ4.
-  /// </summary>
-  public static Memory<byte> Decode(Memory<byte> bytes, out CompressionMethod method)
+  public static Memory<byte> Decode(Memory<byte> bytes)
   {
     if (!HasEnvelope(bytes))
-    {
-      method = CompressionMethod.LZ4;
-      return LZ4DataCompression.Decompress(
-          bytes,
-          LZ4DataCompression.GetDecompressedLength(bytes));
-    }
+      throw new InvalidDataException("Multipart metadata has no envelope.");
 
     var envelope = ReadEnvelope(bytes);
-    method = envelope.Method;
     return DataCompression.Decompress(
         envelope.Method,
         envelope.Payload,

@@ -417,7 +417,7 @@ public sealed class MvccZoneTreeModelTests
     var random = new Random(seed);
     var runner = new HistoryRunner(random)
     {
-      Tree = CreateFactory(provider, diskSegmentMode, WriteAheadLogMode.Sync).OpenOrCreateTransactional()
+      Tree = CreateFactory(provider, diskSegmentMode, WriteAheadLogMode.SyncCompressed).OpenOrCreateTransactional()
     };
     try
     {
@@ -428,7 +428,7 @@ public sealed class MvccZoneTreeModelTests
           // A clean reopen ends the open transactions and keeps every commit.
           runner.EndActiveTransactions();
           runner.Tree.Dispose();
-          runner.Tree = CreateFactory(provider, diskSegmentMode, WriteAheadLogMode.Sync)
+          runner.Tree = CreateFactory(provider, diskSegmentMode, WriteAheadLogMode.SyncCompressed)
               .OpenTransactional();
           Assert.That(ReadAll(runner.Tree), Is.EquivalentTo(runner.CommittedState()));
           continue;
@@ -451,8 +451,7 @@ public sealed class MvccZoneTreeModelTests
   {
     var modes = new[]
     {
-      (WriteAheadLogMode.Sync, DiskSegmentMode.SingleDiskSegment),
-      (WriteAheadLogMode.Sync, DiskSegmentMode.MultiPartDiskSegment),
+      (WriteAheadLogMode.SyncCompressed, DiskSegmentMode.MultiPartDiskSegment),
       (WriteAheadLogMode.SyncCompressed, DiskSegmentMode.SingleDiskSegment),
       (WriteAheadLogMode.AsyncCompressed, DiskSegmentMode.MultiPartDiskSegment),
       (WriteAheadLogMode.Shared, DiskSegmentMode.SingleDiskSegment),

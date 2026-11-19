@@ -22,7 +22,7 @@ public sealed class Test1
         .SetWriteAheadLogDirectory(dataPath)
         .ConfigureWriteAheadLogOptions(x =>
         {
-          x.WriteAheadLogMode = WriteAheadLogMode.Sync;
+          x.WriteAheadLogMode = WriteAheadLogMode.SyncCompressed;
         })
         .OpenOrCreateTransactional();
     using var basicMaintainer = zoneTree.CreateMaintainer();

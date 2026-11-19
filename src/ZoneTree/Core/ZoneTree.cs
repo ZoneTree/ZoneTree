@@ -174,12 +174,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         options, IncrementalIdProvider.NextId(), new IncrementalIdProvider());
     IsDeleted = options.IsDeleted;
     FillZoneTreeMeta();
-    var legacyCompressionUses = LegacyFormats.FindInOptions(
-        options.WriteAheadLogOptions, options.DiskSegmentOptions);
-    if (legacyCompressionUses.Count == 0)
-      ZoneTreeMeta.DbVersion = ZoneTreeInfo.DbVersion.ToString();
-    else
-      LegacyFormats.Warn(Logger, legacyCompressionUses);
+    ZoneTreeMeta.DbVersion = ZoneTreeInfo.DbVersion.ToString();
     ZoneTreeMeta.MaximumOpIndex = MutableSegment.OpIndexProvider.LastId;
     MetaWal.SaveMetaData(
         ZoneTreeMeta,

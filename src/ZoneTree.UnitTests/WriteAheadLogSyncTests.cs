@@ -46,7 +46,6 @@ public sealed class WriteAheadLogSyncTests
         .ToArray();
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
   public async Task SyncedWritesSurvivePowerLoss(WriteAheadLogMode mode)
@@ -138,24 +137,6 @@ public sealed class WriteAheadLogSyncTests
     }
   }
 
-  [Test]
-  public void UnsyncedWritesOfSyncModeDoNotSurvivePowerLoss()
-  {
-    // Sync mode flushes records to the operating system but not to the disk.
-    // This shows that the power loss simulation drops unsynced records.
-    var provider = new PowerLossFileStreamProvider();
-    var keys = Enumerable.Range(0, 100).ToArray();
-    PowerLossFileStreamProvider afterPowerLoss;
-    using (var tree = CreateFactory(provider, WriteAheadLogMode.Sync).Create())
-    {
-      foreach (var key in keys)
-        tree.Upsert(key, key + 1);
-      afterPowerLoss = provider.SimulatePowerLoss();
-    }
-    Assert.That(MissingKeys(afterPowerLoss, WriteAheadLogMode.Sync, keys), Is.EqualTo(keys));
-  }
-
-  [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
   public async Task SyncedWritesSurvivePowerLossAcrossSegmentRotationAndMerge(WriteAheadLogMode mode)
@@ -184,7 +165,6 @@ public sealed class WriteAheadLogSyncTests
     Assert.That(MissingKeys(afterPowerLoss, mode, keys), Is.Empty);
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
   public async Task SyncedWritesSurviveAPowerLossRightAfterSegmentRotation(WriteAheadLogMode mode)
@@ -206,7 +186,6 @@ public sealed class WriteAheadLogSyncTests
     }
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
   public async Task ConcurrentWritersGetDurableAcknowledgements(WriteAheadLogMode mode)
@@ -288,7 +267,6 @@ public sealed class WriteAheadLogSyncTests
     Assert.That(walDiskSyncCount, Is.LessThan(writerCount * writeCount / 2));
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
   public async Task GarbageCollectionOnLoadKeepsSyncedWritesAtEveryPowerLossPoint(WriteAheadLogMode mode)
@@ -327,7 +305,6 @@ public sealed class WriteAheadLogSyncTests
     }
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
   public async Task SyncWALAsyncKeepsFailingAfterADiskSyncFails(WriteAheadLogMode mode)
@@ -528,7 +505,6 @@ public sealed class WriteAheadLogSyncTests
     await sync;
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
   public async Task SyncWALAsyncCompletesAfterTheTreeIsDisposed(WriteAheadLogMode mode)
@@ -590,8 +566,7 @@ public sealed class WriteAheadLogSyncTests
     using var stream = CreateCompressedFileStream(provider);
     stream.Write(newBytes.AsSpan(0, WalBlockSize / 2));
     var diskSyncCount = provider.DiskSyncCount;
-    stream.ReplaceContent(
-        provider, binaryWriter => binaryWriter.Write(newBytes), CompressionMethod.LZ4, CompressionLevels.LZ4Fastest);
+    stream.ReplaceContent(provider, binaryWriter => binaryWriter.Write(newBytes));
     // Both files are sealed once; invalidating the old fixed checkpoints and
     // closing the old tail adds a constant cost, independent of block count.
     Assert.That(provider.DiskSyncCount - diskSyncCount, Is.EqualTo(6));
@@ -645,8 +620,7 @@ public sealed class WriteAheadLogSyncTests
     provider.OnDurableChange = () => powerLossPoints.Enqueue(provider.SimulatePowerLoss());
     using (var stream = CreateCompressedFileStream(provider))
     {
-      var length = stream.ReplaceContent(
-          provider, binaryWriter => binaryWriter.Write(newBytes), CompressionMethod.LZ4, CompressionLevels.LZ4Fastest);
+      var length = stream.ReplaceContent(provider, binaryWriter => binaryWriter.Write(newBytes));
       Assert.That(length, Is.EqualTo(newLength));
     }
     provider.OnDurableChange = null;
@@ -699,7 +673,7 @@ public sealed class WriteAheadLogSyncTests
         WalBlockSize,
         false,
         0,
-        CompressionMethod.LZ4,
-        CompressionLevels.LZ4Fastest);
+        CompressionMethod.Zstd,
+        CompressionLevels.Zstd1);
   }
 }

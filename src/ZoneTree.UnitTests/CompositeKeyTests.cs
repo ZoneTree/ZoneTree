@@ -1926,7 +1926,7 @@ public sealed class CompositeKeyTests
   {
     return new ZoneTreeFactory<byte[], byte[]>(provider)
         .Configure(options => options.AllowUnsafeOptionValues = true)
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.Sync)
+        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.SyncCompressed)
         .ConfigureDiskSegmentOptions(options =>
         {
           options.DiskSegmentMode = mode;

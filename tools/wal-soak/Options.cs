@@ -122,7 +122,7 @@ sealed record Profile(WriteAheadLogMode Wal, CompressionMethod Compression, Disk
   public static List<Profile> Matrix(int seed)
   {
     var profiles = (from wal in new[] { WriteAheadLogMode.Shared, WriteAheadLogMode.AsyncShared }
-                    from codec in new[] { CompressionMethod.None, CompressionMethod.LZ4, CompressionMethod.Zstd }
+                    from codec in new[] { CompressionMethod.None, CompressionMethod.Zstd }
                     from disk in new[] { DiskSegmentMode.SingleDiskSegment, DiskSegmentMode.MultiPartDiskSegment }
                     from block in new[] { 1024, 4096, 128 * 1024, 256 * 1024 }
                     from chunk in new long[] { 256 * 1024, 4 * 1024 * 1024, 64 * 1024 * 1024 }

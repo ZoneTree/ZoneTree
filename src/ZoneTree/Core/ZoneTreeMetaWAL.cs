@@ -245,9 +245,6 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
   public IReadOnlyList<MetaWalRecord> GetRecordsOfGeneration(long generation)
   {
     var records = GetAllRecords();
-    // An older version saved the metadata and its records have no generation.
-    if (generation == 0)
-      return records;
     var list = new List<MetaWalRecord>(records.Count);
     var foundInvalidRecord = false;
     foreach (var record in records)
@@ -308,7 +305,6 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
     // records of the meta WAL, so an empty one needs no new generation. A meta WAL with
     // content can hold stale records or a torn tail, which the save below clears.
     if (!createNew &&
-        zoneTreeMeta.MetaWalGeneration != 0 &&
         Device.Length == 0 &&
         deviceManager.FileStreamProvider.ReadAllBytes(metaFilePath).AsSpan()
             .SequenceEqual(JsonSerializeToUtf8Bytes(newZoneTreeMeta)))

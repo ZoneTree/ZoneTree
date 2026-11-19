@@ -372,9 +372,8 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// so waiting for many writes costs about one disk sync.
   ///
   /// In AsyncCompressed mode the background writer syncs, and the calling
-  /// thread does not block. In Sync and SyncCompressed modes the calling
-  /// thread syncs. In Sync mode appends to the write ahead log wait for
-  /// the sync. SyncCompressed can append to its active tail during the sync;
+  /// thread does not block. In SyncCompressed mode the calling
+  /// thread syncs. It can append to its active tail during the sync;
   /// a rollover waits before writing to the main file.
   ///
   /// After a write ahead log write or disk sync fails, later calls fail too,

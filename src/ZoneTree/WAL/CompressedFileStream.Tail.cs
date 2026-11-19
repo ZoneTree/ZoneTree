@@ -144,7 +144,6 @@ public sealed unsafe partial class CompressedFileStream
   {
     if (CheckpointOffset > 0)
       return;
-    UsesSyncCheckpoints = true;
     CheckpointOffset = GetCheckpointRegionOffset();
     var length = CheckpointOffset + WalSyncCheckpoint.RegionSize;
     var oldLength = TailStream.Length;

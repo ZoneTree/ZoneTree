@@ -50,11 +50,6 @@ public sealed class MultiPartDiskSegment<TKey, TValue> : IDiskSegment<TKey, TVal
 
   public long Length { get; }
 
-  /// <summary>
-  /// The compression method that the list of parts was written with.
-  /// </summary>
-  public CompressionMethod HeaderCompressionMethod { get; }
-
   public long MaximumOpIndex => 0;
 
   public bool IsFullyFrozen => true;
@@ -91,8 +86,7 @@ public sealed class MultiPartDiskSegment<TKey, TValue> : IDiskSegment<TKey, TVal
 
     var len = (int)diskSegmentListDevice.Length;
     var compressedBytes = diskSegmentListDevice.GetBytes(0, len);
-    var bytes = MultiPartMetadataCodec.Decode(compressedBytes, out var headerCompressionMethod);
-    HeaderCompressionMethod = headerCompressionMethod;
+    var bytes = MultiPartMetadataCodec.Decode(compressedBytes);
     using var pin = bytes.Pin();
     using var ms = bytes.ToReadOnlyStream(pin);
     using var br = new BinaryReader(ms);
@@ -124,7 +118,7 @@ public sealed class MultiPartDiskSegment<TKey, TValue> : IDiskSegment<TKey, TVal
 
     var len = (int)diskSegmentListDevice.Length;
     var compressedBytes = diskSegmentListDevice.GetBytes(0, len);
-    var bytes = MultiPartMetadataCodec.Decode(compressedBytes, out _);
+    var bytes = MultiPartMetadataCodec.Decode(compressedBytes);
 
     using var pin = bytes.Pin();
     using var ms = bytes.ToReadOnlyStream(pin);

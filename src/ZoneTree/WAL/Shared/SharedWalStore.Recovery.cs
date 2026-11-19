@@ -30,7 +30,6 @@ internal sealed partial class SharedWalStore<TKey, TValue>
         BaseSequence = WrittenSequence, LastSequence = WrittenSequence,
         Stream = OpenChunk(entry.Path)
       };
-      chunk.CompressionMethod = chunk.Stream.CompressionMethod;
       Chunks.Add(chunk);
       ReadChunk(chunk, true);
       stopped = !chunk.Sealed || chunk.Stream.RecoveryTruncated;

@@ -134,7 +134,7 @@ public sealed class ClusterHostTests
     var changes = new Action<ZoneTreeFactory<long, long>>[]
     {
       storage => storage.ConfigureWriteAheadLogOptions(wal => wal.WriteAheadLogMode = WriteAheadLogMode.AsyncShared),
-      storage => storage.ConfigureWriteAheadLogOptions(wal => wal.CompressionMethod = CompressionMethod.LZ4),
+      storage => storage.ConfigureWriteAheadLogOptions(wal => wal.CompressionMethod = CompressionMethod.None),
       storage => storage.SetWriteAheadLogProvider(options => new WriteAheadLogProvider(options.Logger,
           new LocalFileStreamProvider(), Path.Combine(DataDirectory, "elsewhere")))
     };

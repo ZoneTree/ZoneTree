@@ -153,10 +153,8 @@ public sealed class SharedWriteAheadLogTests
   }
 
   [TestCase(WriteAheadLogMode.Shared, CompressionMethod.None)]
-  [TestCase(WriteAheadLogMode.Shared, CompressionMethod.LZ4)]
   [TestCase(WriteAheadLogMode.Shared, CompressionMethod.Zstd)]
   [TestCase(WriteAheadLogMode.AsyncShared, CompressionMethod.None)]
-  [TestCase(WriteAheadLogMode.AsyncShared, CompressionMethod.LZ4)]
   [TestCase(WriteAheadLogMode.AsyncShared, CompressionMethod.Zstd)]
   public async Task SyncProtectsAllHandlesAndDefaultOptionsDetectExistingJournal(WriteAheadLogMode mode, CompressionMethod method)
   {
@@ -403,18 +401,26 @@ public sealed class SharedWriteAheadLogTests
     }
   }
 
-  static IEnumerable<TestCaseData> LegacyCases()
+  static IEnumerable<TestCaseData> PerSegmentWalCases()
   {
     foreach (var mode in new[] { WriteAheadLogMode.Shared, WriteAheadLogMode.AsyncShared })
-    {
-      foreach (var legacy in new[] { WriteAheadLogMode.Sync, WriteAheadLogMode.SyncCompressed, WriteAheadLogMode.AsyncCompressed })
-      {
-        foreach (var method in new[] { CompressionMethod.None, CompressionMethod.LZ4, CompressionMethod.Zstd })
-          if (legacy != WriteAheadLogMode.Sync || method == CompressionMethod.None)
-            yield return new TestCaseData(mode, $"Legacy208Wals/{legacy}-{method}", 150);
-        yield return new TestCaseData(mode, $"LegacyCrcWals/{legacy}", 4);
-      }
-    }
+      foreach (var perSegmentMode in new[] { WriteAheadLogMode.SyncCompressed, WriteAheadLogMode.AsyncCompressed })
+        foreach (var method in new[] { CompressionMethod.None, CompressionMethod.Zstd })
+          yield return new TestCaseData(mode, perSegmentMode, method);
+  }
+
+  /// <summary>
+  /// Writes records whose WALs are per segment, in several segments, and syncs them.
+  /// </summary>
+  static async Task WritePerSegmentWals(
+      PowerLossFileStreamProvider files, WriteAheadLogMode mode, CompressionMethod method)
+  {
+    using var tree = Factory(files, mode)
+        .ConfigureWriteAheadLogOptions(wal => wal.CompressionMethod = method)
+        .OpenOrCreate();
+    for (var key = 0; key < 150; ++key)
+      tree.Upsert(key, key + 1);
+    await tree.SyncWALAsync();
   }
 
   [TestCase(WriteAheadLogMode.Shared)]
@@ -423,7 +429,7 @@ public sealed class SharedWriteAheadLogTests
   {
     var files = new PowerLossFileStreamProvider();
     var provider = Provider(files);
-    var options = Options(mode, CompressionMethod.LZ4);
+    var options = Options(mode, CompressionMethod.Zstd);
     var payload = new byte[10000];
     new Random(31).NextBytes(payload);
     using var wal = provider.GetOrCreateWAL(1, "seg", options, new Int32Serializer(), new ByteArraySerializer());
@@ -509,23 +515,18 @@ public sealed class SharedWriteAheadLogTests
     finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
   }
 
-  [TestCaseSource(nameof(LegacyCases))]
-  public async Task ReleasedWalAndTailMigrateToSharedJournal(WriteAheadLogMode mode, string fixture, int count)
+  [TestCaseSource(nameof(PerSegmentWalCases))]
+  public async Task PerSegmentWalsMoveToTheSharedJournal(
+      WriteAheadLogMode mode, WriteAheadLogMode perSegmentMode, CompressionMethod method)
   {
     var files = new PowerLossFileStreamProvider();
-    CopyFixture(files, fixture);
+    await WritePerSegmentWals(files, perSegmentMode, method);
     using (var tree = Factory(files, mode).Open())
     {
-      if (count == 150)
-        for (var key = 0; key < count; ++key)
-        {
-          Assert.That(tree.TryGet(key, out var value), Is.True);
-          Assert.That(value, Is.EqualTo(key + 1));
-        }
-      else
+      for (var key = 0; key < 150; ++key)
       {
-        Assert.That(tree.TryGet(2, out var legacyValue), Is.True);
-        Assert.That(legacyValue, Is.EqualTo(999));
+        Assert.That(tree.TryGet(key, out var value), Is.True);
+        Assert.That(value, Is.EqualTo(key + 1));
       }
       tree.Upsert(1000, 1001);
       await tree.SyncWALAsync();
@@ -536,25 +537,12 @@ public sealed class SharedWriteAheadLogTests
     Assert.That(files.GetFiles("data/seg").Any(path => path.Contains(".wal_", StringComparison.Ordinal)), Is.False);
   }
 
-  static void CopyFixture(PowerLossFileStreamProvider files, string fixture)
-  {
-    var source = Path.Combine(TestContext.CurrentContext.TestDirectory, "Fixtures", fixture);
-    foreach (var file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
-    {
-      var target = Path.Combine("data", Path.GetRelativePath(source, file));
-      files.CreateDirectory(Path.GetDirectoryName(target));
-      using var stream = files.CreateFileStream(target, FileMode.Create, FileAccess.Write, FileShare.None);
-      stream.Write(File.ReadAllBytes(file));
-      stream.Flush(true);
-    }
-  }
-
   [TestCase(WriteAheadLogMode.Shared)]
   [TestCase(WriteAheadLogMode.AsyncShared)]
-  public void InterruptedLegacyMigrationKeepsTheReleasedRecords(WriteAheadLogMode mode)
+  public async Task InterruptedMoveToTheSharedJournalKeepsTheRecords(WriteAheadLogMode mode)
   {
     var files = new PowerLossFileStreamProvider();
-    CopyFixture(files, "Legacy208Wals/SyncCompressed-Zstd");
+    await WritePerSegmentWals(files, WriteAheadLogMode.SyncCompressed, CompressionMethod.Zstd);
     var images = new List<PowerLossFileStreamProvider>();
     var random = new Random(193);
     void Capture()

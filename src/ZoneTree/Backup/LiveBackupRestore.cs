@@ -39,6 +39,8 @@ public sealed class LiveBackupRestore<TKey, TValue>
     if (generation.TreeKind != TreeKind)
       throw new LiveBackupIntegrityException($"generation {generation.GenerationId}",
           $"This is a {generation.TreeKind} backup; restore requires the matching plain or transactional API.");
+    if (generation.DbVersion == null || Version.Parse(generation.DbVersion) < ZoneTreeInfo.MinimumDbVersion)
+      throw new LiveBackupVersionIsNotCompatibleException(generation.GenerationId, generation.DbVersion);
     if (ZoneTreeMetaWAL<TKey, TValue>.Exists(Options))
       throw new LiveBackupRestoreTargetAlreadyExistsException();
 
@@ -168,6 +170,7 @@ public sealed class LiveBackupRestore<TKey, TValue>
   {
     var meta = new ZoneTreeMeta
     {
+      DbVersion = ZoneTreeInfo.DbVersion.ToString(),
       ComparerType = Options.Comparer.GetType().SimplifiedFullName(),
       KeyHasherType = Options.KeyHasher?.GetType().SimplifiedFullName(),
       KeyType = typeof(TKey).SimplifiedFullName(),

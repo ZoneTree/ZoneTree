@@ -3,20 +3,14 @@ namespace ZoneTree.Options;
 /// <summary>
 /// Available write ahead log modes.
 /// </summary>
+/// <remarks>
+/// WAL file names hold the values, so they keep the numbers of earlier versions.
+/// </remarks>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1008", Justification = "WAL file names store the values.")]
 public enum WriteAheadLogMode : byte
 {
   /// <summary>
-  /// Sync mode write ahead log writes each record through the plain WAL stream
-  /// before the ZoneTree write is considered complete.
-  /// It favors simple synchronous WAL recovery semantics over write speed.
-  /// Full power-loss durability still depends on the
-  /// operating system, file system, and storage device.
-  /// </summary>
-  Sync = 0,
-
-  /// <summary>
-  /// Sync mode with compressed-block WAL storage.
-  /// It is faster than Sync and can reduce WAL size. It keeps the current
+  /// Writes each record on the caller to compressed-block WAL storage. It keeps the current
   /// compressed tail block in a separate file, and every write to that block
   /// survives a process crash. A power loss can lose the writes that were not
   /// synced to the disk.

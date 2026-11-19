@@ -59,8 +59,8 @@ public sealed class ZoneTreeOptionsValidationTests
   public void InvalidCompressionLevelStillUsesCompressionLevelException()
   {
     var options = CreateValidOptions();
-    options.DiskSegmentOptions.CompressionMethod = CompressionMethod.LZ4;
-    options.DiskSegmentOptions.CompressionLevel = 2;
+    options.DiskSegmentOptions.CompressionMethod = CompressionMethod.Zstd;
+    options.DiskSegmentOptions.CompressionLevel = CompressionLevels.ZstdMax + 1;
 
     var isValid = options.TryValidate(out var exception);
 

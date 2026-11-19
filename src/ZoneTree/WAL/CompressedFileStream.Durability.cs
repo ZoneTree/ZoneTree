@@ -41,7 +41,7 @@ public sealed unsafe partial class CompressedFileStream
   {
     if (!IsTailFileUnsynced)
       return;
-    if (UsesSyncCheckpoints && CheckpointOffset == 0)
+    if (CheckpointOffset == 0)
     {
       WriteTailHeader(TailBlock.BlockIndex, TailBlock.Length);
       PrepareCheckpointRegion();

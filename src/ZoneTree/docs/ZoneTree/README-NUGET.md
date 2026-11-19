@@ -177,7 +177,7 @@ foreach (var (key, value) in snapshot.Range(1, 2))
 
 Transactions are multi-version and optimistic: reads never block, and a commit fails only when another transaction committed or prepared a conflicting write after this one began; `Execute` retries it. `Serializable`, the default, also protects the keys and ranges a transaction read; `Snapshot` checks only the keys it wrote or read with `TryGetForUpdate`. `Commit()` makes a transaction visible at once. `ExecuteDurableAsync` and `tx.CommitDurableAsync()` sync the WAL before making their commits visible, so readers cannot observe those commits before they are durable. Alternatively, `zoneTree.SyncWALAsync()` makes earlier ordinary commits durable after they have become visible. These durability guarantees require WAL to be enabled.
 
-With the built-in WAL provider, transactional factories promote `Sync` and `SyncCompressed` to `Shared`, and `AsyncCompressed` to `AsyncShared`, so recovery preserves commit order across segments. Compression settings, explicit shared modes and `None` are retained. Custom providers and provider factories keep their configured modes and supply their own transaction recovery guarantees.
+With the built-in WAL provider, transactional factories promote `SyncCompressed` to `Shared`, and `AsyncCompressed` to `AsyncShared`, so recovery preserves commit order across segments. Compression settings, explicit shared modes and `None` are retained. Custom providers and provider factories keep their configured modes and supply their own transaction recovery guarantees.
 
 Use transactions when your data model requires coordination across multiple keys. For simple high-throughput writes, the non-transactional API is usually the better path.
 
@@ -268,7 +268,6 @@ Ordinary trees default to `AsyncCompressed`; transactional trees default to `Asy
 | Need | Consider |
 | --- | --- |
 | Recommended high-throughput persistent WAL mode | Async compressed WAL |
-| Plain synchronous WAL write path | Sync WAL |
 | Compressed WAL with a synchronous caller write path, where each returned write survives a process crash | Sync compressed WAL |
 | One ordered recovery prefix across memory segments, with caller-side writes | Shared WAL (`WriteAheadLogMode.Shared`) |
 | One ordered recovery prefix across memory segments, with queued writes | Async shared WAL (`WriteAheadLogMode.AsyncShared`) |

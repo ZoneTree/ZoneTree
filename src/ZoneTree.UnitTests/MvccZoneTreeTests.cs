@@ -29,7 +29,7 @@ public sealed class MvccZoneTreeTests
   ZoneTreeFactory<int, int> CreateFactory(
       int mutableSegmentMaxItemCount = 1000,
       DiskSegmentMode diskSegmentMode = DiskSegmentMode.SingleDiskSegment,
-      WriteAheadLogMode walMode = WriteAheadLogMode.Sync)
+      WriteAheadLogMode walMode = WriteAheadLogMode.SyncCompressed)
   {
     return new ZoneTreeFactory<int, int>()
         .SetDataDirectory(DataDirectory)

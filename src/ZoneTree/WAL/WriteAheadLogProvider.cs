@@ -10,8 +10,6 @@ namespace ZoneTree.WAL;
 
 public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
 {
-  internal const string LegacyWalExtension = ".wal_crc";
-
   internal const string Xxh3WalExtension = ".wal_xxh3";
 
   readonly ILogger Logger;
@@ -58,17 +56,6 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
       {
         case WriteAheadLogMode.None:
           return new NullWriteAheadLog<TKey, TValue>();
-        case WriteAheadLogMode.Sync:
-          {
-            var wal = new SyncFileSystemWriteAheadLog<TKey, TValue>(
-                Logger,
-                FileStreamProvider,
-                keySerializer,
-                valueSerializer,
-                walPath);
-            WALTable.TryAdd(segmentId + category, wal);
-            return wal;
-          }
         case WriteAheadLogMode.SyncCompressed:
           {
             var wal = new SyncCompressedFileSystemWriteAheadLog<TKey, TValue>(
@@ -108,14 +95,12 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
       long segmentId, string category, WriteAheadLogOptions options)
   {
     var walPath = Path.Combine(WalDirectory, category, segmentId.ToString(CultureInfo.InvariantCulture));
-    // Prefer an XXH3 WAL when both formats exist for the same ID.
-    foreach (var extension in new[] { Xxh3WalExtension, LegacyWalExtension })
-      for (var i = 0; i < 3; ++i)
-      {
-        var path = walPath + extension + "." + i;
-        if (FileStreamProvider.FileExists(path))
-          return (path, (WriteAheadLogMode)i);
-      }
+    foreach (var mode in new[] { WriteAheadLogMode.SyncCompressed, WriteAheadLogMode.AsyncCompressed })
+    {
+      var path = walPath + Xxh3WalExtension + "." + (int)mode;
+      if (FileStreamProvider.FileExists(path))
+        return (path, mode);
+    }
     return (walPath + Xxh3WalExtension + "." + (int)options.WriteAheadLogMode, options.WriteAheadLogMode);
   }
 
@@ -152,27 +137,4 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
   // their names too, including a separately configured WAL directory.
   internal void SyncCategoryDirectory(string category)
       => DirectorySync.FlushTree(Path.Combine(WalDirectory, category), FileStreamProvider.SyncDirectory);
-
-  public void MigrateWals(Version databaseVersion)
-  {
-    if (databaseVersion < new Version("2.0.0"))
-      RenameLegacyWals(WalDirectory);
-  }
-
-  void RenameLegacyWals(string directory)
-  {
-    foreach (var file in FileStreamProvider.GetFiles(directory))
-    {
-      var parts = Path.GetFileName(file).Split('.');
-      if (parts.Length < 3 || parts[1] != "wal" ||
-          !long.TryParse(parts[0], out _) || parts[2] is not ("0" or "1" or "2"))
-        continue;
-      var name = parts[0] + LegacyWalExtension + "." + parts[2];
-      if (parts.Length > 3)
-        name += "." + string.Join(".", parts.Skip(3));
-      FileStreamProvider.MoveFile(file, FileStreamProvider.CombinePaths(directory, name));
-    }
-    foreach (var child in FileStreamProvider.GetDirectories(directory))
-      RenameLegacyWals(child);
-  }
 }

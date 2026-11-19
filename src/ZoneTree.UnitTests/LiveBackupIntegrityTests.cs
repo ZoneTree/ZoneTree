@@ -8,7 +8,6 @@ namespace ZoneTree.UnitTests;
 public sealed class LiveBackupIntegrityTests
 {
   [TestCase(CompressionMethod.None)]
-  [TestCase(CompressionMethod.LZ4)]
   [TestCase(CompressionMethod.Zstd)]
   public async Task ChecksumsCoverStoredFilesAndBatches(CompressionMethod codec)
   {

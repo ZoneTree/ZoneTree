@@ -5,7 +5,6 @@ namespace ZoneTree.UnitTests;
 
 public sealed class AtomicUpdateTests
 {
-  [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   public void IntIntAtomicIncrement(WriteAheadLogMode walMode)
@@ -80,7 +79,6 @@ public sealed class AtomicUpdateTests
     data.Maintenance.Drop();
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   public void IntIntAtomicIncrementForBTree(WriteAheadLogMode walMode)
@@ -146,7 +144,6 @@ public sealed class AtomicUpdateTests
     data.Maintenance.Drop();
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   public void IntIntMutableSegmentOnlyAtomicIncrement(WriteAheadLogMode walMode)
@@ -212,7 +209,6 @@ public sealed class AtomicUpdateTests
     data.Maintenance.Drop();
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   public void IntIntMutableSegmentSeveralUpserts(WriteAheadLogMode walMode)

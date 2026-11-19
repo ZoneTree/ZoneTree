@@ -243,17 +243,13 @@ public sealed class LogEntryTests
   [TestCase(128, 4096)]
   public void RecordsHoldTheHeaderKeyValueAndChecksum(int keyLength, int valueLength)
   {
-    // A legacy log keeps a zero checksum, which loading does not validate.
     var entry = CreateEntry(keyLength, valueLength);
     var expected = SerializeRecord(entry);
-    foreach (var isLegacyFormat in new[] { false, true })
-    {
-      var checksum = isLegacyFormat ? 0u : unchecked((uint)XxHash3.HashToUInt64(expected));
-      var record = LogEntry.SerializeLogEntry(Bytes, Bytes, entry.Key, entry.Value, entry.OpIndex, isLegacyFormat);
-      Assert.That(record[..^sizeof(uint)].ToArray(), Is.EqualTo(expected), $"legacy format: {isLegacyFormat}");
-      Assert.That(System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(record[^sizeof(uint)..]),
-          Is.EqualTo(checksum), $"legacy format: {isLegacyFormat}");
-    }
+    var checksum = unchecked((uint)XxHash3.HashToUInt64(expected));
+    var record = LogEntry.SerializeLogEntry(Bytes, Bytes, entry.Key, entry.Value, entry.OpIndex);
+    Assert.That(record[..^sizeof(uint)].ToArray(), Is.EqualTo(expected));
+    Assert.That(System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(record[^sizeof(uint)..]),
+        Is.EqualTo(checksum));
   }
 
   static LogEntry CreateEntry(int keyLength, int valueLength)

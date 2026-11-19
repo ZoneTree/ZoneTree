@@ -29,9 +29,4 @@
     <ProjectReference Include="..\ZoneTree\ZoneTree.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Update="Fixtures\LegacyCrcWals\**\*" CopyToOutputDirectory="PreserveNewest" />
-    <None Update="Fixtures\Legacy208Wals\**\*" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-
 </Project>

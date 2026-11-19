@@ -9,7 +9,6 @@ namespace ZoneTree.UnitTests;
 
 public sealed class WalReleaseRegressionTests
 {
-  [TestCase(WriteAheadLogMode.Sync)]
   [TestCase(WriteAheadLogMode.SyncCompressed)]
   [TestCase(WriteAheadLogMode.AsyncCompressed)]
   public async Task ExplicitSyncProtectsTransactionsWithoutBlockingSegmentRotation(WriteAheadLogMode mode)
@@ -69,10 +68,8 @@ public sealed class WalReleaseRegressionTests
   }
 
   [TestCase(CompressionMethod.None, false)]
-  [TestCase(CompressionMethod.LZ4, false)]
   [TestCase(CompressionMethod.Zstd, false)]
   [TestCase(CompressionMethod.None, true)]
-  [TestCase(CompressionMethod.LZ4, true)]
   [TestCase(CompressionMethod.Zstd, true)]
   public async Task ConcurrentSyncDoesNotCheckpointPartOfALargeRecord(CompressionMethod compression, bool backgroundFlush)
   {

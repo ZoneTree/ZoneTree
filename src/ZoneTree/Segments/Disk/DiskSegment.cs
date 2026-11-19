@@ -964,7 +964,7 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
 
     var path = deviceManager.GetFilePath(SegmentId, category);
     if (isCompressed)
-      path += RandomAccessDeviceManager.CompressedFileExtension;
+      path += ".z";
 
     files.Add(new DiskSegmentFile(
         SegmentId,
