@@ -116,6 +116,28 @@ public sealed class MaterializedEntryCacheTests
   }
 
   [Test]
+  public void AReadThatDoesNotContributeToTheBlockCacheOnlyUsesAnExistingCache()
+  {
+    var block = CreateBlock();
+    var oneTimeRead = new SingleBlockPin(block, contributeToTheBlockCache: false);
+    var cachingRead = new SingleBlockPin(block, contributeToTheBlockCache: true);
+
+    Assert.Multiple(() =>
+    {
+      Assert.That(MaterializedEntryCache<int, int>.GetOrCreate((SingleBlockPin)null, 16, 8), Is.Null);
+      Assert.That(MaterializedEntryCache<int, int>.GetOrCreate(oneTimeRead, 16, 8), Is.Null);
+      Assert.That(block.MaterializedEntries, Is.Null);
+    });
+    var cache = MaterializedEntryCache<int, int>.GetOrCreate(cachingRead, 16, 8);
+    Assert.Multiple(() =>
+    {
+      Assert.That(cache, Is.Not.Null);
+      Assert.That(MaterializedEntryCache<int, int>.GetOrCreate(oneTimeRead, 16, 8), Is.SameAs(cache));
+      Assert.That(MaterializedEntryCache<int, int>.GetOrCreate(oneTimeRead, 0, 8), Is.Null);
+    });
+  }
+
+  [Test]
   public void ZeroSizeDisablesCacheCreation()
   {
     var block = CreateBlock();

@@ -54,6 +54,27 @@ public sealed class MaterializedEntryCache<TKey, TValue>
         : entries as MaterializedEntryCache<TKey, TValue>;
   }
 
+  /// <summary>
+  /// Returns the cache of the block a read pinned. A read that contributes to the block cache creates the cache on
+  /// first use. A read that does not, such as a one-pass scan, only uses a cache that already exists: its block is
+  /// read once and dropped, so a new cache and the entries copied into it would only be garbage.
+  /// </summary>
+  /// <param name="pin">The pin of the read, which holds the block it read.</param>
+  /// <param name="maximumChunkCount">The most chunks a block's cache may hold. Zero disables the cache.</param>
+  /// <param name="recordSize">The size in bytes of one record in the block.</param>
+  public static MaterializedEntryCache<TKey, TValue> GetOrCreate(
+      SingleBlockPin pin,
+      int maximumChunkCount,
+      int recordSize)
+  {
+    var block = pin?.Device;
+    if (pin == null || pin.ContributeToTheBlockCache)
+      return GetOrCreate(block, maximumChunkCount, recordSize);
+    return block == null || maximumChunkCount <= 0
+        ? null
+        : Volatile.Read(ref block.MaterializedEntries) as MaterializedEntryCache<TKey, TValue>;
+  }
+
   public bool TryCopy(
       long startIndex,
       int count,
