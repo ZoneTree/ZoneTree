@@ -56,21 +56,53 @@ public sealed partial class BTree<TKey, TValue>
       EndChange();
     }
 
+    /// <summary>
+    /// Returns an iterator over a copy of the leaf. The leaf is copied without locking it, as reads find records, so
+    /// iterators created at the same time do not queue on the leaf's lock. A copy that a concurrent change may have
+    /// torn is discarded. Only a leaf that writers keep changing is copied under its lock.
+    /// </summary>
     public NodeIterator GetIterator(BTree<TKey, TValue> tree)
     {
+      var spinWait = new SpinWait();
+      for (var i = 0; i < MaximumOptimisticReadCount; ++i)
+      {
+        var version = Version;
+        if ((version & 1) != 0)
+        {
+          spinWait.SpinOnce();
+          continue;
+        }
+        var (keys, values) = CopyRecords();
+        if (IsUnchangedSince(version))
+          return new NodeIterator(tree, this, keys, values);
+      }
+
       try
       {
         ReadLock();
-        var keys = new TKey[Length];
-        var values = new TValue[Length];
-        Array.Copy(Keys, 0, keys, 0, Length);
-        Array.Copy(Values, 0, values, 0, Length);
+        var (keys, values) = CopyRecords();
         return new NodeIterator(tree, this, keys, values);
       }
       finally
       {
         ReadUnlock();
       }
+    }
+
+    /// <summary>
+    /// Copies the leaf's records. An empty leaf, the usual state of a settled tree's mutable segment, shares empty
+    /// arrays, because iterators never write into them.
+    /// </summary>
+    (TKey[] Keys, TValue[] Values) CopyRecords()
+    {
+      var length = Length;
+      if (length == 0)
+        return (Array.Empty<TKey>(), Array.Empty<TValue>());
+      var keys = new TKey[length];
+      var values = new TValue[length];
+      Array.Copy(Keys, 0, keys, 0, length);
+      Array.Copy(Values, 0, values, 0, length);
+      return (keys, values);
     }
 
     public FrozenNodeIterator CreateFrozenIterator()
