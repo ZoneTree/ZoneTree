@@ -94,12 +94,12 @@ public sealed class ZoneTreeMetaOptionsTests
           options.CompressionBlockSize = expected.WriteAheadLogCompressionBlockSize;
           options.CompressionMethod = expected.WriteAheadLogCompressionMethod;
           options.CompressionLevel = expected.WriteAheadLogCompressionLevel;
-          options.AsyncCompressedModeOptions.EmptyQueuePollInterval =
-              expected.AsyncCompressedModeEmptyQueuePollInterval;
-          options.SyncCompressedModeOptions.EnableTailWriterJob =
-              expected.SyncCompressedModeEnableTailWriterJob;
-          options.SyncCompressedModeOptions.TailWriterJobInterval =
-              expected.SyncCompressedModeTailWriterJobInterval;
+          options.AsyncPrivateModeOptions.EmptyQueuePollInterval =
+              expected.AsyncPrivateModeEmptyQueuePollInterval;
+          options.PrivateModeOptions.EnableTailWriterJob =
+              expected.PrivateModeEnableTailWriterJob;
+          options.PrivateModeOptions.TailWriterJobInterval =
+              expected.PrivateModeTailWriterJobInterval;
         })
         .ConfigureDiskSegmentOptions(options =>
         {
@@ -131,14 +131,14 @@ public sealed class ZoneTreeMetaOptionsTests
           MutableSegmentMaxItemCount: 37,
           MutableSegmentBloomFilterBitsPerItem: 5,
           DiskSegmentMaxItemCount: 73,
-          WriteAheadLogMode: WriteAheadLogMode.AsyncCompressed,
+          WriteAheadLogMode: WriteAheadLogMode.AsyncPrivate,
           WriteAheadLogCustomOptions: customOptions,
           WriteAheadLogCompressionBlockSize: 128 * 1024,
           WriteAheadLogCompressionMethod: CompressionMethod.None,
           WriteAheadLogCompressionLevel: 0,
-          AsyncCompressedModeEmptyQueuePollInterval: 17,
-          SyncCompressedModeEnableTailWriterJob: false,
-          SyncCompressedModeTailWriterJobInterval: 19,
+          AsyncPrivateModeEmptyQueuePollInterval: 17,
+          PrivateModeEnableTailWriterJob: false,
+          PrivateModeTailWriterJobInterval: 19,
           DiskSegmentMode: DiskSegmentMode.SingleDiskSegment,
           DiskSegmentCompressionBlockSize: 256 * 1024,
           DiskSegmentCompressionMethod: CompressionMethod.None,
@@ -157,14 +157,14 @@ public sealed class ZoneTreeMetaOptionsTests
           MutableSegmentMaxItemCount: 41,
           MutableSegmentBloomFilterBitsPerItem: 7,
           DiskSegmentMaxItemCount: 83,
-          WriteAheadLogMode: WriteAheadLogMode.SyncCompressed,
+          WriteAheadLogMode: WriteAheadLogMode.Private,
           WriteAheadLogCustomOptions: customOptions,
           WriteAheadLogCompressionBlockSize: 192 * 1024,
           WriteAheadLogCompressionMethod: CompressionMethod.Zstd,
           WriteAheadLogCompressionLevel: CompressionLevels.Zstd1,
-          AsyncCompressedModeEmptyQueuePollInterval: 43,
-          SyncCompressedModeEnableTailWriterJob: true,
-          SyncCompressedModeTailWriterJobInterval: 47,
+          AsyncPrivateModeEmptyQueuePollInterval: 43,
+          PrivateModeEnableTailWriterJob: true,
+          PrivateModeTailWriterJobInterval: 47,
           DiskSegmentMode: DiskSegmentMode.MultiPartDiskSegment,
           DiskSegmentCompressionBlockSize: 384 * 1024,
           DiskSegmentCompressionMethod: CompressionMethod.Zstd,
@@ -183,14 +183,14 @@ public sealed class ZoneTreeMetaOptionsTests
           MutableSegmentMaxItemCount: 43,
           MutableSegmentBloomFilterBitsPerItem: 11,
           DiskSegmentMaxItemCount: 89,
-          WriteAheadLogMode: WriteAheadLogMode.SyncCompressed,
+          WriteAheadLogMode: WriteAheadLogMode.Private,
           WriteAheadLogCustomOptions: customOptions,
           WriteAheadLogCompressionBlockSize: 224 * 1024,
           WriteAheadLogCompressionMethod: CompressionMethod.Zstd,
           WriteAheadLogCompressionLevel: CompressionLevels.Zstd3,
-          AsyncCompressedModeEmptyQueuePollInterval: 59,
-          SyncCompressedModeEnableTailWriterJob: false,
-          SyncCompressedModeTailWriterJobInterval: 61,
+          AsyncPrivateModeEmptyQueuePollInterval: 59,
+          PrivateModeEnableTailWriterJob: false,
+          PrivateModeTailWriterJobInterval: 61,
           DiskSegmentMode: DiskSegmentMode.MultiPartDiskSegment,
           DiskSegmentCompressionBlockSize: 512 * 1024,
           DiskSegmentCompressionMethod: CompressionMethod.Zstd,
@@ -233,12 +233,12 @@ public sealed class ZoneTreeMetaOptionsTests
     Assert.That(walOptions.CompressionBlockSize, Is.EqualTo(expected.WriteAheadLogCompressionBlockSize));
     Assert.That(walOptions.CompressionMethod, Is.EqualTo(expected.WriteAheadLogCompressionMethod));
     Assert.That(walOptions.CompressionLevel, Is.EqualTo(expected.WriteAheadLogCompressionLevel));
-    Assert.That(walOptions.AsyncCompressedModeOptions.EmptyQueuePollInterval,
-        Is.EqualTo(expected.AsyncCompressedModeEmptyQueuePollInterval));
-    Assert.That(walOptions.SyncCompressedModeOptions.EnableTailWriterJob,
-        Is.EqualTo(expected.SyncCompressedModeEnableTailWriterJob));
-    Assert.That(walOptions.SyncCompressedModeOptions.TailWriterJobInterval,
-        Is.EqualTo(expected.SyncCompressedModeTailWriterJobInterval));
+    Assert.That(walOptions.AsyncPrivateModeOptions.EmptyQueuePollInterval,
+        Is.EqualTo(expected.AsyncPrivateModeEmptyQueuePollInterval));
+    Assert.That(walOptions.PrivateModeOptions.EnableTailWriterJob,
+        Is.EqualTo(expected.PrivateModeEnableTailWriterJob));
+    Assert.That(walOptions.PrivateModeOptions.TailWriterJobInterval,
+        Is.EqualTo(expected.PrivateModeTailWriterJobInterval));
 
     var diskOptions = meta.DiskSegmentOptions;
     Assert.That(diskOptions, Is.Not.Null);
@@ -299,9 +299,9 @@ public sealed class ZoneTreeMetaOptionsTests
       int WriteAheadLogCompressionBlockSize,
       CompressionMethod WriteAheadLogCompressionMethod,
       int WriteAheadLogCompressionLevel,
-      int AsyncCompressedModeEmptyQueuePollInterval,
-      bool SyncCompressedModeEnableTailWriterJob,
-      int SyncCompressedModeTailWriterJobInterval,
+      int AsyncPrivateModeEmptyQueuePollInterval,
+      bool PrivateModeEnableTailWriterJob,
+      int PrivateModeTailWriterJobInterval,
       DiskSegmentMode DiskSegmentMode,
       int DiskSegmentCompressionBlockSize,
       CompressionMethod DiskSegmentCompressionMethod,

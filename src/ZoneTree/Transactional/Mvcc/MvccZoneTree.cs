@@ -30,7 +30,7 @@ namespace ZoneTree.Transactional.Mvcc;
 /// A failed commit sync leaves its outcome in doubt and prevents further commits
 /// until the tree is reopened; recovery decides whether its commit record survived.
 /// Completed writes in synchronous WAL modes survive a process crash;
-/// AsyncCompressed and AsyncShared can lose records still queued in process memory.
+/// AsyncPrivate and AsyncShared can lose records still queued in process memory.
 /// To wait for power-loss or operating-system-crash durability, await SyncWALAsync
 /// after an ordinary commit, or use CommitDurableAsync to sync before publication.
 /// Built-in transactional factories select Shared or AsyncShared WALs, which

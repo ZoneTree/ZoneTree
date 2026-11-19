@@ -55,11 +55,11 @@ public sealed class LiveBackupIntegrityTests
   [TestCase(true, false)]
   [TestCase(false, true)]
   [TestCase(true, true)]
-  public void TruncationAtRecordOrBlockBoundaryFailsRestore(bool compressed, bool legacy)
+  public void TruncationAtRecordOrBlockBoundaryFailsRestore(bool compressed, bool version1Catalog)
   {
     using var fixture = new BackupFixture();
     fixture.Backup(compressed ? CompressionMethod.Zstd : CompressionMethod.None);
-    if (legacy) fixture.MakeLegacy();
+    if (version1Catalog) fixture.MakeVersion1Catalog();
     var path = fixture.BatchPath;
     var bytes = File.ReadAllBytes(path);
     // Fixture blocks hold one 25-byte record. Keep exactly one complete record/block.
@@ -100,22 +100,22 @@ public sealed class LiveBackupIntegrityTests
   }
 
   [Test]
-  public async Task LegacyBackupStillRestoresWithLengthAndCountValidation()
+  public async Task Version1CatalogRestoresWithLengthAndCountValidation()
   {
     using var fixture = new BackupFixture(disk: true);
     fixture.Backup();
-    fixture.MakeLegacy();
+    fixture.MakeVersion1Catalog();
     await fixture.AssertRestores(25);
   }
 
   [Test]
-  public async Task NewGenerationRecopiesLegacyFilesFromTheSource()
+  public async Task NewGenerationRecopiesTheFilesOfAVersion1Catalog()
   {
     using var fixture = new BackupFixture(disk: true);
     fixture.Backup();
-    fixture.MakeLegacy();
+    fixture.MakeVersion1Catalog();
     FlipLastByte(fixture.PathOf(fixture.Catalog.Files.OrderByDescending(x => x.ByteLength).First().BackupPath));
-    // A fresh store must not hash damaged legacy backup bytes and call them valid.
+    // A fresh store must not hash the damaged bytes of a version 1 catalog and call them valid.
     fixture.Backup();
     Assert.That(fixture.Catalog.Version, Is.EqualTo(2));
     Assert.That(fixture.Catalog.Files.All(x => x.Sha256?.Length == 64), Is.True);
@@ -271,7 +271,7 @@ public sealed class LiveBackupIntegrityTests
     }
     public void SaveCatalog(LocalLiveBackupGenerationCatalog catalog) => File.WriteAllText(
         Path.Combine(BackupPath, "generations", catalog.GenerationId.ToString("D20") + ".json"), JsonSerializer.Serialize(catalog));
-    public void MakeLegacy()
+    public void MakeVersion1Catalog()
     {
       var catalog = Catalog;
       catalog.Version = 1;

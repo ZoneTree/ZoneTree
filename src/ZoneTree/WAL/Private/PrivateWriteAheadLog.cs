@@ -10,7 +10,7 @@ namespace ZoneTree.WAL;
 #pragma warning disable CA2213
 
 // https://devblogs.microsoft.com/dotnet/file-io-improvements-in-dotnet-6/
-public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TValue>
+public sealed class PrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TValue>
 {
   readonly Lock SyncRoot = new();
 
@@ -40,7 +40,7 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
 
   public int InitialLength { get; private set; }
 
-  public SyncCompressedFileSystemWriteAheadLog(
+  public PrivateWriteAheadLog(
       ILogger logger,
       IFileStreamProvider fileStreamProvider,
       ISerializer<TKey> keySerializer,
@@ -54,8 +54,8 @@ public sealed class SyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrite
     CompressionBlockSize = options.CompressionBlockSize;
     CompressionMethod = options.CompressionMethod;
     CompressionLevel = options.CompressionLevel;
-    EnableTailWriterJob = options.SyncCompressedModeOptions.EnableTailWriterJob;
-    TailWriterJobInterval = options.SyncCompressedModeOptions.TailWriterJobInterval;
+    EnableTailWriterJob = options.PrivateModeOptions.EnableTailWriterJob;
+    TailWriterJobInterval = options.PrivateModeOptions.TailWriterJobInterval;
     KeySerializer = keySerializer;
     ValueSerializer = valueSerializer;
     CreateFileStream();

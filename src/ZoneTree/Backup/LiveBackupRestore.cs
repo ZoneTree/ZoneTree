@@ -243,15 +243,15 @@ public sealed class LiveBackupRestore<TKey, TValue>
       {
         MaximumChunkSize = options.SharedModeOptions.MaximumChunkSize
       },
-      SyncCompressedModeOptions = new SyncCompressedModeOptions
+      PrivateModeOptions = new PrivateModeOptions
       {
-        EnableTailWriterJob = options.SyncCompressedModeOptions.EnableTailWriterJob,
-        TailWriterJobInterval = options.SyncCompressedModeOptions.TailWriterJobInterval
+        EnableTailWriterJob = options.PrivateModeOptions.EnableTailWriterJob,
+        TailWriterJobInterval = options.PrivateModeOptions.TailWriterJobInterval
       },
-      AsyncCompressedModeOptions = new AsyncCompressedModeOptions
+      AsyncPrivateModeOptions = new AsyncPrivateModeOptions
       {
         EmptyQueuePollInterval =
-            options.AsyncCompressedModeOptions.EmptyQueuePollInterval
+            options.AsyncPrivateModeOptions.EmptyQueuePollInterval
       }
     };
   }

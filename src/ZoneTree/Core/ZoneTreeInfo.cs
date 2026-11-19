@@ -14,8 +14,7 @@ public static class ZoneTreeInfo
   public static readonly Version DbVersion = new(2, 2, 0);
 
   /// <summary>
-  /// The oldest storage format version that this version opens. Version 2.1.10 migrates
-  /// older databases to it.
+  /// The oldest storage format version that this version opens.
   /// </summary>
   public static readonly Version MinimumDbVersion = new(2, 1, 10);
 

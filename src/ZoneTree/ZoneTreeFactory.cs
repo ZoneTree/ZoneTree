@@ -257,8 +257,8 @@ public sealed class ZoneTreeFactory<TKey, TValue>
     // shared modes, and an intentional choice to disable WAL protection.
     var sharedMode = configuredMode switch
     {
-      WriteAheadLogMode.SyncCompressed => WriteAheadLogMode.Shared,
-      WriteAheadLogMode.AsyncCompressed => WriteAheadLogMode.AsyncShared,
+      WriteAheadLogMode.Private => WriteAheadLogMode.Shared,
+      WriteAheadLogMode.AsyncPrivate => WriteAheadLogMode.AsyncShared,
       _ => configuredMode
     };
     if (sharedMode == configuredMode)
@@ -597,8 +597,8 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   /// The deletion delegates are not used: transactions delete keys themselves.
   /// A merge filter factory or a range deletion delegate is rejected with
   /// <see cref="InvalidOptionValueException"/>.
-  /// With the built-in WAL provider, Sync and SyncCompressed are promoted to
-  /// Shared, and AsyncCompressed to AsyncShared, to preserve commit recovery
+  /// With the built-in WAL provider, Private is promoted to
+  /// Shared, and AsyncPrivate to AsyncShared, to preserve commit recovery
   /// order across segments. Compression settings are retained. Explicit shared
   /// modes and None are retained. Custom provider factories keep their configured mode
   /// and are responsible for their own transaction recovery guarantees.

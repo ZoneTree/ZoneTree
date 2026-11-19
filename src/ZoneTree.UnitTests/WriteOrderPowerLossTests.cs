@@ -8,7 +8,7 @@ namespace ZoneTree.UnitTests;
 /// <summary>
 /// Explicit sync protects earlier writes across segment moves. Transactional
 /// factories use a shared journal and recover a committed prefix; ordinary
-/// per-segment WALs guarantee survival of synced writes across segment moves.
+/// private WALs guarantee survival of synced writes across segment moves.
 /// </summary>
 public sealed class WriteOrderPowerLossTests
 {
@@ -29,8 +29,8 @@ public sealed class WriteOrderPowerLossTests
         });
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public void ExplicitlySyncedWritesSurviveLaterSegmentMoves(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
@@ -59,8 +59,8 @@ public sealed class WriteOrderPowerLossTests
     return tx.TryGet(key, out var value) ? value : null;
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed, DiskSegmentMode.SingleDiskSegment)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed, DiskSegmentMode.MultiPartDiskSegment)]
+  [TestCase(WriteAheadLogMode.Private, DiskSegmentMode.SingleDiskSegment)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate, DiskSegmentMode.MultiPartDiskSegment)]
   [TestCase(WriteAheadLogMode.Shared, DiskSegmentMode.SingleDiskSegment)]
   [TestCase(WriteAheadLogMode.AsyncShared, DiskSegmentMode.MultiPartDiskSegment)]
   [TestCase(WriteAheadLogMode.None, DiskSegmentMode.SingleDiskSegment)]
@@ -109,7 +109,7 @@ public sealed class WriteOrderPowerLossTests
     var provider = new PowerLossFileStreamProvider();
     PowerLossFileStreamProvider afterPowerLoss;
     var tree = CreateFactory(provider, WriteAheadLogMode.Shared, 1000)
-        .ConfigureWriteAheadLogOptions(options => options.SyncCompressedModeOptions.EnableTailWriterJob = false)
+        .ConfigureWriteAheadLogOptions(options => options.PrivateModeOptions.EnableTailWriterJob = false)
         .CreateTransactional();
     try
     {
@@ -139,12 +139,12 @@ public sealed class WriteOrderPowerLossTests
           "a failed shared journal must keep reporting its durability failure");
       Assert.That(provider.OpenStreamCount, Is.Zero, "failed disposal must release every file");
     }
-    using var recovered = CreateFactory(afterPowerLoss, WriteAheadLogMode.SyncCompressed, 1000).OpenTransactional();
+    using var recovered = CreateFactory(afterPowerLoss, WriteAheadLogMode.Private, 1000).OpenTransactional();
     Assert.That(ReadCommitted(recovered, 0), Is.EqualTo(100));
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public void RecoveryKeepsSyncedCommitsAfterUnsyncedWrites(WriteAheadLogMode mode)
   {
     const int count = 300;

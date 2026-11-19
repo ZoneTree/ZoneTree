@@ -658,9 +658,9 @@ public sealed class LiveBackupTests
   }
 
   [Test]
-  public void LocalLiveBackupReadsLegacyJsonMetadata()
+  public void LocalLiveBackupReadsVersion1JsonMetadata()
   {
-    var backupPath = "data/LocalLiveBackupReadsLegacyJsonMetadata.Backup";
+    var backupPath = "data/LocalLiveBackupReadsVersion1JsonMetadata.Backup";
     DeleteDirectory(backupPath);
     try
     {

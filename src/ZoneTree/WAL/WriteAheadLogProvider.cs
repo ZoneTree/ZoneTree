@@ -56,9 +56,9 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
       {
         case WriteAheadLogMode.None:
           return new NullWriteAheadLog<TKey, TValue>();
-        case WriteAheadLogMode.SyncCompressed:
+        case WriteAheadLogMode.Private:
           {
-            var wal = new SyncCompressedFileSystemWriteAheadLog<TKey, TValue>(
+            var wal = new PrivateWriteAheadLog<TKey, TValue>(
                 Logger,
                 FileStreamProvider,
                 keySerializer,
@@ -69,9 +69,9 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
             return wal;
           }
 
-        case WriteAheadLogMode.AsyncCompressed:
+        case WriteAheadLogMode.AsyncPrivate:
           {
-            var wal = new AsyncCompressedFileSystemWriteAheadLog<TKey, TValue>(
+            var wal = new AsyncPrivateWriteAheadLog<TKey, TValue>(
                 Logger,
                 FileStreamProvider,
                 keySerializer,
@@ -95,7 +95,7 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
       long segmentId, string category, WriteAheadLogOptions options)
   {
     var walPath = Path.Combine(WalDirectory, category, segmentId.ToString(CultureInfo.InvariantCulture));
-    foreach (var mode in new[] { WriteAheadLogMode.SyncCompressed, WriteAheadLogMode.AsyncCompressed })
+    foreach (var mode in new[] { WriteAheadLogMode.Private, WriteAheadLogMode.AsyncPrivate })
     {
       var path = walPath + Xxh3WalExtension + "." + (int)mode;
       if (FileStreamProvider.FileExists(path))

@@ -69,8 +69,8 @@ public sealed class WriteAheadLogTests
     Assert.That(exception.RecordIndex, Is.EqualTo(1));
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public void WalReloadsRecordsWith32BitChecksums(WriteAheadLogMode mode)
   {
     const string category = "WalReloadsRecordsWith32BitChecksums";
@@ -80,7 +80,7 @@ public sealed class WriteAheadLogTests
       WriteAheadLogMode = mode,
       CompressionBlockSize = 128
     };
-    options.SyncCompressedModeOptions.EnableTailWriterJob = false;
+    options.PrivateModeOptions.EnableTailWriterJob = false;
     var serializer = new UnicodeStringSerializer();
     var keys = new[] { "", "small", "large", "tail" };
     var values = new[] { "", "value", new string('x', 4096), "last" };
@@ -107,7 +107,7 @@ public sealed class WriteAheadLogTests
   public void WalBasicTest()
   {
     var serializer = new UnicodeStringSerializer();
-    var wal = CreateSyncCompressedWal(serializer, "WalBasicTest.wal");
+    var wal = CreatePrivateWal(serializer, "WalBasicTest.wal");
     var len = 1;
     for (var i = 0; i < len; ++i)
     {
@@ -131,7 +131,7 @@ public sealed class WriteAheadLogTests
   public void WalReportsMaximumOpIndexWithoutSorting()
   {
     var serializer = new UnicodeStringSerializer();
-    var wal = CreateSyncCompressedWal(serializer, "WalReportsMaximumOpIndexWithoutSorting.wal");
+    var wal = CreatePrivateWal(serializer, "WalReportsMaximumOpIndexWithoutSorting.wal");
 
     wal.Append("key0", "value0", 5);
     wal.Append("key1", "value1", 2);
@@ -146,12 +146,12 @@ public sealed class WriteAheadLogTests
     wal.Drop();
   }
 
-  static SyncCompressedFileSystemWriteAheadLog<string, string> CreateSyncCompressedWal(
+  static PrivateWriteAheadLog<string, string> CreatePrivateWal(
       UnicodeStringSerializer serializer, string filePath)
   {
     var options = new WriteAheadLogOptions();
-    options.SyncCompressedModeOptions.EnableTailWriterJob = false;
-    return new SyncCompressedFileSystemWriteAheadLog<string, string>(
+    options.PrivateModeOptions.EnableTailWriterJob = false;
+    return new PrivateWriteAheadLog<string, string>(
         SilentTestLogger.Instance,
         new InMemoryFileStreamProvider(),
         serializer, serializer, filePath, options);

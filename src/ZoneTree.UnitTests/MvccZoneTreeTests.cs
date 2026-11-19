@@ -29,7 +29,7 @@ public sealed class MvccZoneTreeTests
   ZoneTreeFactory<int, int> CreateFactory(
       int mutableSegmentMaxItemCount = 1000,
       DiskSegmentMode diskSegmentMode = DiskSegmentMode.SingleDiskSegment,
-      WriteAheadLogMode walMode = WriteAheadLogMode.SyncCompressed)
+      WriteAheadLogMode walMode = WriteAheadLogMode.Private)
   {
     return new ZoneTreeFactory<int, int>()
         .SetDataDirectory(DataDirectory)
@@ -290,7 +290,7 @@ public sealed class MvccZoneTreeTests
   [Test]
   public async Task TryCommitDurableAsyncReportsConflicts()
   {
-    using var tree = CreateFactory(walMode: WriteAheadLogMode.AsyncCompressed).OpenOrCreateTransactional();
+    using var tree = CreateFactory(walMode: WriteAheadLogMode.AsyncPrivate).OpenOrCreateTransactional();
     using (var tx = tree.BeginTransaction())
     {
       tx.Upsert(1, 1);
@@ -678,7 +678,7 @@ public sealed class MvccZoneTreeTests
   [Test]
   public async Task CommitDurableAsyncCommits()
   {
-    using var tree = CreateFactory(walMode: WriteAheadLogMode.AsyncCompressed).OpenOrCreateTransactional();
+    using var tree = CreateFactory(walMode: WriteAheadLogMode.AsyncPrivate).OpenOrCreateTransactional();
     tree.AutoSyncInterval = TimeSpan.FromMilliseconds(10);
     using (var tx = tree.BeginTransaction())
     {
@@ -1375,7 +1375,7 @@ public sealed class MvccZoneTreeTests
   [Test]
   public async Task ExecuteDurableAsyncCommits()
   {
-    using var tree = CreateFactory(walMode: WriteAheadLogMode.AsyncCompressed).OpenOrCreateTransactional();
+    using var tree = CreateFactory(walMode: WriteAheadLogMode.AsyncPrivate).OpenOrCreateTransactional();
     var result = await tree.ExecuteDurableAsync(tx =>
     {
       tx.Upsert(1, 1);

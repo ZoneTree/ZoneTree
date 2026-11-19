@@ -11,7 +11,7 @@ namespace ZoneTree.WAL;
 
 #pragma warning disable CA2213
 
-public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TValue>
+public sealed class AsyncPrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TValue>
 {
   readonly Lock SyncRoot = new();
 
@@ -123,7 +123,7 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
 
   public int InitialLength { get; private set; }
 
-  public AsyncCompressedFileSystemWriteAheadLog(
+  public AsyncPrivateWriteAheadLog(
       ILogger logger,
       IFileStreamProvider fileStreamProvider,
       ISerializer<TKey> keySerializer,
@@ -133,7 +133,7 @@ public sealed class AsyncCompressedFileSystemWriteAheadLog<TKey, TValue> : IWrit
   {
     Logger = logger;
     FilePath = filePath;
-    EmptyQueuePollInterval = options.AsyncCompressedModeOptions.EmptyQueuePollInterval;
+    EmptyQueuePollInterval = options.AsyncPrivateModeOptions.EmptyQueuePollInterval;
     CompressionBlockSize = options.CompressionBlockSize;
     CompressionMethod = options.CompressionMethod;
     CompressionLevel = options.CompressionLevel;

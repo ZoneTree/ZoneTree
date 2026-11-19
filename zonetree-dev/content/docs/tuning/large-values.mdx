@@ -66,7 +66,7 @@ if (!tree.TryGet(7, out var value) || value.Length != 128 * 1024)
 Console.WriteLine($"Read {value.Length} bytes.");
 ```
 
-The capacity is a record threshold; this program does not need to fill it before merging. It keeps the default AsyncCompressed WAL and disk compression.
+The capacity is a record threshold; this program does not need to fill it before merging. It keeps the default AsyncPrivate WAL and disk compression.
 
 ## Payload size and resource costs
 

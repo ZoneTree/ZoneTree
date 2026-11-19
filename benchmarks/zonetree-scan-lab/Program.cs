@@ -597,7 +597,7 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
           if (config.MaterializedEntryCacheSize >= 0)
             options.MaterializedEntryCacheSize = config.MaterializedEntryCacheSize;
         })
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed)
+        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.AsyncPrivate)
         .OpenOrCreate();
   }
 
@@ -619,7 +619,7 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
           if (config.MaterializedEntryCacheSize >= 0)
             options.MaterializedEntryCacheSize = config.MaterializedEntryCacheSize;
         })
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed)
+        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.AsyncPrivate)
         .OpenOrCreate();
   }
 

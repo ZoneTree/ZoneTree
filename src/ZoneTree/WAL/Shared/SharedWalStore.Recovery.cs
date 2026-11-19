@@ -65,7 +65,7 @@ internal sealed partial class SharedWalStore<TKey, TValue>
     // Whether the record that starts there can be in the bytes a power loss tore.
     bool IsTornTail(long start) => repair && stream.IsUnsyncedTail(start, stream.Position);
     // A torn record ends the entire shared prefix, including otherwise valid later
-    // chunks. A per-segment reader must never make this choice.
+    // chunks. A private WAL reader must never make this choice.
     void TruncateTornTail(long start, bool isSealed)
     {
       Logger?.LogWarning($"Truncated the incomplete shared WAL suffix in {chunk.Path} at {start}.");

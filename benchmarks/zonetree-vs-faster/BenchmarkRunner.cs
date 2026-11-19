@@ -268,7 +268,7 @@ public sealed class BenchmarkRunner(BenchmarkConfig config)
     Console.WriteLine(
         $"FASTER index={config.FasterIndexSize:N0}; " +
         $"hybrid-log memory={1L << config.FasterMemoryBits:N0} bytes");
-    Console.WriteLine("ZoneTree WAL=AsyncCompressed; live background compaction enabled");
+    Console.WriteLine("ZoneTree WAL=AsyncPrivate; live background compaction enabled");
     Console.WriteLine("FASTER storage=file-backed HybridLog; fold-over checkpoint after inserts");
     Console.WriteLine("insert, write completion, and lookup are measured separately");
     Console.WriteLine($"data={config.DataDirectory}");

@@ -13,7 +13,7 @@ iteration. Workers begin each measured phase together, and every FASTER worker
 owns its own client session. Engine order alternates between iterations to
 reduce run-order bias. Lookup values and checksums are validated.
 
-ZoneTree uses its default mutable-segment capacity, default AsyncCompressed WAL,
+ZoneTree uses its default mutable-segment capacity, default AsyncPrivate WAL,
 and a maintainer that performs live background compaction. FASTER uses a
 file-backed HybridLog and takes a fold-over HybridLog checkpoint after each
 insert workload.

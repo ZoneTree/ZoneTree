@@ -11,7 +11,7 @@ public sealed class WriteAheadLogOptions
 {
   /// <summary>
   /// The default write ahead log mode. New WALs will be created
-  /// based on this setting. Default value is AsyncCompressed.
+  /// based on this setting. Default value is AsyncPrivate.
   /// </summary>
   public WriteAheadLogMode WriteAheadLogMode { get; set; }
       = WriteAheadLogDefaultValues.WriteAheadLogMode;
@@ -32,7 +32,7 @@ public sealed class WriteAheadLogOptions
       = WriteAheadLogDefaultValues.CompressionBlockSize;
 
   /// <summary>
-  /// The compression method for the WALs with compression enabled.
+  /// The compression method of the WAL blocks.
   /// Default is Zstd.
   /// </summary>
   public CompressionMethod CompressionMethod { get; set; } = WriteAheadLogDefaultValues.CompressionMethod;
@@ -44,14 +44,14 @@ public sealed class WriteAheadLogOptions
   public int CompressionLevel { get; set; } = WriteAheadLogDefaultValues.CompressionLevel;
 
   /// <summary>
-  /// Options for sync-compressed mode.
+  /// Options for the Private mode.
   /// </summary>
-  public SyncCompressedModeOptions SyncCompressedModeOptions { get; set; } = new();
+  public PrivateModeOptions PrivateModeOptions { get; set; } = new();
 
   /// <summary>
-  /// Options for async-compressed mode.
+  /// Options for the AsyncPrivate mode.
   /// </summary>
-  public AsyncCompressedModeOptions AsyncCompressedModeOptions { get; set; } = new();
+  public AsyncPrivateModeOptions AsyncPrivateModeOptions { get; set; } = new();
 
   /// <summary>
   /// Options for the shared journal modes. Compression settings above also

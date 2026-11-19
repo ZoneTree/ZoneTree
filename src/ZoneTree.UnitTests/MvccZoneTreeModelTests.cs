@@ -417,7 +417,7 @@ public sealed class MvccZoneTreeModelTests
     var random = new Random(seed);
     var runner = new HistoryRunner(random)
     {
-      Tree = CreateFactory(provider, diskSegmentMode, WriteAheadLogMode.SyncCompressed).OpenOrCreateTransactional()
+      Tree = CreateFactory(provider, diskSegmentMode, WriteAheadLogMode.Private).OpenOrCreateTransactional()
     };
     try
     {
@@ -428,7 +428,7 @@ public sealed class MvccZoneTreeModelTests
           // A clean reopen ends the open transactions and keeps every commit.
           runner.EndActiveTransactions();
           runner.Tree.Dispose();
-          runner.Tree = CreateFactory(provider, diskSegmentMode, WriteAheadLogMode.SyncCompressed)
+          runner.Tree = CreateFactory(provider, diskSegmentMode, WriteAheadLogMode.Private)
               .OpenTransactional();
           Assert.That(ReadAll(runner.Tree), Is.EquivalentTo(runner.CommittedState()));
           continue;
@@ -451,9 +451,9 @@ public sealed class MvccZoneTreeModelTests
   {
     var modes = new[]
     {
-      (WriteAheadLogMode.SyncCompressed, DiskSegmentMode.MultiPartDiskSegment),
-      (WriteAheadLogMode.SyncCompressed, DiskSegmentMode.SingleDiskSegment),
-      (WriteAheadLogMode.AsyncCompressed, DiskSegmentMode.MultiPartDiskSegment),
+      (WriteAheadLogMode.Private, DiskSegmentMode.MultiPartDiskSegment),
+      (WriteAheadLogMode.Private, DiskSegmentMode.SingleDiskSegment),
+      (WriteAheadLogMode.AsyncPrivate, DiskSegmentMode.MultiPartDiskSegment),
       (WriteAheadLogMode.Shared, DiskSegmentMode.SingleDiskSegment),
       (WriteAheadLogMode.Shared, DiskSegmentMode.MultiPartDiskSegment),
       (WriteAheadLogMode.AsyncShared, DiskSegmentMode.SingleDiskSegment),
@@ -494,7 +494,7 @@ public sealed class MvccZoneTreeModelTests
         }
         if (choice < 4)
         {
-          // Sync/SyncCompressed/AsyncCompressed settings are promoted to shared
+          // Sync/Private/AsyncPrivate settings are promoted to shared
           // modes by the transactional factory, so every case has this guarantee.
           var image = provider.SimulateTornPowerLoss(random);
           using var recovered = CreateFactory(image, diskSegmentMode, walMode).OpenTransactional();

@@ -126,7 +126,7 @@ public sealed unsafe partial class CompressedFileStream
             writtenByteCount = WrittenByteCount;
             mainLength = FileStream.Length;
             contentLength = _length;
-            // Migrating a recovered durable tail can already have synced the
+            // The first rollover of a recovered durable tail can already have synced the
             // main prefix before reusing that tail. Do not sync it twice.
             syncMain = MainFileMayBeUnsynced;
             if (readPosition != _length)

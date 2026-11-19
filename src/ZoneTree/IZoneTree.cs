@@ -371,8 +371,8 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// be durable before you acknowledge it. Concurrent calls share disk syncs,
   /// so waiting for many writes costs about one disk sync.
   ///
-  /// In AsyncCompressed mode the background writer syncs, and the calling
-  /// thread does not block. In SyncCompressed mode the calling
+  /// In AsyncPrivate mode the background writer syncs, and the calling
+  /// thread does not block. In Private mode the calling
   /// thread syncs. It can append to its active tail during the sync;
   /// a rollover waits before writing to the main file.
   ///

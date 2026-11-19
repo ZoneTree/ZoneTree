@@ -8,7 +8,7 @@ using ZoneTree.Exceptions;
 namespace ZoneTree.UnitTests;
 
 /// <summary>
-/// ZoneTree opens databases that version 2.1.10 migrated, and moves them to the current DbVersion.
+/// ZoneTree opens databases from the minimum DbVersion on, and moves them to the current DbVersion.
 /// </summary>
 public sealed class DbVersionTests
 {
@@ -88,7 +88,7 @@ public sealed class DbVersionTests
   }
 
   [Test]
-  public void TreeMigratedBy2_1_10MovesToTheCurrentDbVersion()
+  public void TreeAtTheMinimumDbVersionMovesToTheCurrentDbVersion()
   {
     var dataPath = CreateDataPath();
     try
@@ -112,7 +112,7 @@ public sealed class DbVersionTests
   [TestCase(null)]
   [TestCase("1.0.0")]
   [TestCase("2.1.9")]
-  public void TreeThat2_1_10DidNotMigrateIsRefused(string dbVersion)
+  public void TreeBeforeTheMinimumDbVersionIsRefused(string dbVersion)
   {
     var dataPath = CreateDataPath();
     try
@@ -162,7 +162,7 @@ public sealed class DbVersionTests
 
   [TestCase(null)]
   [TestCase("2.1.9")]
-  public async Task BackupThat2_1_10DidNotTakeIsRefused(string dbVersion)
+  public async Task BackupBeforeTheMinimumDbVersionIsRefused(string dbVersion)
   {
     var provider = new ObjectStorageLiveBackupProvider(new ObjectStorageLiveBackupTests.MemoryStorage());
     var id = await provider.GetNextGenerationIdAsync(default);

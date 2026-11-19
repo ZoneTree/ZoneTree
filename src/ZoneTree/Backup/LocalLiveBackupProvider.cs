@@ -903,7 +903,7 @@ internal sealed class LocalLiveBackupGenerationCatalogJsonModel
 
 public sealed class LocalLiveBackupGenerationCatalog
 {
-  /// <summary>Version 2 requires SHA-256 digests; version 3 identifies transactional storage. Missing versions denote legacy version 1.</summary>
+  /// <summary>Version 2 requires SHA-256 digests; version 3 identifies transactional storage. A catalog without a version is version 1.</summary>
   public int Version { get; set; } = 1;
 
   public LiveBackupTreeKind TreeKind { get; set; }

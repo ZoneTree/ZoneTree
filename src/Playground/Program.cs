@@ -40,7 +40,7 @@ if (testCase == 3)
   var test1 = new ZoneTreeTest1();
   var test2 = new ZoneTreeTest2
   {
-    WALMode = test1.WALMode = WriteAheadLogMode.AsyncCompressed
+    WALMode = test1.WALMode = WriteAheadLogMode.AsyncPrivate
   };
   var methods = new (CompressionMethod method, int level)[]
   {
@@ -49,7 +49,7 @@ if (testCase == 3)
   };
 
   test2.Count = test1.Count = 10_000_000;
-  test2.WALMode = test1.WALMode = WriteAheadLogMode.AsyncCompressed;
+  test2.WALMode = test1.WALMode = WriteAheadLogMode.AsyncPrivate;
 
   b.NewSection("int-int insert");
   foreach (var (method, level) in methods)

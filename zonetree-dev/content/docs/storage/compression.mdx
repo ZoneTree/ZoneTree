@@ -15,7 +15,7 @@ description: Configure WAL and disk compression independently, understand block 
   <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"
     ><strong>WAL / recent writes</strong>
     <p>
-      Ordinary trees default to AsyncCompressed; transactional trees promote
+      Ordinary trees default to AsyncPrivate; transactional trees promote
       that setting to AsyncShared. Both default to Zstd level 1 and 256 KiB blocks.
     </p></Panel>
   <Panel class="p-0" bodyClass="p-4"
@@ -49,7 +49,7 @@ Changing compression options does not rewrite existing files. A merge may write 
 >
   <p>
     A compression method or level does not define when a write is durable.
-    <code>AsyncCompressed</code>, <code>SyncCompressed</code>, <code>Shared</code>,
+    <code>AsyncPrivate</code>, <code>Private</code>, <code>Shared</code>,
     <code>AsyncShared</code>, and <code>None</code> have different logging and failure
     behavior. Choose the mode with the
     <a href="/docs/durability/wal-modes/">WAL modes guide</a>, then tune
@@ -80,7 +80,7 @@ using var tree = new ZoneTreeFactory<int, string>()
     .SetDataDirectory("data/compression-profile")
     .ConfigureWriteAheadLogOptions(options =>
     {
-        options.WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed;
+        options.WriteAheadLogMode = WriteAheadLogMode.AsyncPrivate;
         options.CompressionMethod = CompressionMethod.Zstd;
         options.CompressionLevel = CompressionLevels.Zstd1;
         options.CompressionBlockSize = 256 * 1024;

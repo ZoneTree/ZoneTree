@@ -363,7 +363,7 @@ public sealed class FixedSizeKeyAndValueTests
         .SetDataDirectory(dataPath)
         .SetWriteAheadLogDirectory(dataPath)
         .ConfigureWriteAheadLogOptions(x =>
-            x.WriteAheadLogMode = WriteAheadLogMode.SyncCompressed)
+            x.WriteAheadLogMode = WriteAheadLogMode.Private)
         .SetIsDeletedDelegate((in int key, in int value) => value == -1)
         .SetMarkValueDeletedDelegate((ref int value) => value = -1)
         .OpenOrCreate();

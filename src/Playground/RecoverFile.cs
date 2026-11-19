@@ -16,7 +16,7 @@ public sealed class RecoverFile
 {
   public static void Recover1()
   {
-    var path = @"..\..\data\AsyncCompressed-50M-str-str";
+    var path = @"..\..\data\AsyncPrivate-50M-str-str";
     var fileStreamProvider = new LocalFileStreamProvider();
     var logger = new ConsoleLogger();
     var deviceManager = new RandomAccessDeviceManager(logger, fileStreamProvider, path);
@@ -35,7 +35,7 @@ public sealed class RecoverFile
       Comparer = new StringOrdinalComparerAscending()
     };
     options.WriteAheadLogOptions.WriteAheadLogMode
-        = WriteAheadLogMode.AsyncCompressed;
+        = WriteAheadLogMode.AsyncPrivate;
 
     var stopWatch = new Stopwatch();
     var disk = DiskSegmentFactory.CreateDiskSegment(54, options);
@@ -46,7 +46,7 @@ public sealed class RecoverFile
 
   public static void Recover2()
   {
-    var path = @"..\..\data\SyncCompressed-3M-transactional-int-int";
+    var path = @"..\..\data\Private-3M-transactional-int-int";
     var logger = new ConsoleLogger();
     var fileStreamProvider = new LocalFileStreamProvider();
     var deviceManager = new RandomAccessDeviceManager(logger, fileStreamProvider, path);

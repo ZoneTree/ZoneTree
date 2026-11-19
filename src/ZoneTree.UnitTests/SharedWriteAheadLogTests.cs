@@ -15,8 +15,8 @@ public sealed class SharedWriteAheadLogTests
     CompressionBlockSize = 256,
     CompressionMethod = method,
     SharedModeOptions = new() { MaximumChunkSize = 1024 },
-    SyncCompressedModeOptions = new() { EnableTailWriterJob = false },
-    AsyncCompressedModeOptions = new() { EmptyQueuePollInterval = 10000 }
+    PrivateModeOptions = new() { EnableTailWriterJob = false },
+    AsyncPrivateModeOptions = new() { EmptyQueuePollInterval = 10000 }
   };
 
   static WriteAheadLogProvider Provider(IFileStreamProvider files) => new(SilentTestLogger.Instance, files, "data");
@@ -401,18 +401,18 @@ public sealed class SharedWriteAheadLogTests
     }
   }
 
-  static IEnumerable<TestCaseData> PerSegmentWalCases()
+  static IEnumerable<TestCaseData> PrivateWalCases()
   {
     foreach (var mode in new[] { WriteAheadLogMode.Shared, WriteAheadLogMode.AsyncShared })
-      foreach (var perSegmentMode in new[] { WriteAheadLogMode.SyncCompressed, WriteAheadLogMode.AsyncCompressed })
+      foreach (var privateMode in new[] { WriteAheadLogMode.Private, WriteAheadLogMode.AsyncPrivate })
         foreach (var method in new[] { CompressionMethod.None, CompressionMethod.Zstd })
-          yield return new TestCaseData(mode, perSegmentMode, method);
+          yield return new TestCaseData(mode, privateMode, method);
   }
 
   /// <summary>
   /// Writes records whose WALs are per segment, in several segments, and syncs them.
   /// </summary>
-  static async Task WritePerSegmentWals(
+  static async Task WritePrivateWals(
       PowerLossFileStreamProvider files, WriteAheadLogMode mode, CompressionMethod method)
   {
     using var tree = Factory(files, mode)
@@ -515,12 +515,12 @@ public sealed class SharedWriteAheadLogTests
     finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
   }
 
-  [TestCaseSource(nameof(PerSegmentWalCases))]
-  public async Task PerSegmentWalsMoveToTheSharedJournal(
-      WriteAheadLogMode mode, WriteAheadLogMode perSegmentMode, CompressionMethod method)
+  [TestCaseSource(nameof(PrivateWalCases))]
+  public async Task PrivateWalsMoveToTheSharedJournal(
+      WriteAheadLogMode mode, WriteAheadLogMode privateMode, CompressionMethod method)
   {
     var files = new PowerLossFileStreamProvider();
-    await WritePerSegmentWals(files, perSegmentMode, method);
+    await WritePrivateWals(files, privateMode, method);
     using (var tree = Factory(files, mode).Open())
     {
       for (var key = 0; key < 150; ++key)
@@ -531,7 +531,7 @@ public sealed class SharedWriteAheadLogTests
       tree.Upsert(1000, 1001);
       await tree.SyncWALAsync();
     }
-    using var recovered = Factory(files.SimulatePowerLoss(), WriteAheadLogMode.AsyncCompressed).Open();
+    using var recovered = Factory(files.SimulatePowerLoss(), WriteAheadLogMode.AsyncPrivate).Open();
     Assert.That(recovered.TryGet(1000, out var actual), Is.True);
     Assert.That(actual, Is.EqualTo(1001));
     Assert.That(files.GetFiles("data/seg").Any(path => path.Contains(".wal_", StringComparison.Ordinal)), Is.False);
@@ -542,7 +542,7 @@ public sealed class SharedWriteAheadLogTests
   public async Task InterruptedMoveToTheSharedJournalKeepsTheRecords(WriteAheadLogMode mode)
   {
     var files = new PowerLossFileStreamProvider();
-    await WritePerSegmentWals(files, WriteAheadLogMode.SyncCompressed, CompressionMethod.Zstd);
+    await WritePrivateWals(files, WriteAheadLogMode.Private, CompressionMethod.Zstd);
     var images = new List<PowerLossFileStreamProvider>();
     var random = new Random(193);
     void Capture()
@@ -552,7 +552,7 @@ public sealed class SharedWriteAheadLogTests
     }
     files.BeforeDiskSync = _ => Capture();
     files.OnDurableChange = Capture;
-    try { using var migrated = Factory(files, mode).Open(); }
+    try { using var moved = Factory(files, mode).Open(); }
     finally { files.BeforeDiskSync = null; files.OnDurableChange = null; }
     Assert.That(images, Is.Not.Empty);
     foreach (var image in images)

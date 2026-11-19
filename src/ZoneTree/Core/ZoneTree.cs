@@ -479,9 +479,9 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
     var clonedWal = new WriteAheadLogOptions()
     {
-      AsyncCompressedModeOptions = new()
+      AsyncPrivateModeOptions = new()
       {
-        EmptyQueuePollInterval = wal.AsyncCompressedModeOptions.EmptyQueuePollInterval,
+        EmptyQueuePollInterval = wal.AsyncPrivateModeOptions.EmptyQueuePollInterval,
       },
       SharedModeOptions = new()
       {
@@ -491,10 +491,10 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       CompressionLevel = wal.CompressionLevel,
       CompressionMethod = wal.CompressionMethod,
       CustomOptions = wal.CustomOptions,
-      SyncCompressedModeOptions = new()
+      PrivateModeOptions = new()
       {
-        EnableTailWriterJob = wal.SyncCompressedModeOptions.EnableTailWriterJob,
-        TailWriterJobInterval = wal.SyncCompressedModeOptions.TailWriterJobInterval
+        EnableTailWriterJob = wal.PrivateModeOptions.EnableTailWriterJob,
+        TailWriterJobInterval = wal.PrivateModeOptions.TailWriterJobInterval
       },
       WriteAheadLogMode = wal.WriteAheadLogMode,
     };

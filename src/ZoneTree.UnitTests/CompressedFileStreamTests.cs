@@ -129,7 +129,7 @@ public sealed class CompressedFileStreamTests
     Assert.That(provider.DiskSyncCount, Is.EqualTo(syncCount));
   }
 
-  // Versions before 2.1.0 wrote no frame flag, and 2.2.0 removes LZ4, Gzip and Brotli.
+  // A WAL without the frame flag, or with an unsupported compression method, is refused.
   [TestCase((byte)CompressionMethod.Zstd)]
   [TestCase((byte)(2 | WalBlockFrame.MetadataFlag))]
   public void UnsupportedWalMetadataIsRefused(byte metadata)

@@ -287,9 +287,9 @@ public sealed class ObjectStorageLiveBackupTests
     var provider = new ObjectStorageLiveBackupProvider(new MemoryStorage());
     var id = await provider.GetNextGenerationIdAsync(default);
     await provider.BeginGenerationAsync(id, DateTime.UtcNow, LiveBackupTreeKind.Plain, default);
-    await provider.CompleteGenerationAsync(id, 0, "2.1.10", default);
+    await provider.CompleteGenerationAsync(id, 0, Core.ZoneTreeInfo.DbVersion.ToString(), default);
     await using var generation = await provider.ReadLatestGenerationAsync(default);
-    Assert.That(generation.DbVersion, Is.EqualTo("2.1.10"));
+    Assert.That(generation.DbVersion, Is.EqualTo(Core.ZoneTreeInfo.DbVersion.ToString()));
   }
 
   [Test]

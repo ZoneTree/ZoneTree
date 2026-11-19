@@ -5,8 +5,8 @@ namespace ZoneTree.UnitTests;
 
 public sealed class AtomicUpdateTests
 {
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
+  [TestCase(WriteAheadLogMode.Private)]
   public void IntIntAtomicIncrement(WriteAheadLogMode walMode)
   {
     var dataPath = "data/IntIntAtomicIncrement." + walMode;
@@ -79,8 +79,8 @@ public sealed class AtomicUpdateTests
     data.Maintenance.Drop();
   }
 
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
+  [TestCase(WriteAheadLogMode.Private)]
   public void IntIntAtomicIncrementForBTree(WriteAheadLogMode walMode)
   {
     var dataPath = "data/IntIntAtomicIncrementForBTree." + walMode;
@@ -144,8 +144,8 @@ public sealed class AtomicUpdateTests
     data.Maintenance.Drop();
   }
 
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
+  [TestCase(WriteAheadLogMode.Private)]
   public void IntIntMutableSegmentOnlyAtomicIncrement(WriteAheadLogMode walMode)
   {
     var dataPath = "data/IntIntMutableSegmentOnlyAtomicIncrement." + walMode;
@@ -209,8 +209,8 @@ public sealed class AtomicUpdateTests
     data.Maintenance.Drop();
   }
 
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
+  [TestCase(WriteAheadLogMode.Private)]
   public void IntIntMutableSegmentSeveralUpserts(WriteAheadLogMode walMode)
   {
     var dataPath = "data/IntIntMutableSegmentSeveralUpserts." + walMode;

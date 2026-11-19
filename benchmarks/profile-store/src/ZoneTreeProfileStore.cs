@@ -27,7 +27,7 @@ public sealed class ZoneTreeProfileStore : IProfileStoreEngine, IProfileStoreEng
   public string Name => "ZoneTree";
 
   public string DurabilityDescription =>
-      $"AsyncCompressed WAL default; MutableSegmentMaxItemCount={MutableSegmentMaxItemCount.ToString(CultureInfo.InvariantCulture)}; SparseArrayStepSize={SparseArrayStepSize.ToString(CultureInfo.InvariantCulture)}; KeyCacheSize={KeyCacheSize.ToString(CultureInfo.InvariantCulture)}; ValueCacheSize={ValueCacheSize.ToString(CultureInfo.InvariantCulture)}; IteratorPrefetchSize={IteratorPrefetchSize.ToString(CultureInfo.InvariantCulture)}; BlockCacheLifeTime={BlockCacheLifeTime.TotalMinutes.ToString("0", CultureInfo.InvariantCulture)} minutes; application-managed secondary indexes; background maintainers enabled.";
+      $"AsyncPrivate WAL default; MutableSegmentMaxItemCount={MutableSegmentMaxItemCount.ToString(CultureInfo.InvariantCulture)}; SparseArrayStepSize={SparseArrayStepSize.ToString(CultureInfo.InvariantCulture)}; KeyCacheSize={KeyCacheSize.ToString(CultureInfo.InvariantCulture)}; ValueCacheSize={ValueCacheSize.ToString(CultureInfo.InvariantCulture)}; IteratorPrefetchSize={IteratorPrefetchSize.ToString(CultureInfo.InvariantCulture)}; BlockCacheLifeTime={BlockCacheLifeTime.TotalMinutes.ToString("0", CultureInfo.InvariantCulture)} minutes; application-managed secondary indexes; background maintainers enabled.";
 
   public bool RequiresReadStabilization => true;
 
@@ -222,7 +222,7 @@ public sealed class ZoneTreeProfileStore : IProfileStoreEngine, IProfileStoreEng
           options.KeyCacheSize = keyCacheSize;
           options.ValueCacheSize = valueCacheSize;
         })
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed)
+        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.AsyncPrivate)
         .OpenOrCreate();
   }
 
@@ -246,7 +246,7 @@ public sealed class ZoneTreeProfileStore : IProfileStoreEngine, IProfileStoreEng
           options.KeyCacheSize = keyCacheSize;
           options.ValueCacheSize = valueCacheSize;
         })
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed)
+        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.AsyncPrivate)
         .OpenOrCreate();
   }
 

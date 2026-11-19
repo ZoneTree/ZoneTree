@@ -10,8 +10,8 @@ public sealed class ZoneTreeMeta
   /// <summary>
   /// The storage format version of the database. Unlike <see cref="Version"/>, which is
   /// the version that saved the metadata last, it changes only when the database is
-  /// created or a version with a newer storage format opens it. Versions before 2.1.10
-  /// did not write it, and ZoneTree does not open a database without it.
+  /// created or a version with a newer storage format opens it. ZoneTree does not open
+  /// a database without it.
   /// </summary>
   public string DbVersion { get; set; }
 

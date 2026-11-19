@@ -341,7 +341,7 @@ The database layer then defines when those local results become externally visib
 * **Recovery:** how operation replay, state, and checkpoints are reconciled after a partial apply or restart.
 * **Cross-partition work:** how the application coordinates changes involving more than one partition.
 
-Choose WAL settings together with that policy. The default is `AsyncCompressed`; local method completion and a cluster's durable acknowledgement are distinct boundaries. Sync WAL and custom providers offer different local write paths, but the distribution layer must still define the required failure guarantees. See [WAL modes](../durability/wal-modes.mdx).
+Choose WAL settings together with that policy. The default is `AsyncPrivate`; local method completion and a cluster's durable acknowledgement are distinct boundaries. Sync WAL and custom providers offer different local write paths, but the distribution layer must still define the required failure guarantees. See [WAL modes](../durability/wal-modes.mdx).
 
 `IsReadOnly` can support a local admission policy, but changing a flag does not drain requests already executing or fence a previous owner across machines. Ownership checks and draining belong in the node's request/apply protocol.
 

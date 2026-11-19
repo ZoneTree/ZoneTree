@@ -386,14 +386,14 @@ public static class ReportWriter
     md.AppendLine();
     md.AppendLine("| Engine | Setting | Process crash can lose | Power loss can lose |");
     md.AppendLine("| --- | --- | --- | --- |");
-    md.AppendLine("| ZoneTree sync | `Shared` WAL for transactions; `SyncCompressed` for raw | Nothing from completed commits or raw writes. | Unsynced records since the last completed WAL sync. The periodic job syncs the complete dirty WAL. Transactional recovery retains one commit prefix across segments. |");
-    md.AppendLine("| ZoneTree async | `AsyncShared` WAL for transactions; `AsyncCompressed` for raw | Queued records and ordinary commits depending on them. | Unsynced records since the last completed WAL sync. The writer syncs when its queue empties; sustained load can postpone that sync. Transactional recovery retains one commit prefix. |");
+    md.AppendLine("| ZoneTree sync | `Shared` WAL for transactions; `Private` for raw | Nothing from completed commits or raw writes. | Unsynced records since the last completed WAL sync. The periodic job syncs the complete dirty WAL. Transactional recovery retains one commit prefix across segments. |");
+    md.AppendLine("| ZoneTree async | `AsyncShared` WAL for transactions; `AsyncPrivate` for raw | Queued records and ordinary commits depending on them. | Unsynced records since the last completed WAL sync. The writer syncs when its queue empties; sustained load can postpone that sync. Transactional recovery retains one commit prefix. |");
     md.AppendLine("| RocksDB | `sync=false` | Nothing. | What the OS has not written back since the last memtable flush. The WAL is not synced per commit or on a timer, and a flush makes its data durable, so at most the commits in the memtables: up to `max_write_buffer_number` buffers of `write_buffer_size`. |");
     md.AppendLine("| SQLite | `synchronous=NORMAL` | Nothing. | What the OS has not written back since the last checkpoint. A checkpoint syncs, and runs about every `wal_autocheckpoint` WAL pages, so at most about that much WAL, or more while readers hold a checkpoint back. |");
     md.AppendLine();
-    md.AppendLine("`Shared` and `SyncCompressed` hand completed appends to the OS. `AsyncShared` and `AsyncCompressed` can lose queued writes on a process crash. Automatic sync scheduling is not a persistence deadline, and full-block rollovers do not fsync. Use durable transaction APIs or an explicit sync when acknowledging disk durability.");
+    md.AppendLine("`Shared` and `Private` hand completed appends to the OS. `AsyncShared` and `AsyncPrivate` can lose queued writes on a process crash. Automatic sync scheduling is not a persistence deadline, and full-block rollovers do not fsync. Use durable transaction APIs or an explicit sync when acknowledging disk durability.");
     md.AppendLine();
-    md.AppendLine("Transactional ZoneTree uses one shared journal and recovers a prefix of commits, including every synced commit; incomplete transactions remain invisible. Durable commit APIs publish only after sync. Raw per-segment WALs can recover unsynced records independently across segments and provide no multi-key transaction boundary.");
+    md.AppendLine("Transactional ZoneTree uses one shared journal and recovers a prefix of commits, including every synced commit; incomplete transactions remain invisible. Durable commit APIs publish only after sync. Raw private WALs can recover unsynced records independently across segments and provide no multi-key transaction boundary.");
     md.AppendLine();
   }
 

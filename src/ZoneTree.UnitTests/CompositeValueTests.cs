@@ -572,7 +572,7 @@ public sealed class CompositeValueTests
   {
     return new ZoneTreeFactory<byte[], byte[]>(provider)
         .Configure(options => options.AllowUnsafeOptionValues = true)
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.SyncCompressed)
+        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.Private)
         .ConfigureDiskSegmentOptions(options =>
         {
           options.DiskSegmentMode = mode;

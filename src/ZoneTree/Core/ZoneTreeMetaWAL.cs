@@ -429,8 +429,7 @@ public struct MetaWalRecord : IEquatable<MetaWalRecord>
 {
   public MetaWalOperation Operation;
 
-  // Generation and Checksum use the padding of the record layout of older
-  // versions, so the record size stays the same and they can read these records.
+  // Generation and Checksum fill the alignment gaps of the sequential layout.
   public uint Generation;
 
   public long SegmentId;

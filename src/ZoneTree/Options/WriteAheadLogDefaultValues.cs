@@ -2,7 +2,7 @@ namespace ZoneTree.Options;
 
 public static class WriteAheadLogDefaultValues
 {
-  public static readonly WriteAheadLogMode WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed;
+  public static readonly WriteAheadLogMode WriteAheadLogMode = WriteAheadLogMode.AsyncPrivate;
 
   public static readonly int CompressionBlockSize = 1024 * 32 * 8;
 
@@ -10,9 +10,9 @@ public static class WriteAheadLogDefaultValues
 
   public static readonly int CompressionLevel = CompressionLevels.Zstd1;
 
-  public static readonly bool SyncCompressedModeEnableTailWriterJob = true;
+  public static readonly bool PrivateModeEnableTailWriterJob = true;
 
-  public static readonly int SyncCompressedModeTailWriterJobInterval = 500;
+  public static readonly int PrivateModeTailWriterJobInterval = 500;
 
-  public static readonly int AsyncCompressedModeEmptyQueuePollInterval = 100;
+  public static readonly int AsyncPrivateModeEmptyQueuePollInterval = 100;
 }

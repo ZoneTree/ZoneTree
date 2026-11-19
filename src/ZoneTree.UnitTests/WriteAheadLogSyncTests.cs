@@ -34,7 +34,7 @@ public sealed class WriteAheadLogSyncTests
         {
           options.WriteAheadLogMode = mode;
           options.CompressionBlockSize = WalBlockSize;
-          options.AsyncCompressedModeOptions.EmptyQueuePollInterval = emptyQueuePollInterval;
+          options.AsyncPrivateModeOptions.EmptyQueuePollInterval = emptyQueuePollInterval;
         });
   }
 
@@ -46,8 +46,8 @@ public sealed class WriteAheadLogSyncTests
         .ToArray();
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public async Task SyncedWritesSurvivePowerLoss(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
@@ -63,13 +63,13 @@ public sealed class WriteAheadLogSyncTests
     Assert.That(MissingKeys(afterPowerLoss, mode, keys), Is.Empty);
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public async Task EachDurableCommitUsesOneMainFileSync(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
     using var tree = CreateFactory(provider, mode)
-        .ConfigureWriteAheadLogOptions(wal => wal.SyncCompressedModeOptions.EnableTailWriterJob = false)
+        .ConfigureWriteAheadLogOptions(wal => wal.PrivateModeOptions.EnableTailWriterJob = false)
         .Create();
     var mainSyncs = 0;
     var tailSyncs = 0;
@@ -93,15 +93,15 @@ public sealed class WriteAheadLogSyncTests
     Assert.That(MissingKeys(provider.SimulatePowerLoss(), mode, Enumerable.Range(0, 24)), Is.Empty);
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public void AutomaticSyncProtectsAllCompletedWalBlocks(WriteAheadLogMode mode)
   {
     const int count = 1000;
     var provider = new PowerLossFileStreamProvider();
     using var tree = CreateFactory(provider, mode, emptyQueuePollInterval: 1)
         .SetDataDirectory("data")
-        .ConfigureWriteAheadLogOptions(options => options.SyncCompressedModeOptions.TailWriterJobInterval = 1)
+        .ConfigureWriteAheadLogOptions(options => options.PrivateModeOptions.TailWriterJobInterval = 1)
         .Create();
     var mainPath = provider.GetFiles("data/seg").Single(path => !path.EndsWith(".tail", StringComparison.Ordinal));
     for (var key = 0; key < count; ++key)
@@ -137,8 +137,8 @@ public sealed class WriteAheadLogSyncTests
     }
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public async Task SyncedWritesSurvivePowerLossAcrossSegmentRotationAndMerge(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
@@ -165,8 +165,8 @@ public sealed class WriteAheadLogSyncTests
     Assert.That(MissingKeys(afterPowerLoss, mode, keys), Is.Empty);
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public async Task SyncedWritesSurviveAPowerLossRightAfterSegmentRotation(WriteAheadLogMode mode)
   {
     for (var i = 0; i < 20; ++i)
@@ -186,8 +186,8 @@ public sealed class WriteAheadLogSyncTests
     }
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public async Task ConcurrentWritersGetDurableAcknowledgements(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
@@ -232,8 +232,8 @@ public sealed class WriteAheadLogSyncTests
 
   // Sync mode is not tested here: its appends wait while the file is synced,
   // so how many writers share a sync depends on thread scheduling.
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public void ConcurrentSyncCallsShareDiskSyncs(WriteAheadLogMode mode)
   {
     const int writerCount = 16;
@@ -267,8 +267,8 @@ public sealed class WriteAheadLogSyncTests
     Assert.That(walDiskSyncCount, Is.LessThan(writerCount * writeCount / 2));
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public async Task GarbageCollectionOnLoadKeepsSyncedWritesAtEveryPowerLossPoint(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
@@ -305,8 +305,8 @@ public sealed class WriteAheadLogSyncTests
     }
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public async Task SyncWALAsyncKeepsFailingAfterADiskSyncFails(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
@@ -373,7 +373,7 @@ public sealed class WriteAheadLogSyncTests
     // an earlier one. The background writer serializes the records.
     const int failingValue = -1;
     var provider = new InMemoryFileStreamProvider();
-    using (var tree = CreateFactory(provider, WriteAheadLogMode.AsyncCompressed)
+    using (var tree = CreateFactory(provider, WriteAheadLogMode.AsyncPrivate)
         .SetValueSerializer(new FailingValueSerializer(failingValue))
         .Create())
     {
@@ -381,7 +381,7 @@ public sealed class WriteAheadLogSyncTests
         tree.Upsert(key, key == 50 ? failingValue : key + 1);
       Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWALAsync());
     }
-    using var reopened = CreateFactory(provider, WriteAheadLogMode.AsyncCompressed)
+    using var reopened = CreateFactory(provider, WriteAheadLogMode.AsyncPrivate)
         .SetValueSerializer(new FailingValueSerializer(failingValue))
         .Open();
     var present = Enumerable.Range(0, 100).Where(key => reopened.TryGet(key, out _)).ToArray();
@@ -392,7 +392,7 @@ public sealed class WriteAheadLogSyncTests
   public async Task SyncWALAsyncFailsInsteadOfWaitingWhenTheLoggerThrows()
   {
     var provider = new PowerLossFileStreamProvider();
-    using var tree = CreateFactory(provider, WriteAheadLogMode.AsyncCompressed)
+    using var tree = CreateFactory(provider, WriteAheadLogMode.AsyncPrivate)
         .SetLogger(new ThrowingLogger())
         .Create();
     var failDiskSync = true;
@@ -431,7 +431,7 @@ public sealed class WriteAheadLogSyncTests
   public async Task SyncWALAsyncDoesNotWaitForTheEmptyQueuePollInterval()
   {
     var provider = new PowerLossFileStreamProvider();
-    using var tree = CreateFactory(provider, WriteAheadLogMode.AsyncCompressed, emptyQueuePollInterval: 600_000).Create();
+    using var tree = CreateFactory(provider, WriteAheadLogMode.AsyncPrivate, emptyQueuePollInterval: 600_000).Create();
     tree.Upsert(1, 2);
     var sync = tree.SyncWALAsync();
     var completed = await Task.WhenAny(sync, Task.Delay(TimeSpan.FromSeconds(30)));
@@ -442,10 +442,10 @@ public sealed class WriteAheadLogSyncTests
   [Test]
   public void OnlyABurstOfRecordsWakesTheWriterFromTheEmptyQueuePoll()
   {
-    const int interval = AsyncCompressedFileSystemWriteAheadLog<int, int>.WakeWriterRecordInterval;
+    const int interval = AsyncPrivateWriteAheadLog<int, int>.WakeWriterRecordInterval;
     var options = new WriteAheadLogOptions { CompressionBlockSize = WalBlockSize };
-    options.AsyncCompressedModeOptions.EmptyQueuePollInterval = 600_000;
-    using var wal = new AsyncCompressedFileSystemWriteAheadLog<int, int>(
+    options.AsyncPrivateModeOptions.EmptyQueuePollInterval = 600_000;
+    using var wal = new AsyncPrivateWriteAheadLog<int, int>(
         new ConsoleLogger(LogLevel.Error),
         new PowerLossFileStreamProvider(),
         new Int32Serializer(),
@@ -454,7 +454,7 @@ public sealed class WriteAheadLogSyncTests
         options);
     const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
     var type = wal.GetType();
-    var queue = (ConcurrentQueue<AsyncCompressedFileSystemWriteAheadLog<int, int>.QueueItem>)
+    var queue = (ConcurrentQueue<AsyncPrivateWriteAheadLog<int, int>.QueueItem>)
         type.GetField("Queue", flags).GetValue(wal);
     var isSleeping = type.GetField("isWriterSleeping", flags);
     Assert.That(SpinWait.SpinUntil(() => (bool)isSleeping.GetValue(wal), TimeSpan.FromSeconds(30)), Is.True);
@@ -475,7 +475,7 @@ public sealed class WriteAheadLogSyncTests
   public async Task SyncWALAsyncCanBeCancelledWhileTheDiskSyncRuns()
   {
     var provider = new PowerLossFileStreamProvider();
-    using var tree = CreateFactory(provider, WriteAheadLogMode.AsyncCompressed).Create();
+    using var tree = CreateFactory(provider, WriteAheadLogMode.AsyncPrivate).Create();
     using var diskSyncStarted = new ManualResetEventSlim();
     using var releaseDiskSync = new ManualResetEventSlim();
     provider.BeforeDiskSync = path =>
@@ -505,8 +505,8 @@ public sealed class WriteAheadLogSyncTests
     await sync;
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public async Task SyncWALAsyncCompletesAfterTheTreeIsDisposed(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
@@ -573,10 +573,10 @@ public sealed class WriteAheadLogSyncTests
   }
 
   [Test]
-  public async Task SyncCompressedAppendsDoNotWaitForTheMainDiskSync()
+  public async Task PrivateAppendsDoNotWaitForTheMainDiskSync()
   {
     var provider = new PowerLossFileStreamProvider();
-    using var tree = CreateFactory(provider, WriteAheadLogMode.SyncCompressed).Create();
+    using var tree = CreateFactory(provider, WriteAheadLogMode.Private).Create();
     using var diskSyncStarted = new ManualResetEventSlim();
     using var releaseDiskSync = new ManualResetEventSlim();
     provider.BeforeDiskSync = path =>
@@ -601,7 +601,7 @@ public sealed class WriteAheadLogSyncTests
     }
     await sync;
     await tree.SyncWALAsync();
-    Assert.That(MissingKeys(provider.SimulatePowerLoss(), WriteAheadLogMode.SyncCompressed, [1, 2]), Is.Empty);
+    Assert.That(MissingKeys(provider.SimulatePowerLoss(), WriteAheadLogMode.Private, [1, 2]), Is.Empty);
   }
 
   [TestCase(5 * WalBlockSize / 2, WalBlockSize / 3)]

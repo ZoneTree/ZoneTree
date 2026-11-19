@@ -9,8 +9,8 @@ namespace ZoneTree.UnitTests;
 
 public sealed class WalReleaseRegressionTests
 {
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public async Task ExplicitSyncProtectsTransactionsWithoutBlockingSegmentRotation(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
@@ -20,7 +20,7 @@ public sealed class WalReleaseRegressionTests
         .ConfigureWriteAheadLogOptions(options =>
         {
           options.WriteAheadLogMode = mode;
-          options.SyncCompressedModeOptions.EnableTailWriterJob = false;
+          options.PrivateModeOptions.EnableTailWriterJob = false;
         });
     using var tree = Factory(provider).CreateTransactional();
     using var transaction = tree.BeginTransaction();
@@ -75,8 +75,8 @@ public sealed class WalReleaseRegressionTests
   {
     var provider = new PowerLossFileStreamProvider();
     var options = new WriteAheadLogOptions { CompressionBlockSize = 4096, CompressionMethod = compression };
-    options.SyncCompressedModeOptions.EnableTailWriterJob = false;
-    SyncCompressedFileSystemWriteAheadLog<int, string> Open(IFileStreamProvider files) => new(
+    options.PrivateModeOptions.EnableTailWriterJob = false;
+    PrivateWriteAheadLog<int, string> Open(IFileStreamProvider files) => new(
         SilentTestLogger.Instance, files, new Int32Serializer(), new UnicodeStringSerializer(),
         "record.wal_xxh3.1", options);
     using var wal = Open(provider);

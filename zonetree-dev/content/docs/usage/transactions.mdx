@@ -185,7 +185,7 @@ With WAL enabled, the durable APIs append the commit record, sync the WAL, and t
 
 Concurrent durable commits and `SyncWALAsync` callers share disk syncs, so many committing threads pay for one sync together. A single thread that waits after every commit pays a full sync per commit.
 
-The built-in transactional factories promote `SyncCompressed` to `Shared`, and `AsyncCompressed` to `AsyncShared`. Compression settings are retained. Explicit shared modes and `None` are retained. Custom providers and provider factories supply their own recovery guarantees.
+The built-in transactional factories promote `Private` to `Shared`, and `AsyncPrivate` to `AsyncShared`. Compression settings are retained. Explicit shared modes and `None` are retained. Custom providers and provider factories supply their own recovery guarantees.
 
 `Shared` hands appended records to the operating system, so completed ordinary commits survive a process crash. `AsyncShared` can lose queued records on a process crash. A power loss or operating-system crash can lose unsynced ordinary commits in either mode, but recovery keeps one prefix of commits across all segments, including every commit covered by a successful sync. Incomplete transactions stay invisible; a later commit cannot survive while an earlier commit in that prefix is lost.
 

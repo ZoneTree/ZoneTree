@@ -247,7 +247,6 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
     FileStream.Position = 0;
     var metadata = BinaryReader.ReadByte();
     var method = (CompressionMethod)(metadata & ~WalBlockFrame.MetadataFlag);
-    // Versions before 2.1.0 wrote blocks without frames, and their files lack the flag.
     if ((metadata & WalBlockFrame.MetadataFlag) == 0)
       throw new NotSupportedException(
           $"The WAL file {FilePath} was written by a ZoneTree version before 2.1.0, which ZoneTree " +

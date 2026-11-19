@@ -72,7 +72,7 @@ public sealed class LiveBackupFile
 
   public long ByteLength { get; set; }
 
-  /// <summary>SHA-256 of the stored file; null for older backups without checksums.</summary>
+  /// <summary>SHA-256 of the stored file; null in a version 1 catalog, which has no checksums.</summary>
   public string Sha256 { get; set; }
 
   /// <summary>Opaque object-storage key. Local-directory providers do not use this field.</summary>
@@ -107,7 +107,7 @@ public sealed class LiveBackupRecordBatch
 
   public long StoredLength { get; set; }
 
-  /// <summary>SHA-256 of the stored batch; null for older backups without checksums.</summary>
+  /// <summary>SHA-256 of the stored batch; null in a version 1 catalog, which has no checksums.</summary>
   public string Sha256 { get; set; }
 
   /// <summary>Opaque object-storage key. Local-directory providers do not use this field.</summary>

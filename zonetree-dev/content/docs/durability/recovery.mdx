@@ -31,15 +31,15 @@ A power loss can tear everything written after the last disk sync: a final recor
 
 `Shared` and `AsyncShared` recover the journal once for all memory segments. Recovery starts from the manifest's retained chunk and sequence, validates compressed blocks and record checksums, and verifies chunk boundaries and global record continuity. A damaged unsynced suffix ends the entire journal prefix, including otherwise valid later chunks. The journal repairs that suffix before exposing segment handles.
 
-The built-in transactional factories promote `SyncCompressed` to `Shared`, and `AsyncCompressed` to `AsyncShared`. Their transactions recover one prefix of commits across segments, including every commit covered by a successful sync. Pending transactions remain invisible. A missing required chunk or a complete, checksummed record with a broken sequence is corruption rather than an incomplete tail.
+The built-in transactional factories promote `Private` to `Shared`, and `AsyncPrivate` to `AsyncShared`. Their transactions recover one prefix of commits across segments, including every commit covered by a successful sync. Pending transactions remain invisible. A missing required chunk or a complete, checksummed record with a broken sequence is corruption rather than an incomplete tail.
 
 Durable transaction APIs sync before publishing their commits to readers. Ordinary `Commit()` can become visible before sync and can be lost on power loss. Recovery may also retain a commit whose durable call was interrupted or failed after its commit record reached storage. See [transaction durability](../usage/transactions.mdx#durability).
 
-Shared handles do not use the per-segment `TruncateIncompleteTailRecord()` repair API. Do not truncate one handle's records independently: they share the journal's recovery boundary. When a tree moves from per-segment WALs to a shared mode, the old WAL and tail are deleted only after their replacement in the shared journal has synced.
+Shared handles do not use the private WAL `TruncateIncompleteTailRecord()` repair API. Do not truncate one handle's records independently: they share the journal's recovery boundary. When a tree moves from private WALs to a shared mode, the old WAL and tail are deleted only after their replacement in the shared journal has synced.
 
-### Per-segment WAL recovery
+### Private WAL recovery
 
-Ordinary trees can still use separate `SyncCompressed` and `AsyncCompressed` WALs. Their unsynced suffixes recover independently; they do not provide the shared journal's cross-segment prefix. For these WALs, loading a mutable or read-only segment follows this path:
+Ordinary trees can still use separate `Private` and `AsyncPrivate` WALs. Their unsynced suffixes recover independently; they do not provide the shared journal's cross-segment prefix. For these WALs, loading a mutable or read-only segment follows this path:
 
 1. The WAL reader stops at the first damaged record that a power loss can explain, and reports `IncompleteTailRecordFoundException` through `ILogger.LogWarning()`. The exception records `RecordIndex`, `RecordPosition`, and `FileLength`; `TruncationAmount` is the length after that record's starting position.
 2. The result's `HasFoundIncompleteTailRecord` is true only when this is the **sole** recorded exception. `Success` remains false, and `IncompleteTailRecord` exposes the details.
@@ -53,7 +53,7 @@ The record can be damaged within the tail block or span a committed block and th
 
 Real corruption inside these ranges looks the same as a torn tail, so it is also truncated with a warning. A record that passes its checksum but fails to deserialize is never truncated.
 
-For per-segment WALs, `ReadLogEntries()` by itself only reports the result. The standard segment loaders perform the truncation. If other read errors were found before the damaged end, `HasFoundIncompleteTailRecord` is false and this automatic path does not apply. Shared-journal suffix repair happens earlier, while opening the whole journal.
+For private WALs, `ReadLogEntries()` by itself only reports the result. The standard segment loaders perform the truncation. If other read errors were found before the damaged end, `HasFoundIncompleteTailRecord` is false and this automatic path does not apply. Shared-journal suffix repair happens earlier, while opening the whole journal.
 
 ## Capture diagnostics in your application
 
@@ -125,7 +125,7 @@ The stop flags control how far reading continues. With continuation enabled, ret
 | `DiskSegmentFactory` | Open sorted disk segments with compatible options. |
 | `MutableSegmentLoader`, `ReadOnlySegmentLoader`, and `ZoneTreeLoader` | Reuse startup-loading components where their validation and replay behavior fits the tool. |
 
-Work on a copy of the affected files: some APIs create, migrate, flush, truncate, or rewrite files. For example, `GetOrCreateWAL()` can create a missing log, and ordinary tree opening can update metadata.
+Work on a copy of the affected files: some APIs create, move, flush, truncate, or rewrite files. For example, `GetOrCreateWAL()` can create a missing log, and ordinary tree opening can update metadata.
 
 ## Preserve the data contracts
 

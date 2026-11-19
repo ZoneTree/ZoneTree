@@ -74,8 +74,8 @@ public sealed class LiveBackupDurabilityTests
 
   [TestCase(false, DiskSegmentMode.SingleDiskSegment, WriteAheadLogMode.Shared)]
   [TestCase(false, DiskSegmentMode.MultiPartDiskSegment, WriteAheadLogMode.AsyncShared)]
-  [TestCase(false, DiskSegmentMode.MultiPartDiskSegment, WriteAheadLogMode.SyncCompressed)]
-  [TestCase(false, DiskSegmentMode.SingleDiskSegment, WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(false, DiskSegmentMode.MultiPartDiskSegment, WriteAheadLogMode.Private)]
+  [TestCase(false, DiskSegmentMode.SingleDiskSegment, WriteAheadLogMode.AsyncPrivate)]
   [TestCase(true, DiskSegmentMode.SingleDiskSegment, WriteAheadLogMode.Shared)]
   [TestCase(true, DiskSegmentMode.MultiPartDiskSegment, WriteAheadLogMode.AsyncShared)]
   public async Task RestoredDiskAndMemoryRecordsSurvivePowerLossBeforeClose(bool transactional, DiskSegmentMode disk, WriteAheadLogMode wal)

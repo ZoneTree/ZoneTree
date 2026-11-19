@@ -331,7 +331,7 @@ internal sealed partial class SharedWalStore<TKey, TValue> : ISharedWalStore, ID
     if (Files.FileExists(ManifestPath)) writer.WriteAllBytes(ManifestPath, bytes);
     else writer.WriteNewFile(ManifestPath, bytes);
     // Syncing the temporary file protects its contents, not the subsequent
-    // rename. Reclamation and per-segment WAL moves may delete their fallback only
+    // rename. Reclamation and private WAL moves may delete their fallback only
     // after the new manifest name/checkpoint is durable too.
     Files.SyncDirectory(DirectoryPath);
   }

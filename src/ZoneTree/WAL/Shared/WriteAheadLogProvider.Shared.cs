@@ -42,19 +42,19 @@ public sealed partial class WriteAheadLogProvider
       {
         handle = new SharedWriteAheadLog<TKey, TValue>(store, id, keys, values);
         // The append-only replacement end record is durable before deleting a
-        // per-segment WAL. An interrupted move can safely use the old file again.
+        // private WAL. An interrupted move can safely use the old file again.
         var (path, mode) = DetectWalPathAndWriteAheadLogMode(id, category, options);
         if (FileStreamProvider.FileExists(path))
         {
-          using IWriteAheadLog<TKey, TValue> perSegmentWal = mode switch
+          using IWriteAheadLog<TKey, TValue> privateWal = mode switch
           {
-            WriteAheadLogMode.SyncCompressed => new SyncCompressedFileSystemWriteAheadLog<TKey, TValue>(Logger, FileStreamProvider, keys, values, path, options),
-            WriteAheadLogMode.AsyncCompressed => new AsyncCompressedFileSystemWriteAheadLog<TKey, TValue>(Logger, FileStreamProvider, keys, values, path, options),
-            _ => throw new InvalidDataException("Invalid per-segment WAL mode.")
+            WriteAheadLogMode.Private => new PrivateWriteAheadLog<TKey, TValue>(Logger, FileStreamProvider, keys, values, path, options),
+            WriteAheadLogMode.AsyncPrivate => new AsyncPrivateWriteAheadLog<TKey, TValue>(Logger, FileStreamProvider, keys, values, path, options),
+            _ => throw new InvalidDataException("Invalid private WAL mode.")
           };
           if (!store.HasHistory(id))
           {
-            var read = perSegmentWal.ReadLogEntries(true, true, true);
+            var read = privateWal.ReadLogEntries(true, true, true);
             if (!read.Success && !read.HasFoundIncompleteTailRecord)
               throw new WriteAheadLogCorruptionException(id, read.Exceptions);
             store.Replace(id, read.Keys.ToArray(), read.Values.ToArray(), read.MaximumOpIndex);
@@ -62,7 +62,7 @@ public sealed partial class WriteAheadLogProvider
           // Recovery can observe a completed replacement before its original
           // sync acknowledgement. Sync it again before removing the fallback.
           store.Sync();
-          perSegmentWal.Drop();
+          privateWal.Drop();
         }
         WALTable.TryAdd(id + category, handle);
         var result = handle;

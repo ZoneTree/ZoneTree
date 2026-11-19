@@ -128,11 +128,11 @@ internal static class ZoneTreeOptionsValidator
       return new InvalidOptionValueException(Option(owner, nameof(options.SharedModeOptions.MaximumChunkSize)),
           options.SharedModeOptions.MaximumChunkSize, "Must be positive");
 
-    if (options.SyncCompressedModeOptions == null)
-      return new MissingOptionException(Option(owner, nameof(options.SyncCompressedModeOptions)));
+    if (options.PrivateModeOptions == null)
+      return new MissingOptionException(Option(owner, nameof(options.PrivateModeOptions)));
 
-    if (options.AsyncCompressedModeOptions == null)
-      return new MissingOptionException(Option(owner, nameof(options.AsyncCompressedModeOptions)));
+    if (options.AsyncPrivateModeOptions == null)
+      return new MissingOptionException(Option(owner, nameof(options.AsyncPrivateModeOptions)));
 
     Exception exception = ValidateDefinedEnum(
         Option(owner, nameof(options.WriteAheadLogMode)),
@@ -221,14 +221,14 @@ internal static class ZoneTreeOptionsValidator
       return exception;
 
     exception = ZoneTreeOptionValidationRules.WriteAheadLogEmptyQueuePollInterval.Validate(
-        Option(owner, $"{nameof(options.AsyncCompressedModeOptions)}.{nameof(options.AsyncCompressedModeOptions.EmptyQueuePollInterval)}"),
-        options.AsyncCompressedModeOptions.EmptyQueuePollInterval);
+        Option(owner, $"{nameof(options.AsyncPrivateModeOptions)}.{nameof(options.AsyncPrivateModeOptions.EmptyQueuePollInterval)}"),
+        options.AsyncPrivateModeOptions.EmptyQueuePollInterval);
     if (exception != null)
       return exception;
 
     return ZoneTreeOptionValidationRules.WriteAheadLogTailWriterJobInterval.Validate(
-        Option(owner, $"{nameof(options.SyncCompressedModeOptions)}.{nameof(options.SyncCompressedModeOptions.TailWriterJobInterval)}"),
-        options.SyncCompressedModeOptions.TailWriterJobInterval);
+        Option(owner, $"{nameof(options.PrivateModeOptions)}.{nameof(options.PrivateModeOptions.TailWriterJobInterval)}"),
+        options.PrivateModeOptions.TailWriterJobInterval);
   }
 
   static Exception ValidateDiskSegmentOptionValues(DiskSegmentOptions options)

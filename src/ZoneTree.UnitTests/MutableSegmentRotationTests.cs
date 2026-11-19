@@ -17,7 +17,7 @@ public sealed class MutableSegmentRotationTests
           .ConfigureWriteAheadLogOptions(options =>
           {
             options.WriteAheadLogMode = mode;
-            options.SyncCompressedModeOptions.EnableTailWriterJob = false;
+            options.PrivateModeOptions.EnableTailWriterJob = false;
           });
 
   static ZoneTree<int, int> Engine(IZoneTree<int, int> tree) => (ZoneTree<int, int>)tree;
@@ -28,8 +28,8 @@ public sealed class MutableSegmentRotationTests
       Assert.That(tree.TryGet(key, out var value) && value == key + 1, Is.True, $"key {key}");
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed, false)]
-  [TestCase(WriteAheadLogMode.SyncCompressed, true)]
+  [TestCase(WriteAheadLogMode.Private, false)]
+  [TestCase(WriteAheadLogMode.Private, true)]
   [TestCase(WriteAheadLogMode.Shared, false)]
   [TestCase(WriteAheadLogMode.Shared, true)]
   public async Task APowerLossKeepsTheRecordsOfARecordedNextSegment(
@@ -130,7 +130,7 @@ public sealed class MutableSegmentRotationTests
     Assert.That(files.ReadAllBytes(metaWalPath), Is.Empty);
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
   [TestCase(WriteAheadLogMode.Shared)]
   public void TheOpIndexKeepsGrowingAfterAMergeDroppedTheSegmentWals(WriteAheadLogMode mode)
   {

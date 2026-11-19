@@ -22,7 +22,7 @@ public sealed class Test1
         .SetWriteAheadLogDirectory(dataPath)
         .ConfigureWriteAheadLogOptions(x =>
         {
-          x.WriteAheadLogMode = WriteAheadLogMode.SyncCompressed;
+          x.WriteAheadLogMode = WriteAheadLogMode.Private;
         })
         .OpenOrCreateTransactional();
     using var basicMaintainer = zoneTree.CreateMaintainer();
@@ -61,7 +61,7 @@ public sealed class Test1
         .ConfigureWriteAheadLogOptions(x =>
         {
           x.CompressionBlockSize = 1024 * 1024 * 20;
-          x.WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed;
+          x.WriteAheadLogMode = WriteAheadLogMode.AsyncPrivate;
         })
         .ConfigureDiskSegmentOptions(x =>
         {
