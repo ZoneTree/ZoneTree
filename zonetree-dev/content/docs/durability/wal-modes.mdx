@@ -55,7 +55,7 @@ Syncing every write made a single writer about 900 times slower. Concurrent wait
 
 ### How much can be lost without a sync
 
-Every WAL mode except `None` automatically syncs each dirty WAL at its background flush points. Writes that have not reached a completed sync can still be lost:
+Every WAL mode except `None` syncs each dirty WAL in the background: the async writers when their queue empties, and the sync job of `Private` and `Shared` unless `EnableSyncJob` is false. Writes that have not reached a completed sync can still be lost:
 
 | Mode | Writes lost on a process crash | Writes lost on a power loss |
 | --- | --- | --- |
@@ -173,8 +173,8 @@ Automatic sync scheduling:
 | Mode | When the complete dirty WAL is synced to the disk |
 | --- | --- |
 | `AsyncPrivate` | The background writer syncs the complete dirty WAL when its queue becomes empty. Explicit sync requests also trigger a sync, and closing drains the queue and syncs both files. |
-| `Private` | The tail-writer job syncs the complete dirty WAL, enabled by default with a 500 ms interval. Explicit sync requests and closing also protect the complete stream. |
-| `Shared` | The journal job syncs the complete dirty journal, including closed unsynced chunks. It uses `EnableSyncJob` (true by default) and `SyncJobInterval` (500 ms by default). |
+| `Private` | The sync job syncs the complete dirty WAL. It uses `EnableSyncJob` (true by default) and `SyncJobInterval` (500 ms by default). Explicit sync requests and closing also protect the complete stream. |
+| `Shared` | The sync job syncs the complete dirty journal, including closed unsynced chunks. It uses `EnableSyncJob` (true by default) and `SyncJobInterval` (500 ms by default). |
 | `AsyncShared` | The writer syncs the complete dirty journal when its queue empties. Explicit requests, including durable commits, cause a sync after a bounded drain of the preceding queue. Closing drains and syncs the journal. |
 
 The async writer's default `EmptyQueuePollInterval` is 100 ms. These intervals control scheduling, not a maximum persistence delay. For transactional trees, `AutoSyncInterval` schedules explicit sync requests even while the queue stays busy and advances MVCC's durable bookkeeping. It defaults to zero. The WAL's own background job can sync bytes without updating that MVCC timestamp.

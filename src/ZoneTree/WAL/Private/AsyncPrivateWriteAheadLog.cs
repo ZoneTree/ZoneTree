@@ -242,7 +242,7 @@ public sealed class AsyncPrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKe
       {
         try
         {
-          FileStream.WriteTail();
+          FileStream.SyncIfModified();
         }
         catch (Exception e)
         {

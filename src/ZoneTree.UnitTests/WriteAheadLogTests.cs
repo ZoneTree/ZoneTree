@@ -206,31 +206,6 @@ public sealed class WriteAheadLogTests
   }
 
   [Test]
-  public void CompressedFileStreamSyncJobStopsWhenClosedBeforeItStarts()
-  {
-    var provider = new InMemoryFileStreamProvider();
-    // Closing right after construction runs before the tail writer
-    // thread starts in most iterations.
-    var tailWriters = new List<Task>();
-    for (var i = 0; i < 20; ++i)
-    {
-      var stream = new CompressedFileStream(
-          SilentTestLogger.Instance,
-          provider,
-          $"CompressedFileStreamSyncJobStopsWhenClosedBeforeItStarts{i}.wal",
-          16,
-          true,
-          1,
-          CompressionMethod.None,
-          0);
-      tailWriters.Add(stream.SyncJobTask);
-      stream.Dispose();
-    }
-
-    Assert.That(Task.WaitAll(tailWriters.ToArray(), TimeSpan.FromSeconds(10)), Is.True);
-  }
-
-  [Test]
   public void CompressedFileStreamDoesNotRewriteUnchangedTailOnClose()
   {
     var dataPath = "data/CompressedFileStreamDoesNotRewriteUnchangedTailOnClose";

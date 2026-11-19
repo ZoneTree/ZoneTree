@@ -95,7 +95,7 @@ public sealed class CompressedFileStreamTests
       using var stream = context.Open();
       stream.SyncToDisk();
       stream.SyncToDisk();
-      stream.WriteTail();
+      stream.SyncIfModified();
       Assert.That(FileLength(context.FilePath), Is.EqualTo(1));
       Assert.That(FileLength(context.FilePath + ".tail"), Is.Zero);
     }
@@ -413,7 +413,7 @@ public sealed class CompressedFileStreamTests
     var recoveredTail = provider.ReadAllBytes("recovered.tail");
     // The async writer can poll immediately after opening. Do not checkpoint
     // recovered records until the WAL reader has had a chance to validate them.
-    reopened.WriteTail();
+    reopened.SyncIfModified();
     Assert.That(provider.ReadAllBytes("recovered.tail"), Is.EqualTo(recoveredTail));
     using var afterPowerLoss = Open(provider.SimulatePowerLoss());
     Assert.That(ReadAll(afterPowerLoss), Is.EqualTo(content));
@@ -689,12 +689,12 @@ public sealed class CompressedFileStreamTests
     using var stream = Open(provider);
     var content = Content(3 * BlockSize + tailLength);
     stream.Write(content);
-    stream.WriteTail();
+    stream.SyncIfModified();
     var syncCount = provider.DiskSyncCount;
     using (var recovered = Open(provider.SimulatePowerLoss()))
       Assert.That(ReadAll(recovered), Is.EqualTo(content), "background flush must include main-file blocks");
 
-    stream.WriteTail();
+    stream.SyncIfModified();
     stream.SyncToDisk();
     Assert.That(provider.DiskSyncCount, Is.EqualTo(syncCount), "an unchanged WAL must not be synced again");
 
@@ -718,7 +718,7 @@ public sealed class CompressedFileStreamTests
     using (var stream = Open())
     {
       stream.Write(original);
-      stream.WriteTail();
+      stream.SyncIfModified();
       stream.SetLength(keptLength);
       stream.Write(appended);
     }
@@ -742,7 +742,7 @@ public sealed class CompressedFileStreamTests
     // Reusing and even persisting the active tail must not destroy the synced
     // prefix, whose bytes now live in the append-only main file.
     stream.Write(Content(3 * BlockSize + 100, 2));
-    stream.WriteTail();
+    stream.SyncIfModified();
     using var recovered = new CompressedFileStream(
         SilentTestLogger.Instance, provider.SimulatePowerLoss(), "data/sync", BlockSize, false, 0, CompressionMethod.Zstd, CompressionLevels.Zstd1);
     Assert.That(ReadAll(recovered).Take(content.Length), Is.EqualTo(content));
@@ -987,17 +987,17 @@ public sealed class CompressedFileStreamTests
   public void SyncJobStopsWhenClosedBeforeItStarts()
   {
     var provider = new InMemoryFileStreamProvider();
-    // Closing right after construction runs before the tail writer
+    // Closing right after construction runs before the sync job
     // thread starts in most iterations.
-    var tailWriters = new List<Task>();
+    var syncJobs = new List<Task>();
     for (var i = 0; i < 20; ++i)
     {
       var stream = new CompressedFileStream(
-          SilentTestLogger.Instance, provider, $"tailWriter{i}", BlockSize, true, 1, CompressionMethod.None, 0);
-      tailWriters.Add(stream.SyncJobTask);
+          SilentTestLogger.Instance, provider, $"syncJob{i}", BlockSize, true, 1, CompressionMethod.None, 0);
+      syncJobs.Add(stream.SyncJobTask);
       stream.Dispose();
     }
-    Assert.That(Task.WaitAll(tailWriters.ToArray(), TimeSpan.FromSeconds(10)), Is.True);
+    Assert.That(Task.WaitAll(syncJobs.ToArray(), TimeSpan.FromSeconds(10)), Is.True);
   }
 
   [TestCase(false)]
@@ -1010,7 +1010,7 @@ public sealed class CompressedFileStreamTests
         SilentTestLogger.Instance, provider, "data/sync", BlockSize, false, 0, CompressionMethod.Zstd, CompressionLevels.Zstd1);
     stream.Write(Content(10));
     provider.FailDiskSync = _ => true;
-    Action sync = backgroundFlush ? stream.WriteTail : stream.SyncToDisk;
+    Action sync = backgroundFlush ? stream.SyncIfModified : stream.SyncToDisk;
     Assert.That(sync, Throws.Exception);
     provider.FailDiskSync = null;
     stream.Write(Content(10));

@@ -10,43 +10,6 @@ namespace ZoneTree.WAL;
 
 public sealed unsafe partial class CompressedFileStream
 {
-  Task StartSyncJob()
-  {
-    // Mark the job running before it starts.
-    // Setting it on the job thread would undo a Close() that happens
-    // before the thread starts, leaving the job loop running forever.
-    IsSyncJobRunning = true;
-    return Task.Factory.StartNew(
-        SyncJobLoop,
-        CancellationToken.None,
-        TaskCreationOptions.LongRunning,
-        TaskScheduler.Default);
-  }
-
-  void SyncJobLoop()
-  {
-    while (IsSyncJobRunning)
-    {
-      try
-      {
-        WriteTail();
-      }
-      catch (Exception e)
-      {
-        Logger.LogError(e);
-      }
-      if (SyncJobInterval == 0)
-        Thread.Yield();
-      else
-        Thread.Sleep(SyncJobInterval);
-    }
-  }
-
-  void StopSyncJob()
-  {
-    IsSyncJobRunning = false;
-  }
-
   DecompressedBlock CreateEmptyTail(int blockIndex)
   {
     return new DecompressedBlock(blockIndex, Memory<byte>.Empty, CompressionMethod, CompressionLevel);

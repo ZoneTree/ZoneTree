@@ -103,7 +103,7 @@ public sealed class WalReleaseRegressionTests
         sync = Task.Run(async () =>
         {
           if (backgroundFlush)
-            stream.WriteTail();
+            stream.SyncIfModified();
           else
             await wal.SyncAsync();
         });

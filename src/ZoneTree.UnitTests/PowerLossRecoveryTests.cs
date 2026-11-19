@@ -783,7 +783,7 @@ public sealed class PowerLossRecoveryTests
       UpsertKeys(tree, 0, 200);
       await tree.SyncWALAsync();
     }
-    // The background tail writer can replace a discarded tail with an empty one,
+    // The background sync job can replace a discarded tail with an empty one,
     // while the last block still holds a torn sector.
     var mainPath = MainWalPath(provider);
     var main = provider.ReadAllBytes(mainPath);
