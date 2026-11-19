@@ -474,24 +474,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
   public ZoneTreeOptions<TKey, TValue> CloneOptions()
   {
     var options = Options;
-    var wal = Options.WriteAheadLogOptions;
     var dsk = Options.DiskSegmentOptions;
-
-    var clonedWal = new WriteAheadLogOptions()
-    {
-      EnableSyncJob = wal.EnableSyncJob,
-      SyncJobInterval = wal.SyncJobInterval,
-      EmptyQueuePollInterval = wal.EmptyQueuePollInterval,
-      SharedModeOptions = new()
-      {
-        MaximumChunkSize = wal.SharedModeOptions.MaximumChunkSize,
-      },
-      CompressionBlockSize = wal.CompressionBlockSize,
-      CompressionLevel = wal.CompressionLevel,
-      CompressionMethod = wal.CompressionMethod,
-      CustomOptions = wal.CustomOptions,
-      WriteAheadLogMode = wal.WriteAheadLogMode,
-    };
 
     var clonesDiskSegmentOptions = new DiskSegmentOptions()
     {
@@ -531,7 +514,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       MutableSegmentMaxItemCount = options.MutableSegmentMaxItemCount,
       RandomAccessDeviceManager = options.RandomAccessDeviceManager,
       ValueSerializer = options.ValueSerializer,
-      WriteAheadLogOptions = clonedWal,
+      WriteAheadLogOptions = options.WriteAheadLogOptions.Clone(),
       WriteAheadLogProvider = options.WriteAheadLogProvider,
     };
     return clone;

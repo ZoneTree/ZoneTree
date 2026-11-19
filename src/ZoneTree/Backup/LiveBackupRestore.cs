@@ -99,8 +99,7 @@ public sealed class LiveBackupRestore<TKey, TValue>
       LiveBackupGeneration generation, long maximumSegmentId)
   {
     var batch = generation.RecordBatch;
-    var restoreWalOptions = CloneWriteAheadLogOptions(
-        Options.WriteAheadLogOptions);
+    var restoreWalOptions = Options.WriteAheadLogOptions.Clone();
     Options.WriteAheadLogProvider.InitCategory(
         ZoneTree<TKey, TValue>.SegmentWalCategory);
 
@@ -146,8 +145,7 @@ public sealed class LiveBackupRestore<TKey, TValue>
 
   void CreateMutableWal(long mutableWalSegmentId)
   {
-    var restoreWalOptions = CloneWriteAheadLogOptions(
-        Options.WriteAheadLogOptions);
+    var restoreWalOptions = Options.WriteAheadLogOptions.Clone();
     Options.WriteAheadLogProvider.InitCategory(
         ZoneTree<TKey, TValue>.SegmentWalCategory);
 
@@ -227,25 +225,5 @@ public sealed class LiveBackupRestore<TKey, TValue>
   {
     var metaPath = Options.RandomAccessDeviceManager.GetFilePath(0, ".json");
     return Path.GetDirectoryName(metaPath);
-  }
-
-  static WriteAheadLogOptions CloneWriteAheadLogOptions(
-      WriteAheadLogOptions options)
-  {
-    return new WriteAheadLogOptions
-    {
-      WriteAheadLogMode = options.WriteAheadLogMode,
-      CustomOptions = options.CustomOptions,
-      CompressionBlockSize = options.CompressionBlockSize,
-      CompressionMethod = options.CompressionMethod,
-      CompressionLevel = options.CompressionLevel,
-      SharedModeOptions = new SharedModeOptions
-      {
-        MaximumChunkSize = options.SharedModeOptions.MaximumChunkSize
-      },
-      EnableSyncJob = options.EnableSyncJob,
-      SyncJobInterval = options.SyncJobInterval,
-      EmptyQueuePollInterval = options.EmptyQueuePollInterval
-    };
   }
 }

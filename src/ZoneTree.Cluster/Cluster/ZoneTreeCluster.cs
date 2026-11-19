@@ -63,7 +63,8 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     Encodings = options.Encodings;
     StorageDefaults = options.StorageDefaults;
     FileStreamProvider = options.FileStreamProvider ?? new LocalFileStreamProvider();
-    CoordinatedWriteAheadLog = CopyOf(options.CoordinatedWriteAheadLog);
+    // A copy, so later changes to the caller's instance do not apply.
+    CoordinatedWriteAheadLog = options.CoordinatedWriteAheadLog.Clone();
     StorageSettings = new ColumnStorageSettings(Logger, FileStreamProvider, CoordinatedWriteAheadLog, StorageDefaults);
     Schema = new ClusterSchema(this);
     autoSyncInterval = options.AutoSyncInterval;
@@ -124,16 +125,6 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     // Read-only applies after the declarations, so a read-only cluster can still be created.
     IsReadOnly = options.IsReadOnly;
   }
-
-  /// <summary>A copy of the settings, so later changes to the caller's instance do not apply.</summary>
-  internal static WriteAheadLogOptions CopyOf(WriteAheadLogOptions options) => new()
-  {
-    WriteAheadLogMode = options.WriteAheadLogMode,
-    CompressionBlockSize = options.CompressionBlockSize,
-    CompressionMethod = options.CompressionMethod,
-    CompressionLevel = options.CompressionLevel,
-    SharedModeOptions = new() { MaximumChunkSize = options.SharedModeOptions.MaximumChunkSize }
-  };
 
   /// <summary>
   /// Whether two write ahead log settings make the same journal: its mode, which sets what a

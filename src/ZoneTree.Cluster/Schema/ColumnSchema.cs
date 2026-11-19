@@ -23,7 +23,7 @@ internal static class ColumnSchema
         .SetKeySerializer(encodings.KeySerializer)
         .SetValueSerializer(encodings.ValueSerializer);
     if (coordinated)
-      factory.Options.WriteAheadLogOptions = ZoneTreeCluster.CopyOf(cluster.CoordinatedWriteAheadLog);
+      factory.Options.WriteAheadLogOptions = cluster.CoordinatedWriteAheadLog.Clone();
     cluster.StorageDefaults?.Configure(column, factory);
     configureStorage?.Invoke(factory);
     // Every process that opens the column encodes and orders keys with the registered

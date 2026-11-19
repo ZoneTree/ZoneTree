@@ -69,4 +69,14 @@ public sealed class WriteAheadLogOptions
   /// apply. Caller-side and queued writes use Shared and AsyncShared respectively.
   /// </summary>
   public SharedModeOptions SharedModeOptions { get; set; } = new();
+
+  /// <summary>
+  /// Returns a copy of the options. The copy shares <see cref="CustomOptions"/>.
+  /// </summary>
+  public WriteAheadLogOptions Clone()
+  {
+    var clone = (WriteAheadLogOptions)MemberwiseClone();
+    clone.SharedModeOptions = SharedModeOptions?.Clone();
+    return clone;
+  }
 }

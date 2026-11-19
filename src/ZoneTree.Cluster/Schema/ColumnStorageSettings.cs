@@ -17,6 +17,6 @@ internal sealed record ColumnStorageSettings(
   internal static ColumnStorageSettings From(ZoneTreeClusterOptions options) => new(
       options.Logger,
       options.FileStreamProvider ?? new LocalFileStreamProvider(),
-      ZoneTreeCluster.CopyOf(options.CoordinatedWriteAheadLog),
+      options.CoordinatedWriteAheadLog.Clone(),
       options.StorageDefaults);
 }
