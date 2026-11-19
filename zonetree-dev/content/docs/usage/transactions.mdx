@@ -180,12 +180,12 @@ With WAL enabled, the durable APIs append the commit record, sync the WAL, and t
 | Need | API |
 | --- | --- |
 | This commit must be durable before readers see it and before you acknowledge it. | `await tree.ExecuteDurableAsync(...)`, `await tx.CommitDurableAsync()` or `await tx.TryCommitDurableAsync()` |
-| Publish several ordinary commits first, then acknowledge their durability together. | Commit each, then `await tree.SyncWALAsync()` once. |
+| Publish several ordinary commits first, then acknowledge their durability together. | Commit each, then `await tree.SyncWalAsync()` once. |
 | Schedule syncs while ordinary commits continue to become visible immediately. | `tree.AutoSyncInterval = TimeSpan.FromMilliseconds(500)` |
 
-Concurrent durable commits and `SyncWALAsync` callers share disk syncs, so many committing threads pay for one sync together. A single thread that waits after every commit pays a full sync per commit.
+Concurrent durable commits and `SyncWalAsync` callers share disk syncs, so many committing threads pay for one sync together. A single thread that waits after every commit pays a full sync per commit.
 
-The built-in transactional factories promote `Sync` and `SyncCompressed` to `Shared`, and `AsyncCompressed` to `AsyncShared`. Compression settings are retained; `Sync` does not turn compression off. Explicit shared modes and `None` are retained. Custom providers and provider factories supply their own recovery guarantees.
+The built-in transactional factories promote `Private` to `Shared`, and `AsyncPrivate` to `AsyncShared`. Compression settings are retained. Explicit shared modes and `None` are retained. Custom providers and provider factories supply their own recovery guarantees.
 
 `Shared` hands appended records to the operating system, so completed ordinary commits survive a process crash. `AsyncShared` can lose queued records on a process crash. A power loss or operating-system crash can lose unsynced ordinary commits in either mode, but recovery keeps one prefix of commits across all segments, including every commit covered by a successful sync. Incomplete transactions stay invisible; a later commit cannot survive while an earlier commit in that prefix is lost.
 
@@ -193,7 +193,7 @@ If every writing transaction uses a durable commit API, readers see only commits
 
 A cancellation token cancelled before the durable commit starts leaves the transaction active. Once its commit record is appended, cancellation stops only the caller's wait: the commit continues and becomes visible after a successful sync. Disposing a `Committing` transaction does not roll it back. A failed sync leaves the outcome `InDoubt`, and recovery may find the commit record even though the caller received an error.
 
-`AutoSyncInterval` defaults to zero. It schedules `SyncWALAsync`, updates MVCC's durable bookkeeping, and requests syncs even when an async writer stays busy. WAL background jobs also sync automatically, but an async job that syncs only on an empty queue has no fixed persistence deadline. None of these syncs can make unlogged writes durable with mode `None`. See [WAL modes](../durability/wal-modes.mdx) for scheduling and storage details.
+`AutoSyncInterval` defaults to zero. It schedules `SyncWalAsync`, updates MVCC's durable bookkeeping, and requests syncs even when an async writer stays busy. WAL background jobs also sync automatically, but an async job that syncs only on an empty queue has no fixed persistence deadline. None of these syncs can make unlogged writes durable with mode `None`. See [WAL modes](../durability/wal-modes.mdx) for scheduling and storage details.
 
 ## Transaction size
 

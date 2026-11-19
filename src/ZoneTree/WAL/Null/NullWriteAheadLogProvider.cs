@@ -5,7 +5,7 @@ namespace ZoneTree.WAL;
 
 public sealed class NullWriteAheadLogProvider : IWriteAheadLogProvider
 {
-  public IWriteAheadLog<TKey, TValue> GetOrCreateWAL<TKey, TValue>(
+  public IWriteAheadLog<TKey, TValue> GetOrCreateWal<TKey, TValue>(
       long segmentId,
       string category,
       WriteAheadLogOptions options,
@@ -15,12 +15,12 @@ public sealed class NullWriteAheadLogProvider : IWriteAheadLogProvider
     return new NullWriteAheadLog<TKey, TValue>();
   }
 
-  public IWriteAheadLog<TKey, TValue> GetWAL<TKey, TValue>(long segmentId, string category)
+  public IWriteAheadLog<TKey, TValue> GetWal<TKey, TValue>(long segmentId, string category)
   {
     return new NullWriteAheadLog<TKey, TValue>();
   }
 
-  public bool RemoveWAL(long segmentId, string category)
+  public bool RemoveWal(long segmentId, string category)
   {
     return false;
   }

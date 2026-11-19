@@ -50,7 +50,7 @@ internal sealed class CoordinatedColumn<TKey, TValue> : Column,
     return view;
   }
 
-  internal override Task SyncWALAsync() => Domain.Coordinator.SyncAsync();
+  internal override Task SyncWalAsync() => Domain.Coordinator.SyncAsync();
 
   Task ICoordinatedStorage.StartSync() => IsDropped ? null : Tree.StartSync();
 
@@ -67,7 +67,7 @@ internal sealed class CoordinatedColumn<TKey, TValue> : Column,
 
   TransactionOutcome ICoordinatedStorage.GetOutcome(long transactionId) => Tree.GetOutcome(transactionId);
 
-  internal override void SaveMetaData() => Tree.SaveMetaData();
+  internal override void SaveMetadata() => Tree.SaveMetadata();
   protected override void DropTree() => Tree.Drop();
   public override IMaintainer CreateMaintainer() => Tree.CreateMaintainer();
   public override void Dispose()

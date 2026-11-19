@@ -41,13 +41,13 @@ public sealed class ZoneTreeMaintainer<TKey, TValue> : IMaintainer, IDisposable
   public IZoneTreeMaintenance<TKey, TValue> Maintenance { get; }
 
   /// <inheritdoc/>
-  public int ThresholdForMergeOperationStart { get; set; }
+  public int MergeThreshold { get; set; }
 
   /// <inheritdoc/>
   public int MaximumReadOnlySegmentCount { get; set; } = 64;
 
   /// <inheritdoc/>
-  public bool EnableJobForCleaningInactiveCaches
+  public bool EnableInactiveCacheCleanup
   {
     get => isPeriodicTimerRunning;
     set
@@ -60,7 +60,7 @@ public sealed class ZoneTreeMaintainer<TKey, TValue> : IMaintainer, IDisposable
   }
 
   /// <inheritdoc/>
-  public TimeSpan BlockCacheLifeTime { get; set; } = TimeSpan.FromMinutes(1);
+  public TimeSpan BlockCacheLifetime { get; set; } = TimeSpan.FromMinutes(1);
 
   /// <inheritdoc/>
   public TimeSpan InactiveBlockCacheCleanupInterval { get; set; } = TimeSpan.FromSeconds(30);
@@ -158,7 +158,7 @@ public sealed class ZoneTreeMaintainer<TKey, TValue> : IMaintainer, IDisposable
   {
     if (Maintenance.ReadOnlySegmentsCount > MaximumReadOnlySegmentCount)
       StartMerge();
-    else if (Maintenance.ReadOnlySegmentsRecordCount > ThresholdForMergeOperationStart)
+    else if (Maintenance.ReadOnlySegmentsRecordCount > MergeThreshold)
       StartMerge();
   }
 
@@ -274,10 +274,10 @@ public sealed class ZoneTreeMaintainer<TKey, TValue> : IMaintainer, IDisposable
       var zoneTreeMaintenance = ZoneTree.Maintenance;
       var diskSegment = ZoneTree.Maintenance.DiskSegment;
       var now = Environment.TickCount64;
-      var ticks = now - (long)BlockCacheLifeTime.TotalMilliseconds;
+      var ticks = now - (long)BlockCacheLifetime.TotalMilliseconds;
       var releasedCount = zoneTreeMaintenance.ReleaseReadBuffers(ticks);
-      var releasedCacheKeyRecordCount = zoneTreeMaintenance.ReleaseCircularKeyCacheRecords();
-      var releasedCacheValueRecordCount = zoneTreeMaintenance.ReleaseCircularValueCacheRecords();
+      var releasedCacheKeyRecordCount = zoneTreeMaintenance.ReleaseKeyCacheRecords();
+      var releasedCacheValueRecordCount = zoneTreeMaintenance.ReleaseValueCacheRecords();
       Trace($"Released read buffers: {releasedCount}, " +
           $"cached key records: {releasedCacheKeyRecordCount}, " +
           $"cached value records: {releasedCacheValueRecordCount}");

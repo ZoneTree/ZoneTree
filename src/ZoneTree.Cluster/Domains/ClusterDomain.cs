@@ -169,7 +169,7 @@ internal sealed class ClusterDomain : IClusterDomain
     return outcome;
   }
 
-  public Task SyncWALAsync(CancellationToken cancellationToken = default)
+  public Task SyncWalAsync(CancellationToken cancellationToken = default)
   {
     EnsureUsable();
     cancellationToken.ThrowIfCancellationRequested();

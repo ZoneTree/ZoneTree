@@ -192,7 +192,7 @@ internal sealed partial class SharedWalStore<TKey, TValue>
 
   void StartWriter()
   {
-    if (!IsAsync && !Options.SyncCompressedModeOptions.EnableTailWriterJob)
+    if (!IsAsync && !Options.EnableSyncJob)
       return;
     Running = true;
     Writer = Task.Factory.StartNew(WriteLoop, CancellationToken.None,
@@ -225,9 +225,9 @@ internal sealed partial class SharedWalStore<TKey, TValue>
       // leaves work visible here or leaves the wake signal set.
       if (IsAsync && !Queue.IsEmpty)
         continue;
-      var interval = IsAsync ? Options.AsyncCompressedModeOptions.EmptyQueuePollInterval :
-          Options.SyncCompressedModeOptions.TailWriterJobInterval;
-      if (interval == 0) Thread.Yield();
+      var interval = IsAsync ? Options.EmptyQueuePollInterval :
+          Options.SyncJobInterval;
+      if (interval == TimeSpan.Zero) Thread.Yield();
       else WakeWriter.Wait(interval);
     }
   }

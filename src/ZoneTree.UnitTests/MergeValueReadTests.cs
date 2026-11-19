@@ -22,10 +22,10 @@ public sealed class MergeValueReadTests
         .DisableDeletion()
         .ConfigureDiskSegmentOptions(options =>
         {
-          options.DiskSegmentMode = mode;
+          options.Mode = mode;
           options.ValueCacheSize = 0;
         })
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.None)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.None)
         .OpenOrCreate();
     for (var key = 0; key < count; ++key)
       tree.Upsert(key, "old-" + key);

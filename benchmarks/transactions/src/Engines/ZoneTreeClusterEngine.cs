@@ -45,7 +45,7 @@ public sealed class ZoneTreeClusterEngine : ITransactionEngine
     Domain = Cluster.GetDomain("records");
     Column = Domain.GetColumn<long, byte[]>("records");
     Maintainer = Cluster.CreateColumnMaintainer("records");
-    Maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(1);
+    Maintainer.BlockCacheLifetime = TimeSpan.FromMinutes(1);
     Maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(30);
     Storage = Cluster.GetCoordinatedColumnMaintenance<long, byte[]>("records").ZoneTree.Maintenance;
     Storage.OnDiskSegmentActivated += StartBottomMerge;
@@ -78,7 +78,7 @@ public sealed class ZoneTreeClusterEngine : ITransactionEngine
   {
     Maintainer.EvictToDisk();
     Maintainer.WaitForBackgroundThreadsAsync().GetAwaiter().GetResult();
-    Cluster.Maintenance.SaveMetaData();
+    Cluster.Maintenance.SaveMetadata();
   }
 
   public void Dispose()

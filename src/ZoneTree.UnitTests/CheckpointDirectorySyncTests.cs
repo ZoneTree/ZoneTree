@@ -15,16 +15,16 @@ public sealed class CheckpointDirectorySyncTests
           .SetMutableSegmentMaxItemCount(32)
           .ConfigureDiskSegmentOptions(options =>
           {
-            options.DiskSegmentMode = diskMode;
+            options.Mode = diskMode;
             options.MinimumRecordCount = 8;
             options.MaximumRecordCount = 16;
           })
           .ConfigureWriteAheadLogOptions(options =>
           {
-            options.WriteAheadLogMode = mode;
+            options.Mode = mode;
             options.CompressionBlockSize = 256;
             options.SharedModeOptions.MaximumChunkSize = 1024;
-            options.SyncCompressedModeOptions.EnableTailWriterJob = false;
+            options.EnableSyncJob = false;
           });
 
   [Test]
@@ -51,7 +51,7 @@ public sealed class CheckpointDirectorySyncTests
     var files = new PowerLossFileStreamProvider();
     using var tree = Factory(files, mode, diskMode).Create();
     for (var key = 0; key < 120; ++key) tree.Upsert(key, key + 1);
-    await tree.SyncWALAsync();
+    await tree.SyncWalAsync();
     tree.Maintenance.MoveMutableSegmentForward();
     var segments = tree.Maintenance.ReadOnlySegments.Select(segment => segment.SegmentId).ToArray();
     var chunks = files.GetFiles("data/seg/shared").Order().ToArray();
@@ -83,7 +83,7 @@ public sealed class CheckpointDirectorySyncTests
     for (var batch = 0; batch < 2; ++batch)
     {
       for (var key = batch * 64; key < (batch + 1) * 64; ++key) tree.Upsert(key, key + 1);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
       tree.Maintenance.MoveMutableSegmentForward();
       tree.Maintenance.StartMergeOperation().Join();
     }
@@ -116,7 +116,7 @@ public sealed class CheckpointDirectorySyncTests
     using var tree = Factory(files, mode, diskMode).Create();
     var oldMetadata = files.ReadAllBytes("data/0.json");
     for (var key = 0; key < 120; ++key) tree.Upsert(key, key + 1);
-    await tree.SyncWALAsync();
+    await tree.SyncWalAsync();
     tree.Maintenance.MoveMutableSegmentForward();
     var oldMetaWal = files.ReadAllBytes("data/0.meta.wal");
     Assert.That(oldMetaWal, Is.Not.Empty);
@@ -124,7 +124,7 @@ public sealed class CheckpointDirectorySyncTests
     {
       if (path == "data") throw new IOException("Injected metadata directory sync failure.");
     };
-    try { Assert.Throws<IOException>(tree.Maintenance.SaveMetaData); }
+    try { Assert.Throws<IOException>(tree.Maintenance.SaveMetadata); }
     finally { files.BeforeDirectorySync = null; }
     Assert.That(files.ReadAllBytes("data/0.meta.wal"), Is.EqualTo(oldMetaWal));
 
@@ -141,10 +141,10 @@ public sealed class CheckpointDirectorySyncTests
     // generation of the metadata that did reach the OS, after retrying its sync.
     for (var key = 120; key < 180; ++key) tree.Upsert(key, key + 1);
     tree.Maintenance.MoveMutableSegmentForward();
-    await tree.SyncWALAsync();
+    await tree.SyncWalAsync();
     using var continued = Factory(files.SimulatePowerLoss(), mode, diskMode).Open();
     AssertRecords(continued, 180);
-    tree.Maintenance.SaveMetaData();
+    tree.Maintenance.SaveMetadata();
     Assert.That(files.ReadAllBytes("data/0.meta.wal"), Is.Empty);
   }
 

@@ -13,7 +13,7 @@ public sealed class SingleSegmentIteratorTests
   {
     using var tree = new ZoneTreeFactory<int, int>(new InMemoryFileStreamProvider())
         .SetDataDirectory("single-iterator-tests")
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.None)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.None)
         .OpenOrCreate();
     for (var i = 1; i <= 9; i++) tree.Upsert(i, i);
     tree.ForceDelete(4);

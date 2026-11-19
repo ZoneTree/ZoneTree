@@ -28,12 +28,12 @@ public sealed class ZoneTreeMetaOptionsTests
   public void CreatePersistsActiveOptionsInMetadata()
   {
     var dataPath = CreateDataPath();
-    var expected = CreateExpectedOptions("created", CompressionMethod.Brotli);
+    var expected = CreateExpectedOptions("created");
 
     try
     {
       using var zoneTree = OpenConfiguredZoneTree(dataPath, expected);
-      zoneTree.Maintenance.SaveMetaData();
+      zoneTree.Maintenance.SaveMetadata();
 
       Assert.That(
           zoneTree.Maintenance.CloneOptions().DiskSegmentOptions.MaterializedEntryCacheSize,
@@ -53,14 +53,14 @@ public sealed class ZoneTreeMetaOptionsTests
   public void OpenExistingTreePersistsActiveOptionsOverLoadedMetadata()
   {
     var dataPath = CreateDataPath();
-    var staleOptions = CreateExpectedOptions("stale", CompressionMethod.LZ4);
-    var activeOptions = CreateExpectedOptions("active", CompressionMethod.Zstd);
+    var staleOptions = CreateExpectedOptions("stale");
+    var activeOptions = CreateExpectedOptions("active");
 
     try
     {
       using (var zoneTree = OpenConfiguredZoneTree(dataPath, staleOptions))
       {
-        zoneTree.Maintenance.SaveMetaData();
+        zoneTree.Maintenance.SaveMetadata();
       }
 
       AssertMetadataOptions(dataPath, staleOptions);
@@ -89,21 +89,21 @@ public sealed class ZoneTreeMetaOptionsTests
         .SetDiskSegmentMaxItemCount(expected.DiskSegmentMaxItemCount)
         .ConfigureWriteAheadLogOptions(options =>
         {
-          options.WriteAheadLogMode = expected.WriteAheadLogMode;
+          options.Mode = expected.WriteAheadLogMode;
           options.CustomOptions = expected.WriteAheadLogCustomOptions;
           options.CompressionBlockSize = expected.WriteAheadLogCompressionBlockSize;
           options.CompressionMethod = expected.WriteAheadLogCompressionMethod;
           options.CompressionLevel = expected.WriteAheadLogCompressionLevel;
-          options.AsyncCompressedModeOptions.EmptyQueuePollInterval =
-              expected.AsyncCompressedModeEmptyQueuePollInterval;
-          options.SyncCompressedModeOptions.EnableTailWriterJob =
-              expected.SyncCompressedModeEnableTailWriterJob;
-          options.SyncCompressedModeOptions.TailWriterJobInterval =
-              expected.SyncCompressedModeTailWriterJobInterval;
+          options.EmptyQueuePollInterval =
+              expected.EmptyQueuePollInterval;
+          options.EnableSyncJob =
+              expected.EnableSyncJob;
+          options.SyncJobInterval =
+              expected.SyncJobInterval;
         })
         .ConfigureDiskSegmentOptions(options =>
         {
-          options.DiskSegmentMode = expected.DiskSegmentMode;
+          options.Mode = expected.DiskSegmentMode;
           options.CompressionBlockSize = expected.DiskSegmentCompressionBlockSize;
           options.CompressionMethod = expected.DiskSegmentCompressionMethod;
           options.CompressionLevel = expected.DiskSegmentCompressionLevel;
@@ -113,59 +113,58 @@ public sealed class ZoneTreeMetaOptionsTests
           options.ValueCacheSize = expected.DiskSegmentValueCacheSize;
           options.MaterializedEntryCacheSize = expected.DiskSegmentMaterializedEntryCacheSize;
           options.SearchHintPrefetchSize = expected.DiskSegmentSearchHintPrefetchSize;
-          options.KeyCacheRecordLifeTimeInMillisecond =
-              expected.DiskSegmentKeyCacheRecordLifeTimeInMillisecond;
-          options.ValueCacheRecordLifeTimeInMillisecond =
-              expected.DiskSegmentValueCacheRecordLifeTimeInMillisecond;
+          options.KeyCacheRecordLifetime =
+              expected.DiskSegmentKeyCacheRecordLifetime;
+          options.ValueCacheRecordLifetime =
+              expected.DiskSegmentValueCacheRecordLifetime;
           options.DefaultSparseArrayStepSize = expected.DefaultSparseArrayStepSize;
         })
         .OpenOrCreate();
   }
 
   static ExpectedOptions CreateExpectedOptions(
-      string customOptions,
-      CompressionMethod compressionMethod)
+      string customOptions)
   {
-    return compressionMethod switch
+    return customOptions switch
     {
-      CompressionMethod.LZ4 => new ExpectedOptions(
+      "stale" => new ExpectedOptions(
           MutableSegmentMaxItemCount: 37,
           MutableSegmentBloomFilterBitsPerItem: 5,
           DiskSegmentMaxItemCount: 73,
-          WriteAheadLogMode: WriteAheadLogMode.Sync,
+          WriteAheadLogMode: WriteAheadLogMode.AsyncPrivate,
           WriteAheadLogCustomOptions: customOptions,
           WriteAheadLogCompressionBlockSize: 128 * 1024,
-          WriteAheadLogCompressionMethod: CompressionMethod.LZ4,
-          WriteAheadLogCompressionLevel: CompressionLevels.LZ4HighCompression3,
-          AsyncCompressedModeEmptyQueuePollInterval: 17,
-          SyncCompressedModeEnableTailWriterJob: false,
-          SyncCompressedModeTailWriterJobInterval: 19,
+          WriteAheadLogCompressionMethod: CompressionMethod.None,
+          WriteAheadLogCompressionLevel: 0,
+          EmptyQueuePollInterval: TimeSpan.FromMilliseconds(17),
+          EnableSyncJob: false,
+          SyncJobInterval: TimeSpan.FromMilliseconds(19),
           DiskSegmentMode: DiskSegmentMode.SingleDiskSegment,
           DiskSegmentCompressionBlockSize: 256 * 1024,
-          DiskSegmentCompressionMethod: CompressionMethod.LZ4,
-          DiskSegmentCompressionLevel: CompressionLevels.LZ4HighCompression4,
+          DiskSegmentCompressionMethod: CompressionMethod.None,
+          DiskSegmentCompressionLevel: 0,
           DiskSegmentMaximumRecordCount: 101,
           DiskSegmentMinimumRecordCount: 51,
           DiskSegmentKeyCacheSize: 11,
           DiskSegmentValueCacheSize: 13,
           DiskSegmentMaterializedEntryCacheSize: 17,
           DiskSegmentSearchHintPrefetchSize: 19,
-          DiskSegmentKeyCacheRecordLifeTimeInMillisecond: 23,
-          DiskSegmentValueCacheRecordLifeTimeInMillisecond: 29,
+          DiskSegmentKeyCacheRecordLifetime: TimeSpan.FromMilliseconds(23),
+          DiskSegmentValueCacheRecordLifetime: TimeSpan.FromMilliseconds(29),
           DefaultSparseArrayStepSize: 31),
 
-      CompressionMethod.Zstd => new ExpectedOptions(
+      "active" => new ExpectedOptions(
           MutableSegmentMaxItemCount: 41,
           MutableSegmentBloomFilterBitsPerItem: 7,
           DiskSegmentMaxItemCount: 83,
-          WriteAheadLogMode: WriteAheadLogMode.SyncCompressed,
+          WriteAheadLogMode: WriteAheadLogMode.Private,
           WriteAheadLogCustomOptions: customOptions,
           WriteAheadLogCompressionBlockSize: 192 * 1024,
           WriteAheadLogCompressionMethod: CompressionMethod.Zstd,
           WriteAheadLogCompressionLevel: CompressionLevels.Zstd1,
-          AsyncCompressedModeEmptyQueuePollInterval: 43,
-          SyncCompressedModeEnableTailWriterJob: true,
-          SyncCompressedModeTailWriterJobInterval: 47,
+          EmptyQueuePollInterval: TimeSpan.FromMilliseconds(43),
+          EnableSyncJob: true,
+          SyncJobInterval: TimeSpan.FromMilliseconds(47),
           DiskSegmentMode: DiskSegmentMode.MultiPartDiskSegment,
           DiskSegmentCompressionBlockSize: 384 * 1024,
           DiskSegmentCompressionMethod: CompressionMethod.Zstd,
@@ -176,37 +175,37 @@ public sealed class ZoneTreeMetaOptionsTests
           DiskSegmentValueCacheSize: 19,
           DiskSegmentMaterializedEntryCacheSize: 23,
           DiskSegmentSearchHintPrefetchSize: 29,
-          DiskSegmentKeyCacheRecordLifeTimeInMillisecond: 31,
-          DiskSegmentValueCacheRecordLifeTimeInMillisecond: 37,
+          DiskSegmentKeyCacheRecordLifetime: TimeSpan.FromMilliseconds(31),
+          DiskSegmentValueCacheRecordLifetime: TimeSpan.FromMilliseconds(37),
           DefaultSparseArrayStepSize: 41),
 
-      CompressionMethod.Brotli => new ExpectedOptions(
+      "created" => new ExpectedOptions(
           MutableSegmentMaxItemCount: 43,
           MutableSegmentBloomFilterBitsPerItem: 11,
           DiskSegmentMaxItemCount: 89,
-          WriteAheadLogMode: WriteAheadLogMode.SyncCompressed,
+          WriteAheadLogMode: WriteAheadLogMode.Private,
           WriteAheadLogCustomOptions: customOptions,
           WriteAheadLogCompressionBlockSize: 224 * 1024,
-          WriteAheadLogCompressionMethod: CompressionMethod.Brotli,
-          WriteAheadLogCompressionLevel: CompressionLevels.BrotliFastest,
-          AsyncCompressedModeEmptyQueuePollInterval: 59,
-          SyncCompressedModeEnableTailWriterJob: false,
-          SyncCompressedModeTailWriterJobInterval: 61,
+          WriteAheadLogCompressionMethod: CompressionMethod.Zstd,
+          WriteAheadLogCompressionLevel: CompressionLevels.Zstd3,
+          EmptyQueuePollInterval: TimeSpan.FromMilliseconds(59),
+          EnableSyncJob: false,
+          SyncJobInterval: TimeSpan.FromMilliseconds(61),
           DiskSegmentMode: DiskSegmentMode.MultiPartDiskSegment,
           DiskSegmentCompressionBlockSize: 512 * 1024,
-          DiskSegmentCompressionMethod: CompressionMethod.Brotli,
-          DiskSegmentCompressionLevel: CompressionLevels.BrotliSmallestSize,
+          DiskSegmentCompressionMethod: CompressionMethod.Zstd,
+          DiskSegmentCompressionLevel: CompressionLevels.ZstdMax,
           DiskSegmentMaximumRecordCount: 109,
           DiskSegmentMinimumRecordCount: 59,
           DiskSegmentKeyCacheSize: 23,
           DiskSegmentValueCacheSize: 29,
           DiskSegmentMaterializedEntryCacheSize: 31,
           DiskSegmentSearchHintPrefetchSize: 37,
-          DiskSegmentKeyCacheRecordLifeTimeInMillisecond: 41,
-          DiskSegmentValueCacheRecordLifeTimeInMillisecond: 43,
+          DiskSegmentKeyCacheRecordLifetime: TimeSpan.FromMilliseconds(41),
+          DiskSegmentValueCacheRecordLifetime: TimeSpan.FromMilliseconds(43),
           DefaultSparseArrayStepSize: 47),
 
-      _ => throw new ArgumentOutOfRangeException(nameof(compressionMethod))
+      _ => throw new ArgumentOutOfRangeException(nameof(customOptions))
     };
   }
 
@@ -230,20 +229,20 @@ public sealed class ZoneTreeMetaOptionsTests
 
     var walOptions = meta.WriteAheadLogOptions;
     Assert.That(walOptions, Is.Not.Null);
-    Assert.That(walOptions.WriteAheadLogMode, Is.EqualTo(expected.WriteAheadLogMode));
+    Assert.That(walOptions.Mode, Is.EqualTo(expected.WriteAheadLogMode));
     Assert.That(walOptions.CompressionBlockSize, Is.EqualTo(expected.WriteAheadLogCompressionBlockSize));
     Assert.That(walOptions.CompressionMethod, Is.EqualTo(expected.WriteAheadLogCompressionMethod));
     Assert.That(walOptions.CompressionLevel, Is.EqualTo(expected.WriteAheadLogCompressionLevel));
-    Assert.That(walOptions.AsyncCompressedModeOptions.EmptyQueuePollInterval,
-        Is.EqualTo(expected.AsyncCompressedModeEmptyQueuePollInterval));
-    Assert.That(walOptions.SyncCompressedModeOptions.EnableTailWriterJob,
-        Is.EqualTo(expected.SyncCompressedModeEnableTailWriterJob));
-    Assert.That(walOptions.SyncCompressedModeOptions.TailWriterJobInterval,
-        Is.EqualTo(expected.SyncCompressedModeTailWriterJobInterval));
+    Assert.That(walOptions.EmptyQueuePollInterval,
+        Is.EqualTo(expected.EmptyQueuePollInterval));
+    Assert.That(walOptions.EnableSyncJob,
+        Is.EqualTo(expected.EnableSyncJob));
+    Assert.That(walOptions.SyncJobInterval,
+        Is.EqualTo(expected.SyncJobInterval));
 
     var diskOptions = meta.DiskSegmentOptions;
     Assert.That(diskOptions, Is.Not.Null);
-    Assert.That(diskOptions.DiskSegmentMode, Is.EqualTo(expected.DiskSegmentMode));
+    Assert.That(diskOptions.Mode, Is.EqualTo(expected.DiskSegmentMode));
     Assert.That(diskOptions.CompressionBlockSize, Is.EqualTo(expected.DiskSegmentCompressionBlockSize));
     Assert.That(diskOptions.CompressionMethod, Is.EqualTo(expected.DiskSegmentCompressionMethod));
     Assert.That(diskOptions.CompressionLevel, Is.EqualTo(expected.DiskSegmentCompressionLevel));
@@ -255,10 +254,10 @@ public sealed class ZoneTreeMetaOptionsTests
         Is.EqualTo(expected.DiskSegmentMaterializedEntryCacheSize));
     Assert.That(diskOptions.SearchHintPrefetchSize,
         Is.EqualTo(expected.DiskSegmentSearchHintPrefetchSize));
-    Assert.That(diskOptions.KeyCacheRecordLifeTimeInMillisecond,
-        Is.EqualTo(expected.DiskSegmentKeyCacheRecordLifeTimeInMillisecond));
-    Assert.That(diskOptions.ValueCacheRecordLifeTimeInMillisecond,
-        Is.EqualTo(expected.DiskSegmentValueCacheRecordLifeTimeInMillisecond));
+    Assert.That(diskOptions.KeyCacheRecordLifetime,
+        Is.EqualTo(expected.DiskSegmentKeyCacheRecordLifetime));
+    Assert.That(diskOptions.ValueCacheRecordLifetime,
+        Is.EqualTo(expected.DiskSegmentValueCacheRecordLifetime));
     Assert.That(diskOptions.DefaultSparseArrayStepSize,
         Is.EqualTo(expected.DefaultSparseArrayStepSize));
 
@@ -300,9 +299,9 @@ public sealed class ZoneTreeMetaOptionsTests
       int WriteAheadLogCompressionBlockSize,
       CompressionMethod WriteAheadLogCompressionMethod,
       int WriteAheadLogCompressionLevel,
-      int AsyncCompressedModeEmptyQueuePollInterval,
-      bool SyncCompressedModeEnableTailWriterJob,
-      int SyncCompressedModeTailWriterJobInterval,
+      TimeSpan EmptyQueuePollInterval,
+      bool EnableSyncJob,
+      TimeSpan SyncJobInterval,
       DiskSegmentMode DiskSegmentMode,
       int DiskSegmentCompressionBlockSize,
       CompressionMethod DiskSegmentCompressionMethod,
@@ -313,7 +312,7 @@ public sealed class ZoneTreeMetaOptionsTests
       int DiskSegmentValueCacheSize,
       int DiskSegmentMaterializedEntryCacheSize,
       int DiskSegmentSearchHintPrefetchSize,
-      int DiskSegmentKeyCacheRecordLifeTimeInMillisecond,
-      int DiskSegmentValueCacheRecordLifeTimeInMillisecond,
+      TimeSpan DiskSegmentKeyCacheRecordLifetime,
+      TimeSpan DiskSegmentValueCacheRecordLifetime,
       int DefaultSparseArrayStepSize);
 }

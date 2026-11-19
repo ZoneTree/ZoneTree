@@ -184,8 +184,8 @@ public sealed class DiskSegmentLeaseTests
   {
     using var tree = new ZoneTreeFactory<int, int>(new AbstractFileStream.InMemoryFileStreamProvider())
         .SetDataDirectory("failed-iterator-lease")
-        .ConfigureWriteAheadLogOptions(x => x.WriteAheadLogMode = WriteAheadLogMode.None)
-        .ConfigureDiskSegmentOptions(x => x.DiskSegmentMode = DiskSegmentMode.SingleDiskSegment)
+        .ConfigureWriteAheadLogOptions(x => x.Mode = WriteAheadLogMode.None)
+        .ConfigureDiskSegmentOptions(x => x.Mode = DiskSegmentMode.SingleDiskSegment)
         .OpenOrCreate();
     for (var i = 0; i < 100; ++i)
       tree.Upsert(i, i);

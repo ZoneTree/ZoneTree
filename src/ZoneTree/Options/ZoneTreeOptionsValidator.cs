@@ -128,15 +128,9 @@ internal static class ZoneTreeOptionsValidator
       return new InvalidOptionValueException(Option(owner, nameof(options.SharedModeOptions.MaximumChunkSize)),
           options.SharedModeOptions.MaximumChunkSize, "Must be positive");
 
-    if (options.SyncCompressedModeOptions == null)
-      return new MissingOptionException(Option(owner, nameof(options.SyncCompressedModeOptions)));
-
-    if (options.AsyncCompressedModeOptions == null)
-      return new MissingOptionException(Option(owner, nameof(options.AsyncCompressedModeOptions)));
-
     Exception exception = ValidateDefinedEnum(
-        Option(owner, nameof(options.WriteAheadLogMode)),
-        options.WriteAheadLogMode);
+        Option(owner, nameof(options.Mode)),
+        options.Mode);
     if (exception != null)
       return exception;
 
@@ -147,6 +141,38 @@ internal static class ZoneTreeOptionsValidator
     if (exception != null)
       return exception;
 
+    exception = ValidateDelay(
+        Option(owner, nameof(options.EmptyQueuePollInterval)),
+        options.EmptyQueuePollInterval);
+    if (exception != null)
+      return exception;
+
+    return ValidateDelay(
+        Option(owner, nameof(options.SyncJobInterval)),
+        options.SyncJobInterval);
+  }
+
+  /// <summary>
+  /// Validates a delay that a background loop waits for. A wait takes at most
+  /// int.MaxValue milliseconds, and a negative delay would stop the loop.
+  /// </summary>
+  static InvalidOptionValueException ValidateDelay(string option, TimeSpan value)
+  {
+    if (value < TimeSpan.Zero || value.TotalMilliseconds > int.MaxValue)
+      return new InvalidOptionValueException(
+          option,
+          value,
+          $"Value must be from zero to {TimeSpan.FromMilliseconds(int.MaxValue)}");
+    return null;
+  }
+
+  static InvalidOptionValueException ValidateNotNegative(string option, TimeSpan value)
+  {
+    if (value < TimeSpan.Zero)
+      return new InvalidOptionValueException(
+          option,
+          value,
+          "Value must be greater than or equal to zero");
     return null;
   }
 
@@ -155,8 +181,8 @@ internal static class ZoneTreeOptionsValidator
     const string owner = nameof(ZoneTreeOptions<object, object>.DiskSegmentOptions);
 
     Exception exception = ValidateDefinedEnum(
-        Option(owner, nameof(options.DiskSegmentMode)),
-        options.DiskSegmentMode);
+        Option(owner, nameof(options.Mode)),
+        options.Mode);
     if (exception != null)
       return exception;
 
@@ -210,25 +236,13 @@ internal static class ZoneTreeOptionsValidator
     return ValidateDiskSegmentOptionValues(options.DiskSegmentOptions);
   }
 
-  static Exception ValidateWriteAheadLogOptionValues(WriteAheadLogOptions options)
+  static InvalidOptionValueException ValidateWriteAheadLogOptionValues(WriteAheadLogOptions options)
   {
     const string owner = nameof(ZoneTreeOptions<object, object>.WriteAheadLogOptions);
 
-    Exception exception = ZoneTreeOptionValidationRules.WriteAheadLogCompressionBlockSize.Validate(
+    return ZoneTreeOptionValidationRules.WriteAheadLogCompressionBlockSize.Validate(
         Option(owner, nameof(options.CompressionBlockSize)),
         options.CompressionBlockSize);
-    if (exception != null)
-      return exception;
-
-    exception = ZoneTreeOptionValidationRules.WriteAheadLogEmptyQueuePollInterval.Validate(
-        Option(owner, $"{nameof(options.AsyncCompressedModeOptions)}.{nameof(options.AsyncCompressedModeOptions.EmptyQueuePollInterval)}"),
-        options.AsyncCompressedModeOptions.EmptyQueuePollInterval);
-    if (exception != null)
-      return exception;
-
-    return ZoneTreeOptionValidationRules.WriteAheadLogTailWriterJobInterval.Validate(
-        Option(owner, $"{nameof(options.SyncCompressedModeOptions)}.{nameof(options.SyncCompressedModeOptions.TailWriterJobInterval)}"),
-        options.SyncCompressedModeOptions.TailWriterJobInterval);
   }
 
   static Exception ValidateDiskSegmentOptionValues(DiskSegmentOptions options)
@@ -285,15 +299,15 @@ internal static class ZoneTreeOptionsValidator
     if (exception != null)
       return exception;
 
-    exception = ZoneTreeOptionValidationRules.DiskSegmentKeyCacheRecordLifeTimeInMillisecond.Validate(
-        Option(owner, nameof(options.KeyCacheRecordLifeTimeInMillisecond)),
-        options.KeyCacheRecordLifeTimeInMillisecond);
+    exception = ValidateNotNegative(
+        Option(owner, nameof(options.KeyCacheRecordLifetime)),
+        options.KeyCacheRecordLifetime);
     if (exception != null)
       return exception;
 
-    exception = ZoneTreeOptionValidationRules.DiskSegmentValueCacheRecordLifeTimeInMillisecond.Validate(
-        Option(owner, nameof(options.ValueCacheRecordLifeTimeInMillisecond)),
-        options.ValueCacheRecordLifeTimeInMillisecond);
+    exception = ValidateNotNegative(
+        Option(owner, nameof(options.ValueCacheRecordLifetime)),
+        options.ValueCacheRecordLifetime);
     if (exception != null)
       return exception;
 

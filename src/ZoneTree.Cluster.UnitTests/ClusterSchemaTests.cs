@@ -56,7 +56,7 @@ public sealed class ClusterSchemaTests
       }
       visits.Execute(transaction => transaction.Upsert(7, 1));
       cache.Upsert("greeting", "hello");
-      await cluster.SyncWALAsync();
+      await cluster.SyncWalAsync();
     }
     // No declarations: the catalog alone opens the cluster, and typed handles open the columns.
     using var reopened = Factory.OpenInProcess(Options());
@@ -165,7 +165,7 @@ public sealed class ClusterSchemaTests
       var cache = await cluster.Schema.CreateColumnAsync(
           new RawColumnDefinition<int, string>("cache") { ValueSerializerId = "test.reversed" });
       cache.Upsert(1, "abc");
-      await cluster.SyncWALAsync();
+      await cluster.SyncWalAsync();
     }
     using (var reopened = Factory.OpenInProcess(Options(
         new ClusterEncodingRegistry().AddSerializer("test.reversed", 1, new ReversedStringSerializer()))))

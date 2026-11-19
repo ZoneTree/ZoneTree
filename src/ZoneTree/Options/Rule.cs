@@ -21,11 +21,6 @@ internal readonly record struct Rule(
     return Min(ToBytesFromKilobytes(kilobytes));
   }
 
-  public static Rule MinSeconds(int seconds)
-  {
-    return Min(ToMilliseconds(seconds));
-  }
-
   public Rule Max(int maximum)
   {
     return new Rule(MinimumValue, maximum).ValidateDefinition();
@@ -39,11 +34,6 @@ internal readonly record struct Rule(
   public Rule MaxKB(int kilobytes)
   {
     return Max(ToBytesFromKilobytes(kilobytes));
-  }
-
-  public Rule MaxSeconds(int seconds)
-  {
-    return Max(ToMilliseconds(seconds));
   }
 
   public InvalidOptionValueException Validate(
@@ -89,10 +79,5 @@ internal readonly record struct Rule(
   static int ToBytesFromKilobytes(int kilobytes)
   {
     return checked(kilobytes * 1024);
-  }
-
-  static int ToMilliseconds(int seconds)
-  {
-    return checked(seconds * 1000);
   }
 }

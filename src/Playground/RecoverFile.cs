@@ -16,11 +16,11 @@ public sealed class RecoverFile
 {
   public static void Recover1()
   {
-    var path = @"..\..\data\AsyncCompressed-50M-str-str";
+    var path = @"..\..\data\AsyncPrivate-50M-str-str";
     var fileStreamProvider = new LocalFileStreamProvider();
     var logger = new ConsoleLogger();
     var deviceManager = new RandomAccessDeviceManager(logger, fileStreamProvider, path);
-    ZoneTreeMetaWAL<string, string>.LoadZoneTreeMetaWithoutWALRecords(deviceManager);
+    ZoneTreeMetaWal<string, string>.LoadZoneTreeMetaWithoutWalRecords(deviceManager);
     var options = new ZoneTreeOptions<string, string>
     {
       Logger = logger,
@@ -34,8 +34,8 @@ public sealed class RecoverFile
       ValueSerializer = new Utf8StringSerializer(),
       Comparer = new StringOrdinalComparerAscending()
     };
-    options.WriteAheadLogOptions.WriteAheadLogMode
-        = WriteAheadLogMode.AsyncCompressed;
+    options.WriteAheadLogOptions.Mode
+        = WriteAheadLogMode.AsyncPrivate;
 
     var stopWatch = new Stopwatch();
     var disk = DiskSegmentFactory.CreateDiskSegment(54, options);
@@ -46,11 +46,11 @@ public sealed class RecoverFile
 
   public static void Recover2()
   {
-    var path = @"..\..\data\SyncCompressed-3M-transactional-int-int";
+    var path = @"..\..\data\Private-3M-transactional-int-int";
     var logger = new ConsoleLogger();
     var fileStreamProvider = new LocalFileStreamProvider();
     var deviceManager = new RandomAccessDeviceManager(logger, fileStreamProvider, path);
-    var meta = ZoneTreeMetaWAL<int, int>.LoadZoneTreeMetaWithoutWALRecords(deviceManager);
+    var meta = ZoneTreeMetaWal<int, int>.LoadZoneTreeMetaWithoutWalRecords(deviceManager);
     var options = new ZoneTreeOptions<int, int>
     {
       Logger = logger,

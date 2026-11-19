@@ -3,34 +3,31 @@ namespace ZoneTree.Options;
 /// <summary>
 /// Available write ahead log modes.
 /// </summary>
+/// <remarks>
+/// A private WAL belongs to one memory segment, and each segment recovers its own records.
+/// A shared WAL is one journal for all memory segments, and they recover one ordered prefix
+/// of records. The caller writes the records in the Private and Shared modes, and a
+/// background writer writes them in the AsyncPrivate and AsyncShared modes.
+/// WAL file names hold the values.
+/// </remarks>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1008", Justification = "WAL file names store the values.")]
 public enum WriteAheadLogMode : byte
 {
   /// <summary>
-  /// Sync mode write ahead log writes each record through the plain WAL stream
-  /// before the ZoneTree write is considered complete.
-  /// It favors simple synchronous WAL recovery semantics over write speed.
-  /// Full power-loss durability still depends on the
-  /// operating system, file system, and storage device.
+  /// Each memory segment has its own WAL, and the caller writes each record to it.
+  /// The current block of the WAL is in a separate tail file, so every returned write
+  /// survives a process crash. A power loss can lose the writes that were not synced
+  /// to the disk.
   /// </summary>
-  Sync = 0,
+  Private = 1,
 
   /// <summary>
-  /// Sync mode with compressed-block WAL storage.
-  /// It is faster than Sync and can reduce WAL size. It keeps the current
-  /// compressed tail block in a separate file, and every write to that block
-  /// survives a process crash. A power loss can lose the writes that were not
-  /// synced to the disk.
+  /// Each memory segment has its own WAL, and a background writer writes the records.
+  /// It is the recommended high-throughput persistent default for most applications.
+  /// A process crash loses the writes that are still queued for the writer, and a
+  /// power loss can also lose the written records that were not synced to the disk.
   /// </summary>
-  SyncCompressed = 1,
-
-  /// <summary>
-  /// AsyncCompressed mode writes compressed WAL records through a background
-  /// path. It is the recommended high-throughput persistent default for most
-  /// applications. A process crash loses the writes that are still queued for
-  /// the background path, and a power loss can also lose the appended writes
-  /// that were not synced to the disk.
-  /// </summary>
-  AsyncCompressed = 2,
+  AsyncPrivate = 2,
 
   /// <summary>
   /// No Write Ahead Log. Nothing is saved to the WAL file.
@@ -43,16 +40,17 @@ public enum WriteAheadLogMode : byte
   None = 3,
 
   /// <summary>
-  /// Appends on the caller to a shared, ordered, compressed-block WAL.
-  /// All memory segments use the same journal and recovery prefix. Segment
-  /// rotation does not sync the journal. SyncWALAsync provides disk durability.
+  /// All memory segments share one ordered WAL journal, and the caller writes each
+  /// record to it. The segments recover one ordered prefix of records. Segment
+  /// rotation does not sync the journal. SyncWalAsync provides disk durability.
   /// </summary>
   Shared = 4,
 
   /// <summary>
-  /// Queues writes to a single shared WAL writer. Appended records have the
-  /// same ordered recovery prefix as Shared; a process crash can lose queued
-  /// records. SyncWALAsync drains the preceding writes and syncs the journal.
+  /// All memory segments share one ordered WAL journal, and a background writer
+  /// writes the records. Written records have the same ordered recovery prefix as
+  /// Shared; a process crash can lose queued records. SyncWalAsync drains the
+  /// preceding writes and syncs the journal.
   /// </summary>
   AsyncShared = 5,
 }

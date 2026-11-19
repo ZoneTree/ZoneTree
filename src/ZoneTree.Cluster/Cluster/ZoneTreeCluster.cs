@@ -63,7 +63,8 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     Encodings = options.Encodings;
     StorageDefaults = options.StorageDefaults;
     FileStreamProvider = options.FileStreamProvider ?? new LocalFileStreamProvider();
-    CoordinatedWriteAheadLog = CopyOf(options.CoordinatedWriteAheadLog);
+    // A copy, so later changes to the caller's instance do not apply.
+    CoordinatedWriteAheadLog = options.CoordinatedWriteAheadLog.Clone();
     StorageSettings = new ColumnStorageSettings(Logger, FileStreamProvider, CoordinatedWriteAheadLog, StorageDefaults);
     Schema = new ClusterSchema(this);
     autoSyncInterval = options.AutoSyncInterval;
@@ -125,23 +126,13 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     IsReadOnly = options.IsReadOnly;
   }
 
-  /// <summary>A copy of the settings, so later changes to the caller's instance do not apply.</summary>
-  internal static WriteAheadLogOptions CopyOf(WriteAheadLogOptions options) => new()
-  {
-    WriteAheadLogMode = options.WriteAheadLogMode,
-    CompressionBlockSize = options.CompressionBlockSize,
-    CompressionMethod = options.CompressionMethod,
-    CompressionLevel = options.CompressionLevel,
-    SharedModeOptions = new() { MaximumChunkSize = options.SharedModeOptions.MaximumChunkSize }
-  };
-
   /// <summary>
   /// Whether two write ahead log settings make the same journal: its mode, which sets what a
   /// crash can lose, and the block format recovery reads. The compression level and the chunk
   /// size only change how new records are written.
   /// </summary>
   internal static bool SameJournal(WriteAheadLogOptions left, WriteAheadLogOptions right)
-      => left.WriteAheadLogMode == right.WriteAheadLogMode &&
+      => left.Mode == right.Mode &&
          left.CompressionBlockSize == right.CompressionBlockSize &&
          left.CompressionMethod == right.CompressionMethod;
 
@@ -482,7 +473,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
   internal IEnumerable<Column> OpenColumnsOf(ClusterDomain domain)
       => OpenColumns.Values.Where(column => column.Domain == domain);
 
-  public Task SyncWALAsync(CancellationToken cancellationToken = default)
+  public Task SyncWalAsync(CancellationToken cancellationToken = default)
   {
     ThrowIfDisposed();
     cancellationToken.ThrowIfCancellationRequested();
@@ -490,7 +481,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     // coordinated columns together.
     var sync = Task.WhenAll(OpenColumns.Values
         .Where(column => column.Domain == null)
-        .Select(column => column.SyncWALAsync())
+        .Select(column => column.SyncWalAsync())
         .Concat(Domains.Values.Select(domain => domain.Coordinator.SyncAsync())));
     return cancellationToken.CanBeCanceled ? sync.WaitAsync(cancellationToken) : sync;
   }
@@ -615,11 +606,11 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
       => (GetColumn<TKey, TValue>(name, ColumnKind.Standalone, null) as StandaloneColumn<TKey, TValue>
           ?? throw TypeMismatch(name)).Tree;
 
-  public void SaveMetaData()
+  public void SaveMetadata()
   {
     ThrowIfDisposed();
     foreach (var column in OpenColumns.Values)
-      column.SaveMetaData();
+      column.SaveMetadata();
   }
 
   public void Drop()

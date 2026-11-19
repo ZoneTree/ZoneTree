@@ -15,7 +15,7 @@ description: Configure WAL and disk compression independently, understand block 
   <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"
     ><strong>WAL / recent writes</strong>
     <p>
-      Ordinary trees default to AsyncCompressed; transactional trees promote
+      Ordinary trees default to AsyncPrivate; transactional trees promote
       that setting to AsyncShared. Both default to Zstd level 1 and 256 KiB blocks.
     </p></Panel>
   <Panel class="p-0" bodyClass="p-4"
@@ -49,8 +49,8 @@ Changing compression options does not rewrite existing files. A merge may write 
 >
   <p>
     A compression method or level does not define when a write is durable.
-    <code>AsyncCompressed</code>, <code>SyncCompressed</code>, <code>Shared</code>,
-    <code>AsyncShared</code>, plain <code>Sync</code>, and <code>None</code> have different logging and failure
+    <code>AsyncPrivate</code>, <code>Private</code>, <code>Shared</code>,
+    <code>AsyncShared</code>, and <code>None</code> have different logging and failure
     behavior. Choose the mode with the
     <a href="/docs/durability/wal-modes/">WAL modes guide</a>, then tune
     compression within that choice.
@@ -59,23 +59,18 @@ Changing compression options does not rewrite existing files. A merge may write 
 
 ## Select a method and its own level
 
-`CompressionMethod` supports `LZ4`, `Zstd`, `Brotli`, `Gzip`, and `None`. Use the matching constants from `CompressionLevels`; a numeric level is not a comparable quality setting across codecs.
+`CompressionMethod` supports `Zstd` and `None`. Use the constants from `CompressionLevels` for the Zstd level.
 
 | Method | Example level constants | Interpretation |
 | --- | --- | --- |
-| `Zstd` | `Zstd0`, `Zstd1`, `Zstd3` | Codec-specific numeric levels. `Zstd1` is ZoneTree's default. |
-| `LZ4` | `LZ4Fastest`, `LZ4HighCompression9` | Fast mode or a supported high-compression level. |
-| `Brotli` | `BrotliFastest`, `BrotliOptimal`, `BrotliSmallestSize` | Named .NET compression-level choices. |
-| `Gzip` | `GzipFastest`, `GzipOptimal`, `GzipSmallestSize` | Named .NET compression-level choices. |
+| `Zstd` | `Zstd0`, `Zstd1`, `Zstd3` | Zstd levels from `ZstdMin` to `ZstdMax`. Lower levels are faster, and negative levels trade more ratio for speed. `Zstd1` is ZoneTree's default. |
 | `None` | Level is unused. | Stores uncompressed payload bytes within the selected storage path. |
 
-ZoneTree validates the level against the method. Do not carry a level constant from one codec to another just because both constants are integers. Use `CompressionLevels.IsValid(method, level)` when accepting an application-supplied profile.
-
-When you change the method and keep the default level, the default level 1 is `GzipFastest` for Gzip and `BrotliFastest` for Brotli. LZ4 has no level 1, so LZ4 with the default level uses `LZ4Fastest`.
+ZoneTree validates the level against the method. Use `CompressionLevels.IsValid(method, level)` when accepting an application-supplied profile.
 
 ## Configure WAL and disk together
 
-This complete example explicitly selects a WAL mode, uses LZ4 for its log blocks, and keeps Zstd for disk records. It finishes a controlled merge and verifies the value remains readable:
+This complete example explicitly selects a WAL mode, uses the fastest default level for its log blocks, and a higher Zstd level for disk records. It finishes a controlled merge and verifies the value remains readable:
 
 ```csharp
 using ZoneTree;
@@ -85,15 +80,15 @@ using var tree = new ZoneTreeFactory<int, string>()
     .SetDataDirectory("data/compression-profile")
     .ConfigureWriteAheadLogOptions(options =>
     {
-        options.WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed;
-        options.CompressionMethod = CompressionMethod.LZ4;
-        options.CompressionLevel = CompressionLevels.LZ4Fastest;
+        options.Mode = WriteAheadLogMode.AsyncPrivate;
+        options.CompressionMethod = CompressionMethod.Zstd;
+        options.CompressionLevel = CompressionLevels.Zstd1;
         options.CompressionBlockSize = 256 * 1024;
     })
     .ConfigureDiskSegmentOptions(options =>
     {
         options.CompressionMethod = CompressionMethod.Zstd;
-        options.CompressionLevel = CompressionLevels.Zstd0;
+        options.CompressionLevel = CompressionLevels.Zstd3;
         options.CompressionBlockSize = 4 * 1024 * 1024;
     })
     .OpenOrCreate();
@@ -111,7 +106,7 @@ if (!tree.TryGet(42, out var value) || value.Length != 1000)
 Console.WriteLine($"Read {value.Length} characters after merging.");
 ```
 
-The two methods are intentionally independent; this is an example profile, not a universal performance recommendation. `SetDiskSegmentCompressionBlockSize()` is a factory shorthand for the disk block-size option.
+The two settings are intentionally independent; this is an example profile, not a universal performance recommendation. `SetDiskSegmentCompressionBlockSize()` is a factory shorthand for the disk block-size option.
 
 ## Block reads and caching
 
@@ -136,7 +131,7 @@ Decompressed cache memory follows the uncompressed block size, not the compresse
 
 ## Coordinate block retention with the maintainer
 
-The standard maintainer releases inactive read buffers according to `BlockCacheLifeTime` and its cleanup interval. Shorter retention can reduce inactive memory while causing more reads and decompression when data becomes hot again.
+The standard maintainer releases inactive read buffers according to `BlockCacheLifetime` and its cleanup interval. Shorter retention can reduce inactive memory while causing more reads and decompression when data becomes hot again.
 
 The cleanup timer captures its interval when started. Use the restart sequence in [memory usage](memory-usage.mdx#configure-retention-and-observe-the-write-set) when changing that interval, and include materialized objects when measuring the cache footprint.
 
@@ -156,32 +151,25 @@ Use the same records, key order, concurrency, and read/write mix for each candid
 
 Compare newly written datasets when you want a clean profile comparison. Reopening an old tree with new options can leave a mixture of old and new files, making a filename or factory configuration alone misleading evidence of the active codecs.
 
-## Migrate to Zstd before 2.2.0
+## Upgrade from a version before 2.1.10
 
-ZoneTree 2.2.0 removes LZ4, Gzip, and Brotli compression, the `Sync` WAL mode, and the WAL formats of versions before 2.1.0. It opens only databases that ZoneTree 2.1.10 found free of them, which the `DbVersion` field of the metadata records.
+ZoneTree 2.2.0 removed LZ4, Gzip, and Brotli compression, the `Sync` WAL mode, and the WAL formats of versions before 2.1.0. It opens databases from storage format version 2.1.10 on, which the `DbVersion` field of the metadata records, and moves them to `DbVersion` 2.2.0. It refuses an older database with `ExistingDatabaseVersionIsNotCompatibleException`.
 
-ZoneTree 2.1.10 checks every database it opens: its options, disk segment files, multipart headers, WAL files, and shared WAL chunks. A database free of LZ4, Gzip, Brotli, `Sync` WALs, and WALs of versions before 2.1.0 moves to `DbVersion` 2.1.10 without any action. Otherwise ZoneTree logs a warning that lists what still uses them. A new database starts at 2.1.10 when its options use Zstd or no compression and a WAL mode other than `Sync`.
+To upgrade an older database:
 
-To migrate a database that still uses them:
-
-1. Upgrade to ZoneTree 2.1.10.
-2. Configure Zstd or `None` compression for the WAL and the disk segments, and a WAL mode other than `Sync`. Zstd and `AsyncCompressed` are the defaults.
-3. Open the database once with `EnableZstdMigration()`.
-4. Check that the log has no migration warning, and delete the backup when the database works.
-5. Upgrade to ZoneTree 2.2.0.
+1. Open it once with ZoneTree 2.1.10 and `EnableZstdMigration()`, with Zstd or `None` compression and a WAL mode other than `Sync`.
+2. Check that the log has no migration warning.
+3. Open it with ZoneTree 2.2.0.
 
 ```csharp
-using ZoneTree;
-
+// With ZoneTree 2.1.10.
 using var tree = new ZoneTreeFactory<int, string>()
     .SetDataDirectory("data")
     .EnableZstdMigration()
     .OpenOrCreate();
 ```
 
-The migration first copies the data directory, and the WAL directory when it is elsewhere, next to it as `<directory>.zstd-migration-backup-<timestamp>`, so it needs free disk space for one more copy of the database. Then it converts every file that uses LZ4, Gzip, or Brotli to the configured compression in place, every `Sync` WAL to a `SyncCompressed` WAL with the same records, and every WAL of a version before 2.1.0 to the current WAL format with the same records. Each converted file replaces the old one atomically, so a database that crashes or stops during the migration opens again, and the next migration continues. A database at `DbVersion` 2.1.10 no longer opens with LZ4, Gzip, or Brotli options or the `Sync` WAL mode.
-
-ZoneTree 2.2.0 does not restore live backups of databases that were not migrated. Take a new backup after the migration. A custom WAL provider owns its files: the migration does not convert them, and the database moves to 2.1.10 only when its WALs report no such files through `IWriteAheadLog.GetLegacyFiles`.
+ZoneTree 2.2.0 restores live backups from storage format version 2.1.10 on. To keep an older backup, restore it with ZoneTree 2.1.10, open the restored database once with `EnableZstdMigration()`, and take a new backup.
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Evaluate compression as part of the storage budget</strong>

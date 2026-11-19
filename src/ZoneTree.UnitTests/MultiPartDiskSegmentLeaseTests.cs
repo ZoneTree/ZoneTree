@@ -96,7 +96,7 @@ public sealed class MultiPartDiskSegmentLeaseTests
           "data/DeferredDropPreservesTheFirstExclusionPlan"),
       DiskSegmentOptions = new DiskSegmentOptions
       {
-        DiskSegmentMode = DiskSegmentMode.MultiPartDiskSegment,
+        Mode = DiskSegmentMode.MultiPartDiskSegment,
         CompressionMethod = CompressionMethod.None,
         CompressionLevel = 0,
         CompressionBlockSize = 1024,

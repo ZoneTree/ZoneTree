@@ -1,5 +1,6 @@
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Logger;
+using ZoneTree.Options;
 using ZoneTree.Serializers;
 using ZoneTree.WAL;
 
@@ -432,12 +433,15 @@ public sealed class InMemoryFileStreamProviderTests
   {
     var serializer = new UnicodeStringSerializer();
     var provider = new InMemoryFileStreamProvider();
-    var wal = new SyncFileSystemWriteAheadLog<string, string>(
+    var options = new WriteAheadLogOptions();
+    options.EnableSyncJob = false;
+    var wal = new PrivateWriteAheadLog<string, string>(
         new ConsoleLogger(),
         provider,
         serializer,
         serializer,
-        "test.wal");
+        "test.wal",
+        options);
     wal.Append("hello", "world", 0);
     var result = wal.ReadLogEntries(false, false, true);
     Assert.That(result.Success, Is.True);

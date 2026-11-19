@@ -439,8 +439,8 @@ Use one coordinator and one normal writer per backup destination. A coordinator 
     digest.
   </p>
   <p>
-    Legacy version 1 local catalogs remain readable with length and record-count
-    checks, but lack stored content digests. A new generation recopies legacy
+    Version 1 local catalogs are readable with length and record-count
+    checks, but lack stored content digests. A new generation recopies their
     files from the source to establish checksums. Local and object-storage
     layouts are separate formats.
   </p>

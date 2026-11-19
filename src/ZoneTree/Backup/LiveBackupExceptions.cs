@@ -58,3 +58,22 @@ public sealed class LiveBackupIntegrityException : LiveBackupException
 
   public string FileName { get; }
 }
+
+/// <summary>The backup is of a database that this version does not open.</summary>
+public sealed class LiveBackupVersionIsNotCompatibleException : LiveBackupException
+{
+  public LiveBackupVersionIsNotCompatibleException(long generationId, string dbVersion)
+      : base($"Live backup generation {generationId} is of a database with storage format version " +
+          $"{dbVersion ?? "none"}, and ZoneTree {Core.ZoneTreeInfo.ProductVersion} restores backups of databases " +
+          $"from storage format version {Core.ZoneTreeInfo.MinimumDbVersion} on. Restore it with ZoneTree " +
+          $"{Core.ZoneTreeInfo.MinimumDbVersion}, open the restored database once with " +
+          "ZoneTreeFactory.EnableZstdMigration(), and take a new backup.")
+  {
+    GenerationId = generationId;
+    DbVersion = dbVersion;
+  }
+
+  public long GenerationId { get; }
+
+  public string DbVersion { get; }
+}

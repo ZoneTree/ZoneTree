@@ -32,8 +32,6 @@ public sealed class ZoneTreeFactory<TKey, TValue>
 
   bool HasCustomWriteAheadLogProviderFactory;
 
-  bool IsZstdMigrationEnabled;
-
   /// <summary>
   /// True if the factory was given a write ahead log provider instead of creating its own.
   /// </summary>
@@ -247,34 +245,26 @@ public sealed class ZoneTreeFactory<TKey, TValue>
          (Options.WriteAheadLogProvider == null && !HasCustomWriteAheadLogProviderFactory)))
       ConfigureTransactionalWriteAheadLog();
     Options.WriteAheadLogProvider ??= GetWriteAheadLogProvider(Options);
-    if (ZoneTreeMetaWAL<TKey, TValue>.Exists(Options))
-    {
-      var meta = ZoneTreeMetaWAL<TKey, TValue>
-          .LoadZoneTreeMetaWithoutWALRecords(Options.RandomAccessDeviceManager);
-      Options.WriteAheadLogProvider.MigrateWals(Version.Parse(meta.Version));
-      if (IsZstdMigrationEnabled)
-        new ZstdMigration<TKey, TValue>(Options).Run(meta);
-    }
     IsWriteAheadLogProviderInitialized = true;
   }
 
   void ConfigureTransactionalWriteAheadLog()
   {
     var wal = Options.WriteAheadLogOptions;
-    var configuredMode = wal.WriteAheadLogMode;
+    var configuredMode = wal.Mode;
     // One journal keeps unsynced transaction writes and commit records in the
     // same recovery prefix. Preserve caller-side versus queued appends, explicit
     // shared modes, and an intentional choice to disable WAL protection.
     var sharedMode = configuredMode switch
     {
-      WriteAheadLogMode.Sync or WriteAheadLogMode.SyncCompressed => WriteAheadLogMode.Shared,
-      WriteAheadLogMode.AsyncCompressed => WriteAheadLogMode.AsyncShared,
+      WriteAheadLogMode.Private => WriteAheadLogMode.Shared,
+      WriteAheadLogMode.AsyncPrivate => WriteAheadLogMode.AsyncShared,
       _ => configuredMode
     };
     if (sharedMode == configuredMode)
       return;
 
-    wal.WriteAheadLogMode = sharedMode;
+    wal.Mode = sharedMode;
   }
 
 
@@ -372,24 +362,6 @@ public sealed class ZoneTreeFactory<TKey, TValue>
           FileStreamProvider);
     }
     FillMissingComponentsForKnownTypes();
-    FillCompressionLevels();
-  }
-
-  /// <summary>
-  /// The default compression level 1 is the fastest level of Gzip and Brotli too,
-  /// but LZ4 has no level 1. So LZ4 with the default level compresses with
-  /// <see cref="CompressionLevels.LZ4Fastest"/>.
-  /// </summary>
-  void FillCompressionLevels()
-  {
-    var wal = Options.WriteAheadLogOptions;
-    if (wal.CompressionMethod == CompressionMethod.LZ4 &&
-        wal.CompressionLevel == WriteAheadLogDefaultValues.CompressionLevel)
-      wal.CompressionLevel = CompressionLevels.LZ4Fastest;
-    var disk = Options.DiskSegmentOptions;
-    if (disk.CompressionMethod == CompressionMethod.LZ4 &&
-        disk.CompressionLevel == DiskSegmentDefaultValues.CompressionLevel)
-      disk.CompressionLevel = CompressionLevels.LZ4Fastest;
   }
 
   /// <summary>
@@ -418,7 +390,6 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   public ZoneTreeFactory<TKey, TValue> Validate()
   {
     FillMissingComponentsForKnownTypes();
-    FillCompressionLevels();
     if (!ZoneTreeOptionsValidator.TryValidate(Options, out var exception, requireStorageComponents: false))
       throw exception;
     return this;
@@ -626,8 +597,8 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   /// The deletion delegates are not used: transactions delete keys themselves.
   /// A merge filter factory or a range deletion delegate is rejected with
   /// <see cref="InvalidOptionValueException"/>.
-  /// With the built-in WAL provider, Sync and SyncCompressed are promoted to
-  /// Shared, and AsyncCompressed to AsyncShared, to preserve commit recovery
+  /// With the built-in WAL provider, Private is promoted to
+  /// Shared, and AsyncPrivate to AsyncShared, to preserve commit recovery
   /// order across segments. Compression settings are retained. Explicit shared
   /// modes and None are retained. Custom provider factories keep their configured mode
   /// and are responsible for their own transaction recovery guarantees.
@@ -664,19 +635,6 @@ public sealed class ZoneTreeFactory<TKey, TValue>
     FillMissingOptionsForKnownTypes();
     InitWriteAheadLogProvider(true);
     return MvccZoneTree<TKey, TValue>.Load(Options, canCreate: false, canOpen: true);
-  }
-
-  /// <summary>
-  /// Migrates an existing database when it opens, because version 2.2.0 opens only migrated
-  /// databases: files with LZ4, Gzip or Brotli compression get the configured compression,
-  /// and Sync WALs become SyncCompressed WALs. The migration first backs up the database
-  /// directories next to them, and keeps the backup.
-  /// </summary>
-  /// <returns>ZoneTree Factory</returns>
-  public ZoneTreeFactory<TKey, TValue> EnableZstdMigration()
-  {
-    IsZstdMigrationEnabled = true;
-    return this;
   }
 
   /// <summary>

@@ -32,10 +32,10 @@ public sealed class DiskSegmentSearchTests
         .SetDataDirectory("integer-search-tests")
         .SetComparer(comparer)
         .DisableDeletion()
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.None)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.None)
         .ConfigureDiskSegmentOptions(options =>
         {
-          options.DiskSegmentMode = DiskSegmentMode.SingleDiskSegment;
+          options.Mode = DiskSegmentMode.SingleDiskSegment;
           options.DefaultSparseArrayStepSize = 16;
           options.SearchHintPrefetchSize = 0;
         });
@@ -106,10 +106,10 @@ public sealed class DiskSegmentSearchTests
         .SetComparer(comparer)
         .DisableDeletion()
         .Configure(options => options.AllowUnsafeOptionValues = true)
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.None)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.None)
         .ConfigureDiskSegmentOptions(options =>
         {
-          options.DiskSegmentMode = DiskSegmentMode.SingleDiskSegment;
+          options.Mode = DiskSegmentMode.SingleDiskSegment;
           options.DefaultSparseArrayStepSize = sparseStep;
           options.CompressionBlockSize = blockSize;
           options.KeyCacheSize = 0;

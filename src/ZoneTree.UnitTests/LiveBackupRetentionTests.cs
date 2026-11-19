@@ -107,8 +107,8 @@ public sealed class LiveBackupRetentionTests
         .Select(x => long.Parse(Path.GetFileNameWithoutExtension(x))).Order().ToArray();
     ZoneTreeFactory<int, int> Factory(string path) => new ZoneTreeFactory<int, int>().SetDataDirectory(Path.Combine(Root, path))
         .DisableDeletion().Configure(o => o.AllowUnsafeOptionValues = true).SetMutableSegmentMaxItemCount(17)
-        .ConfigureDiskSegmentOptions(o => { o.DiskSegmentMode = Disk; o.MinimumRecordCount = 4; o.MaximumRecordCount = 8; })
-        .ConfigureWriteAheadLogOptions(o => { o.WriteAheadLogMode = WriteAheadLogMode.AsyncShared; o.CompressionBlockSize = 1024; o.SharedModeOptions.MaximumChunkSize = 4096; });
+        .ConfigureDiskSegmentOptions(o => { o.Mode = Disk; o.MinimumRecordCount = 4; o.MaximumRecordCount = 8; })
+        .ConfigureWriteAheadLogOptions(o => { o.Mode = WriteAheadLogMode.AsyncShared; o.CompressionBlockSize = 1024; o.SharedModeOptions.MaximumChunkSize = 4096; });
     public Fixture(bool transactional, DiskSegmentMode disk, int keep)
     {
       Transactional = transactional; Disk = disk; Keep = keep;

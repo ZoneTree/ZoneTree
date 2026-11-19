@@ -45,7 +45,7 @@ public sealed class MvccCommitReplicatorTests
       => new ZoneTreeFactory<int, int>()
           .SetDataDirectory(directory)
           .SetLogger(SilentTestLogger.Instance)
-          .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.None)
+          .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.None)
           .OpenOrCreateTransactional();
 
   static int? Read(ITransactionalZoneTree<int, int> tree, int key)
@@ -121,7 +121,7 @@ public sealed class MvccCommitReplicatorTests
       }
       Assert.That(replicator.Syncs, Is.EqualTo(1));
       Assert.That(Read(tree, 2), Is.EqualTo(20));
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
       Assert.That(replicator.Syncs, Is.EqualTo(2));
     }
     finally

@@ -29,7 +29,7 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
       throw new ArgumentException("A data directory is required.", nameof(options));
     ZoneTreeCluster.ValidateSyncInterval(options.AutoSyncInterval);
     ArgumentNullException.ThrowIfNull(options.CoordinatedWriteAheadLog);
-    if (options.CoordinatedWriteAheadLog.WriteAheadLogMode is not (WriteAheadLogMode.Shared or WriteAheadLogMode.AsyncShared))
+    if (options.CoordinatedWriteAheadLog.Mode is not (WriteAheadLogMode.Shared or WriteAheadLogMode.AsyncShared))
       throw new ArgumentException(
           "Coordinated columns need the Shared or AsyncShared write ahead log mode.", nameof(options));
     return ValidateDeclarations(options);

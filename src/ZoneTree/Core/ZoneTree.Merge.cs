@@ -230,7 +230,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     }
 
     var enableMultiPartDiskSegment =
-        Options.DiskSegmentOptions.DiskSegmentMode == DiskSegmentMode.MultiPartDiskSegment;
+        Options.DiskSegmentOptions.Mode == DiskSegmentMode.MultiPartDiskSegment;
 
     var len = mergingSegments.Count;
     var diskSegmentIndex = hasDiskSegment ? len - 1 : -1;
@@ -299,7 +299,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         catch (Exception e)
         {
           Logger.LogError(e);
-          OnCanNotDropDiskSegmentCreator?.Invoke(diskSegmentCreator, e);
+          OnCannotDropDiskSegmentCreator?.Invoke(diskSegmentCreator, e);
         }
         // Do not remove null assignments because of GC issue!
         readOnlySegmentsArray = null;
@@ -429,7 +429,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
     // A disk checkpoint must not publish writes beyond the durable shared
     // journal prefix. Memory-segment rotation needs no such barrier.
-    if (Options.WriteAheadLogProvider.GetWAL<TKey, TValue>(MutableSegment.SegmentId, SegmentWalCategory)
+    if (Options.WriteAheadLogProvider.GetWal<TKey, TValue>(MutableSegment.SegmentId, SegmentWalCategory)
         is ZoneTree.WAL.ISharedWriteAheadLogCoordinator sharedWal)
       sharedWal.SyncBeforeMerge();
     var newDiskSegment = diskSegmentCreator.CreateReadOnlyDiskSegment();
@@ -468,7 +468,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       catch (Exception e)
       {
         Logger.LogError(e);
-        OnCanNotDropDiskSegment?.Invoke(oldDiskSegment, e);
+        OnCannotDropDiskSegment?.Invoke(oldDiskSegment, e);
       }
 
       // Recovery takes the highest op index from the meta WAL and the segment WALs it
@@ -486,7 +486,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         catch (Exception e)
         {
           Logger.LogError(e);
-          OnCanNotDropReadOnlySegment?.Invoke(segment, e);
+          OnCannotDropReadOnlySegment?.Invoke(segment, e);
         }
         --len;
       }

@@ -69,32 +69,31 @@ public sealed class WriteAheadLogTests
     Assert.That(exception.RecordIndex, Is.EqualTo(1));
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public void WalReloadsRecordsWith32BitChecksums(WriteAheadLogMode mode)
   {
     const string category = "WalReloadsRecordsWith32BitChecksums";
     var provider = new InMemoryFileStreamProvider();
     var options = new WriteAheadLogOptions
     {
-      WriteAheadLogMode = mode,
+      Mode = mode,
       CompressionBlockSize = 128
     };
-    options.SyncCompressedModeOptions.EnableTailWriterJob = false;
+    options.EnableSyncJob = false;
     var serializer = new UnicodeStringSerializer();
     var keys = new[] { "", "small", "large", "tail" };
     var values = new[] { "", "value", new string('x', 4096), "last" };
     var walProvider = new WriteAheadLogProvider(SilentTestLogger.Instance, provider);
     walProvider.InitCategory(category);
-    using (var wal = walProvider.GetOrCreateWAL(0, category, options, serializer, serializer))
+    using (var wal = walProvider.GetOrCreateWal(0, category, options, serializer, serializer))
     {
       for (var i = 0; i < keys.Length; ++i)
         wal.Append(keys[i], values[i], i + 1);
     }
 
     walProvider = new WriteAheadLogProvider(SilentTestLogger.Instance, provider);
-    using var reopened = walProvider.GetOrCreateWAL(0, category, options, serializer, serializer);
+    using var reopened = walProvider.GetOrCreateWal(0, category, options, serializer, serializer);
     var result = reopened.ReadLogEntries(true, true, false);
 
     Assert.That(result.Success, Is.True);
@@ -107,14 +106,8 @@ public sealed class WriteAheadLogTests
   [Test]
   public void WalBasicTest()
   {
-    var filePath = "./WalBasicTest.wal";
-    if (File.Exists(filePath))
-      File.Delete(filePath);
     var serializer = new UnicodeStringSerializer();
-    var wal = new SyncFileSystemWriteAheadLog<string, string>(
-        SilentTestLogger.Instance,
-        new LocalFileStreamProvider(),
-        serializer, serializer, filePath);
+    var wal = CreatePrivateWal(serializer, "WalBasicTest.wal");
     var len = 1;
     for (var i = 0; i < len; ++i)
     {
@@ -137,14 +130,8 @@ public sealed class WriteAheadLogTests
   [Test]
   public void WalReportsMaximumOpIndexWithoutSorting()
   {
-    var filePath = "./WalReportsMaximumOpIndexWithoutSorting.wal";
-    if (File.Exists(filePath))
-      File.Delete(filePath);
     var serializer = new UnicodeStringSerializer();
-    var wal = new SyncFileSystemWriteAheadLog<string, string>(
-        SilentTestLogger.Instance,
-        new LocalFileStreamProvider(),
-        serializer, serializer, filePath);
+    var wal = CreatePrivateWal(serializer, "WalReportsMaximumOpIndexWithoutSorting.wal");
 
     wal.Append("key0", "value0", 5);
     wal.Append("key1", "value1", 2);
@@ -159,6 +146,17 @@ public sealed class WriteAheadLogTests
     wal.Drop();
   }
 
+  static PrivateWriteAheadLog<string, string> CreatePrivateWal(
+      UnicodeStringSerializer serializer, string filePath)
+  {
+    var options = new WriteAheadLogOptions();
+    options.EnableSyncJob = false;
+    return new PrivateWriteAheadLog<string, string>(
+        SilentTestLogger.Instance,
+        new InMemoryFileStreamProvider(),
+        serializer, serializer, filePath, options);
+  }
+
   [Test]
   public void TestWriteAheadLogCorruptionException()
   {
@@ -171,68 +169,21 @@ public sealed class WriteAheadLogTests
   }
 
   [Test]
-  public void CompressedFileStreamIgnoresIncompleteMainBlockPayload()
-  {
-    var provider = new InMemoryFileStreamProvider();
-    var filePath = "CompressedFileStreamIgnoresIncompleteMainBlockPayload.wal";
-    const int blockSize = 16;
-    var block0 = Enumerable.Range(0, blockSize).Select(x => (byte)x).ToArray();
-    var block1 = Enumerable.Range(blockSize, blockSize).Select(x => (byte)x).ToArray();
-
-    WriteFile(provider, filePath, CreateMainFileWithIncompleteSecondBlock(block0, block1, 4));
-    WriteFile(provider, filePath + ".tail", CreateTailFile(1, block1));
-
-    var expected = block0.Concat(block1).ToArray();
-    var actual = new byte[expected.Length];
-    long streamLength;
-    int readLength;
-    using (var stream = new CompressedFileStream(
-        SilentTestLogger.Instance,
-        provider,
-        filePath,
-        blockSize,
-        false,
-        0,
-        CompressionMethod.None,
-        0))
-    {
-      stream.Seek(0, SeekOrigin.Begin);
-      readLength = stream.Read(actual, 0, actual.Length);
-      streamLength = stream.Length;
-    }
-
-    Assert.That(streamLength, Is.EqualTo(expected.Length));
-    Assert.That(readLength, Is.EqualTo(expected.Length));
-    Assert.That(actual, Is.EqualTo(expected));
-    Assert.That(
-        provider.ReadAllBytes(filePath).Length,
-        Is.EqualTo(sizeof(byte) + 3 * sizeof(int) + block0.Length));
-  }
-
-  [Test]
   public void CompressedFileStreamSkipAcrossFullBlockIntoShortTail()
   {
     var provider = new InMemoryFileStreamProvider();
     var filePath = "CompressedFileStreamSkipAcrossFullBlockIntoShortTail.wal";
     const int blockSize = 16;
-    var block0 = Enumerable.Range(0, blockSize).Select(x => (byte)x).ToArray();
-    var tailBlock = Enumerable.Range(blockSize, 8).Select(x => (byte)x).ToArray();
+    var content = Enumerable.Range(0, blockSize + 8).Select(x => (byte)x).ToArray();
+    var tailBlock = content[blockSize..];
 
-    WriteFile(provider, filePath, CreateMainFileWithSingleBlock(block0));
-    WriteFile(provider, filePath + ".tail", CreateTailFile(1, tailBlock));
+    using (var stream = Open())
+      stream.Write(content);
 
     var buffer = new byte[1];
     int readLength;
     long seekPosition;
-    using (var stream = new CompressedFileStream(
-        SilentTestLogger.Instance,
-        provider,
-        filePath,
-        blockSize,
-        false,
-        0,
-        CompressionMethod.None,
-        0))
+    using (var stream = Open())
     {
       stream.Seek(blockSize - 2, SeekOrigin.Begin);
       seekPosition = stream.Seek(4, SeekOrigin.Current);
@@ -242,31 +193,16 @@ public sealed class WriteAheadLogTests
     Assert.That(seekPosition, Is.EqualTo(blockSize + 2));
     Assert.That(readLength, Is.EqualTo(1));
     Assert.That(buffer[0], Is.EqualTo(tailBlock[2]));
-  }
 
-  [Test]
-  public void CompressedFileStreamTailWriterStopsWhenClosedBeforeItStarts()
-  {
-    var provider = new InMemoryFileStreamProvider();
-    // Closing right after construction runs before the tail writer
-    // thread starts in most iterations.
-    var tailWriters = new List<Task>();
-    for (var i = 0; i < 20; ++i)
-    {
-      var stream = new CompressedFileStream(
-          SilentTestLogger.Instance,
-          provider,
-          $"CompressedFileStreamTailWriterStopsWhenClosedBeforeItStarts{i}.wal",
-          16,
-          true,
-          1,
-          CompressionMethod.None,
-          0);
-      tailWriters.Add(stream.TailWriterTask);
-      stream.Dispose();
-    }
-
-    Assert.That(Task.WaitAll(tailWriters.ToArray(), TimeSpan.FromSeconds(10)), Is.True);
+    CompressedFileStream Open() => new(
+        SilentTestLogger.Instance,
+        provider,
+        filePath,
+        blockSize,
+        false,
+        TimeSpan.Zero,
+        CompressionMethod.None,
+        0);
   }
 
   [Test]
@@ -289,7 +225,7 @@ public sealed class WriteAheadLogTests
         filePath,
         blockSize,
         false,
-        0,
+        TimeSpan.Zero,
         CompressionMethod.None,
         0);
 
@@ -347,7 +283,7 @@ public sealed class WriteAheadLogTests
         filePath,
         16,
         false,
-        0,
+        TimeSpan.Zero,
         CompressionMethod.None,
         0);
 
@@ -388,7 +324,7 @@ public sealed class WriteAheadLogTests
         filePath,
         16,
         false,
-        0,
+        TimeSpan.Zero,
         CompressionMethod.None,
         0);
 
@@ -489,7 +425,7 @@ public sealed class WriteAheadLogTests
         filePath,
         16,
         false,
-        0,
+        TimeSpan.Zero,
         compressionMethod,
         0);
   }
@@ -541,7 +477,7 @@ public sealed class WriteAheadLogTests
         filePath,
         blockSize,
         false,
-        0,
+        TimeSpan.Zero,
         CompressionMethod.None,
         0);
 
@@ -570,65 +506,6 @@ public sealed class WriteAheadLogTests
     Assert.That(actual, Is.EqualTo(expected));
   }
 
-  static void WriteFile(
-      InMemoryFileStreamProvider provider,
-      string path,
-      byte[] bytes)
-  {
-    using var stream = provider.CreateFileStream(
-        path,
-        FileMode.Create,
-        FileAccess.ReadWrite,
-        FileShare.None);
-    stream.Write(bytes, 0, bytes.Length);
-  }
-
-  static byte[] CreateMainFileWithSingleBlock(byte[] block)
-  {
-    using var stream = new MemoryStream();
-    using var writer = new BinaryWriter(stream);
-    writer.Write((byte)CompressionMethod.None);
-    WriteCompressedBlock(writer, 0, block, block.Length);
-    writer.Flush();
-    return stream.ToArray();
-  }
-
-  static byte[] CreateMainFileWithIncompleteSecondBlock(
-      byte[] block0,
-      byte[] block1,
-      int secondBlockBytesWritten)
-  {
-    using var stream = new MemoryStream();
-    using var writer = new BinaryWriter(stream);
-    writer.Write((byte)CompressionMethod.None);
-    WriteCompressedBlock(writer, 0, block0, block0.Length);
-    WriteCompressedBlock(writer, 1, block1, secondBlockBytesWritten);
-    writer.Flush();
-    return stream.ToArray();
-  }
-
-  static byte[] CreateTailFile(int blockIndex, byte[] block)
-  {
-    using var stream = new MemoryStream();
-    using var writer = new BinaryWriter(stream);
-    writer.Write(blockIndex);
-    writer.Write(block.Length);
-    writer.Write(block);
-    writer.Flush();
-    return stream.ToArray();
-  }
-
-  static void WriteCompressedBlock(
-      BinaryWriter writer,
-      int blockIndex,
-      byte[] block,
-      int bytesToWrite)
-  {
-    writer.Write(blockIndex);
-    writer.Write(block.Length);
-    writer.Write(block.Length);
-    writer.Write(block, 0, bytesToWrite);
-  }
 
   sealed class LengthCountingMemoryStream : MemoryStream
   {

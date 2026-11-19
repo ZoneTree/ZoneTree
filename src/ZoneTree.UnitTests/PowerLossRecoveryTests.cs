@@ -33,7 +33,7 @@ public sealed class PowerLossRecoveryTests
     return new ZoneTreeFactory<int, int>(provider)
         .SetDataDirectory("data")
         .SetLogger(SilentTestLogger.Instance)
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = mode);
+        .ConfigureWriteAheadLogOptions(options => options.Mode = mode);
   }
 
   static ZoneTreeFactory<int, int> SmallBlockFactory(
@@ -129,50 +129,50 @@ public sealed class PowerLossRecoveryTests
   public void TreeOpensAfterItsMetaFileShrinksOverAStaleTempFile()
   {
     var provider = new InMemoryFileStreamProvider();
-    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
+    using (var tree = Factory(provider, WriteAheadLogMode.Private).OpenOrCreate())
       tree.Upsert(0, 1);
     var longerMetaFile = provider.ReadAllBytes(MetaFilePath).Concat(new byte[64]).ToArray();
     Overwrite(provider, MetaFilePath + ".tmp", longerMetaFile);
 
-    using (Factory(provider, WriteAheadLogMode.Sync).Open())
+    using (Factory(provider, WriteAheadLogMode.Private).Open())
     {
     }
-    using var reopened = Factory(provider, WriteAheadLogMode.Sync).Open();
+    using var reopened = Factory(provider, WriteAheadLogMode.Private).Open();
     Assert.That(MissingKeys(reopened, 1), Is.Empty);
   }
 
   // Issue 201
 
   [Test]
-  public void PowerLossAfterSaveMetaDataKeepsTreeOpenable()
+  public void PowerLossAfterSaveMetadataKeepsTreeOpenable()
   {
     var provider = new InMemoryFileStreamProvider();
     byte[] metaWalBeforeSave;
-    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
+    using (var tree = Factory(provider, WriteAheadLogMode.Private).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 100);
       tree.Maintenance.MoveMutableSegmentForward();
       metaWalBeforeSave = provider.ReadAllBytes(MetaWalPath);
-      tree.Maintenance.SaveMetaData();
+      tree.Maintenance.SaveMetadata();
     }
     // The meta file was replaced durably, but clearing the meta WAL was not.
     Overwrite(provider, MetaWalPath, metaWalBeforeSave);
 
-    using var reopened = Factory(provider, WriteAheadLogMode.Sync).Open();
+    using var reopened = Factory(provider, WriteAheadLogMode.Private).Open();
     Assert.That(MissingKeys(reopened, 100), Is.Empty);
   }
 
   [Test]
-  public void PowerLossDuringSaveMetaDataKeepsTheRecordsOfTheNewMetaWal()
+  public void PowerLossDuringSaveMetadataKeepsTheRecordsOfTheNewMetaWal()
   {
     var provider = new InMemoryFileStreamProvider();
     byte[] metaWalBeforeSave;
-    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
+    using (var tree = Factory(provider, WriteAheadLogMode.Private).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 100);
       tree.Maintenance.MoveMutableSegmentForward();
       metaWalBeforeSave = provider.ReadAllBytes(MetaWalPath);
-      tree.Maintenance.SaveMetaData();
+      tree.Maintenance.SaveMetadata();
       UpsertKeys(tree, 100, 200);
       tree.Maintenance.MoveMutableSegmentForward();
     }
@@ -181,7 +181,7 @@ public sealed class PowerLossRecoveryTests
     Assert.That(metaWalBeforeSave.Length, Is.GreaterThan(0));
     Overwrite(provider, MetaWalPath, newRecords.Concat(metaWalBeforeSave).ToArray());
 
-    using var reopened = Factory(provider, WriteAheadLogMode.Sync).Open();
+    using var reopened = Factory(provider, WriteAheadLogMode.Private).Open();
     Assert.That(MissingKeys(reopened, 200), Is.Empty);
     Assert.That(reopened.Maintenance.ReadOnlySegments, Has.Count.EqualTo(2));
   }
@@ -192,7 +192,7 @@ public sealed class PowerLossRecoveryTests
   public void TornMetaWalTailKeepsTreeOpenable(int zeroFilledLength)
   {
     var provider = new InMemoryFileStreamProvider();
-    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
+    using (var tree = Factory(provider, WriteAheadLogMode.Private).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 100);
       tree.Maintenance.MoveMutableSegmentForward();
@@ -200,7 +200,7 @@ public sealed class PowerLossRecoveryTests
     var metaWal = provider.ReadAllBytes(MetaWalPath);
     Overwrite(provider, MetaWalPath, metaWal.Concat(new byte[zeroFilledLength]).ToArray());
 
-    using var reopened = Factory(provider, WriteAheadLogMode.Sync).Open();
+    using var reopened = Factory(provider, WriteAheadLogMode.Private).Open();
     Assert.That(MissingKeys(reopened, 100), Is.Empty);
     Assert.That(reopened.Maintenance.ReadOnlySegments, Has.Count.EqualTo(1));
   }
@@ -209,7 +209,7 @@ public sealed class PowerLossRecoveryTests
   public void CorruptedMetaWalRecordFollowedByValidRecordIsReported()
   {
     var provider = new InMemoryFileStreamProvider();
-    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
+    using (var tree = Factory(provider, WriteAheadLogMode.Private).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 100);
       tree.Maintenance.MoveMutableSegmentForward();
@@ -219,7 +219,7 @@ public sealed class PowerLossRecoveryTests
     metaWal[8] ^= 0x40;
     Overwrite(provider, MetaWalPath, metaWal);
 
-    Assert.Throws<ZoneTreeMetaCorruptionException>(() => Factory(provider, WriteAheadLogMode.Sync).Open());
+    Assert.Throws<ZoneTreeMetaCorruptionException>(() => Factory(provider, WriteAheadLogMode.Private).Open());
   }
 
   [Test]
@@ -227,44 +227,18 @@ public sealed class PowerLossRecoveryTests
   {
     var provider = new InMemoryFileStreamProvider();
     byte[] olderMetaFile;
-    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
+    using (var tree = Factory(provider, WriteAheadLogMode.Private).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 100);
       olderMetaFile = provider.ReadAllBytes(MetaFilePath);
-      tree.Maintenance.SaveMetaData();
+      tree.Maintenance.SaveMetadata();
       UpsertKeys(tree, 100, 200);
       tree.Maintenance.MoveMutableSegmentForward();
     }
     // The rename of the newer meta file is lost, or an older copy is restored.
     Overwrite(provider, MetaFilePath, olderMetaFile);
 
-    Assert.Throws<ZoneTreeMetaCorruptionException>(() => Factory(provider, WriteAheadLogMode.Sync).Open());
-  }
-
-  [Test]
-  public void MetaWalRecordsOfAnOlderVersionAreReplayed()
-  {
-    var provider = new InMemoryFileStreamProvider();
-    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
-    {
-      UpsertKeys(tree, 0, 100);
-      tree.Maintenance.MoveMutableSegmentForward();
-    }
-    // Older versions leave these bytes zero and do not write the generation.
-    var metaWal = provider.ReadAllBytes(MetaWalPath);
-    for (var offset = 0; offset < metaWal.Length; offset += MetaWalRecordSize)
-    {
-      Array.Clear(metaWal, offset + 4, sizeof(int));
-      Array.Clear(metaWal, offset + 20, sizeof(int));
-    }
-    Overwrite(provider, MetaWalPath, metaWal);
-    var meta = JsonNode.Parse(provider.ReadAllBytes(MetaFilePath)).AsObject();
-    Assert.That(meta.Remove("MetaWalGeneration"), Is.True);
-    Overwrite(provider, MetaFilePath, System.Text.Encoding.UTF8.GetBytes(meta.ToJsonString()));
-
-    using var reopened = Factory(provider, WriteAheadLogMode.Sync).Open();
-    Assert.That(MissingKeys(reopened, 100), Is.Empty);
-    Assert.That(reopened.Maintenance.ReadOnlySegments, Has.Count.EqualTo(1));
+    Assert.Throws<ZoneTreeMetaCorruptionException>(() => Factory(provider, WriteAheadLogMode.Private).Open());
   }
 
   // Issue 209
@@ -275,10 +249,10 @@ public sealed class PowerLossRecoveryTests
   static InMemoryFileStreamProvider CreateSettledTree()
   {
     var provider = new InMemoryFileStreamProvider();
-    using var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate();
+    using var tree = Factory(provider, WriteAheadLogMode.Private).OpenOrCreate();
     UpsertKeys(tree, 0, 100);
     tree.Maintenance.MoveMutableSegmentForward();
-    tree.Maintenance.SaveMetaData();
+    tree.Maintenance.SaveMetadata();
     return provider;
   }
 
@@ -291,7 +265,7 @@ public sealed class PowerLossRecoveryTests
 
     for (var i = 0; i < 3; ++i)
     {
-      using (var tree = Factory(provider, WriteAheadLogMode.Sync).Open())
+      using (var tree = Factory(provider, WriteAheadLogMode.Private).Open())
         Assert.That(MissingKeys(tree, 100), Is.Empty);
       Assert.That(provider.ReadAllBytes(MetaFilePath), Is.EqualTo(metaFile), $"reopen {i}");
     }
@@ -304,7 +278,7 @@ public sealed class PowerLossRecoveryTests
     var provider = CreateSettledTree();
     Overwrite(provider, MetaWalPath, new byte[tornLength]);
 
-    using (var tree = Factory(provider, WriteAheadLogMode.Sync).Open())
+    using (var tree = Factory(provider, WriteAheadLogMode.Private).Open())
     {
       Assert.That(provider.ReadAllBytes(MetaWalPath), Is.Empty);
       UpsertKeys(tree, 100, 200);
@@ -312,21 +286,21 @@ public sealed class PowerLossRecoveryTests
     }
 
     // Records that follow an invalid record would be reported as corruption.
-    using var reopened = Factory(provider, WriteAheadLogMode.Sync).Open();
+    using var reopened = Factory(provider, WriteAheadLogMode.Private).Open();
     Assert.That(MissingKeys(reopened, 200), Is.Empty);
   }
 
   // Issue 202
 
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
+  [TestCase(WriteAheadLogMode.Private)]
   public async Task RecoveredRecordsSurviveAPowerLossAfterTruncatingACommittedBlock(WriteAheadLogMode mode)
   {
     var provider = new InMemoryFileStreamProvider();
     using (var tree = Factory(provider, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 9400);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     // First power loss: block 0 is committed, the tail is not rewritten for block 1.
     var mainPath = MainWalPath(provider);
@@ -345,15 +319,15 @@ public sealed class PowerLossRecoveryTests
     Assert.That(MissingKeys(reopened, RecordsPerBlock), Is.Empty);
   }
 
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
+  [TestCase(WriteAheadLogMode.Private)]
   public async Task RecoveryKeepsTheCommittedBlockUntilItsReplacementIsDurable(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
     using (var tree = Factory(provider, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 9400);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     var mainPath = MainWalPath(provider);
     Overwrite(provider, mainPath + ".tail", new byte[8]);
@@ -377,204 +351,37 @@ public sealed class PowerLossRecoveryTests
     }
   }
 
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
+  [TestCase(WriteAheadLogMode.Private)]
   public async Task WritesAfterTruncatingACommittedBlockSurviveAPowerLoss(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
     using (var tree = Factory(provider, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 9400);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     var mainPath = MainWalPath(provider);
     Overwrite(provider, mainPath + ".tail", new byte[8]);
 
     using var recovered = Factory(provider, mode).Open();
     UpsertKeys(recovered, RecordsPerBlock, 2 * RecordsPerBlock + 100);
-    await recovered.SyncWALAsync();
+    await recovered.SyncWalAsync();
 
     using var reopened = Factory(provider.SimulatePowerLoss(), mode).Open();
     Assert.That(MissingKeys(reopened, 2 * RecordsPerBlock + 100), Is.Empty);
   }
 
-  // Issue 203
-
-  [Test]
-  public async Task SyncWalOpensWithAZeroFilledTail()
-  {
-    var provider = new InMemoryFileStreamProvider();
-    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
-    {
-      UpsertKeys(tree, 0, 10);
-      await tree.SyncWALAsync();
-    }
-    var mainPath = MainWalPath(provider);
-    var synced = provider.ReadAllBytes(mainPath);
-    Overwrite(provider, mainPath, synced.Concat(new byte[SectorSize]).ToArray());
-
-    using (var reopened = Factory(provider, WriteAheadLogMode.Sync).Open())
-    {
-      Assert.That(MissingKeys(reopened, 10), Is.Empty);
-      UpsertKeys(reopened, 10, 20);
-    }
-    using var again = Factory(provider, WriteAheadLogMode.Sync).Open();
-    Assert.That(MissingKeys(again, 20), Is.Empty);
-  }
-
-  [Test]
-  public async Task SyncWalDropsPersistedRecordsAfterAnUnsyncedSector()
-  {
-    var provider = new InMemoryFileStreamProvider();
-    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
-    {
-      UpsertKeys(tree, 0, 10);
-      await tree.SyncWALAsync();
-    }
-    var mainPath = MainWalPath(provider);
-    var synced = provider.ReadAllBytes(mainPath);
-    // The rest of the last synced sector is lost, and the next sector persists.
-    var image = synced
-        .Concat(new byte[SectorSize - synced.Length % SectorSize])
-        .Concat(CreateValidRecords(10, 15))
-        .ToArray();
-    Overwrite(provider, mainPath, image);
-
-    using var reopened = Factory(provider, WriteAheadLogMode.Sync).Open();
-    Assert.That(MissingKeys(reopened, 10), Is.Empty);
-    Assert.That(reopened.ContainsKey(10), Is.False);
-    Assert.That(provider.ReadAllBytes(mainPath), Is.EqualTo(synced));
-  }
-
-  [Test]
-  public async Task SyncWalTruncationIsDurableBeforeNewRecordsFollowIt()
-  {
-    var provider = new PowerLossFileStreamProvider();
-    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
-    {
-      UpsertKeys(tree, 0, 10);
-      await tree.SyncWALAsync();
-    }
-    var mainPath = MainWalPath(provider);
-    var synced = provider.ReadAllBytes(mainPath);
-    Overwrite(provider, mainPath, synced
-        .Concat(new byte[SectorSize - synced.Length % SectorSize])
-        .Concat(CreateValidRecords(10, 15))
-        .ToArray());
-
-    // Sectors of these valid records must not come back in
-    // the middle of new records, where they would look like a corruption.
-    using var reopened = Factory(provider, WriteAheadLogMode.Sync).Open();
-    Assert.That(provider.SimulatePowerLoss().ReadAllBytes(mainPath), Is.EqualTo(synced));
-  }
-
-  [TestCase(4)]
-  [TestCase(8)]
-  public async Task SyncWalReportsACorruptedRecordFollowedByValidRecords(int corruptedOffset)
-  {
-    var provider = new InMemoryFileStreamProvider();
-    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
-    {
-      UpsertKeys(tree, 0, 10);
-      await tree.SyncWALAsync();
-    }
-    var mainPath = MainWalPath(provider);
-    var bytes = provider.ReadAllBytes(mainPath);
-    // 4: the operation index fails the checksum. 8: the key length runs past the file.
-    bytes[5 * 28 + corruptedOffset + 3] ^= 0x7F;
-    Overwrite(provider, mainPath, bytes);
-
-    Assert.Throws<WriteAheadLogCorruptionException>(() => Factory(provider, WriteAheadLogMode.Sync).Open());
-    Assert.That(provider.ReadAllBytes(mainPath), Is.EqualTo(bytes));
-  }
-
-  /// <summary>
-  /// Creates a record larger than the search window of the Sync WAL recovery.
-  /// </summary>
-  static byte[] CreateRecordLargerThanTheSearchWindow(int declaredPayloadLength, int writtenPayloadLength)
-  {
-    using var stream = new MemoryStream();
-    using var writer = new BinaryWriter(stream);
-    writer.Write(1000L);
-    writer.Write(sizeof(int));
-    writer.Write(declaredPayloadLength);
-    writer.Write(Enumerable.Repeat((byte)0x5A, writtenPayloadLength).ToArray());
-    writer.Flush();
-    return stream.ToArray();
-  }
-
-  [Test]
-  public async Task SyncWalReportsDamageWhenTheSearchWindowEndsBeforeTheLog()
-  {
-    const int payloadLength = 33 * 1024 * 1024;
-    var provider = new InMemoryFileStreamProvider();
-    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
-    {
-      UpsertKeys(tree, 0, 10);
-      await tree.SyncWALAsync();
-    }
-    // The whole record is present but fails its checksum, and a valid record follows.
-    var mainPath = MainWalPath(provider);
-    var bytes = provider.ReadAllBytes(mainPath)
-        .Concat(CreateRecordLargerThanTheSearchWindow(payloadLength, payloadLength + sizeof(int) + sizeof(uint)))
-        .Concat(CreateValidRecords(10, 11))
-        .ToArray();
-    Overwrite(provider, mainPath, bytes);
-
-    Assert.Throws<WriteAheadLogCorruptionException>(() => Factory(provider, WriteAheadLogMode.Sync).Open());
-    Assert.That(provider.ReadAllBytes(mainPath), Is.EqualTo(bytes));
-  }
-
-  [Test]
-  public async Task SyncWalTruncatesACutOffRecordLargerThanTheSearchWindow()
-  {
-    const int payloadLength = 33 * 1024 * 1024;
-    var provider = new InMemoryFileStreamProvider();
-    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
-    {
-      UpsertKeys(tree, 0, 10);
-      await tree.SyncWALAsync();
-    }
-    var mainPath = MainWalPath(provider);
-    var synced = provider.ReadAllBytes(mainPath);
-    Overwrite(provider, mainPath, synced
-        .Concat(CreateRecordLargerThanTheSearchWindow(2 * payloadLength, payloadLength))
-        .ToArray());
-
-    using var reopened = Factory(provider, WriteAheadLogMode.Sync).Open();
-    Assert.That(MissingKeys(reopened, 10), Is.Empty);
-    Assert.That(provider.ReadAllBytes(mainPath), Is.EqualTo(synced));
-  }
-
-  [Test]
-  public async Task SyncWalTruncatesACorruptedLastRecord()
-  {
-    var provider = new InMemoryFileStreamProvider();
-    using (var tree = Factory(provider, WriteAheadLogMode.Sync).OpenOrCreate())
-    {
-      UpsertKeys(tree, 0, 10);
-      await tree.SyncWALAsync();
-    }
-    var mainPath = MainWalPath(provider);
-    var bytes = provider.ReadAllBytes(mainPath);
-    bytes[^1] ^= 0x40;
-    Overwrite(provider, mainPath, bytes);
-
-    using var reopened = Factory(provider, WriteAheadLogMode.Sync).Open();
-    Assert.That(MissingKeys(reopened, 9), Is.Empty);
-    Assert.That(reopened.ContainsKey(9), Is.False);
-  }
-
   // Issue 205
 
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
+  [TestCase(WriteAheadLogMode.Private)]
   public async Task CompressedWalOpensWhenTheTailLengthPersistsWithoutItsData(WriteAheadLogMode mode)
   {
     var provider = new InMemoryFileStreamProvider();
     using var tree = Factory(provider, mode).OpenOrCreate();
     UpsertKeys(tree, 0, 50);
-    await tree.SyncWALAsync();
+    await tree.SyncWalAsync();
 
     var image = Copy(provider);
     var tailPath = image.GetFiles("data/seg").Single(x => x.EndsWith(".tail", StringComparison.Ordinal));
@@ -591,14 +398,14 @@ public sealed class PowerLossRecoveryTests
     Assert.That(MissingKeys(again, 60), Is.Empty);
   }
 
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
+  [TestCase(WriteAheadLogMode.Private)]
   public async Task CompressedWalDropsPersistedRecordsAfterAnUnsyncedTailSector(WriteAheadLogMode mode)
   {
     var provider = new InMemoryFileStreamProvider();
     using var tree = Factory(provider, mode).OpenOrCreate();
     UpsertKeys(tree, 0, 50);
-    await tree.SyncWALAsync();
+    await tree.SyncWalAsync();
 
     var image = Copy(provider);
     var tailPath = image.GetFiles("data/seg").Single(x => x.EndsWith(".tail", StringComparison.Ordinal));
@@ -613,16 +420,16 @@ public sealed class PowerLossRecoveryTests
     Assert.That(reopened.ContainsKey(50), Is.False);
   }
 
-  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.Zstd)]
-  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.Zstd)]
-  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.None)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate, CompressionMethod.Zstd)]
+  [TestCase(WriteAheadLogMode.Private, CompressionMethod.Zstd)]
+  [TestCase(WriteAheadLogMode.Private, CompressionMethod.None)]
   public async Task CompressedWalReportsACorruptedCommittedBlock(WriteAheadLogMode mode, CompressionMethod compressionMethod)
   {
     var provider = new InMemoryFileStreamProvider();
     using (var tree = SmallBlockFactory(provider, mode, compressionMethod).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 1000);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     var mainPath = MainWalPath(provider);
     var bytes = provider.ReadAllBytes(mainPath);
@@ -633,9 +440,8 @@ public sealed class PowerLossRecoveryTests
     Assert.Throws<WriteAheadLogCorruptionException>(() => SmallBlockFactory(provider, mode, compressionMethod).Open());
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public async Task RecoveryFromATornTailWorksWithLocalFiles(WriteAheadLogMode mode)
   {
     var dataPath = $"data/RecoveryFromATornTailWorksWithLocalFiles{mode}";
@@ -644,18 +450,17 @@ public sealed class PowerLossRecoveryTests
     ZoneTreeFactory<int, int> LocalFactory() => new ZoneTreeFactory<int, int>()
         .SetDataDirectory(dataPath)
         .SetLogger(SilentTestLogger.Instance)
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = mode);
+        .ConfigureWriteAheadLogOptions(options => options.Mode = mode);
 
     using (var tree = LocalFactory().OpenOrCreate())
     {
       UpsertKeys(tree, 0, 50);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     var wal = Directory.GetFiles(Path.Combine(dataPath, "seg"), "*.wal*")
-        .Single(path => mode == WriteAheadLogMode.Sync || path.EndsWith(".tail", StringComparison.Ordinal));
+        .Single(path => path.EndsWith(".tail", StringComparison.Ordinal));
     var bytes = File.ReadAllBytes(wal);
-    if (mode != WriteAheadLogMode.Sync)
-      BitConverter.GetBytes(BitConverter.ToInt32(bytes, 4) + 2 * SectorSize).CopyTo(bytes, 4);
+    BitConverter.GetBytes(BitConverter.ToInt32(bytes, 4) + 2 * SectorSize).CopyTo(bytes, 4);
     File.WriteAllBytes(wal, bytes.Concat(new byte[2 * SectorSize]).ToArray());
 
     using (var recovered = LocalFactory().Open())
@@ -688,9 +493,8 @@ public sealed class PowerLossRecoveryTests
     public int Serialize(in int entry, Span<byte> destination) => BinarySerializerHelper.Write(entry, destination);
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public async Task DeserializationFailureOfAValidRecordDoesNotTruncateTheWal(WriteAheadLogMode mode)
   {
     ZoneTreeFactory<int, int> SerializerFactory(IFileStreamProvider provider)
@@ -700,7 +504,7 @@ public sealed class PowerLossRecoveryTests
     using (var tree = SerializerFactory(provider).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 10);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     SwitchableInt32Serializer.FailDeserialize = true;
     try
@@ -717,74 +521,15 @@ public sealed class PowerLossRecoveryTests
 
   // A power loss during a block commit
 
-  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.Zstd, 0)]
-  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.Zstd, SectorSize)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.Zstd, 0)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.Zstd, SectorSize)]
-  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.None, 0)]
-  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.None, SectorSize)]
-  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.LZ4, SectorSize)]
-  public async Task TornBlockCommitKeepsTheRecordsThatTheTailHolds(
-      WriteAheadLogMode mode, CompressionMethod compressionMethod, int persistedLength)
-  {
-    const int syncedCount = 60;
-    var provider = new InMemoryFileStreamProvider();
-    using (var tree = SmallBlockFactory(provider, mode, compressionMethod).OpenOrCreate())
-    {
-      UpsertKeys(tree, 0, 200);
-      await tree.SyncWALAsync();
-    }
-    var mainPath = MainWalPath(provider);
-    // Build an older-format fixture explicitly. Older explicit syncs left
-    // acknowledged records in the tail, unlike the current main-file checkpoint.
-    using var records = new MemoryStream();
-    using (var writer = new BinaryWriter(records, System.Text.Encoding.UTF8, true))
-    {
-      var serializer = new Int32Serializer();
-      for (var key = 0; key < 200; ++key)
-        LogEntry.AppendLogEntry(writer, serializer, serializer, key, key + 1, key + 1);
-    }
-    var content = records.ToArray();
-    using var legacyMain = new MemoryStream();
-    using (var writer = new BinaryWriter(legacyMain, System.Text.Encoding.UTF8, true))
-    {
-      writer.Write((byte)compressionMethod);
-      for (var offset = 0; offset + 2048 <= content.Length; offset += 2048)
-      {
-        var block = DataCompression.Compress(compressionMethod, 0, content.AsMemory(offset, 2048));
-        writer.Write(offset / 2048);
-        writer.Write(block.Length);
-        writer.Write(2048);
-        writer.Write(block.Span);
-      }
-    }
-    var syncedTail = BitConverter.GetBytes(0)
-        .Concat(BitConverter.GetBytes(syncedCount * 28))
-        .Concat(content.Take(syncedCount * 28)).ToArray();
-
-    // Only the first sector of the main append persisted; the legacy tail
-    // still contains the acknowledged records.
-    var image = Copy(provider);
-    var main = legacyMain.ToArray();
-    Assert.That(main.Length, Is.GreaterThan(persistedLength + 1));
-    var persistedEnd = Math.Max(1, persistedLength);
-    Array.Clear(main, persistedEnd, main.Length - persistedEnd);
-    Overwrite(image, mainPath, main);
-    Overwrite(image, mainPath + ".tail", syncedTail);
-
-    using var reopened = SmallBlockFactory(image, mode, compressionMethod).Open();
-    Assert.That(MissingKeys(reopened, syncedCount), Is.Empty);
-  }
-
   [Test]
   public async Task BlockHeaderWithASmallerIndexIsTorn()
   {
-    const WriteAheadLogMode mode = WriteAheadLogMode.SyncCompressed;
+    const WriteAheadLogMode mode = WriteAheadLogMode.Private;
     var provider = new InMemoryFileStreamProvider();
     using (var tree = SmallBlockFactory(provider, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 200);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     // The sector with the start of the header did not persist, so the index
     // reads as zero. The tail file names a later block than this one seems to be.
@@ -802,12 +547,12 @@ public sealed class PowerLossRecoveryTests
   [Test]
   public async Task CorruptedBlockIndexInTheMiddleOfTheFileIsReported()
   {
-    const WriteAheadLogMode mode = WriteAheadLogMode.SyncCompressed;
+    const WriteAheadLogMode mode = WriteAheadLogMode.Private;
     var provider = new InMemoryFileStreamProvider();
     using (var tree = SmallBlockFactory(provider, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 500);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     // Header checksums protect block indexes as well as payload lengths.
     var mainPath = MainWalPath(provider);
@@ -821,9 +566,8 @@ public sealed class PowerLossRecoveryTests
     Assert.That(provider.ReadAllBytes(mainPath), Is.EqualTo(main));
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.LZ4, int.MaxValue)]
-  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.Zstd, 5)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.Zstd, 5)]
+  [TestCase(WriteAheadLogMode.Private, CompressionMethod.Zstd, 5)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate, CompressionMethod.Zstd, 5)]
   public async Task TornFirstCommitAfterAWalReplacementKeepsSyncedRecords(
       WriteAheadLogMode mode, CompressionMethod compressionMethod, int zeroedLength)
   {
@@ -847,11 +591,11 @@ public sealed class PowerLossRecoveryTests
     {
       mainPath = MainWalPath(provider);
       UpsertKeys(tree, 50, syncedCount);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
       syncedTail = provider.ReadAllBytes(mainPath + ".tail");
       commitStart = provider.ReadAllBytes(mainPath).Length;
       UpsertKeys(tree, syncedCount, 180);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
 
     var image = Copy(provider);
@@ -900,12 +644,12 @@ public sealed class PowerLossRecoveryTests
   [TestCase(5)]
   public async Task TruncatingTheMainFileOnOpenLogsAWarning(int tornLength)
   {
-    const WriteAheadLogMode mode = WriteAheadLogMode.SyncCompressed;
+    const WriteAheadLogMode mode = WriteAheadLogMode.Private;
     var provider = new InMemoryFileStreamProvider();
     using (var tree = SmallBlockFactory(provider, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 60);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     var mainPath = MainWalPath(provider);
     var main = provider.ReadAllBytes(mainPath);
@@ -929,9 +673,9 @@ public sealed class PowerLossRecoveryTests
     Assert.That(logger.GetWarnings(), Has.Some.Contains(Path.GetFileName(mainPath)));
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.Zstd)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.Zstd)]
-  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.None)]
+  [TestCase(WriteAheadLogMode.Private, CompressionMethod.Zstd)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate, CompressionMethod.Zstd)]
+  [TestCase(WriteAheadLogMode.Private, CompressionMethod.None)]
   public async Task BlockHeaderWithOnlyItsIndexPersistedIsTorn(
       WriteAheadLogMode mode, CompressionMethod compressionMethod)
   {
@@ -940,7 +684,7 @@ public sealed class PowerLossRecoveryTests
     using (var tree = SmallBlockFactory(provider, mode, compressionMethod).OpenOrCreate())
     {
       UpsertKeys(tree, 0, syncedCount);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     // The commit of the block that the tail names persisted the index,
     // and the sector with the rest of the header did not persist.
@@ -953,36 +697,15 @@ public sealed class PowerLossRecoveryTests
     Assert.That(MissingKeys(reopened, syncedCount), Is.Empty);
   }
 
-  [Test]
-  public async Task RecordCutOffBeforeAnEmptyLastBlockIsATornTail()
-  {
-    const WriteAheadLogMode mode = WriteAheadLogMode.SyncCompressed;
-    var provider = new InMemoryFileStreamProvider();
-    using (var tree = SmallBlockFactory(provider, mode, CompressionMethod.None).OpenOrCreate())
-    {
-      UpsertKeys(tree, 0, 100);
-      await tree.SyncWALAsync();
-    }
-    // Older versions could commit an empty block, which leaves no content in the
-    // last block. The record that spans block 0 and the lost tail is cut off.
-    var mainPath = MainWalPath(provider);
-    var header = new[] { 1, 0, 0 }.SelectMany(BitConverter.GetBytes);
-    Overwrite(provider, mainPath, provider.ReadAllBytes(mainPath).Concat(header).ToArray());
-    Overwrite(provider, mainPath + ".tail", BitConverter.GetBytes(2).Concat(new byte[sizeof(int)]).ToArray());
-
-    using var reopened = SmallBlockFactory(provider, mode, CompressionMethod.None).Open();
-    Assert.That(MissingKeys(reopened, 2048 / 28), Is.Empty);
-  }
-
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public async Task DroppingATornBlockIsDurableBeforeNewBlocksFollowIt(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
     using (var tree = SmallBlockFactory(provider, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 60);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     var mainPath = MainWalPath(provider);
     var main = provider.ReadAllBytes(mainPath);
@@ -995,15 +718,15 @@ public sealed class PowerLossRecoveryTests
     Assert.That(provider.SimulatePowerLoss().ReadAllBytes(mainPath), Is.EqualTo(main));
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public async Task TruncatingACommittedBlockIsDurableBeforeNewBlocksFollowIt(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
     using (var tree = Factory(provider, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 9400);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     var mainPath = MainWalPath(provider);
     Overwrite(provider, mainPath + ".tail", new byte[8]);
@@ -1014,8 +737,8 @@ public sealed class PowerLossRecoveryTests
         Is.EqualTo(provider.ReadAllBytes(mainPath)));
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public async Task DiscardedTailIsNotOverwrittenBeforeItsBlocksAreDurable(WriteAheadLogMode mode)
   {
     const int syncedCount = 60;
@@ -1024,10 +747,10 @@ public sealed class PowerLossRecoveryTests
     using (var tree = SmallBlockFactory(source, mode).OpenOrCreate())
     {
       UpsertKeys(tree, 0, syncedCount);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
       syncedTail = source.ReadAllBytes(MainWalPath(source) + ".tail");
       UpsertKeys(tree, syncedCount, 200);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
 
     // The process crashes after writing the blocks and before syncing them. The
@@ -1053,14 +776,14 @@ public sealed class PowerLossRecoveryTests
   [Test]
   public async Task EmptyTailDoesNotProveThatAnUncompressedLastBlockIsSynced()
   {
-    const WriteAheadLogMode mode = WriteAheadLogMode.SyncCompressed;
+    const WriteAheadLogMode mode = WriteAheadLogMode.Private;
     var provider = new InMemoryFileStreamProvider();
     using (var tree = SmallBlockFactory(provider, mode, CompressionMethod.None).OpenOrCreate())
     {
       UpsertKeys(tree, 0, 200);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
-    // The background tail writer can replace a discarded tail with an empty one,
+    // The background sync job can replace a discarded tail with an empty one,
     // while the last block still holds a torn sector.
     var mainPath = MainWalPath(provider);
     var main = provider.ReadAllBytes(mainPath);
@@ -1077,9 +800,9 @@ public sealed class PowerLossRecoveryTests
     Assert.That(MissingKeys(reopened, (blockCount - 1) * 2048 / 28), Is.Empty);
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  public async Task NewWalWithoutItsFirstSectorIsNotReadAsAReleasedLZ4Wal(WriteAheadLogMode mode)
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
+  public async Task NewWalWithoutItsFirstSectorStartsOver(WriteAheadLogMode mode)
   {
     const int count = 200;
     var provider = new InMemoryFileStreamProvider();
@@ -1094,12 +817,11 @@ public sealed class PowerLossRecoveryTests
     using (var tree = SmallBlockFactory(provider, mode).Open())
     {
       UpsertKeys(tree, 0, count);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
 
     // Second power loss: the first sector of the main file is lost again, and the
     // tail keeps its old size with the new header, which names a later block.
-    // Zero is the metadata of a released LZ4 WAL, whose tail has no checkpoints.
     var main = provider.ReadAllBytes(mainPath);
     Assert.That(main.Length, Is.GreaterThan(SectorSize));
     Array.Clear(main, 0, SectorSize);
@@ -1111,15 +833,14 @@ public sealed class PowerLossRecoveryTests
     using (var tree = SmallBlockFactory(provider, mode).Open())
     {
       UpsertKeys(tree, 0, count);
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
     }
     using var reopened = SmallBlockFactory(provider, mode).Open();
     Assert.That(MissingKeys(reopened, count), Is.Empty);
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public void PowerLossDuringTreeCreationLeavesACreatableDirectory(WriteAheadLogMode mode)
   {
     var random = new Random(1);
@@ -1153,14 +874,11 @@ public sealed class PowerLossRecoveryTests
 
   // Every power loss point of a workload, with torn sectors
 
-  [TestCase(WriteAheadLogMode.Sync, CompressionMethod.Zstd, 1)]
-  [TestCase(WriteAheadLogMode.Sync, CompressionMethod.Zstd, 2)]
-  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.Zstd, 1)]
-  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.Zstd, 2)]
-  [TestCase(WriteAheadLogMode.SyncCompressed, CompressionMethod.None, 1)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.Zstd, 1)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.Zstd, 2)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed, CompressionMethod.LZ4, 1)]
+  [TestCase(WriteAheadLogMode.Private, CompressionMethod.Zstd, 1)]
+  [TestCase(WriteAheadLogMode.Private, CompressionMethod.Zstd, 2)]
+  [TestCase(WriteAheadLogMode.Private, CompressionMethod.None, 1)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate, CompressionMethod.Zstd, 1)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate, CompressionMethod.Zstd, 2)]
   [TestCase(WriteAheadLogMode.Shared, CompressionMethod.Zstd, 1)]
   [TestCase(WriteAheadLogMode.Shared, CompressionMethod.None, 2)]
   // These tear a sync after a recovery so that the reused tail file keeps complete
@@ -1170,7 +888,6 @@ public sealed class PowerLossRecoveryTests
   [TestCase(WriteAheadLogMode.Shared, CompressionMethod.None, 6)]
   [TestCase(WriteAheadLogMode.Shared, CompressionMethod.Zstd, 8)]
   [TestCase(WriteAheadLogMode.AsyncShared, CompressionMethod.Zstd, 1)]
-  [TestCase(WriteAheadLogMode.AsyncShared, CompressionMethod.LZ4, 2)]
   public async Task SyncedRecordsSurviveTornPowerLosses(
       WriteAheadLogMode mode, CompressionMethod compressionMethod, int seed)
   {
@@ -1217,7 +934,7 @@ public sealed class PowerLossRecoveryTests
           return;
         // The recovered tree must accept writes, and they must survive too.
         UpsertKeys(tree, count, count + 100);
-        await tree.SyncWALAsync();
+        await tree.SyncWalAsync();
         image.BeforeDiskSync = null;
         using var reopened = ImageFactory(Tear(image)).Open();
         if (MissingKeys(reopened, synced).Length > 0 ||
@@ -1256,7 +973,7 @@ public sealed class PowerLossRecoveryTests
         tree.Upsert(key, key + 1);
         if (key % 37 == 36)
         {
-          await tree.SyncWALAsync();
+          await tree.SyncWalAsync();
           Volatile.Write(ref syncedCount, key + 1);
         }
         if (key % 400 == 399)
@@ -1264,7 +981,7 @@ public sealed class PowerLossRecoveryTests
         if (key % 900 == 899)
           tree.Maintenance.StartMergeOperation()?.Join();
         if (key % 500 == 499)
-          tree.Maintenance.SaveMetaData();
+          tree.Maintenance.SaveMetadata();
       }
       workload.BeforeDiskSync = null;
     }

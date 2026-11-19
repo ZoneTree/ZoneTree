@@ -21,14 +21,14 @@ public sealed class ZoneTreeRawEngine : ITransactionEngine
     Durable = options.Durability == DurabilityMode.PerCommit;
     Tree = ZoneTreeEngine.CreateFactory(options, walMode).OpenOrCreate();
     Maintainer = Tree.CreateMaintainer();
-    Maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(1);
+    Maintainer.BlockCacheLifetime = TimeSpan.FromMinutes(1);
     Maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(30);
     Tree.Maintenance.OnDiskSegmentActivated += StartBottomMerge;
     Settings =
     [
       "Raw: direct reads and writes; no snapshots, conflict validation, atomic batches or rollback",
       $"WAL: {walMode}; compression disabled",
-      Durable ? "SyncWALAsync at each scenario commit boundary" : "Scenario commit is a no-op",
+      Durable ? "SyncWalAsync at each scenario commit boundary" : "Scenario commit is a no-op",
       string.Create(CultureInfo.InvariantCulture, $"Mutable segment: {tuning.ZoneTreeMutableSegmentMaxItemCount} records"),
       string.Create(CultureInfo.InvariantCulture, $"Sparse array step: {tuning.ZoneTreeSparseArrayStepSize}; key cache: {tuning.ZoneTreeKeyCacheSize}; value cache: {tuning.ZoneTreeValueCacheSize}"),
       "Background maintainer with bottom merges started on segment activation"
@@ -47,7 +47,7 @@ public sealed class ZoneTreeRawEngine : ITransactionEngine
   {
     Maintainer.EvictToDisk();
     Maintainer.WaitForBackgroundThreadsAsync().GetAwaiter().GetResult();
-    Tree.Maintenance.SaveMetaData();
+    Tree.Maintenance.SaveMetadata();
   }
 
   public void Dispose()
@@ -104,7 +104,7 @@ public sealed class ZoneTreeRawEngine : ITransactionEngine
     public bool TryCommit()
     {
       if (engine.Durable && HasWrites)
-        engine.Tree.SyncWALAsync().GetAwaiter().GetResult();
+        engine.Tree.SyncWalAsync().GetAwaiter().GetResult();
       return true;
     }
 

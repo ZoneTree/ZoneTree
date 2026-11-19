@@ -10,15 +10,13 @@ namespace ZoneTree.WAL;
 
 public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
 {
-  internal const string LegacyWalExtension = ".wal_crc";
-
   internal const string Xxh3WalExtension = ".wal_xxh3";
 
   readonly ILogger Logger;
 
   readonly IFileStreamProvider FileStreamProvider;
 
-  readonly ConcurrentDictionary<string, object> WALTable = new();
+  readonly ConcurrentDictionary<string, object> WalTable = new();
 
   public string WalDirectory { get; }
 
@@ -33,21 +31,21 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
     FileStreamProvider.CreateDirectory(walDirectory);
   }
 
-  public IWriteAheadLog<TKey, TValue> GetOrCreateWAL<TKey, TValue>(
+  public IWriteAheadLog<TKey, TValue> GetOrCreateWal<TKey, TValue>(
       long segmentId,
       string category,
       WriteAheadLogOptions options,
       ISerializer<TKey> keySerializer,
       ISerializer<TValue> valueSerializer)
   {
-    if (WALTable.TryGetValue(segmentId + category, out var value))
+    if (WalTable.TryGetValue(segmentId + category, out var value))
     {
       return (IWriteAheadLog<TKey, TValue>)value;
     }
 
-    if (options.WriteAheadLogMode is WriteAheadLogMode.Shared or WriteAheadLogMode.AsyncShared ||
+    if (options.Mode is WriteAheadLogMode.Shared or WriteAheadLogMode.AsyncShared ||
         FileStreamProvider.FileExists(Path.Combine(WalDirectory, category, SharedWalStore<TKey, TValue>.DirectoryName, SharedWalStore<TKey, TValue>.ManifestName)))
-      return GetSharedWAL(segmentId, category, options, keySerializer, valueSerializer);
+      return GetSharedWal(segmentId, category, options, keySerializer, valueSerializer);
 
     (var walPath, var walMode) =
         DetectWalPathAndWriteAheadLogMode(segmentId, category, options);
@@ -58,40 +56,29 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
       {
         case WriteAheadLogMode.None:
           return new NullWriteAheadLog<TKey, TValue>();
-        case WriteAheadLogMode.Sync:
+        case WriteAheadLogMode.Private:
           {
-            var wal = new SyncFileSystemWriteAheadLog<TKey, TValue>(
-                Logger,
-                FileStreamProvider,
-                keySerializer,
-                valueSerializer,
-                walPath);
-            WALTable.TryAdd(segmentId + category, wal);
-            return wal;
-          }
-        case WriteAheadLogMode.SyncCompressed:
-          {
-            var wal = new SyncCompressedFileSystemWriteAheadLog<TKey, TValue>(
+            var wal = new PrivateWriteAheadLog<TKey, TValue>(
                 Logger,
                 FileStreamProvider,
                 keySerializer,
                 valueSerializer,
                 walPath,
                 options);
-            WALTable.TryAdd(segmentId + category, wal);
+            WalTable.TryAdd(segmentId + category, wal);
             return wal;
           }
 
-        case WriteAheadLogMode.AsyncCompressed:
+        case WriteAheadLogMode.AsyncPrivate:
           {
-            var wal = new AsyncCompressedFileSystemWriteAheadLog<TKey, TValue>(
+            var wal = new AsyncPrivateWriteAheadLog<TKey, TValue>(
                 Logger,
                 FileStreamProvider,
                 keySerializer,
                 valueSerializer,
                 walPath,
                 options);
-            WALTable.TryAdd(segmentId + category, wal);
+            WalTable.TryAdd(segmentId + category, wal);
             return wal;
           }
       }
@@ -108,29 +95,27 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
       long segmentId, string category, WriteAheadLogOptions options)
   {
     var walPath = Path.Combine(WalDirectory, category, segmentId.ToString(CultureInfo.InvariantCulture));
-    // Prefer an XXH3 WAL when both formats exist for the same ID.
-    foreach (var extension in new[] { Xxh3WalExtension, LegacyWalExtension })
-      for (var i = 0; i < 3; ++i)
-      {
-        var path = walPath + extension + "." + i;
-        if (FileStreamProvider.FileExists(path))
-          return (path, (WriteAheadLogMode)i);
-      }
-    return (walPath + Xxh3WalExtension + "." + (int)options.WriteAheadLogMode, options.WriteAheadLogMode);
+    foreach (var mode in new[] { WriteAheadLogMode.Private, WriteAheadLogMode.AsyncPrivate })
+    {
+      var path = walPath + Xxh3WalExtension + "." + (int)mode;
+      if (FileStreamProvider.FileExists(path))
+        return (path, mode);
+    }
+    return (walPath + Xxh3WalExtension + "." + (int)options.Mode, options.Mode);
   }
 
-  public IWriteAheadLog<TKey, TValue> GetWAL<TKey, TValue>(long segmentId, string category)
+  public IWriteAheadLog<TKey, TValue> GetWal<TKey, TValue>(long segmentId, string category)
   {
-    if (WALTable.TryGetValue(segmentId + category, out var value))
+    if (WalTable.TryGetValue(segmentId + category, out var value))
     {
       return (IWriteAheadLog<TKey, TValue>)value;
     }
     return null;
   }
 
-  public bool RemoveWAL(long segmentId, string category)
+  public bool RemoveWal(long segmentId, string category)
   {
-    return WALTable.Remove(segmentId + category, out _);
+    return WalTable.Remove(segmentId + category, out _);
   }
 
   public void DropStore()
@@ -152,27 +137,4 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
   // their names too, including a separately configured WAL directory.
   internal void SyncCategoryDirectory(string category)
       => DirectorySync.FlushTree(Path.Combine(WalDirectory, category), FileStreamProvider.SyncDirectory);
-
-  public void MigrateWals(Version databaseVersion)
-  {
-    if (databaseVersion < new Version("2.0.0"))
-      RenameLegacyWals(WalDirectory);
-  }
-
-  void RenameLegacyWals(string directory)
-  {
-    foreach (var file in FileStreamProvider.GetFiles(directory))
-    {
-      var parts = Path.GetFileName(file).Split('.');
-      if (parts.Length < 3 || parts[1] != "wal" ||
-          !long.TryParse(parts[0], out _) || parts[2] is not ("0" or "1" or "2"))
-        continue;
-      var name = parts[0] + LegacyWalExtension + "." + parts[2];
-      if (parts.Length > 3)
-        name += "." + string.Join(".", parts.Skip(3));
-      FileStreamProvider.MoveFile(file, FileStreamProvider.CombinePaths(directory, name));
-    }
-    foreach (var child in FileStreamProvider.GetDirectories(directory))
-      RenameLegacyWals(child);
-  }
 }

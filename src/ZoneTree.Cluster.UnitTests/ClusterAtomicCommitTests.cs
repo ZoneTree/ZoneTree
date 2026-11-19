@@ -210,8 +210,8 @@ public sealed class ClusterAtomicCommitTests
         ordinaryId = ordinary.TransactionId;
       }
       // The ordinary commit reaches the disk in both columns without a domain sync.
-      await Storage(cluster, "left").ZoneTree.SyncWALAsync();
-      await Storage(cluster, "right").ZoneTree.SyncWALAsync();
+      await Storage(cluster, "left").ZoneTree.SyncWalAsync();
+      await Storage(cluster, "right").ZoneTree.SyncWalAsync();
       using (var incomplete = domain.BeginTransaction())
       {
         incomplete.GetColumn(left).Upsert(3, 3);
@@ -227,7 +227,7 @@ public sealed class ClusterAtomicCommitTests
       }
       // Only the right column reaches the disk: the later commit is complete there, but it
       // follows a commit the left column lost.
-      await Storage(cluster, "right").ZoneTree.SyncWALAsync();
+      await Storage(cluster, "right").ZoneTree.SyncWalAsync();
       afterPowerLoss = files.SimulatePowerLoss();
       StopCommits(domain);
     }
@@ -299,7 +299,7 @@ public sealed class ClusterAtomicCommitTests
         later.Commit();
         laterId = later.TransactionId;
       }
-      await Storage(cluster, "right").ZoneTree.SyncWALAsync();
+      await Storage(cluster, "right").ZoneTree.SyncWalAsync();
       afterPowerLoss = files.SimulatePowerLoss();
       StopCommits(domain);
     }
@@ -376,7 +376,7 @@ public sealed class ClusterAtomicCommitTests
         transaction.Commit();
       }
       // The commit reaches the disk only in the right column.
-      await Storage(cluster, "right").ZoneTree.SyncWALAsync();
+      await Storage(cluster, "right").ZoneTree.SyncWalAsync();
       afterPowerLoss = files.SimulatePowerLoss();
       StopCommits(domain);
     }
@@ -423,8 +423,8 @@ public sealed class ClusterAtomicCommitTests
         transaction.GetColumn(right).Upsert(10, 10);
         transaction.Commit();
       }
-      await Storage(cluster, "left").ZoneTree.SyncWALAsync();
-      await Storage(cluster, "right").ZoneTree.SyncWALAsync();
+      await Storage(cluster, "left").ZoneTree.SyncWalAsync();
+      await Storage(cluster, "right").ZoneTree.SyncWalAsync();
       StopCommits(domain);
     }
 

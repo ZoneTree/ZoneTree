@@ -30,8 +30,8 @@ namespace ZoneTree.Transactional.Mvcc;
 /// A failed commit sync leaves its outcome in doubt and prevents further commits
 /// until the tree is reopened; recovery decides whether its commit record survived.
 /// Completed writes in synchronous WAL modes survive a process crash;
-/// AsyncCompressed and AsyncShared can lose records still queued in process memory.
-/// To wait for power-loss or operating-system-crash durability, await SyncWALAsync
+/// AsyncPrivate and AsyncShared can lose records still queued in process memory.
+/// To wait for power-loss or operating-system-crash durability, await SyncWalAsync
 /// after an ordinary commit, or use CommitDurableAsync to sync before publication.
 /// Built-in transactional factories select Shared or AsyncShared WALs, which
 /// recover one prefix of commits across segments, including every synced commit;
@@ -185,7 +185,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
     KeyComparer = new ComparerFromRefComparer<TKey>(Comparer);
     ConflictIndex = new ConflictIndex<TKey>(Comparer);
     HasDurableWriteAheadLog =
-        options.WriteAheadLogOptions.WriteAheadLogMode != WriteAheadLogMode.None;
+        options.WriteAheadLogOptions.Mode != WriteAheadLogMode.None;
     Recover();
     ValidateSchema(options);
     StorageMaintenance.OnMergeOperationEnded += OnMergeOperationEnded;
@@ -651,7 +651,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
 
   async Task<bool> SyncReadOnlyCommitAsync()
   {
-    await SyncWALAsync().ConfigureAwait(false);
+    await SyncWalAsync().ConfigureAwait(false);
     return true;
   }
 
@@ -724,7 +724,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
         // commit lock is free during I/O, and cancelling a caller cannot stop it.
         // Blocking keeps the worker off the thread pool: the WAL completes the sync
         // on this thread or on its writer thread.
-        Storage.SyncWALAsync().GetAwaiter().GetResult();
+        Storage.SyncWalAsync().GetAwaiter().GetResult();
         // The covered commits are published once their replications completed too, and once durable ones
         // are as durable as the replicas make them.
         if (replicating != null)
@@ -970,11 +970,11 @@ public sealed class MvccZoneTree<TKey, TValue> :
     return oldest - 1;
   }
 
-  public async Task SyncWALAsync(CancellationToken cancellationToken = default)
+  public async Task SyncWalAsync(CancellationToken cancellationToken = default)
   {
     // The sync covers every commit record written before the call.
     var syncedCommitTimestamp = LastCommitTimestamp;
-    await Storage.SyncWALAsync(cancellationToken).ConfigureAwait(false);
+    await Storage.SyncWalAsync(cancellationToken).ConfigureAwait(false);
     // A replicated tree's commits are as durable as its replicas make them.
     if (CommitReplicator is { } replicator)
       await replicator.SyncAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -1017,7 +1017,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
         {
           try
           {
-            await SyncWALAsync(cancellation.Token).ConfigureAwait(false);
+            await SyncWalAsync(cancellation.Token).ConfigureAwait(false);
           }
           catch (OperationCanceledException)
           {
@@ -1227,7 +1227,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
     return Load(options, canCreate: false, canOpen: true);
   }
 
-  public void SaveMetaData() => StorageMaintenance.SaveMetaData();
+  public void SaveMetadata() => StorageMaintenance.SaveMetadata();
 
   public void Drop()
   {

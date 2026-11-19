@@ -39,7 +39,9 @@ public sealed class LiveBackupRestore<TKey, TValue>
     if (generation.TreeKind != TreeKind)
       throw new LiveBackupIntegrityException($"generation {generation.GenerationId}",
           $"This is a {generation.TreeKind} backup; restore requires the matching plain or transactional API.");
-    if (ZoneTreeMetaWAL<TKey, TValue>.Exists(Options))
+    if (generation.DbVersion == null || Version.Parse(generation.DbVersion) < ZoneTreeInfo.MinimumDbVersion)
+      throw new LiveBackupVersionIsNotCompatibleException(generation.GenerationId, generation.DbVersion);
+    if (ZoneTreeMetaWal<TKey, TValue>.Exists(Options))
       throw new LiveBackupRestoreTargetAlreadyExistsException();
 
     await RestoreDiskSegmentFiles(generation);
@@ -57,7 +59,7 @@ public sealed class LiveBackupRestore<TKey, TValue>
         .Skip(1)
         .ToArray();
 
-    SaveMetaData(
+    SaveMetadata(
         lastOpIndex,
         mutableSegmentId,
         diskSegmentId,
@@ -97,8 +99,7 @@ public sealed class LiveBackupRestore<TKey, TValue>
       LiveBackupGeneration generation, long maximumSegmentId)
   {
     var batch = generation.RecordBatch;
-    var restoreWalOptions = CloneWriteAheadLogOptions(
-        Options.WriteAheadLogOptions);
+    var restoreWalOptions = Options.WriteAheadLogOptions.Clone();
     Options.WriteAheadLogProvider.InitCategory(
         ZoneTree<TKey, TValue>.SegmentWalCategory);
 
@@ -115,7 +116,7 @@ public sealed class LiveBackupRestore<TKey, TValue>
       return ([], maximumSegmentId, opIndex);
     }
     var segmentId = ++maximumSegmentId;
-    var wal = Options.WriteAheadLogProvider.GetOrCreateWAL(
+    var wal = Options.WriteAheadLogProvider.GetOrCreateWal(
         segmentId,
         ZoneTree<TKey, TValue>.SegmentWalCategory,
         restoreWalOptions,
@@ -135,7 +136,7 @@ public sealed class LiveBackupRestore<TKey, TValue>
     finally
     {
       wal.Dispose();
-      Options.WriteAheadLogProvider.RemoveWAL(
+      Options.WriteAheadLogProvider.RemoveWal(
           segmentId,
           ZoneTree<TKey, TValue>.SegmentWalCategory);
     }
@@ -144,23 +145,22 @@ public sealed class LiveBackupRestore<TKey, TValue>
 
   void CreateMutableWal(long mutableWalSegmentId)
   {
-    var restoreWalOptions = CloneWriteAheadLogOptions(
-        Options.WriteAheadLogOptions);
+    var restoreWalOptions = Options.WriteAheadLogOptions.Clone();
     Options.WriteAheadLogProvider.InitCategory(
         ZoneTree<TKey, TValue>.SegmentWalCategory);
 
-    using var mutableWal = Options.WriteAheadLogProvider.GetOrCreateWAL(
+    using var mutableWal = Options.WriteAheadLogProvider.GetOrCreateWal(
         mutableWalSegmentId,
         ZoneTree<TKey, TValue>.SegmentWalCategory,
         restoreWalOptions,
         Options.KeySerializer,
         Options.ValueSerializer);
-    Options.WriteAheadLogProvider.RemoveWAL(
+    Options.WriteAheadLogProvider.RemoveWal(
         mutableWalSegmentId,
         ZoneTree<TKey, TValue>.SegmentWalCategory);
   }
 
-  void SaveMetaData(long lastOpIndex,
+  void SaveMetadata(long lastOpIndex,
       long mutableSegmentId,
       long diskSegmentId,
       long[] readOnlySegments,
@@ -168,6 +168,7 @@ public sealed class LiveBackupRestore<TKey, TValue>
   {
     var meta = new ZoneTreeMeta
     {
+      DbVersion = ZoneTreeInfo.DbVersion.ToString(),
       ComparerType = Options.Comparer.GetType().SimplifiedFullName(),
       KeyHasherType = Options.KeyHasher?.GetType().SimplifiedFullName(),
       KeyType = typeof(TKey).SimplifiedFullName(),
@@ -182,8 +183,8 @@ public sealed class LiveBackupRestore<TKey, TValue>
       DiskSegmentOptions = Options.DiskSegmentOptions,
       MaximumOpIndex = lastOpIndex,
     };
-    using var metaWal = new ZoneTreeMetaWAL<TKey, TValue>(Options, false);
-    metaWal.SaveMetaData(
+    using var metaWal = new ZoneTreeMetaWal<TKey, TValue>(Options, false);
+    metaWal.SaveMetadata(
         meta,
         mutableSegmentId,
         diskSegmentId,
@@ -224,32 +225,5 @@ public sealed class LiveBackupRestore<TKey, TValue>
   {
     var metaPath = Options.RandomAccessDeviceManager.GetFilePath(0, ".json");
     return Path.GetDirectoryName(metaPath);
-  }
-
-  static WriteAheadLogOptions CloneWriteAheadLogOptions(
-      WriteAheadLogOptions options)
-  {
-    return new WriteAheadLogOptions
-    {
-      WriteAheadLogMode = options.WriteAheadLogMode,
-      CustomOptions = options.CustomOptions,
-      CompressionBlockSize = options.CompressionBlockSize,
-      CompressionMethod = options.CompressionMethod,
-      CompressionLevel = options.CompressionLevel,
-      SharedModeOptions = new SharedModeOptions
-      {
-        MaximumChunkSize = options.SharedModeOptions.MaximumChunkSize
-      },
-      SyncCompressedModeOptions = new SyncCompressedModeOptions
-      {
-        EnableTailWriterJob = options.SyncCompressedModeOptions.EnableTailWriterJob,
-        TailWriterJobInterval = options.SyncCompressedModeOptions.TailWriterJobInterval
-      },
-      AsyncCompressedModeOptions = new AsyncCompressedModeOptions
-      {
-        EmptyQueuePollInterval =
-            options.AsyncCompressedModeOptions.EmptyQueuePollInterval
-      }
-    };
   }
 }

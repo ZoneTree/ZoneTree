@@ -27,7 +27,7 @@ public sealed class OldTests
     stopWatch.Start();
     using var zoneTree = OpenOrCreateZoneTree(mode, dataPath);
     using var basicMaintainer = zoneTree.CreateMaintainer();
-    basicMaintainer.ThresholdForMergeOperationStart = TestConfig.ThresholdForMergeOperationStart;
+    basicMaintainer.MergeThreshold = TestConfig.MergeThreshold;
     new StatsCollector().LogWithColor(
         "Loaded in:",
         stopWatch.ElapsedMilliseconds,
@@ -169,7 +169,7 @@ public sealed class OldTests
     stopWatch.Start();
     using var zoneTree = OpenOrCreateZoneTree(mode, dataPath);
     using var basicMaintainer = zoneTree.CreateMaintainer();
-    basicMaintainer.ThresholdForMergeOperationStart = TestConfig.ThresholdForMergeOperationStart;
+    basicMaintainer.MergeThreshold = TestConfig.MergeThreshold;
     new StatsCollector().LogWithColor(
         "Loaded in:",
         stopWatch.ElapsedMilliseconds,
@@ -200,7 +200,7 @@ public sealed class OldTests
     stopWatch.Start();
     using var zoneTree = OpenOrCreateZoneTree(mode, dataPath);
     using var basicMaintainer = zoneTree.CreateMaintainer();
-    basicMaintainer.ThresholdForMergeOperationStart = TestConfig.ThresholdForMergeOperationStart;
+    basicMaintainer.MergeThreshold = TestConfig.MergeThreshold;
 
     new StatsCollector().LogWithColor(
         "Loaded in:",
@@ -235,7 +235,7 @@ public sealed class OldTests
     stopWatch.Start();
     using var zoneTree = OpenOrCreateZoneTree(mode, dataPath);
     using var basicMaintainer = zoneTree.CreateMaintainer();
-    basicMaintainer.ThresholdForMergeOperationStart = TestConfig.ThresholdForMergeOperationStart;
+    basicMaintainer.MergeThreshold = TestConfig.MergeThreshold;
 
     new StatsCollector().LogWithColor(
         "Loaded in:",
@@ -273,11 +273,11 @@ public sealed class OldTests
         .SetDiskSegmentCompressionBlockSize(TestConfig.DiskCompressionBlockSize)
         .SetDataDirectory(dataPath)
         .SetWriteAheadLogDirectory(dataPath)
-        .ConfigureDiskSegmentOptions(x => x.DiskSegmentMode = TestConfig.DiskSegmentMode)
+        .ConfigureDiskSegmentOptions(x => x.Mode = TestConfig.DiskSegmentMode)
         .ConfigureWriteAheadLogOptions(x =>
         {
-          x.CompressionBlockSize = TestConfig.WALCompressionBlockSize;
-          x.WriteAheadLogMode = mode;
+          x.CompressionBlockSize = TestConfig.WalCompressionBlockSize;
+          x.Mode = mode;
         })
         .OpenOrCreate();
   }

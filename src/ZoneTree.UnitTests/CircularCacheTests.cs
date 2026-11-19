@@ -7,7 +7,7 @@ public sealed class CircularCacheTests
   [Test]
   public void DistributesIndexesWithIdenticalLowBits()
   {
-    var cache = new CircularCache<int>(8, 10_000);
+    var cache = new CircularCache<int>(8, TimeSpan.FromSeconds(10));
     var first = 1;
     var second = 2;
 
@@ -23,7 +23,7 @@ public sealed class CircularCacheTests
   [Test]
   public void EmptySlotsDoNotMatchIndexZero()
   {
-    var cache = new CircularCache<int>(8, 10_000);
+    var cache = new CircularCache<int>(8, TimeSpan.FromSeconds(10));
     Assert.That(cache.TryGet(0, out _), Is.False);
     var value = 5;
     cache.TryAdd(1, ref value);
@@ -36,7 +36,7 @@ public sealed class CircularCacheTests
   [Test]
   public void ZeroSizedCacheKeepsNothing()
   {
-    var cache = new CircularCache<int>(0, 10_000);
+    var cache = new CircularCache<int>(0, TimeSpan.FromSeconds(10));
     var value = 5;
     Assert.That(cache.TryAdd(0, ref value), Is.False);
     Assert.That(cache.TryGet(0, out _), Is.False);
@@ -46,7 +46,7 @@ public sealed class CircularCacheTests
   [Test]
   public void ReleasesExpiredRecordsAndClears()
   {
-    var cache = new CircularCache<string>(1024, 10_000);
+    var cache = new CircularCache<string>(1024, TimeSpan.FromSeconds(10));
     for (var i = 0; i < 4; ++i)
     {
       var value = "v" + i;
@@ -59,7 +59,7 @@ public sealed class CircularCacheTests
       Assert.That(kept, Is.EqualTo("v" + i));
     }
 
-    cache.RecordLifeTimeInMillisecond = -60_000;
+    cache.RecordLifetime = TimeSpan.FromSeconds(-60);
     Assert.That(cache.ReleaseInactiveCacheRecords(), Is.EqualTo(4));
     for (var i = 0; i < 4; ++i)
       Assert.That(cache.TryGet(i, out _), Is.False);
@@ -81,7 +81,7 @@ public sealed class CircularCacheTests
   {
     // Records larger than a machine word can be torn by a racing writer.
     // Every record carries its index and a checksum of its fields.
-    var cache = new CircularCache<CheckedRecord>(64, 0);
+    var cache = new CircularCache<CheckedRecord>(64, TimeSpan.Zero);
     var stop = false;
     var hits = 0L;
     var failures = 0L;

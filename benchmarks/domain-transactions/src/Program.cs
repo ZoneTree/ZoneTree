@@ -469,7 +469,7 @@ static class Program
         --warmup <n>              warmup seconds per cell (default 1)
         --value-size <n>          value bytes (default 100)
         --isolation <name>        serializable or snapshot (default serializable)
-        --wal <mode>              AsyncShared, Shared, AsyncCompressed, SyncCompressed (default AsyncShared)
+        --wal <mode>              AsyncShared, Shared, AsyncPrivate, Private (default AsyncShared)
         --durable                 commit with TryCommitDurableAsync
         --async                   run the cluster engines through their async API
         --per-tree-budget         give every tree the whole memory budget, not a share

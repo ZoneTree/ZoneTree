@@ -10,4 +10,9 @@ public sealed class SharedModeOptions
   /// Default is 64 MiB.
   /// </summary>
   public long MaximumChunkSize { get; set; } = 64L * 1024 * 1024;
+
+  /// <summary>
+  /// Returns a copy of the options.
+  /// </summary>
+  public SharedModeOptions Clone() => (SharedModeOptions)MemberwiseClone();
 }

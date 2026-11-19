@@ -24,7 +24,7 @@ public sealed class MergeEmptySegmentsTest
         .SetWriteAheadLogDirectory(dataPath)
         .ConfigureDiskSegmentOptions(x =>
         {
-          x.DiskSegmentMode = diskSegmentMode;
+          x.Mode = diskSegmentMode;
           if (minimumRecordCount > 0)
             x.MinimumRecordCount = minimumRecordCount;
           if (maximumRecordCount > 0)
@@ -48,7 +48,7 @@ public sealed class MergeEmptySegmentsTest
         Assert.That(hasRecord, Is.False);
     }
 
-    zoneTree.Maintenance.SaveMetaData();
+    zoneTree.Maintenance.SaveMetadata();
     zoneTree.Maintenance.Drop();
   }
 
@@ -73,7 +73,7 @@ public sealed class MergeEmptySegmentsTest
         .SetWriteAheadLogDirectory(dataPath)
         .ConfigureDiskSegmentOptions(x =>
         {
-          x.DiskSegmentMode = diskSegmentMode;
+          x.Mode = diskSegmentMode;
           if (minimumRecordCount > 0)
             x.MinimumRecordCount = minimumRecordCount;
           if (maximumRecordCount > 0)
@@ -109,7 +109,7 @@ public sealed class MergeEmptySegmentsTest
         Assert.That(hasRecord, Is.False);
     }
 
-    zoneTree.Maintenance.SaveMetaData();
+    zoneTree.Maintenance.SaveMetadata();
     zoneTree.Maintenance.Drop();
   }
 
@@ -135,7 +135,7 @@ public sealed class MergeEmptySegmentsTest
         .SetWriteAheadLogDirectory(dataPath)
         .ConfigureDiskSegmentOptions(x =>
         {
-          x.DiskSegmentMode = diskSegmentMode;
+          x.Mode = diskSegmentMode;
           if (minimumRecordCount > 0)
             x.MinimumRecordCount = minimumRecordCount;
           if (maximumRecordCount > 0)
@@ -175,7 +175,7 @@ public sealed class MergeEmptySegmentsTest
       if (hasRecord)
         Assert.That(hasRecord, Is.False);
     }
-    zoneTree.Maintenance.SaveMetaData();
+    zoneTree.Maintenance.SaveMetadata();
     zoneTree.Maintenance.Drop();
   }
 }

@@ -8,7 +8,7 @@ namespace ZoneTree.UnitTests;
 /// <summary>
 /// Explicit sync protects earlier writes across segment moves. Transactional
 /// factories use a shared journal and recover a committed prefix; ordinary
-/// per-segment WALs guarantee survival of synced writes across segment moves.
+/// private WALs guarantee survival of synced writes across segment moves.
 /// </summary>
 public sealed class WriteOrderPowerLossTests
 {
@@ -24,14 +24,13 @@ public sealed class WriteOrderPowerLossTests
         .SetMutableSegmentMaxItemCount(mutableSegmentMaxItemCount)
         .ConfigureWriteAheadLogOptions(options =>
         {
-          options.WriteAheadLogMode = mode;
+          options.Mode = mode;
           options.CompressionBlockSize = 256;
         });
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public void ExplicitlySyncedWritesSurviveLaterSegmentMoves(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
@@ -43,7 +42,7 @@ public sealed class WriteOrderPowerLossTests
         // The value 0 is the deletion marker of the default int value.
         tree.Upsert(key, key + 1);
         if (key == 199)
-          tree.SyncWALAsync().GetAwaiter().GetResult();
+          tree.SyncWalAsync().GetAwaiter().GetResult();
         if (key % 100 == 99)
           tree.Maintenance.MoveMutableSegmentForward();
       }
@@ -60,10 +59,8 @@ public sealed class WriteOrderPowerLossTests
     return tx.TryGet(key, out var value) ? value : null;
   }
 
-  [TestCase(WriteAheadLogMode.Sync, DiskSegmentMode.SingleDiskSegment)]
-  [TestCase(WriteAheadLogMode.Sync, DiskSegmentMode.MultiPartDiskSegment)]
-  [TestCase(WriteAheadLogMode.SyncCompressed, DiskSegmentMode.SingleDiskSegment)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed, DiskSegmentMode.MultiPartDiskSegment)]
+  [TestCase(WriteAheadLogMode.Private, DiskSegmentMode.SingleDiskSegment)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate, DiskSegmentMode.MultiPartDiskSegment)]
   [TestCase(WriteAheadLogMode.Shared, DiskSegmentMode.SingleDiskSegment)]
   [TestCase(WriteAheadLogMode.AsyncShared, DiskSegmentMode.MultiPartDiskSegment)]
   [TestCase(WriteAheadLogMode.None, DiskSegmentMode.SingleDiskSegment)]
@@ -73,7 +70,7 @@ public sealed class WriteOrderPowerLossTests
     var provider = new PowerLossFileStreamProvider();
     PowerLossFileStreamProvider afterPowerLoss;
     using (var tree = CreateFactory(provider, mode, 1000)
-        .ConfigureDiskSegmentOptions(options => options.DiskSegmentMode = diskSegmentMode)
+        .ConfigureDiskSegmentOptions(options => options.Mode = diskSegmentMode)
         .CreateTransactional())
     {
       var storage = tree.Maintenance.ZoneTree.Maintenance;
@@ -82,7 +79,7 @@ public sealed class WriteOrderPowerLossTests
         tx.Upsert(1, 10);
         tx.Commit();
       }
-      await tree.SyncWALAsync();
+      await tree.SyncWalAsync();
       storage.MoveMutableSegmentForward();
       storage.StartMergeOperation()?.Join();
 
@@ -112,7 +109,7 @@ public sealed class WriteOrderPowerLossTests
     var provider = new PowerLossFileStreamProvider();
     PowerLossFileStreamProvider afterPowerLoss;
     var tree = CreateFactory(provider, WriteAheadLogMode.Shared, 1000)
-        .ConfigureWriteAheadLogOptions(options => options.SyncCompressedModeOptions.EnableTailWriterJob = false)
+        .ConfigureWriteAheadLogOptions(options => options.EnableSyncJob = false)
         .CreateTransactional();
     try
     {
@@ -130,7 +127,7 @@ public sealed class WriteOrderPowerLossTests
         tx.Commit();
         provider.FailDiskSync = path => path.Contains("/seg/shared/", StringComparison.Ordinal) &&
             path.EndsWith(".wal", StringComparison.Ordinal);
-        Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWALAsync());
+        Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => tree.SyncWalAsync());
       }
       Assert.That(ReadCommitted(tree, 0), Is.EqualTo(100), "reads keep working");
       afterPowerLoss = provider.SimulatePowerLoss();
@@ -142,13 +139,12 @@ public sealed class WriteOrderPowerLossTests
           "a failed shared journal must keep reporting its durability failure");
       Assert.That(provider.OpenStreamCount, Is.Zero, "failed disposal must release every file");
     }
-    using var recovered = CreateFactory(afterPowerLoss, WriteAheadLogMode.Sync, 1000).OpenTransactional();
+    using var recovered = CreateFactory(afterPowerLoss, WriteAheadLogMode.Private, 1000).OpenTransactional();
     Assert.That(ReadCommitted(recovered, 0), Is.EqualTo(100));
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public void RecoveryKeepsSyncedCommitsAfterUnsyncedWrites(WriteAheadLogMode mode)
   {
     const int count = 300;
@@ -164,7 +160,7 @@ public sealed class WriteOrderPowerLossTests
         tx.Upsert(2 * i + 1, i);
         tx.Commit();
         if (i == syncedCount - 1)
-          tree.SyncWALAsync().GetAwaiter().GetResult();
+          tree.SyncWalAsync().GetAwaiter().GetResult();
       }
       var open = tree.BeginTransaction();
       open.Upsert(-1, -1);

@@ -14,10 +14,10 @@ public sealed class MvccDurableVisibilityTests
           .SetMutableSegmentMaxItemCount(1000)
           .ConfigureWriteAheadLogOptions(options =>
           {
-            options.WriteAheadLogMode = mode;
+            options.Mode = mode;
             options.CompressionBlockSize = 4096;
-            options.SyncCompressedModeOptions.EnableTailWriterJob = false;
-            options.AsyncCompressedModeOptions.EmptyQueuePollInterval = 10000;
+            options.EnableSyncJob = false;
+            options.EmptyQueuePollInterval = TimeSpan.FromSeconds(10);
           });
 
   static bool IsJournal(string path) => path.Contains("/seg/shared/", StringComparison.Ordinal) &&

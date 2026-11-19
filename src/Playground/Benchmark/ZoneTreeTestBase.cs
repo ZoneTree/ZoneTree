@@ -10,7 +10,7 @@ public class ZoneTreeTestBase<TKey, TValue>
 
   public virtual string DataPath => "base";
 
-  public WriteAheadLogMode WALMode { get; set; } = WriteAheadLogMode.None;
+  public WriteAheadLogMode WalMode { get; set; } = WriteAheadLogMode.None;
 
   public int Count = 1_000_000;
 
@@ -20,7 +20,7 @@ public class ZoneTreeTestBase<TKey, TValue>
 
   protected string GetLabel(string label)
   {
-    return $"{WALMode} {label}" +
+    return $"{WalMode} {label}" +
         $" {Count.ToHuman()} - "
         + CompressionMethod;
   }
@@ -39,7 +39,7 @@ public class ZoneTreeTestBase<TKey, TValue>
         .SetDataDirectory(DataPath)
         .ConfigureDiskSegmentOptions(x =>
         {
-          x.DiskSegmentMode = TestConfig.DiskSegmentMode;
+          x.Mode = TestConfig.DiskSegmentMode;
           x.CompressionMethod = CompressionMethod;
           x.CompressionLevel = CompressionLevel;
         })
@@ -47,8 +47,8 @@ public class ZoneTreeTestBase<TKey, TValue>
         {
           x.CompressionMethod = CompressionMethod;
           x.CompressionLevel = CompressionLevel;
-          x.CompressionBlockSize = TestConfig.WALCompressionBlockSize;
-          x.WriteAheadLogMode = WALMode;
+          x.CompressionBlockSize = TestConfig.WalCompressionBlockSize;
+          x.Mode = WalMode;
         });
   }
 
@@ -65,13 +65,13 @@ public class ZoneTreeTestBase<TKey, TValue>
   protected IMaintainer CreateMaintainer(IZoneTree<TKey, TValue> zoneTree)
   {
     var maintainer = zoneTree.CreateMaintainer();
-    maintainer.ThresholdForMergeOperationStart = TestConfig.ThresholdForMergeOperationStart;
+    maintainer.MergeThreshold = TestConfig.MergeThreshold;
     return maintainer;
   }
 
   protected void AddOptions(IStatsCollector stats)
   {
-    stats.SetOption("WAL", WALMode);
+    stats.SetOption("WAL", WalMode);
     stats.SetOption("Compression", CompressionMethod);
     stats.SetOption("Count", Count);
   }

@@ -4,11 +4,11 @@ using ZoneTree.Logger;
 using ZoneTree.Options;
 
 TestConfig.MutableSegmentMaxItemCount = 1_000_000;
-TestConfig.ThresholdForMergeOperationStart = 2_000_000;
+TestConfig.MergeThreshold = 2_000_000;
 TestConfig.RecreateDatabases = true;
 TestConfig.EnableParalelInserts = false;
 TestConfig.DiskCompressionBlockSize = 1024 * 1024 * 10;
-TestConfig.WALCompressionBlockSize = 1024 * 32 * 8;
+TestConfig.WalCompressionBlockSize = 1024 * 32 * 8;
 TestConfig.DiskSegmentMode = DiskSegmentMode.SingleDiskSegment;
 ConsoleLogger.DefaultLogLevel = LogLevel.Info;
 
@@ -40,19 +40,16 @@ if (testCase == 3)
   var test1 = new ZoneTreeTest1();
   var test2 = new ZoneTreeTest2
   {
-    WALMode = test1.WALMode = WriteAheadLogMode.AsyncCompressed
+    WalMode = test1.WalMode = WriteAheadLogMode.AsyncPrivate
   };
   var methods = new (CompressionMethod method, int level)[]
   {
-        (CompressionMethod.LZ4, CompressionLevels.LZ4Fastest),
         (CompressionMethod.Zstd, CompressionLevels.Zstd1),
-        (CompressionMethod.Brotli, CompressionLevels.BrotliFastest),
-        (CompressionMethod.Gzip, CompressionLevels.GzipFastest),
         (CompressionMethod.None, 0),
   };
 
   test2.Count = test1.Count = 10_000_000;
-  test2.WALMode = test1.WALMode = WriteAheadLogMode.AsyncCompressed;
+  test2.WalMode = test1.WalMode = WriteAheadLogMode.AsyncPrivate;
 
   b.NewSection("int-int insert");
   foreach (var (method, level) in methods)
@@ -93,14 +90,14 @@ if (testCase == 3)
 
 if (testCase == 4)
 {
-  TestConfig.ThresholdForMergeOperationStart = 20_000_000;
+  TestConfig.MergeThreshold = 20_000_000;
   TestConfig.DiskSegmentMaxItemCount = 5_000_000;
   TestConfig.DiskCompressionBlockSize = 1024 * 1024 * 100;
   var b = new Benchmark();
   var steve = new StevesChallenge
   {
     Count = 1_000_000_000,
-    WALMode = WriteAheadLogMode.None,
+    WalMode = WriteAheadLogMode.None,
     MergeFrom = 0,
     MergeTo = 100
   };

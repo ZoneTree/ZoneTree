@@ -28,7 +28,7 @@ static class Database
       .SetMutableSegmentMaxItemCount(config.Profile.MutableSize)
       .ConfigureDiskSegmentOptions(o =>
       {
-        o.DiskSegmentMode = config.Profile.Disk;
+        o.Mode = config.Profile.Disk;
         o.CompressionMethod = config.Profile.Compression;
         o.CompressionBlockSize = 128 * 1024;
         o.MinimumRecordCount = 128;
@@ -38,7 +38,7 @@ static class Database
       })
       .ConfigureWriteAheadLogOptions(o =>
       {
-        o.WriteAheadLogMode = config.Profile.Wal;
+        o.Mode = config.Profile.Wal;
         o.CompressionMethod = config.Profile.Compression;
         o.CompressionBlockSize = config.Profile.BlockSize;
         o.SharedModeOptions.MaximumChunkSize = config.Profile.ChunkSize;

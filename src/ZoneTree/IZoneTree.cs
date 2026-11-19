@@ -371,10 +371,9 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// be durable before you acknowledge it. Concurrent calls share disk syncs,
   /// so waiting for many writes costs about one disk sync.
   ///
-  /// In AsyncCompressed mode the background writer syncs, and the calling
-  /// thread does not block. In Sync and SyncCompressed modes the calling
-  /// thread syncs. In Sync mode appends to the write ahead log wait for
-  /// the sync. SyncCompressed can append to its active tail during the sync;
+  /// In AsyncPrivate mode the background writer syncs, and the calling
+  /// thread does not block. In Private mode the calling
+  /// thread syncs. It can append to its active tail during the sync;
   /// a rollover waits before writing to the main file.
   ///
   /// After a write ahead log write or disk sync fails, later calls fail too,
@@ -391,7 +390,7 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// <see cref="Options.WriteAheadLogMode.None"/> mode there is no write
   /// ahead log, and the task completes at once without making writes durable.
   /// </returns>
-  Task SyncWALAsync(CancellationToken cancellationToken = default);
+  Task SyncWalAsync(CancellationToken cancellationToken = default);
 
   /// <summary>
   /// Returns maintenance object belongs to this ZoneTree.

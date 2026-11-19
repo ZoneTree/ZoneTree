@@ -204,10 +204,10 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
       SearchHints = new(() => new());
     CircularKeyCache = new CircularCache<TKey>(
         diskOptions.KeyCacheSize,
-        diskOptions.KeyCacheRecordLifeTimeInMillisecond);
+        diskOptions.KeyCacheRecordLifetime);
     CircularValueCache = new CircularCache<TValue>(
         diskOptions.ValueCacheSize,
-        diskOptions.ValueCacheRecordLifeTimeInMillisecond);
+        diskOptions.ValueCacheRecordLifetime);
   }
 
   protected DiskSegment(long segmentId,
@@ -228,10 +228,10 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
       SearchHints = new(() => new());
     CircularKeyCache = new CircularCache<TKey>(
         diskOptions.KeyCacheSize,
-        diskOptions.KeyCacheRecordLifeTimeInMillisecond);
+        diskOptions.KeyCacheRecordLifetime);
     CircularValueCache = new CircularCache<TValue>(
         diskOptions.ValueCacheSize,
-        diskOptions.ValueCacheRecordLifeTimeInMillisecond);
+        diskOptions.ValueCacheRecordLifetime);
   }
 
   public bool ContainsKey(in TKey key, ref KeyHashProvider<TKey> keyHashProvider)
@@ -964,7 +964,7 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
 
     var path = deviceManager.GetFilePath(SegmentId, category);
     if (isCompressed)
-      path += RandomAccessDeviceManager.CompressedFileExtension;
+      path += ".z";
 
     files.Add(new DiskSegmentFile(
         SegmentId,
@@ -975,12 +975,12 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
 
   abstract public void SetDefaultSparseArray(IReadOnlyList<SparseArrayEntry<TKey, TValue>> defaultSparseArray);
 
-  public int ReleaseCircularKeyCacheRecords()
+  public int ReleaseKeyCacheRecords()
   {
     return CircularKeyCache.ReleaseInactiveCacheRecords();
   }
 
-  public int ReleaseCircularValueCacheRecords()
+  public int ReleaseValueCacheRecords()
   {
     return CircularValueCache.ReleaseInactiveCacheRecords();
   }

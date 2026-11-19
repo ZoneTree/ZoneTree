@@ -5,9 +5,8 @@ namespace ZoneTree.UnitTests;
 
 public sealed class AtomicUpdateTests
 {
-  [TestCase(WriteAheadLogMode.Sync)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
+  [TestCase(WriteAheadLogMode.Private)]
   public void IntIntAtomicIncrement(WriteAheadLogMode walMode)
   {
     var dataPath = "data/IntIntAtomicIncrement." + walMode;
@@ -21,7 +20,7 @@ public sealed class AtomicUpdateTests
         .SetMutableSegmentMaxItemCount(500)
         .SetDataDirectory(dataPath)
         .SetWriteAheadLogDirectory(dataPath)
-        .ConfigureWriteAheadLogOptions(x => x.WriteAheadLogMode = walMode)
+        .ConfigureWriteAheadLogOptions(x => x.Mode = walMode)
         .OpenOrCreate();
     for (var i = 0; i < 2000; ++i)
     {
@@ -80,9 +79,8 @@ public sealed class AtomicUpdateTests
     data.Maintenance.Drop();
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
+  [TestCase(WriteAheadLogMode.Private)]
   public void IntIntAtomicIncrementForBTree(WriteAheadLogMode walMode)
   {
     var dataPath = "data/IntIntAtomicIncrementForBTree." + walMode;
@@ -94,7 +92,7 @@ public sealed class AtomicUpdateTests
         .SetComparer(new Int32ComparerDescending())
         .SetDataDirectory(dataPath)
         .SetWriteAheadLogDirectory(dataPath)
-        .ConfigureWriteAheadLogOptions(x => x.WriteAheadLogMode = walMode)
+        .ConfigureWriteAheadLogOptions(x => x.Mode = walMode)
         .OpenOrCreate();
     for (var i = 0; i < 2000; ++i)
     {
@@ -146,9 +144,8 @@ public sealed class AtomicUpdateTests
     data.Maintenance.Drop();
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
+  [TestCase(WriteAheadLogMode.Private)]
   public void IntIntMutableSegmentOnlyAtomicIncrement(WriteAheadLogMode walMode)
   {
     var dataPath = "data/IntIntMutableSegmentOnlyAtomicIncrement." + walMode;
@@ -160,7 +157,7 @@ public sealed class AtomicUpdateTests
         .SetComparer(new Int32ComparerDescending())
         .SetDataDirectory(dataPath)
         .SetWriteAheadLogDirectory(dataPath)
-        .ConfigureWriteAheadLogOptions(x => x.WriteAheadLogMode = walMode)
+        .ConfigureWriteAheadLogOptions(x => x.Mode = walMode)
         .OpenOrCreate();
     for (var i = 0; i < 2000; ++i)
     {
@@ -212,9 +209,8 @@ public sealed class AtomicUpdateTests
     data.Maintenance.Drop();
   }
 
-  [TestCase(WriteAheadLogMode.Sync)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
+  [TestCase(WriteAheadLogMode.Private)]
   public void IntIntMutableSegmentSeveralUpserts(WriteAheadLogMode walMode)
   {
     var dataPath = "data/IntIntMutableSegmentSeveralUpserts." + walMode;
@@ -225,7 +221,7 @@ public sealed class AtomicUpdateTests
         .SetComparer(new Int32ComparerDescending())
         .SetDataDirectory(dataPath)
         .SetWriteAheadLogDirectory(dataPath)
-        .ConfigureWriteAheadLogOptions(x => x.WriteAheadLogMode = walMode)
+        .ConfigureWriteAheadLogOptions(x => x.Mode = walMode)
         .OpenOrCreate();
     var n = 1000;
     var random = Random.Shared;

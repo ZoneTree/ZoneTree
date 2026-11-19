@@ -15,14 +15,9 @@ public sealed class ReadOnlySegmentLoader<TKey, TValue>
     Options = options;
   }
 
-  /// <summary>
-  /// Loads the read-only segment from its WAL, and returns the WAL files in a format
-  /// that version 2.2.0 removes.
-  /// </summary>
-  public IReadOnlySegment<TKey, TValue> LoadReadOnlySegment(
-      long segmentId, out IReadOnlyList<string> legacyFiles)
+  public IReadOnlySegment<TKey, TValue> LoadReadOnlySegment(long segmentId)
   {
-    var wal = Options.WriteAheadLogProvider.GetOrCreateWAL(
+    var wal = Options.WriteAheadLogProvider.GetOrCreateWal(
         segmentId,
         ZoneTree<TKey, TValue>.SegmentWalCategory,
         Options.WriteAheadLogOptions,
@@ -38,14 +33,13 @@ public sealed class ReadOnlySegmentLoader<TKey, TValue>
       }
       else
       {
-        Options.WriteAheadLogProvider.RemoveWAL(
+        Options.WriteAheadLogProvider.RemoveWal(
             segmentId,
             ZoneTree<TKey, TValue>.SegmentWalCategory);
         using var disposeWal = wal;
         throw new WriteAheadLogCorruptionException(segmentId, result.Exceptions);
       }
     }
-    legacyFiles = wal.GetLegacyFiles();
     wal.MarkFrozen();
 
     (var newKeys, var newValues) = WriteAheadLogUtility
@@ -65,7 +59,7 @@ public sealed class ReadOnlySegmentLoader<TKey, TValue>
     {
       MaximumOpIndex = result.MaximumOpIndex
     };
-    Options.WriteAheadLogProvider.RemoveWAL(
+    Options.WriteAheadLogProvider.RemoveWal(
         segmentId,
         ZoneTree<TKey, TValue>.SegmentWalCategory);
     return ros;

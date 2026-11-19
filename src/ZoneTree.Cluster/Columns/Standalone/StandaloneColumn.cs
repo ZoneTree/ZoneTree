@@ -108,13 +108,13 @@ internal sealed class StandaloneColumn<TKey, TValue> : Column,
     return Task.FromResult(TransactionOutcome.Unknown);
   }
 
-  public Task SyncWALAsync(CancellationToken cancellationToken = default)
+  public Task SyncWalAsync(CancellationToken cancellationToken = default)
   {
     EnsureOpen();
-    return Tree.SyncWALAsync(cancellationToken);
+    return Tree.SyncWalAsync(cancellationToken);
   }
 
-  internal override Task SyncWALAsync() => SyncWALAsync(default);
+  internal override Task SyncWalAsync() => SyncWalAsync(default);
 
   internal override void SetReadOnly(bool value)
   {
@@ -136,7 +136,7 @@ internal sealed class StandaloneColumn<TKey, TValue> : Column,
       long transactionId, long snapshotTimestamp)
       => throw new InvalidOperationException("Standalone columns cannot participate in domain transactions.");
 
-  internal override void SaveMetaData() => Tree.Maintenance.SaveMetaData();
+  internal override void SaveMetadata() => Tree.Maintenance.SaveMetadata();
 
   public override IMaintainer CreateMaintainer()
   {

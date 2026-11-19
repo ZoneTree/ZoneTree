@@ -11,10 +11,10 @@ public sealed class WriteAheadLogOptions
 {
   /// <summary>
   /// The default write ahead log mode. New WALs will be created
-  /// based on this setting. Default value is AsyncCompressed.
+  /// based on this setting. Default value is AsyncPrivate.
   /// </summary>
-  public WriteAheadLogMode WriteAheadLogMode { get; set; }
-      = WriteAheadLogDefaultValues.WriteAheadLogMode;
+  public WriteAheadLogMode Mode { get; set; }
+      = WriteAheadLogDefaultValues.Mode;
 
   /// <summary>
   /// The custom options are reserved to be used
@@ -32,7 +32,7 @@ public sealed class WriteAheadLogOptions
       = WriteAheadLogDefaultValues.CompressionBlockSize;
 
   /// <summary>
-  /// The compression method for the WALs with compression enabled.
+  /// The compression method of the WAL blocks.
   /// Default is Zstd.
   /// </summary>
   public CompressionMethod CompressionMethod { get; set; } = WriteAheadLogDefaultValues.CompressionMethod;
@@ -44,18 +44,39 @@ public sealed class WriteAheadLogOptions
   public int CompressionLevel { get; set; } = WriteAheadLogDefaultValues.CompressionLevel;
 
   /// <summary>
-  /// Options for sync-compressed mode.
+  /// In the Private and Shared modes, if enabled, a background job syncs the
+  /// dirty WAL to the disk periodically. This limits what a power loss can lose.
+  /// Process crashes do not depend on it.
+  /// Default value is true.
   /// </summary>
-  public SyncCompressedModeOptions SyncCompressedModeOptions { get; set; } = new();
+  public bool EnableSyncJob { get; set; } = WriteAheadLogDefaultValues.EnableSyncJob;
 
   /// <summary>
-  /// Options for async-compressed mode.
+  /// The delay before the next run of the sync job.
+  /// Default value is 500 ms.
   /// </summary>
-  public AsyncCompressedModeOptions AsyncCompressedModeOptions { get; set; } = new();
+  public TimeSpan SyncJobInterval { get; set; } = WriteAheadLogDefaultValues.SyncJobInterval;
+
+  /// <summary>
+  /// In the AsyncPrivate and AsyncShared modes, the delay before the background
+  /// writer polls its queue again when the queue is empty.
+  /// Default value is 100 ms.
+  /// </summary>
+  public TimeSpan EmptyQueuePollInterval { get; set; } = WriteAheadLogDefaultValues.EmptyQueuePollInterval;
 
   /// <summary>
   /// Options for the shared journal modes. Compression settings above also
   /// apply. Caller-side and queued writes use Shared and AsyncShared respectively.
   /// </summary>
   public SharedModeOptions SharedModeOptions { get; set; } = new();
+
+  /// <summary>
+  /// Returns a copy of the options. The copy shares <see cref="CustomOptions"/>.
+  /// </summary>
+  public WriteAheadLogOptions Clone()
+  {
+    var clone = (WriteAheadLogOptions)MemberwiseClone();
+    clone.SharedModeOptions = SharedModeOptions?.Clone();
+    return clone;
+  }
 }

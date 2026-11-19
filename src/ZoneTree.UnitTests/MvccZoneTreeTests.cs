@@ -29,7 +29,7 @@ public sealed class MvccZoneTreeTests
   ZoneTreeFactory<int, int> CreateFactory(
       int mutableSegmentMaxItemCount = 1000,
       DiskSegmentMode diskSegmentMode = DiskSegmentMode.SingleDiskSegment,
-      WriteAheadLogMode walMode = WriteAheadLogMode.Sync)
+      WriteAheadLogMode walMode = WriteAheadLogMode.Private)
   {
     return new ZoneTreeFactory<int, int>()
         .SetDataDirectory(DataDirectory)
@@ -38,11 +38,11 @@ public sealed class MvccZoneTreeTests
         .SetMutableSegmentMaxItemCount(mutableSegmentMaxItemCount)
         .ConfigureDiskSegmentOptions(options =>
         {
-          options.DiskSegmentMode = diskSegmentMode;
+          options.Mode = diskSegmentMode;
           options.MinimumRecordCount = 2;
           options.MaximumRecordCount = 16;
         })
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = walMode);
+        .ConfigureWriteAheadLogOptions(options => options.Mode = walMode);
   }
 
   static void Write(ITransactionalZoneTree<int, int> tree, params (int Key, int Value)[] records)
@@ -290,7 +290,7 @@ public sealed class MvccZoneTreeTests
   [Test]
   public async Task TryCommitDurableAsyncReportsConflicts()
   {
-    using var tree = CreateFactory(walMode: WriteAheadLogMode.AsyncCompressed).OpenOrCreateTransactional();
+    using var tree = CreateFactory(walMode: WriteAheadLogMode.AsyncPrivate).OpenOrCreateTransactional();
     using (var tx = tree.BeginTransaction())
     {
       tx.Upsert(1, 1);
@@ -678,7 +678,7 @@ public sealed class MvccZoneTreeTests
   [Test]
   public async Task CommitDurableAsyncCommits()
   {
-    using var tree = CreateFactory(walMode: WriteAheadLogMode.AsyncCompressed).OpenOrCreateTransactional();
+    using var tree = CreateFactory(walMode: WriteAheadLogMode.AsyncPrivate).OpenOrCreateTransactional();
     tree.AutoSyncInterval = TimeSpan.FromMilliseconds(10);
     using (var tx = tree.BeginTransaction())
     {
@@ -1079,7 +1079,7 @@ public sealed class MvccZoneTreeTests
       Assert.Throws<TransactionAbortedException>(() => tx.Commit());
       Assert.That(ReadCommitted(tree, 1), Is.EqualTo(10));
       Write(tree, (2, 30));
-      tree.SyncWALAsync().GetAwaiter().GetResult();
+      tree.SyncWalAsync().GetAwaiter().GetResult();
     }
     using var reopened = CreateFactory().SetValueSerializer(serializer).OpenTransactional();
     Assert.That(ReadCommitted(reopened, 1), Is.EqualTo(10));
@@ -1375,7 +1375,7 @@ public sealed class MvccZoneTreeTests
   [Test]
   public async Task ExecuteDurableAsyncCommits()
   {
-    using var tree = CreateFactory(walMode: WriteAheadLogMode.AsyncCompressed).OpenOrCreateTransactional();
+    using var tree = CreateFactory(walMode: WriteAheadLogMode.AsyncPrivate).OpenOrCreateTransactional();
     var result = await tree.ExecuteDurableAsync(tx =>
     {
       tx.Upsert(1, 1);

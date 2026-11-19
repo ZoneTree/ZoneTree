@@ -111,7 +111,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     }
 
     var enableMultiPartDiskSegment =
-        Options.DiskSegmentOptions.DiskSegmentMode == DiskSegmentMode.MultiPartDiskSegment;
+        Options.DiskSegmentOptions.Mode == DiskSegmentMode.MultiPartDiskSegment;
 
     var len = mergingSegments.Length;
     var bottomIndex = len - 1;
@@ -174,7 +174,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         catch (Exception e)
         {
           Logger.LogError(e);
-          OnCanNotDropDiskSegmentCreator?.Invoke(diskSegmentCreator, e);
+          OnCannotDropDiskSegmentCreator?.Invoke(diskSegmentCreator, e);
         }
         // Do not remove null assignments because of GC issue!
         bottomSegments = null;
@@ -332,7 +332,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         catch (Exception e)
         {
           Logger.LogError(e);
-          OnCanNotDropDiskSegment?.Invoke(newDiskSegment, e);
+          OnCannotDropDiskSegment?.Invoke(newDiskSegment, e);
         }
 
         // Do not remove null assignments because of GC issue!
@@ -378,7 +378,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         catch (Exception e)
         {
           Logger.LogError(e);
-          OnCanNotDropDiskSegment?.Invoke(diskSegmentToDrop, e);
+          OnCannotDropDiskSegment?.Invoke(diskSegmentToDrop, e);
         }
       }
     }

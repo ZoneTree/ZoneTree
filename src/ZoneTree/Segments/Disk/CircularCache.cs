@@ -32,11 +32,11 @@ public sealed class CircularCache<TDataType>
   // Allocated on the first add, so unused caches cost no memory.
   Slot[] Slots;
 
-  public int RecordLifeTimeInMillisecond { get; set; } = 10000;
+  public TimeSpan RecordLifetime { get; set; } = TimeSpan.FromSeconds(10);
 
-  public CircularCache(int cacheSize, int recordLifeTimeInMillisecond)
+  public CircularCache(int cacheSize, TimeSpan recordLifetime)
   {
-    RecordLifeTimeInMillisecond = recordLifeTimeInMillisecond;
+    RecordLifetime = recordLifetime;
     CacheSize = cacheSize;
     HashShift = GetHashShift(cacheSize);
   }
@@ -87,7 +87,7 @@ public sealed class CircularCache<TDataType>
   {
     var slots = Volatile.Read(ref Slots);
     if (slots == null) return 0;
-    var ticks = Environment.TickCount64 - RecordLifeTimeInMillisecond;
+    var ticks = Environment.TickCount64 - (long)RecordLifetime.TotalMilliseconds;
     var len = slots.Length;
     var totalReleasedRecords = 0;
     for (var i = 0; i < len; ++i)

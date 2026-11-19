@@ -49,7 +49,7 @@ public static class CrashWorkload
     {
       DataDirectory = dataDirectory,
       Logger = new SilentLogger(),
-      CoordinatedWriteAheadLog = new() { WriteAheadLogMode = mode },
+      CoordinatedWriteAheadLog = new() { Mode = mode },
       Domains =
       [
         new DomainDefinition(Domain)

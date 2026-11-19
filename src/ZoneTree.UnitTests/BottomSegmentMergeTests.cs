@@ -33,7 +33,7 @@ public sealed class BottomSegmentMergeTests
         .SetDiskSegmentMaxItemCount(10)
         .SetDataDirectory(dataPath)
         .ConfigureDiskSegmentOptions(
-            x => x.DiskSegmentMode = DiskSegmentMode.SingleDiskSegment)
+            x => x.Mode = DiskSegmentMode.SingleDiskSegment)
         .OpenOrCreate();
     var m = zoneTree.Maintenance;
     var insertCount = 100;
@@ -334,7 +334,7 @@ public sealed class BottomSegmentMergeTests
             dataDirectory),
       DiskSegmentOptions = new DiskSegmentOptions
       {
-        DiskSegmentMode = DiskSegmentMode.MultiPartDiskSegment,
+        Mode = DiskSegmentMode.MultiPartDiskSegment,
         CompressionMethod = CompressionMethod.None,
         CompressionLevel = 0,
         CompressionBlockSize = 1024,
@@ -375,7 +375,7 @@ public sealed class BottomSegmentMergeTests
             "data/ConcurrentBottomSegmentAddDuringBottomMerge"),
       DiskSegmentOptions = new DiskSegmentOptions
       {
-        DiskSegmentMode = DiskSegmentMode.SingleDiskSegment,
+        Mode = DiskSegmentMode.SingleDiskSegment,
         CompressionMethod = CompressionMethod.None,
         CompressionLevel = 0,
         CompressionBlockSize = 1024,

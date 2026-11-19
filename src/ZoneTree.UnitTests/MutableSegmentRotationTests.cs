@@ -16,8 +16,8 @@ public sealed class MutableSegmentRotationTests
           .SetLogger(SilentTestLogger.Instance)
           .ConfigureWriteAheadLogOptions(options =>
           {
-            options.WriteAheadLogMode = mode;
-            options.SyncCompressedModeOptions.EnableTailWriterJob = false;
+            options.Mode = mode;
+            options.EnableSyncJob = false;
           });
 
   static ZoneTree<int, int> Engine(IZoneTree<int, int> tree) => (ZoneTree<int, int>)tree;
@@ -28,8 +28,8 @@ public sealed class MutableSegmentRotationTests
       Assert.That(tree.TryGet(key, out var value) && value == key + 1, Is.True, $"key {key}");
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed, false)]
-  [TestCase(WriteAheadLogMode.SyncCompressed, true)]
+  [TestCase(WriteAheadLogMode.Private, false)]
+  [TestCase(WriteAheadLogMode.Private, true)]
   [TestCase(WriteAheadLogMode.Shared, false)]
   [TestCase(WriteAheadLogMode.Shared, true)]
   public async Task APowerLossKeepsTheRecordsOfARecordedNextSegment(
@@ -43,11 +43,11 @@ public sealed class MutableSegmentRotationTests
     for (var key = 10; key < 20; ++key) tree.Upsert(key, key + 1);
     // A metadata save after the next segment was recorded keeps it recorded.
     if (saveMetadata)
-      tree.Maintenance.SaveMetaData();
+      tree.Maintenance.SaveMetadata();
     // This move publishes the recorded segment, and the writes after it go to its WAL.
     tree.Maintenance.MoveMutableSegmentForward();
     for (var key = 20; key < 30; ++key) tree.Upsert(key, key + 1);
-    await tree.SyncWALAsync();
+    await tree.SyncWalAsync();
     using var recovered = Factory(files.SimulatePowerLoss(), mode).Open();
     AssertRecords(recovered, 30);
   }
@@ -126,11 +126,11 @@ public sealed class MutableSegmentRotationTests
     AssertRecords(tree, 3);
 
     // The metadata is saved without the timing of the recording: the meta WAL is empty.
-    tree.Maintenance.SaveMetaData();
+    tree.Maintenance.SaveMetadata();
     Assert.That(files.ReadAllBytes(metaWalPath), Is.Empty);
   }
 
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
   [TestCase(WriteAheadLogMode.Shared)]
   public void TheOpIndexKeepsGrowingAfterAMergeDroppedTheSegmentWals(WriteAheadLogMode mode)
   {

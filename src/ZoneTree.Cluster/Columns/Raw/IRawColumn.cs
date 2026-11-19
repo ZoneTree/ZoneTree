@@ -31,5 +31,5 @@ public interface IRawColumn<TKey, TValue>
   IAsyncTransactionIterator<TKey, TValue> CreateAsyncReverseIterator(TransactionIteratorOptions options = null);
 
   /// <summary>Makes writes completed before this call durable across power loss or an OS crash.</summary>
-  Task SyncWALAsync(CancellationToken cancellationToken = default);
+  Task SyncWalAsync(CancellationToken cancellationToken = default);
 }

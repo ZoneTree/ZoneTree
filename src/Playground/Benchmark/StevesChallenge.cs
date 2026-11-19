@@ -16,7 +16,7 @@ public sealed class StevesChallenge : ZoneTreeTestBase<Memory<byte>, Memory<byte
   const string FolderName = "-byte-byte";
 
   public override string DataPath =>
-      RootPath + WALMode + "-" + Count.ToHuman()
+      RootPath + WalMode + "-" + Count.ToHuman()
           + "_" + CompressionMethod + "_"
           + FolderName;
 
@@ -66,7 +66,7 @@ public sealed class StevesChallenge : ZoneTreeTestBase<Memory<byte>, Memory<byte
     stats.AddStage("Inserted In", ConsoleColor.Green);
     cts.Cancel();
 
-    if (WALMode == WriteAheadLogMode.None)
+    if (WalMode == WriteAheadLogMode.None)
     {
       zoneTree.Maintenance.MoveMutableSegmentForward();
       zoneTree.Maintenance.StartMergeOperation()?.Join();

@@ -108,25 +108,25 @@ public static class EngineCatalog
         "zonetree",
         "ZoneTree MVCC serializable async",
         SerializableIsolation,
-        options => new ZoneTreeEngine(options, TransactionIsolationLevel.Serializable, WriteAheadLogMode.AsyncCompressed)),
+        options => new ZoneTreeEngine(options, TransactionIsolationLevel.Serializable, WriteAheadLogMode.AsyncPrivate)),
     new(
         "zonetree-mvcc-snap-async",
         "zonetree",
         "ZoneTree MVCC snapshot async",
         SnapshotIsolation,
-        options => new ZoneTreeEngine(options, TransactionIsolationLevel.Snapshot, WriteAheadLogMode.AsyncCompressed)),
+        options => new ZoneTreeEngine(options, TransactionIsolationLevel.Snapshot, WriteAheadLogMode.AsyncPrivate)),
     new(
         "zonetree-mvcc-ser-sync",
         "zonetree",
         "ZoneTree MVCC serializable sync",
         SerializableIsolation,
-        options => new ZoneTreeEngine(options, TransactionIsolationLevel.Serializable, WriteAheadLogMode.SyncCompressed)),
+        options => new ZoneTreeEngine(options, TransactionIsolationLevel.Serializable, WriteAheadLogMode.Private)),
     new(
         "zonetree-mvcc-snap-sync",
         "zonetree",
         "ZoneTree MVCC snapshot sync",
         SnapshotIsolation,
-        options => new ZoneTreeEngine(options, TransactionIsolationLevel.Snapshot, WriteAheadLogMode.SyncCompressed)),
+        options => new ZoneTreeEngine(options, TransactionIsolationLevel.Snapshot, WriteAheadLogMode.Private)),
     new(
         "rocksdb-optimistic",
         "rocksdb",
@@ -148,11 +148,11 @@ public static class EngineCatalog
     new(
         "zonetree-raw-async", "zonetree", "ZoneTree raw async",
         "Direct reads and writes; no transaction snapshots, conflict validation, atomic batches or rollback.",
-        options => new ZoneTreeRawEngine(options, WriteAheadLogMode.AsyncCompressed), Raw: true),
+        options => new ZoneTreeRawEngine(options, WriteAheadLogMode.AsyncPrivate), Raw: true),
     new(
         "zonetree-raw-sync", "zonetree", "ZoneTree raw sync",
         "Direct reads and writes; no transaction snapshots, conflict validation, atomic batches or rollback.",
-        options => new ZoneTreeRawEngine(options, WriteAheadLogMode.SyncCompressed), Raw: true),
+        options => new ZoneTreeRawEngine(options, WriteAheadLogMode.Private), Raw: true),
     new(
         "rocksdb-raw", "rocksdb", "RocksDB raw",
         "Plain DB Get/Put/Delete; no explicit transactions, snapshots, conflict validation or rollback. Iterators retain RocksDB's native view.",
@@ -174,19 +174,19 @@ public static class EngineCatalog
     new(
         "dist-standalone-ser-async", "zonetree", "Cluster standalone serializable async",
         "ZoneTreeCluster standalone column over the zonetree-mvcc engine. " + SerializableIsolation,
-        options => new ZoneTreeClusterStandaloneEngine(options, TransactionIsolationLevel.Serializable, WriteAheadLogMode.AsyncCompressed)),
+        options => new ZoneTreeClusterStandaloneEngine(options, TransactionIsolationLevel.Serializable, WriteAheadLogMode.AsyncPrivate)),
     new(
         "dist-standalone-snap-async", "zonetree", "Cluster standalone snapshot async",
         "ZoneTreeCluster standalone column over the zonetree-mvcc engine. " + SnapshotIsolation,
-        options => new ZoneTreeClusterStandaloneEngine(options, TransactionIsolationLevel.Snapshot, WriteAheadLogMode.AsyncCompressed)),
+        options => new ZoneTreeClusterStandaloneEngine(options, TransactionIsolationLevel.Snapshot, WriteAheadLogMode.AsyncPrivate)),
     new(
         "dist-standalone-ser-sync", "zonetree", "Cluster standalone serializable sync",
         "ZoneTreeCluster standalone column over the zonetree-mvcc engine. " + SerializableIsolation,
-        options => new ZoneTreeClusterStandaloneEngine(options, TransactionIsolationLevel.Serializable, WriteAheadLogMode.SyncCompressed)),
+        options => new ZoneTreeClusterStandaloneEngine(options, TransactionIsolationLevel.Serializable, WriteAheadLogMode.Private)),
     new(
         "dist-standalone-snap-sync", "zonetree", "Cluster standalone snapshot sync",
         "ZoneTreeCluster standalone column over the zonetree-mvcc engine. " + SnapshotIsolation,
-        options => new ZoneTreeClusterStandaloneEngine(options, TransactionIsolationLevel.Snapshot, WriteAheadLogMode.SyncCompressed)),
+        options => new ZoneTreeClusterStandaloneEngine(options, TransactionIsolationLevel.Snapshot, WriteAheadLogMode.Private)),
   ];
 
   public static int ColorSlot(string engineId)

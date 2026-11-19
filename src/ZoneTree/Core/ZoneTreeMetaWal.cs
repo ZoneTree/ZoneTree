@@ -11,13 +11,13 @@ using ZoneTree.Serializers;
 
 namespace ZoneTree.Core;
 
-public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
+public sealed class ZoneTreeMetaWal<TKey, TValue> : IDisposable
 {
   readonly Lock SyncRoot = new();
 
-  const CompressionMethod MetaWALCompressionMethod = CompressionMethod.None;
+  const CompressionMethod MetaWalCompressionMethod = CompressionMethod.None;
 
-  const int MetaWALCompressionLevel = 0;
+  const int MetaWalCompressionLevel = 0;
 
   const int ZoneTreeMetaId = 0;
 
@@ -34,9 +34,9 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
   // The generation of the records that this WAL appends.
   long Generation;
 
-  Action PendingMetaDataSave;
+  Action PendingMetadataSave;
 
-  public ZoneTreeMetaWAL(ZoneTreeOptions<TKey, TValue> options, bool isReadOnly, long generation = 0)
+  public ZoneTreeMetaWal(ZoneTreeOptions<TKey, TValue> options, bool isReadOnly, long generation = 0)
   {
     Options = options;
     IsReadOnly = isReadOnly;
@@ -50,8 +50,8 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
               MetaWalCategory,
               isCompressed: false,
               compressionBlockSize: 0,
-              MetaWALCompressionMethod,
-              MetaWALCompressionLevel);
+              MetaWalCompressionMethod,
+              MetaWalCompressionLevel);
     }
     else
     {
@@ -65,8 +65,8 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
               compressionBlockSize: 0,
               deleteIfExists: false,
               backupIfDelete: false,
-              MetaWALCompressionMethod,
-              MetaWALCompressionLevel);
+              MetaWalCompressionMethod,
+              MetaWalCompressionLevel);
     }
   }
 
@@ -203,7 +203,7 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
   {
     lock (SyncRoot)
     {
-      CompletePendingMetaDataSave();
+      CompletePendingMetadataSave();
       var stamped = record;
       stamped.Generation = unchecked((uint)Generation);
       stamped.Checksum = stamped.CreateChecksum();
@@ -245,9 +245,6 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
   public IReadOnlyList<MetaWalRecord> GetRecordsOfGeneration(long generation)
   {
     var records = GetAllRecords();
-    // An older version saved the metadata and its records have no generation.
-    if (generation == 0)
-      return records;
     var list = new List<MetaWalRecord>(records.Count);
     var foundInvalidRecord = false;
     foreach (var record in records)
@@ -266,7 +263,7 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
     return list;
   }
 
-  public void SaveMetaData(
+  public void SaveMetadata(
       ZoneTreeMeta zoneTreeMeta,
       long mutableSegment,
       long diskSegment,
@@ -275,7 +272,7 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
       bool createNew = false)
   {
     lock (SyncRoot)
-      CompletePendingMetaDataSave();
+      CompletePendingMetadataSave();
     string productVersion = ZoneTreeInfo.ProductVersion.ToString();
     var newZoneTreeMeta = new ZoneTreeMeta
     {
@@ -308,7 +305,6 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
     // records of the meta WAL, so an empty one needs no new generation. A meta WAL with
     // content can hold stale records or a torn tail, which the save below clears.
     if (!createNew &&
-        zoneTreeMeta.MetaWalGeneration != 0 &&
         Device.Length == 0 &&
         deviceManager.FileStreamProvider.ReadAllBytes(metaFilePath).AsSpan()
             .SequenceEqual(JsonSerializeToUtf8Bytes(newZoneTreeMeta)))
@@ -335,7 +331,7 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
     {
       // Keep the old WAL until the rename is durable. If that sync fails, the
       // next metadata append must finish this save before using a new generation.
-      PendingMetaDataSave = () =>
+      PendingMetadataSave = () =>
       {
         Generation = newZoneTreeMeta.MetaWalGeneration;
         zoneTreeMeta.MetaWalGeneration = newZoneTreeMeta.MetaWalGeneration;
@@ -354,23 +350,23 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
             Options.MutableSegmentBloomFilterBitsPerItem;
         zoneTreeMeta.DiskSegmentMaxItemCount = Options.DiskSegmentMaxItemCount;
       };
-      CompletePendingMetaDataSave();
+      CompletePendingMetadataSave();
     }
   }
 
   // Called under SyncRoot. A failed directory sync has an uncertain rename
   // outcome, so do not stamp more records until that outcome is made durable.
-  void CompletePendingMetaDataSave()
+  void CompletePendingMetadataSave()
   {
-    var complete = PendingMetaDataSave;
+    var complete = PendingMetadataSave;
     if (complete == null)
       return;
     Options.RandomAccessDeviceManager.SyncDirectory();
-    PendingMetaDataSave = null;
+    PendingMetadataSave = null;
     complete();
   }
 
-  public static ZoneTreeMeta LoadZoneTreeMetaWithoutWALRecords(
+  public static ZoneTreeMeta LoadZoneTreeMetaWithoutWalRecords(
       IRandomAccessDeviceManager deviceManager)
   {
     using var device = deviceManager
@@ -379,8 +375,8 @@ public sealed class ZoneTreeMetaWAL<TKey, TValue> : IDisposable
             MetaFileCategory,
             isCompressed: false,
             compressionBlockSize: 0,
-            MetaWALCompressionMethod,
-            MetaWALCompressionLevel);
+            MetaWalCompressionMethod,
+            MetaWalCompressionLevel);
 
     if (device.Length > int.MaxValue)
       throw new DataIsTooBigToLoadAtOnceException(device.Length, int.MaxValue);
@@ -433,8 +429,7 @@ public struct MetaWalRecord : IEquatable<MetaWalRecord>
 {
   public MetaWalOperation Operation;
 
-  // Generation and Checksum use the padding of the record layout of older
-  // versions, so the record size stays the same and they can read these records.
+  // Generation and Checksum fill the alignment gaps of the sequential layout.
   public uint Generation;
 
   public long SegmentId;

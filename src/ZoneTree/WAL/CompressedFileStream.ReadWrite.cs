@@ -37,35 +37,21 @@ public sealed unsafe partial class CompressedFileStream
     return true;
   }
 
-  readonly record struct MainBlockHeader(int Index, int CompressedLength, int Length, ulong Checksum, bool IsFramed)
-  {
-    public int Size => IsFramed ? WalBlockFrame.HeaderSize : 3 * sizeof(int);
-  }
+  readonly record struct MainBlockHeader(int Index, int CompressedLength, int Length, ulong Checksum);
 
   MainBlockHeader ReadMainBlockHeader()
   {
     Span<byte> bytes = stackalloc byte[WalBlockFrame.HeaderSize];
-    if (ReadMainFileAtMost(bytes[..12]) != 12)
-      throw new InvalidDataException("Incomplete WAL block header.");
-    if (WalBlockFrame.HasMagic(bytes))
-    {
-      if (ReadMainFileAtMost(bytes[12..]) != bytes.Length - 12 ||
-          !WalBlockFrame.TryRead(bytes, out var index, out var compressedLength, out var length, out var checksum))
-        throw new InvalidDataException("The WAL block header is invalid.");
-      return new(index, compressedLength, length, checksum, true);
-    }
-    // Released 2.0.9 and earlier files retain their original prefix. Migration
-    // appends only framed blocks, so there is no legacy writer or sync path.
-    if (!HasLegacyBlocks)
+    if (ReadMainFileAtMost(bytes) != bytes.Length ||
+        !WalBlockFrame.HasMagic(bytes) ||
+        !WalBlockFrame.TryRead(bytes, out var index, out var compressedLength, out var length, out var checksum))
       throw new InvalidDataException("The WAL block header is invalid.");
-    return new(BinaryPrimitives.ReadInt32LittleEndian(bytes),
-        BinaryPrimitives.ReadInt32LittleEndian(bytes[4..]),
-        BinaryPrimitives.ReadInt32LittleEndian(bytes[8..]), 0, false);
+    return new(index, compressedLength, length, checksum);
   }
 
   static void ValidateBlockPayload(ReadOnlySpan<byte> payload, in MainBlockHeader header)
   {
-    if (header.IsFramed && XxHash3.HashToUInt64(payload) != header.Checksum)
+    if (XxHash3.HashToUInt64(payload) != header.Checksum)
       throw new InvalidDataException("The WAL block checksum is invalid.");
   }
 
@@ -172,7 +158,7 @@ public sealed unsafe partial class CompressedFileStream
     {
       case SeekOrigin.Begin:
         Position = 0;
-        FileStream.Position = MetaDataSize;
+        FileStream.Position = MetadataSize;
         CurrentBlockPosition = 0;
         Position = 0;
         LoadNextBlock();
@@ -285,7 +271,7 @@ public sealed unsafe partial class CompressedFileStream
         WalBlockFrame.Write(header, tailBlock.BlockIndex, tailBlock.Length, compressedBytes.Span);
         bw.Write(header);
         bw.Write(compressedBytes.Span);
-        FileStream.Flush(false); // Use SyncWALAsync for power-loss durability.
+        FileStream.Flush(false); // Use SyncWalAsync for power-loss durability.
       }
       catch (Exception e)
       {

@@ -38,7 +38,7 @@ public sealed class ClusterFaultTests
     DataDirectory = DataDirectory,
     Logger = SilentTestLogger.Instance,
     FileStreamProvider = files,
-    CoordinatedWriteAheadLog = new() { WriteAheadLogMode = mode },
+    CoordinatedWriteAheadLog = new() { Mode = mode },
     Domains =
     [
       new DomainDefinition(Domain)
@@ -187,7 +187,7 @@ public sealed class ClusterFaultTests
     var domain = cluster.GetDomain(Domain);
     for (var key = 1L; key <= 3; ++key)
       Commit(domain, key);
-    await cluster.SyncWALAsync();
+    await cluster.SyncWalAsync();
     // An unsynced commit, so the drop's domain sync runs before the failing catalog write.
     Commit(domain, 4);
     // The drop records itself, syncs the domain, then fails to record the durable point.

@@ -147,7 +147,7 @@ public sealed class ByteArrayTreeTests
     var provider = new InMemoryFileStreamProvider();
     ZoneTreeFactory<byte[], byte[]> CreateTransactionalFactory()
         => new ZoneTreeFactory<byte[], byte[]>(provider)
-            .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.Shared);
+            .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.Shared);
 
     using (var tree = CreateTransactionalFactory().OpenOrCreateTransactional())
     {
@@ -163,7 +163,7 @@ public sealed class ByteArrayTreeTests
         transaction.Delete([3]);
         transaction.Commit();
       }
-      tree.SyncWALAsync().GetAwaiter().GetResult();
+      tree.SyncWalAsync().GetAwaiter().GetResult();
     }
 
     using (var tree = CreateTransactionalFactory().OpenOrCreateTransactional())
@@ -246,10 +246,10 @@ public sealed class ByteArrayTreeTests
   {
     return new ZoneTreeFactory<TKey, TValue>(provider)
         .Configure(options => options.AllowUnsafeOptionValues = true)
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.Sync)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.Private)
         .ConfigureDiskSegmentOptions(options =>
         {
-          options.DiskSegmentMode = mode;
+          options.Mode = mode;
           options.MinimumRecordCount = 2;
           options.MaximumRecordCount = 3;
         });

@@ -8,12 +8,9 @@ public static class DataCompression
   {
     return method switch
     {
-      CompressionMethod.LZ4 => LZ4DataCompression.Compress(bytes, level),
       CompressionMethod.Zstd => ZstdDataCompression.Compress(bytes, level),
-      CompressionMethod.Brotli => BrotliDataCompression.Compress(bytes, level),
-      CompressionMethod.Gzip => GZipDataCompression.Compress(bytes, level),
       CompressionMethod.None => bytes,
-      _ => throw new ArgumentOutOfRangeException(nameof(method)),
+      _ => throw UnsupportedMethod(method),
     };
   }
 
@@ -27,7 +24,6 @@ public static class DataCompression
     return method switch
     {
       CompressionMethod.Zstd => ZstdDataCompression.CompressInto(bytes, level, ref buffer),
-      CompressionMethod.Brotli => BrotliDataCompression.CompressInto(bytes, level, ref buffer),
       _ => Compress(method, level, bytes),
     };
   }
@@ -35,41 +31,25 @@ public static class DataCompression
   public static Memory<byte> Decompress(
       CompressionMethod method, Memory<byte> compressedBytes, int decompressedLength)
   {
-    // Empty bytes decompress to empty bytes with every method. LZ4 compresses them to
-    // empty bytes, which its decoder rejects.
     if (compressedBytes.Length == 0 && decompressedLength == 0)
       return Array.Empty<byte>();
     return method switch
     {
-      CompressionMethod.LZ4 => LZ4DataCompression.Decompress(compressedBytes, decompressedLength),
       CompressionMethod.Zstd => ZstdDataCompression.Decompress(compressedBytes, decompressedLength),
-      CompressionMethod.Brotli => BrotliDataCompression.Decompress(compressedBytes, decompressedLength),
-      CompressionMethod.Gzip => GZipDataCompression.Decompress(compressedBytes, decompressedLength),
       CompressionMethod.None => compressedBytes.ToArray(),
-      _ => throw new ArgumentOutOfRangeException(nameof(method)),
+      _ => throw UnsupportedMethod(method),
     };
   }
 
   public static void DecompressInto(
       CompressionMethod method, Memory<byte> compressedBytes, Memory<byte> destination)
   {
-    // Empty bytes decompress to empty bytes with every method. LZ4 compresses them to
-    // empty bytes, which its decoder rejects.
     if (compressedBytes.Length == 0 && destination.Length == 0)
       return;
     switch (method)
     {
-      case CompressionMethod.LZ4:
-        LZ4DataCompression.DecompressInto(compressedBytes, destination);
-        break;
       case CompressionMethod.Zstd:
         ZstdDataCompression.DecompressInto(compressedBytes, destination);
-        break;
-      case CompressionMethod.Brotli:
-        BrotliDataCompression.DecompressInto(compressedBytes, destination);
-        break;
-      case CompressionMethod.Gzip:
-        GZipDataCompression.DecompressInto(compressedBytes, destination);
         break;
       case CompressionMethod.None:
         if (compressedBytes.Length != destination.Length)
@@ -77,7 +57,10 @@ public static class DataCompression
         compressedBytes.Span.CopyTo(destination.Span);
         break;
       default:
-        throw new ArgumentOutOfRangeException(nameof(method));
+        throw UnsupportedMethod(method);
     }
   }
+
+  static NotSupportedException UnsupportedMethod(CompressionMethod method) =>
+      new($"Compression method {(byte)method} is not supported. Use Zstd or None.");
 }

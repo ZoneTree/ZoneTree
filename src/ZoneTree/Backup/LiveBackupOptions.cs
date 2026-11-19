@@ -101,10 +101,6 @@ public sealed class LiveBackupCompressionOptions
     if (BlockSize <= 0)
       BlockSize = DefaultBlockSize;
 
-    // LZ4 has no level 1, so LZ4 with the default level compresses with LZ4Fastest.
-    if (Method == CompressionMethod.LZ4 && Level == DefaultLevel)
-      Level = CompressionLevels.LZ4Fastest;
-
     if (!CompressionLevels.IsValid(Method, Level))
     {
       Method = DefaultMethod;

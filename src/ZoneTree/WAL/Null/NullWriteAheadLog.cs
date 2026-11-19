@@ -51,6 +51,4 @@ public sealed class NullWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TValu
   public void TruncateIncompleteTailRecord(IncompleteTailRecordFoundException incompleteTailException)
   {
   }
-
-  public IReadOnlyList<string> GetLegacyFiles() => [];
 }

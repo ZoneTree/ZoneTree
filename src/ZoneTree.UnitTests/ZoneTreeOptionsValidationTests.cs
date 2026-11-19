@@ -59,8 +59,8 @@ public sealed class ZoneTreeOptionsValidationTests
   public void InvalidCompressionLevelStillUsesCompressionLevelException()
   {
     var options = CreateValidOptions();
-    options.DiskSegmentOptions.CompressionMethod = CompressionMethod.LZ4;
-    options.DiskSegmentOptions.CompressionLevel = 2;
+    options.DiskSegmentOptions.CompressionMethod = CompressionMethod.Zstd;
+    options.DiskSegmentOptions.CompressionLevel = CompressionLevels.ZstdMax + 1;
 
     var isValid = options.TryValidate(out var exception);
 
@@ -126,7 +126,22 @@ public sealed class ZoneTreeOptionsValidationTests
   {
     var options = CreateValidOptions();
     options.AllowUnsafeOptionValues = true;
-    options.WriteAheadLogOptions.WriteAheadLogMode = (WriteAheadLogMode)99;
+    options.WriteAheadLogOptions.Mode = (WriteAheadLogMode)99;
+
+    Assert.That(options.TryValidate(out var exception), Is.False);
+    Assert.That(exception, Is.TypeOf<InvalidOptionValueException>());
+  }
+
+  [TestCase(true)]
+  [TestCase(false)]
+  public void AllowUnsafeOptionValuesKeepsTheIntervalValidation(bool syncJobInterval)
+  {
+    var options = CreateValidOptions();
+    options.AllowUnsafeOptionValues = true;
+    if (syncJobInterval)
+      options.WriteAheadLogOptions.SyncJobInterval = TimeSpan.FromMilliseconds(-2);
+    else
+      options.WriteAheadLogOptions.EmptyQueuePollInterval = TimeSpan.FromMilliseconds(-2);
 
     Assert.That(options.TryValidate(out var exception), Is.False);
     Assert.That(exception, Is.TypeOf<InvalidOptionValueException>());
@@ -206,12 +221,8 @@ public sealed class ZoneTreeOptionsValidationTests
         nameof(ZoneTreeOptions<int, int>.DiskSegmentOptions));
 
     yield return Missing(
-        options => options.WriteAheadLogOptions.AsyncCompressedModeOptions = null,
-        "WriteAheadLogOptions.AsyncCompressedModeOptions");
-
-    yield return Missing(
-        options => options.WriteAheadLogOptions.SyncCompressedModeOptions = null,
-        "WriteAheadLogOptions.SyncCompressedModeOptions");
+        options => options.WriteAheadLogOptions.SharedModeOptions = null,
+        "WriteAheadLogOptions.SharedModeOptions");
   }
 
   static IEnumerable<TestCaseData> InvalidOptionCases()
@@ -245,8 +256,8 @@ public sealed class ZoneTreeOptionsValidationTests
         nameof(ZoneTreeOptions<int, int>.BTreeLeafSize));
 
     yield return Invalid(
-        options => options.WriteAheadLogOptions.WriteAheadLogMode = (WriteAheadLogMode)99,
-        "WriteAheadLogOptions.WriteAheadLogMode");
+        options => options.WriteAheadLogOptions.Mode = (WriteAheadLogMode)99,
+        "WriteAheadLogOptions.Mode");
 
     yield return Invalid(
         options => options.WriteAheadLogOptions.CompressionMethod = (CompressionMethod)99,
@@ -261,16 +272,16 @@ public sealed class ZoneTreeOptionsValidationTests
         "WriteAheadLogOptions.CompressionBlockSize");
 
     yield return Invalid(
-        options => options.WriteAheadLogOptions.AsyncCompressedModeOptions.EmptyQueuePollInterval = -1,
-        "WriteAheadLogOptions.AsyncCompressedModeOptions.EmptyQueuePollInterval");
+        options => options.WriteAheadLogOptions.EmptyQueuePollInterval = TimeSpan.FromMilliseconds(-1),
+        "WriteAheadLogOptions.EmptyQueuePollInterval");
 
     yield return Invalid(
-        options => options.WriteAheadLogOptions.SyncCompressedModeOptions.TailWriterJobInterval = -1,
-        "WriteAheadLogOptions.SyncCompressedModeOptions.TailWriterJobInterval");
+        options => options.WriteAheadLogOptions.SyncJobInterval = TimeSpan.FromMilliseconds(-1),
+        "WriteAheadLogOptions.SyncJobInterval");
 
     yield return Invalid(
-        options => options.DiskSegmentOptions.DiskSegmentMode = (DiskSegmentMode)99,
-        "DiskSegmentOptions.DiskSegmentMode");
+        options => options.DiskSegmentOptions.Mode = (DiskSegmentMode)99,
+        "DiskSegmentOptions.Mode");
 
     yield return Invalid(
         options => options.DiskSegmentOptions.CompressionMethod = (CompressionMethod)99,
@@ -314,12 +325,12 @@ public sealed class ZoneTreeOptionsValidationTests
         "DiskSegmentOptions.SearchHintPrefetchSize");
 
     yield return Invalid(
-        options => options.DiskSegmentOptions.KeyCacheRecordLifeTimeInMillisecond = -1,
-        "DiskSegmentOptions.KeyCacheRecordLifeTimeInMillisecond");
+        options => options.DiskSegmentOptions.KeyCacheRecordLifetime = TimeSpan.FromMilliseconds(-1),
+        "DiskSegmentOptions.KeyCacheRecordLifetime");
 
     yield return Invalid(
-        options => options.DiskSegmentOptions.ValueCacheRecordLifeTimeInMillisecond = -1,
-        "DiskSegmentOptions.ValueCacheRecordLifeTimeInMillisecond");
+        options => options.DiskSegmentOptions.ValueCacheRecordLifetime = TimeSpan.FromMilliseconds(-1),
+        "DiskSegmentOptions.ValueCacheRecordLifetime");
 
     yield return Invalid(
         options => options.DiskSegmentOptions.DefaultSparseArrayStepSize = -1,

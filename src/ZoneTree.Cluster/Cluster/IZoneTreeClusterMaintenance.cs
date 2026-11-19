@@ -21,7 +21,7 @@ public interface IZoneTreeClusterMaintenance
   int ConflictIndexCount { get; }
 
   /// <summary>Saves cluster metadata.</summary>
-  void SaveMetaData();
+  void SaveMetadata();
 
   /// <summary>
   /// Disposes the cluster and deletes its files.

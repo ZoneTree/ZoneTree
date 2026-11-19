@@ -50,7 +50,7 @@ public sealed class FixedSizeKeyAndValueTests
         .SetWriteAheadLogDirectory(dataPath)
         .ConfigureDiskSegmentOptions(options =>
         {
-          options.DiskSegmentMode = DiskSegmentMode.MultiPartDiskSegment;
+          options.Mode = DiskSegmentMode.MultiPartDiskSegment;
           options.MinimumRecordCount = 2;
           options.MaximumRecordCount = 3;
         })
@@ -363,7 +363,7 @@ public sealed class FixedSizeKeyAndValueTests
         .SetDataDirectory(dataPath)
         .SetWriteAheadLogDirectory(dataPath)
         .ConfigureWriteAheadLogOptions(x =>
-            x.WriteAheadLogMode = WriteAheadLogMode.Sync)
+            x.Mode = WriteAheadLogMode.Private)
         .SetIsDeletedDelegate((in int key, in int value) => value == -1)
         .SetMarkValueDeletedDelegate((ref int value) => value = -1)
         .OpenOrCreate();

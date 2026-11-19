@@ -56,8 +56,8 @@ public sealed class MaintainerWaitTests
         .SetComparer(comparer)
         .OpenOrCreate();
     var maintainer = zoneTree.CreateMaintainer();
-    maintainer.ThresholdForMergeOperationStart = int.MaxValue;
-    maintainer.EnableJobForCleaningInactiveCaches = false;
+    maintainer.MergeThreshold = int.MaxValue;
+    maintainer.EnableInactiveCacheCleanup = false;
 
     // Two overlapping read-only segments force key comparisons in the merge.
     for (var i = 0; i < 100; ++i)

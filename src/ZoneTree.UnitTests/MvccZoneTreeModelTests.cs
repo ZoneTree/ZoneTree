@@ -43,13 +43,13 @@ public sealed class MvccZoneTreeModelTests
         .SetMutableSegmentMaxItemCount(48)
         .ConfigureDiskSegmentOptions(options =>
         {
-          options.DiskSegmentMode = diskSegmentMode;
+          options.Mode = diskSegmentMode;
           options.MinimumRecordCount = 2;
           options.MaximumRecordCount = 8;
         })
         .ConfigureWriteAheadLogOptions(options =>
         {
-          options.WriteAheadLogMode = walMode;
+          options.Mode = walMode;
           options.CompressionBlockSize = 256;
           options.SharedModeOptions.MaximumChunkSize = 4096;
         });
@@ -417,7 +417,7 @@ public sealed class MvccZoneTreeModelTests
     var random = new Random(seed);
     var runner = new HistoryRunner(random)
     {
-      Tree = CreateFactory(provider, diskSegmentMode, WriteAheadLogMode.Sync).OpenOrCreateTransactional()
+      Tree = CreateFactory(provider, diskSegmentMode, WriteAheadLogMode.Private).OpenOrCreateTransactional()
     };
     try
     {
@@ -428,7 +428,7 @@ public sealed class MvccZoneTreeModelTests
           // A clean reopen ends the open transactions and keeps every commit.
           runner.EndActiveTransactions();
           runner.Tree.Dispose();
-          runner.Tree = CreateFactory(provider, diskSegmentMode, WriteAheadLogMode.Sync)
+          runner.Tree = CreateFactory(provider, diskSegmentMode, WriteAheadLogMode.Private)
               .OpenTransactional();
           Assert.That(ReadAll(runner.Tree), Is.EquivalentTo(runner.CommittedState()));
           continue;
@@ -451,10 +451,9 @@ public sealed class MvccZoneTreeModelTests
   {
     var modes = new[]
     {
-      (WriteAheadLogMode.Sync, DiskSegmentMode.SingleDiskSegment),
-      (WriteAheadLogMode.Sync, DiskSegmentMode.MultiPartDiskSegment),
-      (WriteAheadLogMode.SyncCompressed, DiskSegmentMode.SingleDiskSegment),
-      (WriteAheadLogMode.AsyncCompressed, DiskSegmentMode.MultiPartDiskSegment),
+      (WriteAheadLogMode.Private, DiskSegmentMode.MultiPartDiskSegment),
+      (WriteAheadLogMode.Private, DiskSegmentMode.SingleDiskSegment),
+      (WriteAheadLogMode.AsyncPrivate, DiskSegmentMode.MultiPartDiskSegment),
       (WriteAheadLogMode.Shared, DiskSegmentMode.SingleDiskSegment),
       (WriteAheadLogMode.Shared, DiskSegmentMode.MultiPartDiskSegment),
       (WriteAheadLogMode.AsyncShared, DiskSegmentMode.SingleDiskSegment),
@@ -489,13 +488,13 @@ public sealed class MvccZoneTreeModelTests
         if (choice < 2)
         {
           var stateCount = runner.CommittedStates.Count;
-          await runner.Tree.SyncWALAsync();
+          await runner.Tree.SyncWalAsync();
           syncedStateCount = stateCount;
           continue;
         }
         if (choice < 4)
         {
-          // Sync/SyncCompressed/AsyncCompressed settings are promoted to shared
+          // Sync/Private/AsyncPrivate settings are promoted to shared
           // modes by the transactional factory, so every case has this guarantee.
           var image = provider.SimulateTornPowerLoss(random);
           using var recovered = CreateFactory(image, diskSegmentMode, walMode).OpenTransactional();

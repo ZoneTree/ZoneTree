@@ -10,43 +10,6 @@ namespace ZoneTree.WAL;
 
 public sealed unsafe partial class CompressedFileStream
 {
-  Task StartTailWriter()
-  {
-    // Mark the writer running before it starts.
-    // Setting it on the writer thread would undo a Close() that happens
-    // before the thread starts, leaving the writer loop running forever.
-    IsTailWriterRunning = true;
-    return Task.Factory.StartNew(
-        TailWriteLoop,
-        CancellationToken.None,
-        TaskCreationOptions.LongRunning,
-        TaskScheduler.Default);
-  }
-
-  void TailWriteLoop()
-  {
-    while (IsTailWriterRunning)
-    {
-      try
-      {
-        WriteTail();
-      }
-      catch (Exception e)
-      {
-        Logger.LogError(e);
-      }
-      if (TailWriterJobInterval == 0)
-        Thread.Yield();
-      else
-        Thread.Sleep(TailWriterJobInterval);
-    }
-  }
-
-  void StopTailWriter()
-  {
-    IsTailWriterRunning = false;
-  }
-
   DecompressedBlock CreateEmptyTail(int blockIndex)
   {
     return new DecompressedBlock(blockIndex, Memory<byte>.Empty, CompressionMethod, CompressionLevel);
@@ -144,7 +107,6 @@ public sealed unsafe partial class CompressedFileStream
   {
     if (CheckpointOffset > 0)
       return;
-    UsesSyncCheckpoints = true;
     CheckpointOffset = GetCheckpointRegionOffset();
     var length = CheckpointOffset + WalSyncCheckpoint.RegionSize;
     var oldLength = TailStream.Length;

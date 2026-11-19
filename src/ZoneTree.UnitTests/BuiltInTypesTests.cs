@@ -346,10 +346,10 @@ public sealed class BuiltInTypesTests
   {
     return new ZoneTreeFactory<TKey, TValue>(provider)
         .Configure(options => options.AllowUnsafeOptionValues = true)
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.Sync)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.Private)
         .ConfigureDiskSegmentOptions(options =>
         {
-          options.DiskSegmentMode = mode;
+          options.Mode = mode;
           options.MinimumRecordCount = 2;
           options.MaximumRecordCount = 3;
         });

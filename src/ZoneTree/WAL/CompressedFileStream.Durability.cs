@@ -41,7 +41,7 @@ public sealed unsafe partial class CompressedFileStream
   {
     if (!IsTailFileUnsynced)
       return;
-    if (UsesSyncCheckpoints && CheckpointOffset == 0)
+    if (CheckpointOffset == 0)
     {
       WriteTailHeader(TailBlock.BlockIndex, TailBlock.Length);
       PrepareCheckpointRegion();
@@ -65,16 +65,55 @@ public sealed unsafe partial class CompressedFileStream
   }
 
   /// <summary>
-  /// Syncs the complete stream for the background writer. Unchanged content
-  /// shares the last completed sync and does not issue another disk sync.
+  /// Syncs the complete stream for a background job or writer, if the stream was
+  /// modified. Unchanged content shares the last completed sync and does not
+  /// issue another disk sync.
   /// </summary>
-  public void WriteTail()
+  public void SyncIfModified()
   {
     // Recovered records must be validated by the WAL reader before a background
     // sync can checkpoint them. Appends and truncation mark the stream modified.
     if (IsClosed || !IsModified)
       return;
     SyncToDisk();
+  }
+
+  Task StartSyncJob()
+  {
+    // Mark the job running before it starts.
+    // Setting it on the job thread would undo a Close() that happens
+    // before the thread starts, leaving the job loop running forever.
+    IsSyncJobRunning = true;
+    return Task.Factory.StartNew(
+        SyncJobLoop,
+        CancellationToken.None,
+        TaskCreationOptions.LongRunning,
+        TaskScheduler.Default);
+  }
+
+  void SyncJobLoop()
+  {
+    while (IsSyncJobRunning)
+    {
+      try
+      {
+        SyncIfModified();
+      }
+      catch (Exception e)
+      {
+        Logger.LogError(e);
+      }
+      if (SyncJobInterval == TimeSpan.Zero)
+        Thread.Yield();
+      else
+        WakeSyncJob.Wait(SyncJobInterval);
+    }
+  }
+
+  void StopSyncJob()
+  {
+    IsSyncJobRunning = false;
+    WakeSyncJob.Set();
   }
 
   /// <summary>
@@ -110,7 +149,7 @@ public sealed unsafe partial class CompressedFileStream
           try
           {
             writeCheckpoint = IsModified || IsTailPrepared || _length != 0 ||
-                FileStream.Length != MetaDataSize || TailStream.Length != 0;
+                FileStream.Length != MetadataSize || TailStream.Length != 0;
             var readPosition = Position;
             // Move the acknowledged bytes into the immutable main prefix.
             // The tail may be reused as soon as that copy reaches the OS.
@@ -126,7 +165,7 @@ public sealed unsafe partial class CompressedFileStream
             writtenByteCount = WrittenByteCount;
             mainLength = FileStream.Length;
             contentLength = _length;
-            // Migrating a recovered durable tail can already have synced the
+            // The first rollover of a recovered durable tail can already have synced the
             // main prefix before reusing that tail. Do not sync it twice.
             syncMain = MainFileMayBeUnsynced;
             if (readPosition != _length)

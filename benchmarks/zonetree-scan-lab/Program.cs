@@ -215,7 +215,7 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
       maintainer.EvictToDisk();
     foreach (var maintainer in Maintainers)
       await maintainer.WaitForBackgroundThreadsAsync();
-    SaveMetaData();
+    SaveMetadata();
     sw.Stop();
     Console.WriteLine($"{sw.Elapsed.TotalMilliseconds:N0} ms");
     PrintLayout("profiles", Profiles!);
@@ -597,7 +597,7 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
           if (config.MaterializedEntryCacheSize >= 0)
             options.MaterializedEntryCacheSize = config.MaterializedEntryCacheSize;
         })
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.AsyncPrivate)
         .OpenOrCreate();
   }
 
@@ -619,24 +619,24 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
           if (config.MaterializedEntryCacheSize >= 0)
             options.MaterializedEntryCacheSize = config.MaterializedEntryCacheSize;
         })
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.AsyncPrivate)
         .OpenOrCreate();
   }
 
   void AddMaintainer<TKey, TValue>(IZoneTree<TKey, TValue> tree)
   {
     var maintainer = tree.CreateMaintainer();
-    maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(config.BlockCacheLifeTimeMinutes);
-    maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromMinutes(config.BlockCacheLifeTimeMinutes / 2.0);
+    maintainer.BlockCacheLifetime = TimeSpan.FromMinutes(config.BlockCacheLifetimeMinutes);
+    maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromMinutes(config.BlockCacheLifetimeMinutes / 2.0);
     Maintainers.Add(maintainer);
   }
 
-  void SaveMetaData()
+  void SaveMetadata()
   {
-    Profiles!.Maintenance.SaveMetaData();
-    CountryStatusIndex!.Maintenance.SaveMetaData();
-    CreatedAtIndex!.Maintenance.SaveMetaData();
-    ReputationIndex!.Maintenance.SaveMetaData();
+    Profiles!.Maintenance.SaveMetadata();
+    CountryStatusIndex!.Maintenance.SaveMetadata();
+    CreatedAtIndex!.Maintenance.SaveMetadata();
+    ReputationIndex!.Maintenance.SaveMetadata();
   }
 
   public async ValueTask DisposeAsync()
@@ -1454,7 +1454,7 @@ sealed record ScanLabConfig
   public BTreeLockMode BTreeLockMode { get; init; } = BTreeLockMode.NodeLevelMonitor;
   public CreatedAtQueryMode CreatedAtMode { get; init; } = CreatedAtQueryMode.Random;
   public ProfileReadOrder ReadOrder { get; init; } = ProfileReadOrder.Random;
-  public double BlockCacheLifeTimeMinutes { get; init; } = 1222;
+  public double BlockCacheLifetimeMinutes { get; init; } = 1222;
 
   public ScanLabConfig WithDefaults() =>
       this with
@@ -1497,7 +1497,7 @@ sealed record ScanLabConfig
         "--btree-lock" => config with { BTreeLockMode = ParseBTreeLockMode(next()) },
         "--created-at" => config with { CreatedAtMode = ParseCreatedAtMode(next()) },
         "--read-order" => config with { ReadOrder = ParseReadOrder(next()) },
-        "--block-cache-minutes" => config with { BlockCacheLifeTimeMinutes = double.Parse(next()) },
+        "--block-cache-minutes" => config with { BlockCacheLifetimeMinutes = double.Parse(next()) },
         _ => throw new ArgumentException($"Unknown argument: {arg}")
       };
     }

@@ -9,9 +9,8 @@ namespace ZoneTree.UnitTests;
 
 public sealed class WalReleaseRegressionTests
 {
-  [TestCase(WriteAheadLogMode.Sync)]
-  [TestCase(WriteAheadLogMode.SyncCompressed)]
-  [TestCase(WriteAheadLogMode.AsyncCompressed)]
+  [TestCase(WriteAheadLogMode.Private)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public async Task ExplicitSyncProtectsTransactionsWithoutBlockingSegmentRotation(WriteAheadLogMode mode)
   {
     var provider = new PowerLossFileStreamProvider();
@@ -20,8 +19,8 @@ public sealed class WalReleaseRegressionTests
         .SetLogger(SilentTestLogger.Instance)
         .ConfigureWriteAheadLogOptions(options =>
         {
-          options.WriteAheadLogMode = mode;
-          options.SyncCompressedModeOptions.EnableTailWriterJob = false;
+          options.Mode = mode;
+          options.EnableSyncJob = false;
         });
     using var tree = Factory(provider).CreateTransactional();
     using var transaction = tree.BeginTransaction();
@@ -38,7 +37,7 @@ public sealed class WalReleaseRegressionTests
       if (!releaseSync.Wait(TimeSpan.FromSeconds(30)))
         throw new TimeoutException("Shared WAL sync was not released.");
     };
-    var firstSync = Task.Run(() => tree.SyncWALAsync());
+    var firstSync = Task.Run(() => tree.SyncWalAsync());
     Task move = null;
     Task sync = null;
     try
@@ -49,7 +48,7 @@ public sealed class WalReleaseRegressionTests
       await move.WaitAsync(TimeSpan.FromSeconds(5));
       transaction.Upsert(2, 20);
       transaction.Commit();
-      sync = Task.Run(() => tree.SyncWALAsync());
+      sync = Task.Run(() => tree.SyncWalAsync());
       await Task.WhenAny(sync, Task.Delay(100));
       Assert.That(sync.IsCompleted, Is.False, "explicit sync must wait for the shared journal");
     }
@@ -69,17 +68,15 @@ public sealed class WalReleaseRegressionTests
   }
 
   [TestCase(CompressionMethod.None, false)]
-  [TestCase(CompressionMethod.LZ4, false)]
   [TestCase(CompressionMethod.Zstd, false)]
   [TestCase(CompressionMethod.None, true)]
-  [TestCase(CompressionMethod.LZ4, true)]
   [TestCase(CompressionMethod.Zstd, true)]
   public async Task ConcurrentSyncDoesNotCheckpointPartOfALargeRecord(CompressionMethod compression, bool backgroundFlush)
   {
     var provider = new PowerLossFileStreamProvider();
     var options = new WriteAheadLogOptions { CompressionBlockSize = 4096, CompressionMethod = compression };
-    options.SyncCompressedModeOptions.EnableTailWriterJob = false;
-    SyncCompressedFileSystemWriteAheadLog<int, string> Open(IFileStreamProvider files) => new(
+    options.EnableSyncJob = false;
+    PrivateWriteAheadLog<int, string> Open(IFileStreamProvider files) => new(
         SilentTestLogger.Instance, files, new Int32Serializer(), new UnicodeStringSerializer(),
         "record.wal_xxh3.1", options);
     using var wal = Open(provider);
@@ -106,7 +103,7 @@ public sealed class WalReleaseRegressionTests
         sync = Task.Run(async () =>
         {
           if (backgroundFlush)
-            stream.WriteTail();
+            stream.SyncIfModified();
           else
             await wal.SyncAsync();
         });

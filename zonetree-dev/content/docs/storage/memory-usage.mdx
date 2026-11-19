@@ -116,10 +116,10 @@ using var tree = new ZoneTreeFactory<int, string>()
 using var maintainer = tree.CreateMaintainer();
 
 // Restart the cleanup job so its timer uses the new interval.
-maintainer.EnableJobForCleaningInactiveCaches = false;
-maintainer.BlockCacheLifeTime = TimeSpan.FromSeconds(30);
+maintainer.EnableInactiveCacheCleanup = false;
+maintainer.BlockCacheLifetime = TimeSpan.FromSeconds(30);
 maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(10);
-maintainer.EnableJobForCleaningInactiveCaches = true;
+maintainer.EnableInactiveCacheCleanup = true;
 
 for (var key = 0; key < 1000; ++key)
     tree.Upsert(key, $"Record {key}");
@@ -129,7 +129,7 @@ Console.WriteLine($"Frozen: {tree.Maintenance.ReadOnlySegmentsRecordCount}");
 Console.WriteLine($"In memory: {tree.Maintenance.InMemoryRecordCount}");
 ```
 
-The standard maintainer starts cleanup automatically with a one-minute block lifetime and a 30-second interval. It reads `BlockCacheLifeTime` on each pass, but captures `InactiveBlockCacheCleanupInterval` when creating its timer. Changing the interval requires the stop/configure/start sequence above.
+The standard maintainer starts cleanup automatically with a one-minute block lifetime and a 30-second interval. It reads `BlockCacheLifetime` on each pass, but captures `InactiveBlockCacheCleanupInterval` when creating its timer. Changing the interval requires the stop/configure/start sequence above.
 
 <AlertBox
   class="zt-guide-callout"

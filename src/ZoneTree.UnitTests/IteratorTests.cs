@@ -73,7 +73,7 @@ public sealed class IteratorTests
     zoneTree.Maintenance.StartMergeOperation().Join();
 
     Assert.That(zoneTree.Maintenance.DiskSegment.Length, Is.EqualTo(b - 4));
-    zoneTree.Maintenance.SaveMetaData();
+    zoneTree.Maintenance.SaveMetadata();
     iterator.Dispose();
     reverseIterator.Dispose();
     zoneTree.Maintenance.Drop();
@@ -165,7 +165,7 @@ public sealed class IteratorTests
     zoneTree.Maintenance.StartMergeOperation().Join();
 
     Assert.That(zoneTree.Maintenance.DiskSegment.Length, Is.EqualTo(b - 4));
-    zoneTree.Maintenance.SaveMetaData();
+    zoneTree.Maintenance.SaveMetadata();
     iterator.Dispose();
     reverseIterator.Dispose();
     zoneTree.Maintenance.Drop();
@@ -231,7 +231,7 @@ public sealed class IteratorTests
     Assert.That(iterator.Next(), Is.False);
     Assert.That(iterator.Next(), Is.False);
     Assert.That(zoneTree.Count(), Is.EqualTo(b / 2 - 2));
-    zoneTree.Maintenance.SaveMetaData();
+    zoneTree.Maintenance.SaveMetadata();
     iterator.Dispose();
     zoneTree.Maintenance.Drop();
   }
@@ -564,7 +564,7 @@ public sealed class IteratorTests
         .SetValueSerializer(new Int32Serializer())
         .ConfigureDiskSegmentOptions(x =>
         {
-          x.DiskSegmentMode = diskSegmentMode;
+          x.Mode = diskSegmentMode;
           if (minimumRecordCount > 0)
             x.MinimumRecordCount = minimumRecordCount;
           if (maximumRecordCount > 0)
@@ -637,10 +637,10 @@ public sealed class IteratorTests
         .SetDataDirectory(dataPath)
         .SetWriteAheadLogDirectory(dataPath)
         .ConfigureWriteAheadLogOptions(options =>
-            options.WriteAheadLogMode = WriteAheadLogMode.None)
+            options.Mode = WriteAheadLogMode.None)
         .ConfigureDiskSegmentOptions(options =>
         {
-          options.DiskSegmentMode = diskSegmentMode;
+          options.Mode = diskSegmentMode;
           if (diskSegmentMode == DiskSegmentMode.MultiPartDiskSegment)
           {
             options.MinimumRecordCount = 3;
@@ -728,7 +728,7 @@ public sealed class IteratorTests
         .SetValueSerializer(new Int32Serializer())
         .ConfigureDiskSegmentOptions(x =>
         {
-          x.DiskSegmentMode = diskSegmentMode;
+          x.Mode = diskSegmentMode;
           if (minimumRecordCount > 0)
             x.MinimumRecordCount = minimumRecordCount;
           if (maximumRecordCount > 0)
@@ -752,7 +752,7 @@ public sealed class IteratorTests
         .SetValueSerializer(new Int32Serializer())
         .ConfigureDiskSegmentOptions(x =>
         {
-          x.DiskSegmentMode = diskSegmentMode;
+          x.Mode = diskSegmentMode;
           if (minimumRecordCount > 0)
             x.MinimumRecordCount = minimumRecordCount;
           if (maximumRecordCount > 0)

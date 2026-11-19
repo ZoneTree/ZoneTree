@@ -15,7 +15,7 @@ public sealed class SegmentCollectionTests
   {
     var tree = new ZoneTreeFactory<int, int>(new InMemoryFileStreamProvider())
         .SetDataDirectory("data/IteratorOnDroppedTree")
-        .ConfigureWriteAheadLogOptions(options => options.WriteAheadLogMode = WriteAheadLogMode.None)
+        .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.None)
         .OpenOrCreate();
     for (var key = 0; key < 100; ++key)
       tree.Upsert(key, key + 1);

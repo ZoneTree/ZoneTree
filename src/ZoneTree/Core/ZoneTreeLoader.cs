@@ -7,19 +7,12 @@ using ZoneTree.Segments.Disk;
 using ZoneTree.Segments.InMemory;
 using ZoneTree.Segments.MultiPart;
 using ZoneTree.Segments.NullDisk;
-using ZoneTree.Segments.RandomAccess;
 using ZoneTree.WAL;
 
 namespace ZoneTree.Core;
 
 public sealed class ZoneTreeLoader<TKey, TValue>
 {
-  const string LegacyRootNamespace = "Tenray.ZoneTree.";
-
-  const string RootNamespace = "ZoneTree.";
-
-  static readonly Version LegacyNamespaceMigrationVersion = new("1.8.7.0");
-
   ZoneTreeOptions<TKey, TValue> Options { get; }
 
   ZoneTreeMeta ZoneTreeMeta;
@@ -32,8 +25,6 @@ public sealed class ZoneTreeLoader<TKey, TValue>
 
   IReadOnlyList<IDiskSegment<TKey, TValue>> BottomSegments;
 
-  readonly ConcurrentBag<string> ReadOnlySegmentLegacyFiles = new();
-
   long maximumSegmentId = 1;
   public ZoneTreeLoader(ZoneTreeOptions<TKey, TValue> options)
   {
@@ -41,12 +32,12 @@ public sealed class ZoneTreeLoader<TKey, TValue>
     Options.Validate();
   }
 
-  public bool ZoneTreeMetaExists => ZoneTreeMetaWAL<TKey, TValue>.Exists(Options);
+  public bool ZoneTreeMetaExists => ZoneTreeMetaWal<TKey, TValue>.Exists(Options);
 
   void LoadZoneTreeMeta()
   {
-    ZoneTreeMeta = ZoneTreeMetaWAL<TKey, TValue>
-        .LoadZoneTreeMetaWithoutWALRecords(Options.RandomAccessDeviceManager);
+    ZoneTreeMeta = ZoneTreeMetaWal<TKey, TValue>
+        .LoadZoneTreeMetaWithoutWalRecords(Options.RandomAccessDeviceManager);
     ValidateZoneTreeMeta();
   }
 
@@ -57,16 +48,9 @@ public sealed class ZoneTreeLoader<TKey, TValue>
 
   void ValidateZoneTreeMeta()
   {
-    var version = ZoneTreeMeta.Version;
-    if (string.IsNullOrWhiteSpace(version) ||
-        Version.Parse(version) < new Version("1.4.9"))
-      throw new ExistingDatabaseVersionIsNotCompatibleException(
-          Version.Parse(version),
-          ZoneTreeInfo.ProductVersion);
-
-    var isLegacyNamespaceMigrated =
-        Version.Parse(version) < LegacyNamespaceMigrationVersion &&
-        NormalizeLegacyNamespaceInZoneTreeMeta();
+    var dbVersion = ZoneTreeMeta.DbVersion == null ? null : Version.Parse(ZoneTreeMeta.DbVersion);
+    if (dbVersion == null || dbVersion < ZoneTreeInfo.MinimumDbVersion)
+      throw new ExistingDatabaseVersionIsNotCompatibleException(dbVersion, ZoneTreeInfo.ProductVersion);
 
     if (!string.Equals(
         ZoneTreeMeta.KeyType,
@@ -108,53 +92,11 @@ public sealed class ZoneTreeLoader<TKey, TValue>
           ZoneTreeMeta.ValueSerializerType,
           Options.ValueSerializer.GetType().SimplifiedFullName());
 
-    if (isLegacyNamespaceMigrated)
-    {
-      Options.Logger?.LogWarning(
-          "ZoneTree metadata type names were migrated from Tenray.ZoneTree namespace to ZoneTree namespace.");
-    }
-
-    if (IsDbVersionCurrent)
-      LegacyFormats.ThrowIfSelected(
-          Options.WriteAheadLogOptions,
-          Options.DiskSegmentOptions,
-          "This database is migrated for ZoneTree 2.2.0, which does not support it");
   }
 
-  static string NormalizeLegacyNamespace(string typeName)
+  void LoadZoneTreeMetaWal()
   {
-    return typeName?.Replace(
-        LegacyRootNamespace,
-        RootNamespace,
-        StringComparison.Ordinal);
-  }
-
-  bool NormalizeLegacyNamespaceInZoneTreeMeta()
-  {
-    var keyType = NormalizeLegacyNamespace(ZoneTreeMeta.KeyType);
-    var valueType = NormalizeLegacyNamespace(ZoneTreeMeta.ValueType);
-    var comparerType = NormalizeLegacyNamespace(ZoneTreeMeta.ComparerType);
-    var keySerializerType = NormalizeLegacyNamespace(ZoneTreeMeta.KeySerializerType);
-    var valueSerializerType = NormalizeLegacyNamespace(ZoneTreeMeta.ValueSerializerType);
-
-    if (keyType == ZoneTreeMeta.KeyType &&
-        valueType == ZoneTreeMeta.ValueType &&
-        comparerType == ZoneTreeMeta.ComparerType &&
-        keySerializerType == ZoneTreeMeta.KeySerializerType &&
-        valueSerializerType == ZoneTreeMeta.ValueSerializerType)
-      return false;
-
-    ZoneTreeMeta.KeyType = keyType;
-    ZoneTreeMeta.ValueType = valueType;
-    ZoneTreeMeta.ComparerType = comparerType;
-    ZoneTreeMeta.KeySerializerType = keySerializerType;
-    ZoneTreeMeta.ValueSerializerType = valueSerializerType;
-    return true;
-  }
-
-  void LoadZoneTreeMetaWAL()
-  {
-    using var metaWal = new ZoneTreeMetaWAL<TKey, TValue>(Options, false);
+    using var metaWal = new ZoneTreeMetaWal<TKey, TValue>(Options, false);
     var records = metaWal.GetRecordsOfGeneration(ZoneTreeMeta.MetaWalGeneration);
     var readOnlySegments = ZoneTreeMeta.ReadOnlySegments.ToList();
     var bottomSegments = ZoneTreeMeta.BottomSegments?.ToList() ?? new List<long>();
@@ -204,7 +146,7 @@ public sealed class ZoneTreeLoader<TKey, TValue>
     ZoneTreeMeta.ReadOnlySegments = readOnlySegments;
     ZoneTreeMeta.BottomSegments = bottomSegments;
     ZoneTreeMeta.MaximumOpIndex = maximumOpIndex;
-    metaWal.SaveMetaData(
+    metaWal.SaveMetadata(
         ZoneTreeMeta,
         ZoneTreeMeta.MutableSegment,
         ZoneTreeMeta.DiskSegment,
@@ -251,8 +193,8 @@ public sealed class ZoneTreeLoader<TKey, TValue>
 
     // Persist the new id before the mutable segment writes to its WAL.
     // Otherwise a later load could pick another id and orphan that WAL.
-    using var metaWal = new ZoneTreeMetaWAL<TKey, TValue>(Options, false);
-    metaWal.SaveMetaData(
+    using var metaWal = new ZoneTreeMetaWal<TKey, TValue>(Options, false);
+    metaWal.SaveMetadata(
         ZoneTreeMeta,
         ZoneTreeMeta.MutableSegment,
         ZoneTreeMeta.DiskSegment,
@@ -270,8 +212,8 @@ public sealed class ZoneTreeLoader<TKey, TValue>
     // removed or compacted, so a later write for the same key cannot restart
     // with a lower operation index.
     ZoneTreeMeta.MaximumOpIndex = maximumOpIndex;
-    using var metaWal = new ZoneTreeMetaWAL<TKey, TValue>(Options, false);
-    metaWal.SaveMetaData(
+    using var metaWal = new ZoneTreeMetaWal<TKey, TValue>(Options, false);
+    metaWal.SaveMetadata(
         ZoneTreeMeta,
         ZoneTreeMeta.MutableSegment,
         ZoneTreeMeta.DiskSegment,
@@ -292,9 +234,9 @@ public sealed class ZoneTreeLoader<TKey, TValue>
     var empty = Array.FindAll(ReadOnlySegments, segment => segment.Length == 0);
     ReadOnlySegments = Array.FindAll(ReadOnlySegments, segment => segment.Length != 0);
     ZoneTreeMeta.ReadOnlySegments = ReadOnlySegments.Select(segment => segment.SegmentId).ToArray();
-    using (var metaWal = new ZoneTreeMetaWAL<TKey, TValue>(Options, false))
+    using (var metaWal = new ZoneTreeMetaWal<TKey, TValue>(Options, false))
     {
-      metaWal.SaveMetaData(
+      metaWal.SaveMetadata(
           ZoneTreeMeta,
           ZoneTreeMeta.MutableSegment,
           ZoneTreeMeta.DiskSegment,
@@ -314,9 +256,7 @@ public sealed class ZoneTreeLoader<TKey, TValue>
     var loader = new ReadOnlySegmentLoader<TKey, TValue>(Options);
     Parallel.ForEach(segments, (segment) =>
     {
-      var ros = loader.LoadReadOnlySegment(segment, out var legacyFiles);
-      foreach (var file in legacyFiles)
-        ReadOnlySegmentLegacyFiles.Add(file);
+      var ros = loader.LoadReadOnlySegment(segment);
       map.TryAdd(segment, ros);
     });
     foreach (var ros in map.Values)
@@ -368,46 +308,17 @@ public sealed class ZoneTreeLoader<TKey, TValue>
           .ReadMaximumSegmentId(maximumId, Options.RandomAccessDeviceManager));
   }
 
-  bool IsDbVersionCurrent =>
-      ZoneTreeMeta.DbVersion != null &&
-      Version.Parse(ZoneTreeMeta.DbVersion) >= ZoneTreeInfo.DbVersion;
-
   /// <summary>
-  /// Moves the database to the current storage format when nothing in it uses LZ4, Gzip or
-  /// Brotli compression, the Sync WAL mode or a WAL format of a version before 2.1.0, which
-  /// version 2.2.0 removes. Otherwise it warns about the uses.
+  /// Moves a database of an older storage format version, which this version reads, to
+  /// the current one.
   /// </summary>
-  void UpdateDbVersion(IWriteAheadLog<TKey, TValue> mutableSegmentWal)
+  void UpdateDbVersion()
   {
-    if (IsDbVersionCurrent)
+    if (Version.Parse(ZoneTreeMeta.DbVersion) >= ZoneTreeInfo.DbVersion)
       return;
-    var uses = LegacyFormats.FindInOptions(
-        Options.WriteAheadLogOptions, Options.DiskSegmentOptions);
-    uses.AddRange(ReadOnlySegmentLegacyFiles);
-    uses.AddRange(mutableSegmentWal.GetLegacyFiles());
-    // Every file of the segments, because a load closes some, such as a sparse array.
-    var deviceManager = Options.RandomAccessDeviceManager;
-    foreach (var segment in BottomSegments.Prepend(DiskSegment))
-    {
-      foreach (var file in segment.GetFiles())
-        if (file.Path.EndsWith(RandomAccessDeviceManager.CompressedFileExtension, StringComparison.Ordinal) &&
-            LegacyFormats.IsLegacy(CompressedFileRandomAccessDevice.ReadCompressionMethod(
-                deviceManager.FileStreamProvider, file.Path)))
-          uses.Add(file.Path);
-      if (segment is MultiPartDiskSegment<TKey, TValue> multiPart &&
-          LegacyFormats.IsLegacy(multiPart.HeaderCompressionMethod))
-        uses.Add(deviceManager.GetFilePath(
-            multiPart.SegmentId, DiskSegmentConstants.MultiPartDiskSegmentCategory));
-    }
-    if (uses.Count > 0)
-    {
-      // A shared WAL reports its chunks for every segment.
-      LegacyFormats.Warn(Options.Logger, uses.Distinct());
-      return;
-    }
     ZoneTreeMeta.DbVersion = ZoneTreeInfo.DbVersion.ToString();
-    using var metaWal = new ZoneTreeMetaWAL<TKey, TValue>(Options, false);
-    metaWal.SaveMetaData(
+    using var metaWal = new ZoneTreeMetaWal<TKey, TValue>(Options, false);
+    metaWal.SaveMetadata(
         ZoneTreeMeta,
         ZoneTreeMeta.MutableSegment,
         ZoneTreeMeta.DiskSegment,
@@ -418,7 +329,7 @@ public sealed class ZoneTreeLoader<TKey, TValue>
   public ZoneTree<TKey, TValue> LoadZoneTree()
   {
     LoadZoneTreeMeta();
-    LoadZoneTreeMetaWAL();
+    LoadZoneTreeMetaWal();
     SetMaximumId();
     SeparateMutableSegmentFromReadOnlySegments();
     var maximumOpIndex = Math.Max(ZoneTreeMeta.MaximumOpIndex, LoadReadOnlySegments());
@@ -449,7 +360,7 @@ public sealed class ZoneTreeLoader<TKey, TValue>
     if (mutableSegmentWal is ZoneTree.WAL.ISharedWriteAheadLogCoordinator sharedWal)
       sharedWal.CompleteRecovery(ReadOnlySegments.Select(segment => segment.SegmentId)
           .Append(MutableSegment.SegmentId).ToArray());
-    UpdateDbVersion(mutableSegmentWal);
+    UpdateDbVersion();
 
     var zoneTree = new ZoneTree<TKey, TValue>(Options, ZoneTreeMeta,
         ReadOnlySegments, MutableSegment, DiskSegment, BottomSegments, maximumSegmentId);

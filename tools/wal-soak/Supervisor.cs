@@ -107,7 +107,7 @@ static class Supervisor
         if (options.SelfTest)
         {
           profile = new(index % 2 == 0 ? WriteAheadLogMode.Shared : WriteAheadLogMode.AsyncShared,
-            new[] { CompressionMethod.None, CompressionMethod.LZ4, CompressionMethod.Zstd, CompressionMethod.Zstd }[(int)(index % 4)],
+            new[] { CompressionMethod.None, CompressionMethod.None, CompressionMethod.Zstd, CompressionMethod.Zstd }[(int)(index % 4)],
             index % 2 == 0 ? DiskSegmentMode.SingleDiskSegment : DiskSegmentMode.MultiPartDiskSegment,
             index % 2 == 0 ? 1024 : 128 * 1024, 32 * 1024, 256, index % 3 == 0 ? "prefix" : "mixed");
           ending = new[] { "before-fsync", "after-durable-ack", "random-kill", "clean" }[(int)(index % 4)];

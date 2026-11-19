@@ -11,10 +11,13 @@ namespace ZoneTree.WAL;
 
 public sealed unsafe partial class CompressedFileStream
 {
+  /// <summary>
+  /// Loads the last sync checkpoint of the tail. A tail without an allocation never
+  /// completed a sync, because the first sync allocates the checkpoint region.
+  /// </summary>
   bool LoadSyncCheckpoint()
   {
     var tailLength = TailStream.Length;
-    UsesSyncCheckpoints = tailLength == 0;
     var version = WalTailFormat.ReadVersion(TailStream);
     if (version != 0 && version != WalTailFormat.CurrentVersion)
       throw new NotSupportedException($"Unsupported WAL tail format version {version}.");
@@ -29,13 +32,11 @@ public sealed unsafe partial class CompressedFileStream
     var offset = tailLength - WalSyncCheckpoint.RegionSize;
     var checkpoint = WalSyncCheckpoint.Read(TailStream, offset, out var sequence);
     // A power loss can persist the allocation without its descriptor sector.
-    // Retain checkpoint recovery for that state, rather than trusting the
-    // legacy tail index to describe which main-file blocks reached the disk.
+    // Retain checkpoint recovery for that state.
     if (version == 0 && !checkpoint.HasValue && !MatchesCheckpointAllocation(offset))
       return false;
     CheckpointOffset = offset;
     CheckpointSequence = sequence;
-    UsesSyncCheckpoints = true;
     if (checkpoint.HasValue)
     {
       SyncedMainLength = checkpoint.Value.MainLength;
@@ -55,25 +56,14 @@ public sealed unsafe partial class CompressedFileStream
       return false;
     TailStream.Position = sizeof(int);
     var declaredLength = BinaryTailReader.ReadInt32();
-    // A sector-aligned legacy tail can have the same file size. Its actual
-    // payload length must not be capped by treating its final bytes as a footer.
     return declaredLength >= 0 && declaredLength <= offset - TailHeaderSize;
   }
 
-  long RecoverMainFileAndTail()
+  void RecoverMainFileAndTail()
   {
     LoadTail();
     var mainFileLength = FileStream.Length;
-    var lastBlockIndex = SkipToTheEnd(out var lastBlock);
-
-    // In the legacy layout, the tail names a later block once a block is synced. A
-    // block that the tail file does not name yet can be torn by a power loss
-    // during its commit. Only unsynced records are lost by dropping it.
-    if (!lastBlock.IsFramed && !UsesSyncCheckpoints && lastBlockIndex >= TailBlock.BlockIndex && IsTornBlock(lastBlock))
-    {
-      FileStream.SetLength(lastBlock.Position);
-      lastBlockIndex = SkipToTheEnd(out lastBlock);
-    }
+    var lastBlockIndex = SkipToTheEnd();
     FileStream.Position = FileStream.Length;
 
     // discard tail record if a greater block index exists in the main file.
@@ -88,24 +78,13 @@ public sealed unsafe partial class CompressedFileStream
       Position -= TailBlock.Length;
       TailBlock = CreateEmptyTail(lastBlockIndex + 1);
     }
-    else if ((UsesSyncCheckpoints || TailBlock.Length == 0) && TailBlock.BlockIndex > lastBlockIndex + 1)
+    else if (TailBlock.BlockIndex > lastBlockIndex + 1)
     {
       // Replacing the content restarts the block indexes and keeps the empty
       // tail. Skipping a torn block header needs the next block index in the tail.
       _length -= TailBlock.Length;
       TailBlock = CreateEmptyTail(lastBlockIndex + 1);
       WriteTailHeader(TailBlock.BlockIndex, 0);
-      SyncTailFile();
-    }
-    else if (TailBlock.BlockIndex > lastBlockIndex + 1)
-    {
-      // A legacy tail keeps its records when the main file holds fewer blocks, such as a
-      // released empty block that recovery drops. Framed blocks follow the main file, so
-      // the tail continues it. A single header write keeps the old or the new index.
-      var length = TailBlock.Length;
-      TailBlock = new DecompressedBlock(lastBlockIndex + 1,
-          TailBlock.GetBytes(0, length).ToArray(), CompressionMethod, CompressionLevel);
-      WriteTailHeader(TailBlock.BlockIndex, length);
       SyncTailFile();
     }
     // The tail file is the only other copy of a discarded tail, and writing the
@@ -119,13 +98,8 @@ public sealed unsafe partial class CompressedFileStream
       SyncMainFile();
     if (isTailDiscarded)
       WriteTailHeader(TailBlock.BlockIndex, 0);
-    // An empty tail file does not prove that the last block is synced: it can
-    // be written while recovering a torn block that replaced a discarded tail.
-    var unsyncedTailStart = UsesSyncCheckpoints ? SyncedContentLength :
-        _length - (TailBlock.Length > 0 ? TailBlock.Length : lastBlock.Length);
     if (_length < SyncedContentLength)
       throw new InvalidDataException("The WAL lost records inside its synced prefix.");
-    return unsyncedTailStart;
   }
 
   void InitializeRecoveredState(bool hasCheckpoint)
@@ -183,122 +157,37 @@ public sealed unsafe partial class CompressedFileStream
   }
 
   /// <summary>
-  /// Tells whether a power loss tore the last block of the main file. The block
-  /// does not decompress, or an appended sector of it did not persist and reads
-  /// as zeros. An uncompressed block with a real zero sector is dropped too,
-  /// which only loses records that the tail file does not hold, so unsynced ones.
-  /// </summary>
-  bool IsTornBlock(in LastBlockInfo block)
-  {
-    FileStream.Position = block.Position + 3 * sizeof(int);
-    var compressedBytes = new byte[block.CompressedLength];
-    ReadMainFileExactly(compressedBytes);
-    Memory<byte> bytes;
-    try
-    {
-      bytes = DataCompression.Decompress(CompressionMethod, compressedBytes, block.Length);
-    }
-    catch (Exception)
-    {
-      // Each compression library reports corrupted input with its own exception.
-      return true;
-    }
-    return bytes.Length != block.Length ||
-        HasZeroSector(compressedBytes, block.Position + 3 * sizeof(int));
-  }
-
-  static bool HasZeroSector(ReadOnlySpan<byte> bytes, long position)
-  {
-    while (bytes.Length > 0)
-    {
-      var length = (int)Math.Min(SectorSize - position % SectorSize, bytes.Length);
-      var isZero = true;
-      foreach (var value in bytes.Slice(0, length))
-        isZero &= value == 0;
-      if (isZero)
-        return true;
-      bytes = bytes.Slice(length);
-      position += length;
-    }
-    return false;
-  }
-
-  /// <summary>
   /// Tells whether a damaged record that was read up to the
   /// given position can be in the bytes that a power loss tore.
   /// </summary>
   internal bool IsUnsyncedTail(long recordPosition, long readPosition)
   {
-    if (UsesSyncCheckpoints)
-      return recordPosition >= SyncedContentLength;
-    return readPosition > UnsyncedTailStart || readPosition >= _length;
+    return recordPosition >= SyncedContentLength;
   }
 
-  struct LastBlockInfo
-  {
-    public long Position;
-
-    public int CompressedLength;
-
-    public int Length;
-
-    public bool IsFramed;
-  }
-
-  int SkipToTheEnd(out LastBlockInfo lastBlock)
+  int SkipToTheEnd()
   {
     Position = 0;
     _length = 0;
-    FileStream.Position = MetaDataSize;
+    FileStream.Position = MetadataSize;
     var length = FileStream.Length;
-    long position = MetaDataSize;
+    long position = MetadataSize;
     var lastIndex = -1;
-    lastBlock = default;
     while (position < length)
     {
       try
       {
         var header = ReadMainBlockHeader();
-        var end = position + header.Size + (long)header.CompressedLength;
-        // Framed blocks are never empty, so an empty block is a legacy header. Released
-        // versions could commit an empty block, with the next index, before the block that
-        // the tail names. Anything else is a header whose sectors did not persist: a torn
-        // legacy header, or the zeros of a framed header. Migration appends only framed
-        // blocks, so a legacy block never follows a framed one.
-        var tornEmptyBlock = header.CompressedLength == 0 && header.Length == 0 &&
-            (lastBlock.IsFramed || header.Index != lastIndex + 1 || header.Index >= TailBlock.BlockIndex);
-        if (header.CompressedLength < 0 || header.Length < 0 || end > length || tornEmptyBlock ||
+        var end = position + WalBlockFrame.HeaderSize + (long)header.CompressedLength;
+        // Blocks are never empty. An empty block is the zeros of a header whose
+        // sectors did not persist.
+        if (header.CompressedLength <= 0 || header.Length <= 0 || end > length ||
             (CompressionMethod == CompressionMethod.None && header.CompressedLength != header.Length) ||
-            (header.IsFramed && header.Index != lastIndex + 1) ||
-            (!header.IsFramed && header.Index <= lastIndex && lastIndex + 1 >= TailBlock.BlockIndex))
+            header.Index != lastIndex + 1)
           throw new InvalidDataException("Incomplete or invalid WAL block.");
-        if (header.IsFramed || (UsesSyncCheckpoints && position >= SyncedMainLength && CompressionMethod != CompressionMethod.None))
-        {
-          var payload = GetReadBuffer(ref CompressedReadBuffer, header.CompressedLength);
-          ReadMainFileExactly(payload.Span);
-          ValidateBlockPayload(payload.Span, header);
-          if (!header.IsFramed)
-          {
-            // Only the released legacy prefix needs codec validation here.
-            // All 2.1.0 payloads have a checksum over their stored bytes.
-            var decompressed = GetReadBuffer(ref DecompressedReadBuffer, header.Length);
-            try
-            {
-              DataCompression.DecompressInto(CompressionMethod, payload, decompressed);
-            }
-            catch (Exception e) when (e is not OutOfMemoryException)
-            {
-              throw new InvalidDataException("Invalid legacy WAL block.", e);
-            }
-          }
-        }
-        lastBlock = new LastBlockInfo
-        {
-          Position = position,
-          CompressedLength = header.CompressedLength,
-          Length = header.Length,
-          IsFramed = header.IsFramed
-        };
+        var payload = GetReadBuffer(ref CompressedReadBuffer, header.CompressedLength);
+        ReadMainFileExactly(payload.Span);
+        ValidateBlockPayload(payload.Span, header);
         lastIndex = header.Index;
         _length += header.Length;
         position = end;

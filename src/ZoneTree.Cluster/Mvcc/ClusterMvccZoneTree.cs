@@ -602,7 +602,7 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
       return null;
     try
     {
-      return Storage.SyncWALAsync();
+      return Storage.SyncWalAsync();
     }
     catch
     {
@@ -859,7 +859,7 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
     Storage.Upsert(
         new VersionedKey<TKey>(VersionedKeyKind.Clock, default, CommitRecord.DurableWatermarkVersion),
         VersionedValue<TValue>.FromSystem(durable));
-    Storage.SyncWALAsync().GetAwaiter().GetResult();
+    Storage.SyncWalAsync().GetAwaiter().GetResult();
   }
 
   /// <summary>
@@ -903,7 +903,7 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
 
   public IMaintainer CreateMaintainer() => Storage.CreateMaintainer();
 
-  public void SaveMetaData() => StorageMaintenance.SaveMetaData();
+  public void SaveMetadata() => StorageMaintenance.SaveMetadata();
 
   public void Drop()
   {

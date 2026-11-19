@@ -16,12 +16,12 @@ namespace ZoneTree;
 /// </para>
 /// <para>
 /// Commit() makes a transaction visible at once. CommitDurableAsync() syncs its
-/// commit record before making it visible. With Sync, SyncCompressed and Shared WALs,
-/// completed writes survive a process crash without a disk sync. AsyncCompressed and AsyncShared
+/// commit record before making it visible. With Private and Shared WALs,
+/// completed writes survive a process crash without a disk sync. AsyncPrivate and AsyncShared
 /// can lose records still queued in process memory. To wait for durability across
 /// a power loss or operating-system crash, await
 /// <see cref="ITransaction{TKey, TValue}.CommitDurableAsync"/> or
-/// <see cref="SyncWALAsync"/> before acknowledging the commit. Concurrent waiters
+/// <see cref="SyncWalAsync"/> before acknowledging the commit. Concurrent waiters
 /// share disk syncs, so syncing once per batch of commits is cheaper than once per commit.
 /// Built-in transactional factories select Shared or AsyncShared WALs, preserving
 /// a prefix of commits across segments and keeping incomplete transactions invisible.
@@ -60,7 +60,7 @@ public interface ITransactionalZoneTree<TKey, TValue> : IDisposable
   /// call is durable when the task completes. Concurrent callers share disk syncs.
   /// </summary>
   /// <param name="cancellationToken">Stops waiting; the sync itself is not cancelled.</param>
-  Task SyncWALAsync(CancellationToken cancellationToken = default);
+  Task SyncWalAsync(CancellationToken cancellationToken = default);
 
   /// <summary>
   /// The interval of a background WAL sync that also updates MVCC's durable

@@ -26,7 +26,7 @@ public sealed class RangeDeletionMergeTests
   {
     var values = new TrackingValueSerializer();
     var options = CreateOptions(values);
-    options.DiskSegmentOptions.DiskSegmentMode = outputMode;
+    options.DiskSegmentOptions.Mode = outputMode;
     var ranges = new List<(int, int, int, int)>();
     if (rangeResult.HasValue)
       options.IsRangeDeleted = (in int firstKey, in int firstValue, in int lastKey, in int lastValue) =>
@@ -322,6 +322,30 @@ public sealed class RangeDeletionMergeTests
     try
     {
       Assert.That(tree.Maintenance.CloneOptions().IsRangeDeleted, Is.SameAs(predicate));
+    }
+    finally
+    {
+      tree.Dispose();
+      options.RandomAccessDeviceManager.DropStore();
+    }
+  }
+
+  [Test]
+  public void ClonedOptionsPreserveTheMergeFilterFactory()
+  {
+    var options = CreateOptions(new TrackingValueSerializer());
+    MergeFilterFactory<int, int> mergeFilterFactory = _ => null;
+    using var tree = new ZoneTreeFactory<int, int>()
+        .Configure(x =>
+        {
+          x.RandomAccessDeviceManager = options.RandomAccessDeviceManager;
+          x.WriteAheadLogProvider = options.WriteAheadLogProvider;
+          x.MergeFilterFactory = mergeFilterFactory;
+        })
+        .OpenOrCreate();
+    try
+    {
+      Assert.That(tree.Maintenance.CloneOptions().MergeFilterFactory, Is.SameAs(mergeFilterFactory));
     }
     finally
     {

@@ -11,16 +11,13 @@ namespace ZoneTree.Segments.RandomAccess;
 
 public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
 {
-  const int MetaDataSize = 5;
+  const int MetadataSize = 5;
 
   readonly Lock SyncRoot = new();
 
   readonly IFileStreamProvider FileStreamProvider;
 
-  /// <summary>
-  /// The decompressed size of the blocks.
-  /// </summary>
-  public int BlockSize { get; }
+  readonly int BlockSize;
 
   readonly CompressionMethod CompressionMethod;
 
@@ -151,7 +148,7 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
       BinaryWriter = new BinaryWriter(FileStream.ToStream(), Encoding.UTF8, true);
     if (FileStream.Length > 0)
     {
-      var meta = ReadMetaData();
+      var meta = ReadMetadata();
       BlockSize = meta.BlockSize;
       CompressionMethod = meta.CompressionMethod;
 
@@ -169,26 +166,11 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
     }
     else
     {
-      WriteMetaData();
+      WriteMetadata();
     }
   }
 
-  /// <summary>
-  /// Reads the compression method that a compressed device file records, without opening it.
-  /// </summary>
-  internal static CompressionMethod ReadCompressionMethod(
-      IFileStreamProvider fileStreamProvider, string filePath)
-  {
-    using var file = fileStreamProvider.CreateFileStream(
-        filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-    var stream = file.ToStream();
-    if (stream.Length < sizeof(int) + 1)
-      return CompressionMethod.None;
-    stream.Position = sizeof(int);
-    return (CompressionMethod)stream.ReadByte();
-  }
-
-  CompressedFileMeta ReadMetaData()
+  CompressedFileMeta ReadMetadata()
   {
     FileStream.Position = 0;
     return new CompressedFileMeta(
@@ -196,7 +178,7 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
         (CompressionMethod)BinaryReader.ReadByte());
   }
 
-  void WriteMetaData()
+  void WriteMetadata()
   {
     FileStream.Position = 0;
     BinaryWriter.Write(BlockSize);
@@ -252,7 +234,7 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
   {
     // The compressed bytes are written below, before the buffer is used again.
     var compressedBytes = writeBlock.CompressInto(ref CompressionBuffer);
-    var offset = CompressedBlockPositions.LastOrDefault(MetaDataSize);
+    var offset = CompressedBlockPositions.LastOrDefault(MetadataSize);
     offset += CompressedBlockLengths.LastOrDefault();
     FileStream.Position = offset;
     CompressedBlockPositions.Add(offset);
@@ -419,8 +401,8 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
   public void ClearContent()
   {
     // first 4 bytes hold the block size.
-    FileStream.SetLength(MetaDataSize);
-    FileStream.Seek(MetaDataSize, SeekOrigin.Begin);
+    FileStream.SetLength(MetadataSize);
+    FileStream.Seek(MetadataSize, SeekOrigin.Begin);
 
     NextBlockIndex = 0;
     CompressedBlockPositions.Clear();
@@ -449,7 +431,7 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
 
   void WriteCompressedBlockPositionsAndLengths()
   {
-    var offset = CompressedBlockPositions.LastOrDefault(MetaDataSize);
+    var offset = CompressedBlockPositions.LastOrDefault(MetadataSize);
     offset += CompressedBlockLengths.LastOrDefault();
     FileStream.SetLength(offset);
     FileStream.Position = offset;

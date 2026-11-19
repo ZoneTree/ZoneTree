@@ -106,7 +106,7 @@ Deletion markers must survive while older records outside a merge could still be
 
 Immutable disk segments hold data that has already been compacted. WALs hold recent updates for the in-memory segments, and the metadata WAL records changes to the active segment structure. On reopening a tree, recovery loads the persistent segments and reconstructs in-memory state from the available logs.
 
-Ordinary trees default to `AsyncCompressed`; transactional factories promote that setting to `AsyncShared`. Both use a background logging path. Shared journals recover a single ordered prefix across memory segments. Durable transaction methods sync the commit record before exposing the transaction to readers; ordinary writes and ordinary commits can return before disk sync. With `None`, recent in-memory writes cannot be recovered after process termination.
+Ordinary trees default to `AsyncPrivate`; transactional factories promote that setting to `AsyncShared`. Both use a background logging path. Shared journals recover a single ordered prefix across memory segments. Durable transaction methods sync the commit record before exposing the transaction to readers; ordinary writes and ordinary commits can return before disk sync. With `None`, recent in-memory writes cannot be recovered after process termination.
 
 Use [WAL modes](../durability/wal-modes.mdx) to choose that boundary, [recovery](../durability/recovery.mdx) for WAL diagnostics and inspection tools, and [live backups](../durability/backups.mdx) to create a restorable copy of an open tree.
 
@@ -143,7 +143,7 @@ These defaults describe different boundaries in the same pipeline:
 | `MutableSegmentMaxItemCount` | 1,000,000 records | When the active memory segment rolls forward |
 | `DiskSegmentMaxItemCount` | 20,000,000 records | When merged disk output moves to the bottom queue |
 | `MinimumRecordCount` / `MaximumRecordCount` | 1,500,000 / 3,000,000 records | Part sizing inside a multipart disk segment |
-| WAL mode | `AsyncCompressed` | Logging behavior and recent-write recovery |
+| WAL mode | `AsyncPrivate` | Logging behavior and recent-write recovery |
 
 Record counts translate into different byte sizes for different keys and values. Smaller memory batches reduce each frozen batch's footprint; smaller disk parts reduce local rewrite units while increasing file and metadata overhead. The right balance depends on write locality, read patterns, value size, and merge throughput.
 

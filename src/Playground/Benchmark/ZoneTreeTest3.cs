@@ -10,7 +10,7 @@ public sealed class ZoneTreeTest3 : ZoneTreeTestBase<int, int>
   const string FolderName = "transactional-int-int";
 
   public override string DataPath =>
-      RootPath + WALMode + "-" + Count.ToHuman()
+      RootPath + WalMode + "-" + Count.ToHuman()
           + "_" + CompressionMethod + "_"
           + FolderName;
 
@@ -28,7 +28,7 @@ public sealed class ZoneTreeTest3 : ZoneTreeTestBase<int, int>
 
     using var zoneTree = OpenOrCreateTransactionalZoneTree();
     using var maintainer = zoneTree.CreateMaintainer();
-    maintainer.ThresholdForMergeOperationStart = TestConfig.ThresholdForMergeOperationStart;
+    maintainer.MergeThreshold = TestConfig.MergeThreshold;
     stats.AddStage("Loaded In");
 
     void Insert(int x)
@@ -51,7 +51,7 @@ public sealed class ZoneTreeTest3 : ZoneTreeTestBase<int, int>
     }
     stats.AddStage("Inserted In", ConsoleColor.Green);
 
-    if (WALMode == WriteAheadLogMode.None)
+    if (WalMode == WriteAheadLogMode.None)
     {
       zoneTree.Maintenance.ZoneTree.Maintenance.MoveMutableSegmentForward();
       zoneTree.Maintenance.ZoneTree.Maintenance.StartMergeOperation()?.Join();
@@ -70,7 +70,7 @@ public sealed class ZoneTreeTest3 : ZoneTreeTestBase<int, int>
 
     using var zoneTree = OpenOrCreateTransactionalZoneTree();
     using var maintainer = zoneTree.CreateMaintainer();
-    maintainer.ThresholdForMergeOperationStart = TestConfig.ThresholdForMergeOperationStart;
+    maintainer.MergeThreshold = TestConfig.MergeThreshold;
 
     stats.AddStage("Loaded in", ConsoleColor.DarkYellow);
 
