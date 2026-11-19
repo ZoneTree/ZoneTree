@@ -8,7 +8,7 @@ public static class WriteAheadLogDefaultValues
 
   public static readonly CompressionMethod CompressionMethod = CompressionMethod.Zstd;
 
-  public static readonly int CompressionLevel = CompressionLevels.Zstd0;
+  public static readonly int CompressionLevel = CompressionLevels.Zstd1;
 
   public static readonly bool SyncCompressedModeEnableTailWriterJob = true;
 

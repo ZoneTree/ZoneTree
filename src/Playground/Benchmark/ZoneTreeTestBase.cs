@@ -14,9 +14,9 @@ public class ZoneTreeTestBase<TKey, TValue>
 
   public int Count = 1_000_000;
 
-  public CompressionMethod CompressionMethod { get; set; } = CompressionMethod.LZ4;
+  public CompressionMethod CompressionMethod { get; set; } = TestConfig.CompressionMethod;
 
-  public int CompressionLevel { get; set; } = CompressionLevels.LZ4Fastest;
+  public int CompressionLevel { get; set; } = TestConfig.CompressionLevel;
 
   protected string GetLabel(string label)
   {
@@ -41,12 +41,12 @@ public class ZoneTreeTestBase<TKey, TValue>
         {
           x.DiskSegmentMode = TestConfig.DiskSegmentMode;
           x.CompressionMethod = CompressionMethod;
-          x.CompressionLevel = TestConfig.CompressionLevel;
+          x.CompressionLevel = CompressionLevel;
         })
         .ConfigureWriteAheadLogOptions(x =>
         {
           x.CompressionMethod = CompressionMethod;
-          x.CompressionLevel = TestConfig.CompressionLevel;
+          x.CompressionLevel = CompressionLevel;
           x.CompressionBlockSize = TestConfig.WALCompressionBlockSize;
           x.WriteAheadLogMode = WALMode;
         });
