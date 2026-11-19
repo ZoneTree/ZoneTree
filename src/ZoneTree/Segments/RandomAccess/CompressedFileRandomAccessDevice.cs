@@ -22,10 +22,7 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
   /// </summary>
   public int BlockSize { get; }
 
-  /// <summary>
-  /// The compression method that the file records.
-  /// </summary>
-  public CompressionMethod CompressionMethod { get; }
+  readonly CompressionMethod CompressionMethod;
 
   readonly int CompressionLevel;
 

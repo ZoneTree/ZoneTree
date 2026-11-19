@@ -667,9 +667,10 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   }
 
   /// <summary>
-  /// Migrates an existing database from LZ4, Gzip and Brotli compression to the configured
-  /// compression when it opens, because version 2.2.0 opens only migrated databases.
-  /// The migration first backs up the database directories next to them, and keeps the backup.
+  /// Migrates an existing database when it opens, because version 2.2.0 opens only migrated
+  /// databases: files with LZ4, Gzip or Brotli compression get the configured compression,
+  /// and Sync WALs become SyncCompressed WALs. The migration first backs up the database
+  /// directories next to them, and keeps the backup.
   /// </summary>
   /// <returns>ZoneTree Factory</returns>
   public ZoneTreeFactory<TKey, TValue> EnableZstdMigration()
