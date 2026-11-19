@@ -509,6 +509,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       KeySerializer = options.KeySerializer,
       Logger = options.Logger,
       MarkValueDeleted = options.MarkValueDeleted,
+      MergeFilterFactory = options.MergeFilterFactory,
       MutableSegmentBloomFilterBitsPerItem =
           options.MutableSegmentBloomFilterBitsPerItem,
       MutableSegmentMaxItemCount = options.MutableSegmentMaxItemCount,

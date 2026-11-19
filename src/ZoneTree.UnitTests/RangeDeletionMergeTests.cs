@@ -330,6 +330,30 @@ public sealed class RangeDeletionMergeTests
     }
   }
 
+  [Test]
+  public void ClonedOptionsPreserveTheMergeFilterFactory()
+  {
+    var options = CreateOptions(new TrackingValueSerializer());
+    MergeFilterFactory<int, int> mergeFilterFactory = _ => null;
+    using var tree = new ZoneTreeFactory<int, int>()
+        .Configure(x =>
+        {
+          x.RandomAccessDeviceManager = options.RandomAccessDeviceManager;
+          x.WriteAheadLogProvider = options.WriteAheadLogProvider;
+          x.MergeFilterFactory = mergeFilterFactory;
+        })
+        .OpenOrCreate();
+    try
+    {
+      Assert.That(tree.Maintenance.CloneOptions().MergeFilterFactory, Is.SameAs(mergeFilterFactory));
+    }
+    finally
+    {
+      tree.Dispose();
+      options.RandomAccessDeviceManager.DropStore();
+    }
+  }
+
   static ZoneTreeOptions<int, int> CreateOptions(TrackingValueSerializer values)
   {
     var logger = new ConsoleLogger(LogLevel.Error);
