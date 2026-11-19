@@ -1,11 +1,13 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using ZoneTree.AbstractFileStream;
 using ZoneTree.Compression;
 using ZoneTree.Core;
 using ZoneTree.Exceptions;
 using ZoneTree.Logger;
 using ZoneTree.Options;
 using ZoneTree.Segments.MultiPart;
+using ZoneTree.Segments.RandomAccess;
 
 namespace ZoneTree.UnitTests;
 
@@ -278,6 +280,78 @@ public sealed class DbVersionTests
           : CreateFactory(dataPath, SilentTestLogger.Instance, diskMethod: CompressionMethod.LZ4);
       var exception = Assert.Throws<InvalidOptionValueException>(() => factory.OpenOrCreate().Dispose());
       Assert.That(exception.Value, Is.EqualTo(CompressionMethod.LZ4));
+    }
+    finally
+    {
+      DeleteDataPath(dataPath);
+    }
+  }
+
+  /// <summary>
+  /// Rewrites a compressed disk file with another compression method.
+  /// </summary>
+  static void RecompressDiskFile(string path, CompressionMethod method)
+  {
+    var provider = new LocalFileStreamProvider();
+    var deviceManager = new RandomAccessDeviceManager(SilentTestLogger.Instance, provider, Path.GetDirectoryName(path));
+    var rewritten = path + ".rewritten";
+    using (var source = new CompressedFileRandomAccessDevice(
+        SilentTestLogger.Instance, provider, 0, path, deviceManager, path, false, 0, method, 0))
+    using (var target = new CompressedFileRandomAccessDevice(
+        SilentTestLogger.Instance, provider, 0, rewritten, deviceManager, rewritten, true, source.BlockSize, method, 0))
+    {
+      target.AppendBytesReturnPosition(source.GetBytes(0, (int)source.Length).Span);
+      target.SealDevice();
+    }
+    File.Move(rewritten, path, true);
+  }
+
+  [Test]
+  public void LegacySparseArrayKeepsTheOldDbVersion([Values] DiskSegmentMode diskSegmentMode)
+  {
+    var dataPath = CreateDataPath();
+    try
+    {
+      using (var tree = CreateFactory(dataPath, SilentTestLogger.Instance)
+          .ConfigureDiskSegmentOptions(x => x.DiskSegmentMode = diskSegmentMode)
+          .OpenOrCreate())
+      {
+        Insert(tree);
+        MergeToDisk(tree);
+      }
+      // The load closes a sparse array after it reads it.
+      var sparseArray = Directory.GetFiles(dataPath, "*.sparse.z").Single();
+      RecompressDiskFile(sparseArray, CompressionMethod.LZ4);
+      RemoveDbVersion(dataPath);
+
+      var logger = new RecordingLogger();
+      using (var tree = CreateFactory(dataPath, logger)
+          .ConfigureDiskSegmentOptions(x => x.DiskSegmentMode = diskSegmentMode)
+          .OpenOrCreate())
+        AssertRecords(tree);
+      Assert.That(ReadDbVersion(dataPath), Is.Null);
+      Assert.That(logger.GetWarnings(), Has.One.Contains(Path.GetFileName(sparseArray)));
+    }
+    finally
+    {
+      DeleteDataPath(dataPath);
+    }
+  }
+
+  [Test]
+  public void UncompressedWalModesDoNotUseTheirCompressionMethod(
+      [Values(WriteAheadLogMode.Sync, WriteAheadLogMode.None)] WriteAheadLogMode walMode)
+  {
+    var dataPath = CreateDataPath();
+    var logger = new RecordingLogger();
+    try
+    {
+      using (var tree = CreateFactory(dataPath, logger, walMode, walMethod: CompressionMethod.LZ4).OpenOrCreate())
+        Insert(tree);
+      Assert.That(ReadDbVersion(dataPath), Is.EqualTo(CurrentDbVersion));
+      using (var tree = CreateFactory(dataPath, logger, walMode, walMethod: CompressionMethod.LZ4).OpenOrCreate())
+        tree.Upsert(RecordCount, 0);
+      Assert.That(logger.GetWarnings(), Is.Empty);
     }
     finally
     {

@@ -13,12 +13,20 @@ static class LegacyCompression
       method != CompressionMethod.Zstd && method != CompressionMethod.None;
 
   /// <summary>
+  /// Returns whether the WAL compresses with a legacy method. Only compressed WAL modes use the method.
+  /// </summary>
+  static bool IsLegacy(WriteAheadLogOptions wal) =>
+      (wal.WriteAheadLogMode is WriteAheadLogMode.SyncCompressed or WriteAheadLogMode.AsyncCompressed
+          or WriteAheadLogMode.Shared or WriteAheadLogMode.AsyncShared) &&
+      IsLegacy(wal.CompressionMethod);
+
+  /// <summary>
   /// Returns the compression options that select a legacy method.
   /// </summary>
   public static List<string> FindInOptions(WriteAheadLogOptions wal, DiskSegmentOptions disk)
   {
     var uses = new List<string>();
-    if (IsLegacy(wal.CompressionMethod))
+    if (IsLegacy(wal))
       uses.Add($"{nameof(WriteAheadLogOptions)}.{nameof(WriteAheadLogOptions.CompressionMethod)} = {wal.CompressionMethod}");
     if (IsLegacy(disk.CompressionMethod))
       uses.Add($"{nameof(DiskSegmentOptions)}.{nameof(DiskSegmentOptions.CompressionMethod)} = {disk.CompressionMethod}");
@@ -30,7 +38,7 @@ static class LegacyCompression
   /// </summary>
   public static void ThrowIfSelected(WriteAheadLogOptions wal, DiskSegmentOptions disk, string rule)
   {
-    if (IsLegacy(wal.CompressionMethod))
+    if (IsLegacy(wal))
       throw new InvalidOptionValueException(
           $"{nameof(WriteAheadLogOptions)}.{nameof(WriteAheadLogOptions.CompressionMethod)}",
           wal.CompressionMethod,

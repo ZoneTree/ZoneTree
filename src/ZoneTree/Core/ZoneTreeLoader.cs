@@ -385,16 +385,20 @@ public sealed class ZoneTreeLoader<TKey, TValue>
         Options.WriteAheadLogOptions, Options.DiskSegmentOptions);
     uses.AddRange(ReadOnlySegmentFilesWithLegacyCompression);
     uses.AddRange(mutableSegmentWal.GetFilesWithLegacyCompression());
+    // Every file of the segments, because a load closes some, such as a sparse array.
     var deviceManager = Options.RandomAccessDeviceManager;
-    foreach (var device in deviceManager.GetReadOnlyDevices())
-      if (device is CompressedFileRandomAccessDevice compressed &&
-          LegacyCompression.IsLegacy(compressed.CompressionMethod))
-        uses.Add(compressed.FilePath);
     foreach (var segment in BottomSegments.Prepend(DiskSegment))
+    {
+      foreach (var file in segment.GetFiles())
+        if (file.Path.EndsWith(RandomAccessDeviceManager.CompressedFileExtension, StringComparison.Ordinal) &&
+            LegacyCompression.IsLegacy(CompressedFileRandomAccessDevice.ReadCompressionMethod(
+                deviceManager.FileStreamProvider, file.Path)))
+          uses.Add(file.Path);
       if (segment is MultiPartDiskSegment<TKey, TValue> multiPart &&
           LegacyCompression.IsLegacy(multiPart.HeaderCompressionMethod))
         uses.Add(deviceManager.GetFilePath(
             multiPart.SegmentId, DiskSegmentConstants.MultiPartDiskSegmentCategory));
+    }
     if (uses.Count > 0)
     {
       // A shared WAL reports its chunks for every segment.

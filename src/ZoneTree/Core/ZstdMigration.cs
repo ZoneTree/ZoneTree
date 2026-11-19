@@ -26,9 +26,6 @@ sealed class ZstdMigration<TKey, TValue>
 
   const string ConvertedSuffix = ".zstd";
 
-  // The device manager stores compressed devices with this extension.
-  const string CompressedDeviceExtension = ".z";
-
   static readonly string[] CompressedSegmentWalEndings =
       (from extension in new[] { WriteAheadLogProvider.Xxh3WalExtension, WriteAheadLogProvider.LegacyWalExtension }
        from mode in new[] { WriteAheadLogMode.SyncCompressed, WriteAheadLogMode.AsyncCompressed }
@@ -65,7 +62,7 @@ sealed class ZstdMigration<TKey, TValue>
 
     var dataFiles = Files.GetFiles(DataDirectory);
     var devices = dataFiles
-        .Where(path => path.EndsWith(CompressedDeviceExtension, StringComparison.Ordinal))
+        .Where(path => path.EndsWith(RandomAccessDeviceManager.CompressedFileExtension, StringComparison.Ordinal))
         .Where(path => LegacyCompression.IsLegacy(
             CompressedFileRandomAccessDevice.ReadCompressionMethod(Files, path)))
         .ToArray();
