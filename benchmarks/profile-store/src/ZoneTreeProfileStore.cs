@@ -22,12 +22,12 @@ public sealed class ZoneTreeProfileStore : IProfileStoreEngine, IProfileStoreEng
   int KeyCacheSize;
   int ValueCacheSize;
   int IteratorPrefetchSize;
-  TimeSpan BlockCacheLifeTime;
+  TimeSpan BlockCacheLifetime;
 
   public string Name => "ZoneTree";
 
   public string DurabilityDescription =>
-      $"AsyncPrivate WAL default; MutableSegmentMaxItemCount={MutableSegmentMaxItemCount.ToString(CultureInfo.InvariantCulture)}; SparseArrayStepSize={SparseArrayStepSize.ToString(CultureInfo.InvariantCulture)}; KeyCacheSize={KeyCacheSize.ToString(CultureInfo.InvariantCulture)}; ValueCacheSize={ValueCacheSize.ToString(CultureInfo.InvariantCulture)}; IteratorPrefetchSize={IteratorPrefetchSize.ToString(CultureInfo.InvariantCulture)}; BlockCacheLifeTime={BlockCacheLifeTime.TotalMinutes.ToString("0", CultureInfo.InvariantCulture)} minutes; application-managed secondary indexes; background maintainers enabled.";
+      $"AsyncPrivate WAL default; MutableSegmentMaxItemCount={MutableSegmentMaxItemCount.ToString(CultureInfo.InvariantCulture)}; SparseArrayStepSize={SparseArrayStepSize.ToString(CultureInfo.InvariantCulture)}; KeyCacheSize={KeyCacheSize.ToString(CultureInfo.InvariantCulture)}; ValueCacheSize={ValueCacheSize.ToString(CultureInfo.InvariantCulture)}; IteratorPrefetchSize={IteratorPrefetchSize.ToString(CultureInfo.InvariantCulture)}; BlockCacheLifetime={BlockCacheLifetime.TotalMinutes.ToString("0", CultureInfo.InvariantCulture)} minutes; application-managed secondary indexes; background maintainers enabled.";
 
   public bool RequiresReadStabilization => true;
 
@@ -39,7 +39,7 @@ public sealed class ZoneTreeProfileStore : IProfileStoreEngine, IProfileStoreEng
     KeyCacheSize = config.ZoneTreeKeyCacheSize;
     ValueCacheSize = config.ZoneTreeValueCacheSize;
     IteratorPrefetchSize = config.ZoneTreeIteratorPrefetchSize;
-    BlockCacheLifeTime = TimeSpan.FromMinutes(config.ZoneTreeBlockCacheLifeTimeMinutes);
+    BlockCacheLifetime = TimeSpan.FromMinutes(config.ZoneTreeBlockCacheLifetimeMinutes);
     if (reset && Directory.Exists(RootDirectory))
       Directory.Delete(RootDirectory, true);
     Directory.CreateDirectory(RootDirectory);
@@ -332,8 +332,8 @@ public sealed class ZoneTreeProfileStore : IProfileStoreEngine, IProfileStoreEng
   void AddMaintainer<TKey, TValue>(IZoneTree<TKey, TValue> tree)
   {
     var maintainer = tree.CreateMaintainer();
-    maintainer.BlockCacheLifeTime = BlockCacheLifeTime;
-    maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromMilliseconds(BlockCacheLifeTime.TotalMilliseconds / 2);
+    maintainer.BlockCacheLifetime = BlockCacheLifetime;
+    maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromMilliseconds(BlockCacheLifetime.TotalMilliseconds / 2);
 
     void onDiskSegmentActivated(
       IZoneTreeMaintenance<TKey, TValue> maintenance,

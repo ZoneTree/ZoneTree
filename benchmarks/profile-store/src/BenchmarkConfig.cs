@@ -45,7 +45,7 @@ public sealed record BenchmarkConfig
 
   public int ZoneTreeMutableSegmentMaxItemCount { get; init; } = 250_000;
 
-  public int ZoneTreeBlockCacheLifeTimeMinutes { get; init; } = 1;
+  public int ZoneTreeBlockCacheLifetimeMinutes { get; init; } = 1;
 
   public int ZoneTreeSparseArrayStepSize { get; init; } = 16;
 
@@ -123,7 +123,7 @@ public sealed record BenchmarkConfig
         "--output" => config with { OutputDirectory = next() },
         "--data" => config with { DataDirectory = next() },
         "--zonetree-mutable-segment-max-item-count" => config with { ZoneTreeMutableSegmentMaxItemCount = int.Parse(next()) },
-        "--zonetree-block-cache-lifetime-minutes" => config with { ZoneTreeBlockCacheLifeTimeMinutes = int.Parse(next()) },
+        "--zonetree-block-cache-lifetime-minutes" => config with { ZoneTreeBlockCacheLifetimeMinutes = int.Parse(next()) },
         "--zonetree-sparse-array-step-size" => config with { ZoneTreeSparseArrayStepSize = int.Parse(next()) },
         "--zonetree-key-cache-size" => config with { ZoneTreeKeyCacheSize = int.Parse(next()) },
         "--zonetree-value-cache-size" => config with { ZoneTreeValueCacheSize = int.Parse(next()) },
@@ -173,8 +173,8 @@ public sealed record BenchmarkConfig
       throw new ArgumentOutOfRangeException(
           nameof(config.ZoneTreeMutableSegmentMaxItemCount),
           $"Value must be greater than or equal to {MinimumZoneTreeMutableSegmentMaxItemCount}.");
-    if (config.ZoneTreeBlockCacheLifeTimeMinutes <= 0)
-      throw new ArgumentOutOfRangeException(nameof(config.ZoneTreeBlockCacheLifeTimeMinutes));
+    if (config.ZoneTreeBlockCacheLifetimeMinutes <= 0)
+      throw new ArgumentOutOfRangeException(nameof(config.ZoneTreeBlockCacheLifetimeMinutes));
     if (config.ZoneTreeSparseArrayStepSize < 0)
       throw new ArgumentOutOfRangeException(nameof(config.ZoneTreeSparseArrayStepSize));
     if (config.ZoneTreeKeyCacheSize < 0)
@@ -308,7 +308,7 @@ public sealed record BenchmarkConfig
     yield return "--zonetree-mutable-segment-max-item-count";
     yield return ZoneTreeMutableSegmentMaxItemCount.ToString();
     yield return "--zonetree-block-cache-lifetime-minutes";
-    yield return ZoneTreeBlockCacheLifeTimeMinutes.ToString();
+    yield return ZoneTreeBlockCacheLifetimeMinutes.ToString();
     yield return "--zonetree-sparse-array-step-size";
     yield return ZoneTreeSparseArrayStepSize.ToString();
     yield return "--zonetree-key-cache-size";

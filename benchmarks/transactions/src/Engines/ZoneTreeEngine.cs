@@ -30,7 +30,7 @@ public sealed class ZoneTreeEngine : ITransactionEngine
     var effectiveWalMode = factory.Options.WriteAheadLogOptions.Mode;
 
     Maintainer = Tree.CreateMaintainer();
-    Maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(1);
+    Maintainer.BlockCacheLifetime = TimeSpan.FromMinutes(1);
     Maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(30);
     Storage = Tree.Maintenance.ZoneTree.Maintenance;
     Storage.OnDiskSegmentActivated += StartBottomMerge;

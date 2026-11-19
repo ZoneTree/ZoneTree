@@ -16,7 +16,7 @@ internal sealed class ClusterMaintainer : IMaintainer
   int mergeThreshold;
   int maximumReadOnlySegmentCount = 64;
   bool enableInactiveCacheCleanup;
-  TimeSpan blockCacheLifeTime = TimeSpan.FromMinutes(1);
+  TimeSpan blockCacheLifetime = TimeSpan.FromMinutes(1);
   TimeSpan inactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(30);
 
   internal ClusterMaintainer(ZoneTreeCluster cluster, IEnumerable<Column> columns, bool followsNewColumns)
@@ -40,7 +40,7 @@ internal sealed class ClusterMaintainer : IMaintainer
     mergeThreshold = first.MergeThreshold;
     maximumReadOnlySegmentCount = first.MaximumReadOnlySegmentCount;
     enableInactiveCacheCleanup = first.EnableInactiveCacheCleanup;
-    blockCacheLifeTime = first.BlockCacheLifeTime;
+    blockCacheLifetime = first.BlockCacheLifetime;
     inactiveBlockCacheCleanupInterval = first.InactiveBlockCacheCleanupInterval;
   }
 
@@ -54,7 +54,7 @@ internal sealed class ClusterMaintainer : IMaintainer
       var maintainer = column.CreateMaintainer();
       maintainer.MergeThreshold = mergeThreshold;
       maintainer.MaximumReadOnlySegmentCount = maximumReadOnlySegmentCount;
-      maintainer.BlockCacheLifeTime = blockCacheLifeTime;
+      maintainer.BlockCacheLifetime = blockCacheLifetime;
       maintainer.InactiveBlockCacheCleanupInterval = inactiveBlockCacheCleanupInterval;
       maintainer.EnableInactiveCacheCleanup = enableInactiveCacheCleanup;
       Maintainers.Add(column, maintainer);
@@ -118,12 +118,12 @@ internal sealed class ClusterMaintainer : IMaintainer
     }
   }
 
-  public TimeSpan BlockCacheLifeTime
+  public TimeSpan BlockCacheLifetime
   {
-    get => blockCacheLifeTime;
+    get => blockCacheLifetime;
     set
     {
-      Set(() => blockCacheLifeTime = value, maintainer => maintainer.BlockCacheLifeTime = value);
+      Set(() => blockCacheLifetime = value, maintainer => maintainer.BlockCacheLifetime = value);
     }
   }
 

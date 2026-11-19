@@ -113,14 +113,14 @@ public sealed class DiskSegmentOptions
   /// Longer lifetimes can keep cached keys in memory for longer.
   /// Default value is 10 seconds.
   /// </summary>
-  public TimeSpan KeyCacheRecordLifeTime { get; set; } = DiskSegmentDefaultValues.KeyCacheRecordLifeTime;
+  public TimeSpan KeyCacheRecordLifetime { get; set; } = DiskSegmentDefaultValues.KeyCacheRecordLifetime;
 
   /// <summary>
   /// Gets or sets the maximum lifetime of a record in the value cache.
   /// Longer lifetimes can keep cached values in memory for longer.
   /// Default value is 10 seconds.
   /// </summary>
-  public TimeSpan ValueCacheRecordLifeTime { get; set; } = DiskSegmentDefaultValues.ValueCacheRecordLifeTime;
+  public TimeSpan ValueCacheRecordLifetime { get; set; } = DiskSegmentDefaultValues.ValueCacheRecordLifetime;
 
   /// <summary>
   /// Gets or sets the default step size for the default sparse array of disk segments.

@@ -113,10 +113,10 @@ public sealed class ZoneTreeMetaOptionsTests
           options.ValueCacheSize = expected.DiskSegmentValueCacheSize;
           options.MaterializedEntryCacheSize = expected.DiskSegmentMaterializedEntryCacheSize;
           options.SearchHintPrefetchSize = expected.DiskSegmentSearchHintPrefetchSize;
-          options.KeyCacheRecordLifeTime =
-              expected.DiskSegmentKeyCacheRecordLifeTime;
-          options.ValueCacheRecordLifeTime =
-              expected.DiskSegmentValueCacheRecordLifeTime;
+          options.KeyCacheRecordLifetime =
+              expected.DiskSegmentKeyCacheRecordLifetime;
+          options.ValueCacheRecordLifetime =
+              expected.DiskSegmentValueCacheRecordLifetime;
           options.DefaultSparseArrayStepSize = expected.DefaultSparseArrayStepSize;
         })
         .OpenOrCreate();
@@ -149,8 +149,8 @@ public sealed class ZoneTreeMetaOptionsTests
           DiskSegmentValueCacheSize: 13,
           DiskSegmentMaterializedEntryCacheSize: 17,
           DiskSegmentSearchHintPrefetchSize: 19,
-          DiskSegmentKeyCacheRecordLifeTime: TimeSpan.FromMilliseconds(23),
-          DiskSegmentValueCacheRecordLifeTime: TimeSpan.FromMilliseconds(29),
+          DiskSegmentKeyCacheRecordLifetime: TimeSpan.FromMilliseconds(23),
+          DiskSegmentValueCacheRecordLifetime: TimeSpan.FromMilliseconds(29),
           DefaultSparseArrayStepSize: 31),
 
       "active" => new ExpectedOptions(
@@ -175,8 +175,8 @@ public sealed class ZoneTreeMetaOptionsTests
           DiskSegmentValueCacheSize: 19,
           DiskSegmentMaterializedEntryCacheSize: 23,
           DiskSegmentSearchHintPrefetchSize: 29,
-          DiskSegmentKeyCacheRecordLifeTime: TimeSpan.FromMilliseconds(31),
-          DiskSegmentValueCacheRecordLifeTime: TimeSpan.FromMilliseconds(37),
+          DiskSegmentKeyCacheRecordLifetime: TimeSpan.FromMilliseconds(31),
+          DiskSegmentValueCacheRecordLifetime: TimeSpan.FromMilliseconds(37),
           DefaultSparseArrayStepSize: 41),
 
       "created" => new ExpectedOptions(
@@ -201,8 +201,8 @@ public sealed class ZoneTreeMetaOptionsTests
           DiskSegmentValueCacheSize: 29,
           DiskSegmentMaterializedEntryCacheSize: 31,
           DiskSegmentSearchHintPrefetchSize: 37,
-          DiskSegmentKeyCacheRecordLifeTime: TimeSpan.FromMilliseconds(41),
-          DiskSegmentValueCacheRecordLifeTime: TimeSpan.FromMilliseconds(43),
+          DiskSegmentKeyCacheRecordLifetime: TimeSpan.FromMilliseconds(41),
+          DiskSegmentValueCacheRecordLifetime: TimeSpan.FromMilliseconds(43),
           DefaultSparseArrayStepSize: 47),
 
       _ => throw new ArgumentOutOfRangeException(nameof(customOptions))
@@ -254,10 +254,10 @@ public sealed class ZoneTreeMetaOptionsTests
         Is.EqualTo(expected.DiskSegmentMaterializedEntryCacheSize));
     Assert.That(diskOptions.SearchHintPrefetchSize,
         Is.EqualTo(expected.DiskSegmentSearchHintPrefetchSize));
-    Assert.That(diskOptions.KeyCacheRecordLifeTime,
-        Is.EqualTo(expected.DiskSegmentKeyCacheRecordLifeTime));
-    Assert.That(diskOptions.ValueCacheRecordLifeTime,
-        Is.EqualTo(expected.DiskSegmentValueCacheRecordLifeTime));
+    Assert.That(diskOptions.KeyCacheRecordLifetime,
+        Is.EqualTo(expected.DiskSegmentKeyCacheRecordLifetime));
+    Assert.That(diskOptions.ValueCacheRecordLifetime,
+        Is.EqualTo(expected.DiskSegmentValueCacheRecordLifetime));
     Assert.That(diskOptions.DefaultSparseArrayStepSize,
         Is.EqualTo(expected.DefaultSparseArrayStepSize));
 
@@ -312,7 +312,7 @@ public sealed class ZoneTreeMetaOptionsTests
       int DiskSegmentValueCacheSize,
       int DiskSegmentMaterializedEntryCacheSize,
       int DiskSegmentSearchHintPrefetchSize,
-      TimeSpan DiskSegmentKeyCacheRecordLifeTime,
-      TimeSpan DiskSegmentValueCacheRecordLifeTime,
+      TimeSpan DiskSegmentKeyCacheRecordLifetime,
+      TimeSpan DiskSegmentValueCacheRecordLifetime,
       int DefaultSparseArrayStepSize);
 }

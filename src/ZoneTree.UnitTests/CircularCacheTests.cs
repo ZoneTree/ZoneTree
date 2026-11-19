@@ -59,7 +59,7 @@ public sealed class CircularCacheTests
       Assert.That(kept, Is.EqualTo("v" + i));
     }
 
-    cache.RecordLifeTime = TimeSpan.FromSeconds(-60);
+    cache.RecordLifetime = TimeSpan.FromSeconds(-60);
     Assert.That(cache.ReleaseInactiveCacheRecords(), Is.EqualTo(4));
     for (var i = 0; i < 4; ++i)
       Assert.That(cache.TryGet(i, out _), Is.False);

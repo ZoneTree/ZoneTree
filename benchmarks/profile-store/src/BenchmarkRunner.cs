@@ -315,7 +315,7 @@ public sealed class BenchmarkRunner(BenchmarkConfig config)
         ["KeyCacheSize"] = config.ZoneTreeKeyCacheSize.ToString(),
         ["ValueCacheSize"] = config.ZoneTreeValueCacheSize.ToString(),
         ["IteratorPrefetchSize"] = config.ZoneTreeIteratorPrefetchSize.ToString(),
-        ["BlockCacheLifeTime"] = $"{config.ZoneTreeBlockCacheLifeTimeMinutes} minutes",
+        ["BlockCacheLifetime"] = $"{config.ZoneTreeBlockCacheLifetimeMinutes} minutes",
         ["BottomMergePolicy"] = "Full bottom merge when bottom segment count exceeds 1",
         ["ReadStabilization"] = "Settle before read/query phases"
       },

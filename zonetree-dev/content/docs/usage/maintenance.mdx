@@ -127,17 +127,17 @@ The standard maintainer starts periodic cleanup automatically:
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `EnableInactiveCacheCleanup` | `true` | Enables the periodic cleanup job. |
-| `BlockCacheLifeTime` | `1 minute` | Controls how long inactive decompressed disk blocks remain eligible for retention. |
+| `BlockCacheLifetime` | `1 minute` | Controls how long inactive decompressed disk blocks remain eligible for retention. |
 | `InactiveBlockCacheCleanupInterval` | `30 seconds` | Sets the timer period when the cleanup job starts. Restart the job to apply a changed interval. |
 
 ```csharp
 maintainer.EnableInactiveCacheCleanup = false;
-maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(2);
+maintainer.BlockCacheLifetime = TimeSpan.FromMinutes(2);
 maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(15);
 maintainer.EnableInactiveCacheCleanup = true;
 ```
 
-The cleanup interval is captured when the periodic timer is created; assigning the property alone does not reconfigure an already running timer. `BlockCacheLifeTime` is read on each cleanup pass.
+The cleanup interval is captured when the periodic timer is created; assigning the property alone does not reconfigure an already running timer. `BlockCacheLifetime` is read on each cleanup pass.
 
 Longer retention can help repeated reads and also retain more memory. Cleanup releases inactive block buffers and expired circular key/value cache entries. The .NET runtime may retain released memory for reuse rather than immediately returning it to the operating system.
 

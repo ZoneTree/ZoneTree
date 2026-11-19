@@ -626,8 +626,8 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
   void AddMaintainer<TKey, TValue>(IZoneTree<TKey, TValue> tree)
   {
     var maintainer = tree.CreateMaintainer();
-    maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(config.BlockCacheLifeTimeMinutes);
-    maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromMinutes(config.BlockCacheLifeTimeMinutes / 2.0);
+    maintainer.BlockCacheLifetime = TimeSpan.FromMinutes(config.BlockCacheLifetimeMinutes);
+    maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromMinutes(config.BlockCacheLifetimeMinutes / 2.0);
     Maintainers.Add(maintainer);
   }
 
@@ -1454,7 +1454,7 @@ sealed record ScanLabConfig
   public BTreeLockMode BTreeLockMode { get; init; } = BTreeLockMode.NodeLevelMonitor;
   public CreatedAtQueryMode CreatedAtMode { get; init; } = CreatedAtQueryMode.Random;
   public ProfileReadOrder ReadOrder { get; init; } = ProfileReadOrder.Random;
-  public double BlockCacheLifeTimeMinutes { get; init; } = 1222;
+  public double BlockCacheLifetimeMinutes { get; init; } = 1222;
 
   public ScanLabConfig WithDefaults() =>
       this with
@@ -1497,7 +1497,7 @@ sealed record ScanLabConfig
         "--btree-lock" => config with { BTreeLockMode = ParseBTreeLockMode(next()) },
         "--created-at" => config with { CreatedAtMode = ParseCreatedAtMode(next()) },
         "--read-order" => config with { ReadOrder = ParseReadOrder(next()) },
-        "--block-cache-minutes" => config with { BlockCacheLifeTimeMinutes = double.Parse(next()) },
+        "--block-cache-minutes" => config with { BlockCacheLifetimeMinutes = double.Parse(next()) },
         _ => throw new ArgumentException($"Unknown argument: {arg}")
       };
     }

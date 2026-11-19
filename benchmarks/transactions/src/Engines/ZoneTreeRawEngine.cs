@@ -21,7 +21,7 @@ public sealed class ZoneTreeRawEngine : ITransactionEngine
     Durable = options.Durability == DurabilityMode.PerCommit;
     Tree = ZoneTreeEngine.CreateFactory(options, walMode).OpenOrCreate();
     Maintainer = Tree.CreateMaintainer();
-    Maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(1);
+    Maintainer.BlockCacheLifetime = TimeSpan.FromMinutes(1);
     Maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(30);
     Tree.Maintenance.OnDiskSegmentActivated += StartBottomMerge;
     Settings =

@@ -204,10 +204,10 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
       SearchHints = new(() => new());
     CircularKeyCache = new CircularCache<TKey>(
         diskOptions.KeyCacheSize,
-        diskOptions.KeyCacheRecordLifeTime);
+        diskOptions.KeyCacheRecordLifetime);
     CircularValueCache = new CircularCache<TValue>(
         diskOptions.ValueCacheSize,
-        diskOptions.ValueCacheRecordLifeTime);
+        diskOptions.ValueCacheRecordLifetime);
   }
 
   protected DiskSegment(long segmentId,
@@ -228,10 +228,10 @@ public abstract class DiskSegment<TKey, TValue> : IDiskSegment<TKey, TValue>
       SearchHints = new(() => new());
     CircularKeyCache = new CircularCache<TKey>(
         diskOptions.KeyCacheSize,
-        diskOptions.KeyCacheRecordLifeTime);
+        diskOptions.KeyCacheRecordLifetime);
     CircularValueCache = new CircularCache<TValue>(
         diskOptions.ValueCacheSize,
-        diskOptions.ValueCacheRecordLifeTime);
+        diskOptions.ValueCacheRecordLifetime);
   }
 
   public bool ContainsKey(in TKey key, ref KeyHashProvider<TKey> keyHashProvider)

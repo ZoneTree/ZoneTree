@@ -325,12 +325,12 @@ public sealed class ZoneTreeOptionsValidationTests
         "DiskSegmentOptions.SearchHintPrefetchSize");
 
     yield return Invalid(
-        options => options.DiskSegmentOptions.KeyCacheRecordLifeTime = TimeSpan.FromMilliseconds(-1),
-        "DiskSegmentOptions.KeyCacheRecordLifeTime");
+        options => options.DiskSegmentOptions.KeyCacheRecordLifetime = TimeSpan.FromMilliseconds(-1),
+        "DiskSegmentOptions.KeyCacheRecordLifetime");
 
     yield return Invalid(
-        options => options.DiskSegmentOptions.ValueCacheRecordLifeTime = TimeSpan.FromMilliseconds(-1),
-        "DiskSegmentOptions.ValueCacheRecordLifeTime");
+        options => options.DiskSegmentOptions.ValueCacheRecordLifetime = TimeSpan.FromMilliseconds(-1),
+        "DiskSegmentOptions.ValueCacheRecordLifetime");
 
     yield return Invalid(
         options => options.DiskSegmentOptions.DefaultSparseArrayStepSize = -1,

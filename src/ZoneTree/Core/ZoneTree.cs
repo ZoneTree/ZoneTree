@@ -483,13 +483,13 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       CompressionMethod = dsk.CompressionMethod,
       DefaultSparseArrayStepSize = dsk.DefaultSparseArrayStepSize,
       Mode = dsk.Mode,
-      KeyCacheRecordLifeTime = dsk.KeyCacheRecordLifeTime,
+      KeyCacheRecordLifetime = dsk.KeyCacheRecordLifetime,
       KeyCacheSize = dsk.KeyCacheSize,
       MaterializedEntryCacheSize = dsk.MaterializedEntryCacheSize,
       SearchHintPrefetchSize = dsk.SearchHintPrefetchSize,
       MaximumRecordCount = dsk.MaximumRecordCount,
       MinimumRecordCount = dsk.MinimumRecordCount,
-      ValueCacheRecordLifeTime = dsk.ValueCacheRecordLifeTime,
+      ValueCacheRecordLifetime = dsk.ValueCacheRecordLifetime,
       ValueCacheSize = dsk.ValueCacheSize,
     };
 

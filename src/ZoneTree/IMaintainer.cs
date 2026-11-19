@@ -34,7 +34,7 @@ public interface IMaintainer : IDisposable
   /// Gets or sets the lifespan of the disk segment block cache.
   /// The default value is 1 minute.
   /// </summary>
-  TimeSpan BlockCacheLifeTime { get; set; }
+  TimeSpan BlockCacheLifetime { get; set; }
 
   /// <summary>
   /// Gets or sets the interval at which the cleanup job runs to remove inactive

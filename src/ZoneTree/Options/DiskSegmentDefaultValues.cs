@@ -22,9 +22,9 @@ public static class DiskSegmentDefaultValues
 
   public static readonly int SearchHintPrefetchSize = 16;
 
-  public static readonly TimeSpan KeyCacheRecordLifeTime = TimeSpan.FromSeconds(10);
+  public static readonly TimeSpan KeyCacheRecordLifetime = TimeSpan.FromSeconds(10);
 
-  public static readonly TimeSpan ValueCacheRecordLifeTime = TimeSpan.FromSeconds(10);
+  public static readonly TimeSpan ValueCacheRecordLifetime = TimeSpan.FromSeconds(10);
 
   public static readonly int DefaultSparseArrayStepSize = 1024;
 }

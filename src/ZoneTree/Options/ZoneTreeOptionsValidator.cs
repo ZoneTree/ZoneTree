@@ -300,14 +300,14 @@ internal static class ZoneTreeOptionsValidator
       return exception;
 
     exception = ValidateNotNegative(
-        Option(owner, nameof(options.KeyCacheRecordLifeTime)),
-        options.KeyCacheRecordLifeTime);
+        Option(owner, nameof(options.KeyCacheRecordLifetime)),
+        options.KeyCacheRecordLifetime);
     if (exception != null)
       return exception;
 
     exception = ValidateNotNegative(
-        Option(owner, nameof(options.ValueCacheRecordLifeTime)),
-        options.ValueCacheRecordLifeTime);
+        Option(owner, nameof(options.ValueCacheRecordLifetime)),
+        options.ValueCacheRecordLifetime);
     if (exception != null)
       return exception;
 

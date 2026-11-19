@@ -28,7 +28,7 @@ static class Worker
     maintainer.MaximumReadOnlySegmentCount = 8;
     maintainer.MergeThreshold = config.Profile.MutableSize;
     maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(3);
-    maintainer.BlockCacheLifeTime = TimeSpan.FromSeconds(3);
+    maintainer.BlockCacheLifetime = TimeSpan.FromSeconds(3);
     var maintenance = tree.Maintenance.ZoneTree.Maintenance;
     long rotations = 0, merges = 0, commits = 0, rollbacks = 0, audits = 0, cancellations = 0;
     maintenance.OnMutableSegmentMovedForward += _ => Interlocked.Increment(ref rotations);

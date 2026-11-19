@@ -45,7 +45,7 @@ public sealed class ZoneTreeClusterStandaloneEngine : ITransactionEngine
     var tree = Cluster.GetStandaloneColumnStorage<long, byte[]>("records");
     var effectiveWalMode = tree.Maintenance.ZoneTree.Maintenance.CloneOptions().WriteAheadLogOptions.Mode;
     Maintainer = Cluster.CreateColumnMaintainer("records");
-    Maintainer.BlockCacheLifeTime = TimeSpan.FromMinutes(1);
+    Maintainer.BlockCacheLifetime = TimeSpan.FromMinutes(1);
     Maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromSeconds(30);
     Storage = tree.Maintenance.ZoneTree.Maintenance;
     Storage.OnDiskSegmentActivated += StartBottomMerge;

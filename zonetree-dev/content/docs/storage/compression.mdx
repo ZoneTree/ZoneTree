@@ -131,7 +131,7 @@ Decompressed cache memory follows the uncompressed block size, not the compresse
 
 ## Coordinate block retention with the maintainer
 
-The standard maintainer releases inactive read buffers according to `BlockCacheLifeTime` and its cleanup interval. Shorter retention can reduce inactive memory while causing more reads and decompression when data becomes hot again.
+The standard maintainer releases inactive read buffers according to `BlockCacheLifetime` and its cleanup interval. Shorter retention can reduce inactive memory while causing more reads and decompression when data becomes hot again.
 
 The cleanup timer captures its interval when started. Use the restart sequence in [memory usage](memory-usage.mdx#configure-retention-and-observe-the-write-set) when changing that interval, and include materialized objects when measuring the cache footprint.
 
