@@ -89,7 +89,7 @@ After a normal merge, output larger than `DiskSegmentMaxItemCount` moves to the 
 
 Measure request latency, normal and bottom-merge durations, bytes written, and read-layer fan-in over a representative run. Creating a live backup can add copying work, while retained readers or backups can delay deletion of old files without implying those files were rewritten again.
 
-For diagnostic detail, `LogMergerSuccess` and `LogMergerDrop` are emitted through the logger's trace path. Their skip/drop counts describe part-reuse decisions, not record counts or byte-amplification ratios. See [maintenance](../usage/maintenance.mdx) for scheduling and merge events.
+For diagnostic detail, set the log level to `Trace`: each merge then reports its duration and how many disk segment parts it rewrote and reused. These counts describe part-reuse decisions, not record counts or byte-amplification ratios. See [maintenance](../usage/maintenance.mdx) for scheduling and merge events.
 
 <Flex wrap="true" class="gap-3 zt-guide-next"
   ><BtnLink
