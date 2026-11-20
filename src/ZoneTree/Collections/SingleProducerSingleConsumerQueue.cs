@@ -205,7 +205,9 @@ public sealed class SingleProducerSingleConsumerQueue<TQueueItem>
         if (Volatile.Read(ref DequeueVersion) == version)
           return list;
       }
-      spinner.SpinOnce();
+      // Never Sleep(1): a dequeue keeps the version odd only for two stores, so yielding is enough, and a sleep
+      // after many retries starves the walk while dequeues keep coming.
+      spinner.SpinOnce(sleep1Threshold: -1);
     }
   }
 
