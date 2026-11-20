@@ -149,7 +149,7 @@ public sealed class SafeBPlusTreeTests
     foreach (var key in keys)
       tree.Upsert(key, key, out _);
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
     var iterator = new BPlusTreeSeekableIterator<int, int>(tree);
     for (var key = 0; key < keys.Length; ++key)
     {
@@ -436,7 +436,7 @@ public sealed class SafeBPlusTreeTests
       var k = i;
       tree.Upsert(k, k, out _);
       tree.Validate();
-      tree.ValidateLeafs();
+      tree.ValidateLeaves();
     }
   }
 }

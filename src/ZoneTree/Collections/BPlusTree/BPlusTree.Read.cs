@@ -262,7 +262,7 @@ public sealed partial class BPlusTree<TKey, TValue>
   /// directions, from the first leaf to the last. The caller ensures that
   /// no write runs during the check.
   /// </summary>
-  public void ValidateLeafs()
+  public void ValidateLeaves()
   {
     var leaves = CollectLeaves(Root);
     if (FirstLeafNode != leaves[0])

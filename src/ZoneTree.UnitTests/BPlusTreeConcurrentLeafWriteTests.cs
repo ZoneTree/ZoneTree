@@ -79,7 +79,7 @@ public sealed class BPlusTreeConcurrentLeafWriteTests
 
     await Task.WhenAll(writer, Read(false), Read(true)).WaitAsync(TimeSpan.FromSeconds(30));
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
     Assert.That(tree.Length, Is.EqualTo(count));
     for (var key = 0; key < count; ++key)
     {
@@ -106,7 +106,7 @@ public sealed class BPlusTreeConcurrentLeafWriteTests
     Assert.That(actual, Is.EqualTo(count));
     Assert.That(tree.LastOpIndex, Is.EqualTo(2L * count + 1));
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
   }
 
   [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]

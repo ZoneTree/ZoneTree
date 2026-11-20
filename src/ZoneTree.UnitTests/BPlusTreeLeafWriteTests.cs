@@ -84,7 +84,7 @@ public sealed class BPlusTreeLeafWriteTests
     Assert.That(lengths.Take(lengths.Count - 1), Is.All.EqualTo(7));
     Assert.That(lengths.Sum(), Is.EqualTo(1000));
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
   }
 
   [Test]
@@ -99,7 +99,7 @@ public sealed class BPlusTreeLeafWriteTests
     Assert.That(lengths.Skip(1), Is.All.EqualTo(7));
     Assert.That(lengths.Sum(), Is.EqualTo(1000));
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
   }
 
   [Test]
@@ -111,7 +111,7 @@ public sealed class BPlusTreeLeafWriteTests
     Write(tree, method, 65);
     Assert.That(GetLeafLengths(tree), Is.EqualTo(new[] { 4, 5 }));
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
   }
 
   /// <summary>
@@ -167,7 +167,7 @@ public sealed class BPlusTreeLeafWriteTests
     Assert.That(write.Wait(TimeSpan.FromSeconds(30)), Is.True, "The failed write keeps a leaf locked.");
     Assert.That(tree.Length, Is.EqualTo(count + 1));
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
   }
 
   [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
@@ -244,7 +244,7 @@ public sealed class BPlusTreeLeafWriteTests
     Assert.That(tree.TryGetValue(in newKey, out var value), Is.True);
     Assert.That(value, Is.EqualTo(7));
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
   }
 
   [Test]
@@ -284,7 +284,7 @@ public sealed class BPlusTreeLeafWriteTests
     Assert.That(tree.TryGetValue(in searched, out var value), Is.True, "The write went to the replaced leaf.");
     Assert.That(value, Is.EqualTo(1));
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
   }
 
   [TestCase(BPlusTreeLockMode.NodeLevelMonitor, 4)]
@@ -330,7 +330,7 @@ public sealed class BPlusTreeLeafWriteTests
     Assert.That(seenBefore, Is.Empty);
     Assert.That(tree.Length, Is.EqualTo(writerCount * keysPerWriter));
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
   }
 
   [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
@@ -369,7 +369,7 @@ public sealed class BPlusTreeLeafWriteTests
     Assert.That(tree.TryGetValue(in added, out var addedValue), Is.True);
     Assert.That(addedValue, Is.EqualTo(6));
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
   }
 
   [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
@@ -391,7 +391,7 @@ public sealed class BPlusTreeLeafWriteTests
     Assert.That(tree.TryGetValue(in far, out var farValue), Is.True);
     Assert.That(farValue, Is.EqualTo(2));
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
   }
 
   [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
@@ -420,7 +420,7 @@ public sealed class BPlusTreeLeafWriteTests
 
     Assert.That(tree.Length, Is.EqualTo(writerCount * keysPerWriter));
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
   }
 
   [TestCase(BPlusTreeLockMode.NodeLevelMonitor, 8)]
@@ -464,7 +464,7 @@ public sealed class BPlusTreeLeafWriteTests
 
     Assert.That(tree.Length, Is.EqualTo(count));
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
   }
 
   struct FirstKeyVisitor : ISegmentRecordVisitor<int, int>
@@ -514,7 +514,7 @@ public sealed class BPlusTreeLeafWriteTests
     });
 
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
   }
 
   [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
@@ -549,7 +549,7 @@ public sealed class BPlusTreeLeafWriteTests
     Assert.That(tree.TryGetValue(in key, out var value), Is.True);
     Assert.That(value, Is.EqualTo(writerCount * incrementsPerWriter));
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
   }
 
   [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
@@ -583,6 +583,6 @@ public sealed class BPlusTreeLeafWriteTests
     Assert.That(finished, Is.True, "Splits starve while the right neighbour is busy.");
     Assert.That(tree.Length, Is.EqualTo(splittingInserts + 3));
     tree.Validate();
-    tree.ValidateLeafs();
+    tree.ValidateLeaves();
   }
 }

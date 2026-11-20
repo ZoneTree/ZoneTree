@@ -3,16 +3,15 @@ using System.Collections;
 namespace ZoneTree.Collections;
 
 /// <summary>
-/// Special Queue for ZoneTree.
-/// 1. SingleProducerSingleConsumerQueue is
-///   - thread-safe for single producer and single consumer.
-///   - thread safe for many readers / enumerations
-/// 2. enquue method uses lock when it is full which makes it almost lock-free for inserts.
-/// 3. dequeue uses lock but the producer almost never hit the lock.
-/// 4. Despite this is a FIFO Queue, the enumerator is in LIFO order
-/// to optimize record lookup at TryGetFromReadonlySegments.
-/// Enqueue/Dequeue items in FIFO order: i1,i2,i3,i4
-/// Enumeration in LIFO order: i4,i3,i2,i1
+/// A queue of ZoneTree's segments.
+/// 1. It is thread-safe for one producer and one consumer, and for any number of
+///    readers that enumerate it.
+/// 2. Enqueue takes a lock only when the queue is full, so inserts are almost lock-free.
+/// 3. Dequeue takes a lock, but the producer almost never contends for it.
+/// 4. Items are enqueued and dequeued in FIFO order, but enumerated in LIFO order,
+///    so a lookup such as TryGetFromReadonlySegments sees the newest segment first.
+///    Enqueue and dequeue order: i1, i2, i3, i4.
+///    Enumeration order: i4, i3, i2, i1.
 /// </summary>
 /// <typeparam name="TQueueItem">Type of the queue item.</typeparam>
 public sealed class SingleProducerSingleConsumerQueue<TQueueItem>

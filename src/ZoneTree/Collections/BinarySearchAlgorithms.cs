@@ -39,7 +39,7 @@ public static class BinarySearchAlgorithms
       IReadOnlyList<TKey> list,
       int left,
       int right,
-      IRefComparer<TKey> comp,
+      IRefComparer<TKey> comparer,
       in TKey key)
   {
     int result = right + 1;
@@ -47,7 +47,7 @@ public static class BinarySearchAlgorithms
     {
       int mid = left + (right - left) / 2;
 
-      if (comp.Compare(list[mid], in key) >= 0)
+      if (comparer.Compare(list[mid], in key) >= 0)
       {
         result = mid;
         right = mid - 1;
@@ -66,7 +66,7 @@ public static class BinarySearchAlgorithms
       KeyByIndex<TKey> keyByIndex,
       long left,
       long right,
-      IRefComparer<TKey> comp,
+      IRefComparer<TKey> comparer,
       in TKey key)
   {
     long result = right + 1;
@@ -75,7 +75,7 @@ public static class BinarySearchAlgorithms
     {
       long mid = left + (right - left) / 2;
 
-      if (comp.Compare(keyByIndex(mid), in key) >= 0)
+      if (comparer.Compare(keyByIndex(mid), in key) >= 0)
       {
         result = mid;
         right = mid - 1;
@@ -120,7 +120,7 @@ public static class BinarySearchAlgorithms
       IReadOnlyList<TKey> list,
       int left,
       int right,
-      IRefComparer<TKey> comp,
+      IRefComparer<TKey> comparer,
       in TKey key)
   {
     int result = -1;
@@ -129,7 +129,7 @@ public static class BinarySearchAlgorithms
     {
       int mid = left + (right - left) / 2;
 
-      if (comp.Compare(list[mid], in key) <= 0)
+      if (comparer.Compare(list[mid], in key) <= 0)
       {
         result = mid;
         left = mid + 1;
@@ -148,7 +148,7 @@ public static class BinarySearchAlgorithms
       KeyByIndex<TKey> keyByIndex,
       long left,
       long right,
-      IRefComparer<TKey> comp,
+      IRefComparer<TKey> comparer,
       in TKey key)
   {
     long result = -1;
@@ -156,7 +156,7 @@ public static class BinarySearchAlgorithms
     while (left <= right)
     {
       var mid = left + (right - left) / 2;
-      if (comp.Compare(keyByIndex(mid), in key) <= 0)
+      if (comparer.Compare(keyByIndex(mid), in key) <= 0)
       {
         result = mid;
         left = mid + 1;
@@ -175,13 +175,13 @@ public static class BinarySearchAlgorithms
       IReadOnlyList<TKey> list,
       int left,
       int right,
-      IRefComparer<TKey> comp,
+      IRefComparer<TKey> comparer,
       in TKey key)
   {
     while (left <= right)
     {
       var mid = left + (right - left) / 2;
-      var res = comp.Compare(list[mid], in key);
+      var res = comparer.Compare(list[mid], in key);
       if (res == 0)
         return mid;
       if (res < 0)
@@ -197,13 +197,13 @@ public static class BinarySearchAlgorithms
       KeyByIndex<TKey> keyByIndex,
       long left,
       long right,
-      IRefComparer<TKey> comp,
+      IRefComparer<TKey> comparer,
       in TKey key)
   {
     while (left <= right)
     {
       var mid = left + (right - left) / 2;
-      var res = comp.Compare(keyByIndex(mid), in key);
+      var res = comparer.Compare(keyByIndex(mid), in key);
       if (res == 0)
         return mid;
       if (res < 0)

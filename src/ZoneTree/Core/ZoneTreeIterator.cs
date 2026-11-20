@@ -231,7 +231,7 @@ public sealed class ZoneTreeIterator<TKey, TValue> : IZoneTreeIterator<TKey, TVa
   {
     IsHeapFilled = true;
     SingleIterator = Heap.Count == 1
-        ? SeekableIterators[Heap.MinValue.SegmentIndex]
+        ? SeekableIterators[Heap.Min.SegmentIndex]
         : null;
     SingleIteratorHasCurrent = SingleIterator != null;
   }
@@ -351,7 +351,7 @@ public sealed class ZoneTreeIterator<TKey, TValue> : IZoneTreeIterator<TKey, TVa
 
     while (Heap.Count > 0)
     {
-      var minEntry = Heap.MinValue;
+      var minEntry = Heap.Min;
       minSegmentIndex = minEntry.SegmentIndex;
 
       // ignore deleted entries.
@@ -402,7 +402,7 @@ public sealed class ZoneTreeIterator<TKey, TValue> : IZoneTreeIterator<TKey, TVa
 
     while (Heap.Count > 0)
     {
-      var minEntry = Heap.MinValue;
+      var minEntry = Heap.Min;
       minSegmentIndex = minEntry.SegmentIndex;
 
       // ignore deleted entries.
