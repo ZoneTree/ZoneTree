@@ -1,6 +1,6 @@
 using System.Text.Json;
 using ZoneTree.Backup;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Segments;
 using ZoneTree.Segments.Disk;
@@ -1134,29 +1134,18 @@ public sealed class LiveBackupTests
     }
   }
 
-  sealed class NullLogger : ILogger
+  sealed class NullLogger : IZoneTreeLogger
   {
     readonly List<Exception> ErrorList = [];
 
-    public LogLevel LogLevel { get; set; }
-
     public Exception[] Errors => [.. ErrorList];
 
-    public void LogError(Exception log)
-    {
-      ErrorList.Add(log);
-    }
+    public bool IsEnabled(ZoneTreeLogLevel level) => level == ZoneTreeLogLevel.Error;
 
-    public void LogWarning(object log)
+    public void Log(ZoneTreeLogLevel level, string message, Exception exception = null)
     {
-    }
-
-    public void LogInfo(object log)
-    {
-    }
-
-    public void LogTrace(object log)
-    {
+      if (level == ZoneTreeLogLevel.Error && exception != null)
+        ErrorList.Add(exception);
     }
   }
 

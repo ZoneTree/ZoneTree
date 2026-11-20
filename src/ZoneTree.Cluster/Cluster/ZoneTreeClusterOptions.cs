@@ -1,5 +1,5 @@
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 
 namespace ZoneTree.Cluster;
@@ -64,7 +64,7 @@ public sealed class ZoneTreeClusterOptions
       = new() { Mode = WriteAheadLogMode.Shared };
 
   /// <summary>The logger shared by the cluster and its columns.</summary>
-  public ILogger Logger { get; init; } = new ConsoleLogger();
+  public IZoneTreeLogger Logger { get; init; } = new ConsoleLogger();
 
   /// <summary>
   /// Initial admission flag for writing transactions, raw writes and schema changes; default

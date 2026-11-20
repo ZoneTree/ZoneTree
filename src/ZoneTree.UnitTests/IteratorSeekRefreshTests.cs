@@ -1,5 +1,5 @@
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.UnitTests;
 
@@ -11,7 +11,7 @@ public sealed class IteratorSeekRefreshTests
   {
     using var tree = new ZoneTreeFactory<int, int>(new InMemoryFileStreamProvider())
         .SetDataDirectory("data/" + nameof(SeekSurvivesASegmentMoveBeforeTheNextRead) + reverse)
-        .SetLogger(new ConsoleLogger(LogLevel.Error))
+        .SetLogger(new ConsoleLogger(ZoneTreeLogLevel.Error))
         .OpenOrCreate();
     for (var i = 0; i < 10; ++i)
       tree.Upsert(i, i);

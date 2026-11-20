@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using ZoneTree.Collections;
 using ZoneTree.Exceptions;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Segments;
 using ZoneTree.Segments.Disk;
@@ -56,7 +57,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       }
       catch (Exception e)
       {
-        Logger.LogError(e);
+        Logger.LogError("Merging the bottom segments failed.", e);
         OnBottomSegmentsMergeOperationEnded?.Invoke(this, MergeResult.FAILURE);
       }
       finally
@@ -96,8 +97,8 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         .ToArray();
     to = from + mergingSegments.Length - 1;
     var bottomDiskSegment = selectedBottomSegments[^1];
-    Logger.LogTrace($"Bottom Segments Merge started." +
-        $" from: {from} - to: {to} out of: {bottomSegments.Count} ");
+    if (Logger.IsEnabled(ZoneTreeLogLevel.Trace))
+      Logger.LogTrace($"Bottom segments merge started: segments {from} to {to} of {bottomSegments.Count}.");
 
     if (IsCancelBottomSegmentsMergeRequested)
     {
@@ -173,7 +174,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         }
         catch (Exception e)
         {
-          Logger.LogError(e);
+          Logger.LogError("Dropping the unfinished disk segment of a cancelled bottom segments merge failed. Its files can stay on disk.", e);
           OnCannotDropDiskSegmentCreator?.Invoke(diskSegmentCreator, e);
         }
         // Do not remove null assignments because of GC issue!
@@ -285,7 +286,8 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
           }
         }
         ++dropCount;
-        Logger.LogTrace(new LogMergerDrop(part.SegmentId, dropCount, skipCount));
+        if (Logger.IsEnabled(ZoneTreeLogLevel.Trace))
+          Logger.LogTrace(GetPartRewriteMessage(part.SegmentId, dropCount, skipCount));
 
       }
 
@@ -331,7 +333,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         }
         catch (Exception e)
         {
-          Logger.LogError(e);
+          Logger.LogError("Dropping the new disk segment of a bottom segments merge whose segments changed meanwhile failed. Its files can stay on disk.", e);
           OnCannotDropDiskSegment?.Invoke(newDiskSegment, e);
         }
 
@@ -377,7 +379,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         }
         catch (Exception e)
         {
-          Logger.LogError(e);
+          Logger.LogError("Dropping a merged bottom segment failed. Its files can stay on disk.", e);
           OnCannotDropDiskSegment?.Invoke(diskSegmentToDrop, e);
         }
       }
@@ -385,13 +387,10 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
     TotalBottomSegmentsMergeSkipCount += skipCount;
     TotalBottomSegmentsMergeDropCount += dropCount;
-    Logger.LogTrace(
-        new LogMergerSuccess(
-            dropCount,
-            skipCount,
-            stopwatch.ElapsedMilliseconds,
-            TotalBottomSegmentsMergeDropCount,
-            TotalBottomSegmentsMergeSkipCount));
+    if (Logger.IsEnabled(ZoneTreeLogLevel.Trace))
+      Logger.LogTrace(GetMergeSummary(
+          dropCount, skipCount, stopwatch.ElapsedMilliseconds,
+          TotalBottomSegmentsMergeDropCount, TotalBottomSegmentsMergeSkipCount));
 
     // Do not remove null assignments below and anywhere in this function!
     // GC does not collect local variables,

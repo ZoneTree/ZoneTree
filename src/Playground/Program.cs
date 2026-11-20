@@ -1,6 +1,6 @@
 using Playground;
 using Playground.Benchmark;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 
 TestConfig.MutableSegmentMaxItemCount = 1_000_000;
@@ -10,7 +10,6 @@ TestConfig.EnableParalelInserts = false;
 TestConfig.DiskCompressionBlockSize = 1024 * 1024 * 10;
 TestConfig.WalCompressionBlockSize = 1024 * 32 * 8;
 TestConfig.DiskSegmentMode = DiskSegmentMode.SingleDiskSegment;
-ConsoleLogger.DefaultLogLevel = LogLevel.Info;
 
 TestConfig.PrintConfig();
 

@@ -1,7 +1,7 @@
 using System.Globalization;
 using ZoneTree;
 using ZoneTree.Comparers;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Segments;
 using ZoneTree.Serializers;

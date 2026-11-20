@@ -1,3 +1,4 @@
+using ZoneTree.Logging;
 using ZoneTree.Transactional;
 
 namespace ZoneTree.Cluster;
@@ -174,7 +175,7 @@ internal sealed class RawColumn<TKey, TValue> : Column,
       {
         try { await Tree.SyncWalAsync(cancellationToken).ConfigureAwait(false); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return; }
-        catch (Exception error) { Tree.Logger.LogError(error); }
+        catch (Exception error) { Tree.Logger.LogError(error.Message, error); }
       }
     }
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }

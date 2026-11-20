@@ -1,5 +1,5 @@
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 
 namespace ZoneTree.Cluster;
@@ -9,7 +9,7 @@ namespace ZoneTree.Cluster;
 /// before the cluster opens.
 /// </summary>
 internal sealed record ColumnStorageSettings(
-    ILogger Logger,
+    IZoneTreeLogger Logger,
     IFileStreamProvider FileStreamProvider,
     WriteAheadLogOptions CoordinatedWriteAheadLog,
     IColumnStorageConfigurator StorageDefaults)

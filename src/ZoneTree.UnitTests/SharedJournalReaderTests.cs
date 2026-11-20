@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.WAL;
 
@@ -16,7 +16,7 @@ public sealed class SharedJournalReaderTests
           .ConfigureWriteAheadLogOptions(options => options.Mode = WriteAheadLogMode.Shared);
 
   static int[] ReadKeys(IFileStreamProvider provider)
-      => SharedJournalReader.ReadLiveRecords(new ConsoleLogger(LogLevel.Error), provider, Directory, new WriteAheadLogOptions())
+      => SharedJournalReader.ReadLiveRecords(new ConsoleLogger(ZoneTreeLogLevel.Error), provider, Directory, new WriteAheadLogOptions())
           .Select(record => BinaryPrimitives.ReadInt32LittleEndian(record.Key.Span))
           .ToArray();
 

@@ -1,6 +1,6 @@
 using ZoneTree.Collections;
 using ZoneTree.WAL;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Serializers;
 using ZoneTree.Comparers;
 using ZoneTree.Segments.RandomAccess;
@@ -196,9 +196,10 @@ public sealed class ZoneTreeOptions<TKey, TValue>
   public bool AllowUnsafeOptionValues { get; set; }
 
   /// <summary>
-  /// ZoneTree Logger.
+  /// The logger of the tree, which reports the errors and warnings of its background work.
+  /// The default <see cref="ConsoleLogger"/> writes warnings and errors to the standard error stream.
   /// </summary>
-  public ILogger Logger { get; set; } = new ConsoleLogger();
+  public IZoneTreeLogger Logger { get; set; } = new ConsoleLogger();
 
   /// <summary>
   /// Tries validate ZoneTree options without throwing an exception.

@@ -1,6 +1,7 @@
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Backup;
 using ZoneTree.Exceptions;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 
 namespace ZoneTree.Cluster;
@@ -72,7 +73,7 @@ public sealed class ZoneTreeClusterFactory : IZoneTreeClusterFactory
       }
       catch (Exception error)
       {
-        options.Logger.LogError(error);
+        options.Logger.LogError(error.Message, error);
       }
       throw;
     }

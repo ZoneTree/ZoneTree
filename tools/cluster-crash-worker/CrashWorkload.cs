@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using ZoneTree.Cluster;
 using ZoneTree.Exceptions;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 
 namespace ZoneTree.ClusterCrashWorker;
@@ -425,16 +425,10 @@ public static class CrashWorkload
     File.Move(temporary, path, overwrite: true);
   }
 
-  sealed class SilentLogger : ILogger
+  sealed class SilentLogger : IZoneTreeLogger
   {
-    public LogLevel LogLevel { get; set; } = LogLevel.Error;
+    public bool IsEnabled(ZoneTreeLogLevel level) => false;
 
-    public void LogError(Exception log) { }
-
-    public void LogWarning(object log) { }
-
-    public void LogInfo(object log) { }
-
-    public void LogTrace(object log) { }
+    public void Log(ZoneTreeLogLevel level, string message, Exception exception = null) { }
   }
 }

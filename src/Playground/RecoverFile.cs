@@ -3,7 +3,7 @@ using ZoneTree;
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Comparers;
 using ZoneTree.Core;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Segments.Disk;
 using ZoneTree.Segments.RandomAccess;

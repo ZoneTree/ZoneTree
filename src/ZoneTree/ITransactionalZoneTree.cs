@@ -1,4 +1,4 @@
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Transactional;
 
 namespace ZoneTree;
@@ -78,7 +78,7 @@ public interface ITransactionalZoneTree<TKey, TValue> : IDisposable
   /// <summary>
   /// The logger.
   /// </summary>
-  ILogger Logger { get; }
+  IZoneTreeLogger Logger { get; }
 
   /// <summary>
   /// The maintenance view of the transactional tree.

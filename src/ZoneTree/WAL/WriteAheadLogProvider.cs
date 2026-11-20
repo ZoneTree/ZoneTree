@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Exceptions;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
@@ -12,7 +12,7 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
 {
   internal const string Xxh3WalExtension = ".wal_xxh3";
 
-  readonly ILogger Logger;
+  readonly IZoneTreeLogger Logger;
 
   readonly IFileStreamProvider FileStreamProvider;
 
@@ -21,7 +21,7 @@ public sealed partial class WriteAheadLogProvider : IWriteAheadLogProvider
   public string WalDirectory { get; }
 
   public WriteAheadLogProvider(
-      ILogger logger,
+      IZoneTreeLogger logger,
       IFileStreamProvider fileStreamProvider,
       string walDirectory = "data")
   {

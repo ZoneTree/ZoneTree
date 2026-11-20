@@ -1,7 +1,7 @@
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Comparers;
 using ZoneTree.Exceptions;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Segments.RandomAccess;
 using ZoneTree.Serializers;
@@ -366,7 +366,7 @@ public sealed class ZoneTreeOptionsValidationTests
 
   static ZoneTreeOptions<int, int> CreateValidOptions()
   {
-    var logger = new ConsoleLogger(LogLevel.Error);
+    var logger = new ConsoleLogger(ZoneTreeLogLevel.Error);
     var options = new ZoneTreeOptions<int, int>
     {
       Comparer = new Int32ComparerAscending(),
@@ -386,7 +386,7 @@ public sealed class ZoneTreeOptionsValidationTests
 
   static ZoneTreeOptions<string, string> CreateValidStringOptions()
   {
-    var logger = new ConsoleLogger(LogLevel.Error);
+    var logger = new ConsoleLogger(ZoneTreeLogLevel.Error);
     var options = new ZoneTreeOptions<string, string>
     {
       Comparer = new StringOrdinalComparerAscending(),

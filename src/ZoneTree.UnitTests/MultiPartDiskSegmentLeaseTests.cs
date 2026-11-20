@@ -2,7 +2,7 @@ using ZoneTree.AbstractFileStream;
 using ZoneTree.Collections;
 using ZoneTree.Comparers;
 using ZoneTree.Core;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Hashers;
 using ZoneTree.Options;
 using ZoneTree.Segments;
@@ -81,7 +81,7 @@ public sealed class MultiPartDiskSegmentLeaseTests
 
   static ZoneTreeOptions<int, int> CreateOptions()
   {
-    var logger = new ConsoleLogger(LogLevel.Error);
+    var logger = new ConsoleLogger(ZoneTreeLogLevel.Error);
     var options = new ZoneTreeOptions<int, int>
     {
       Comparer = new Int32ComparerAscending(),

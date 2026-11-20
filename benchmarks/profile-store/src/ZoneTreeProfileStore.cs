@@ -1,7 +1,7 @@
 using System.Globalization;
 using ZoneTree;
 using ZoneTree.Comparers;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 
@@ -212,7 +212,7 @@ public sealed class ZoneTreeProfileStore : IProfileStoreEngine, IProfileStoreEng
     return new ZoneTreeFactory<long, string>()
         .SetDataDirectory(path)
         .SetMutableSegmentMaxItemCount(mutableSegmentMaxItemCount)
-        .SetLogLevel(LogLevel.Error)
+        .SetLogLevel(ZoneTreeLogLevel.Error)
         .SetComparer(new Int64ComparerAscending())
         .SetKeySerializer(new Int64Serializer())
         .SetValueSerializer(new Utf8StringSerializer())
@@ -236,7 +236,7 @@ public sealed class ZoneTreeProfileStore : IProfileStoreEngine, IProfileStoreEng
     return new ZoneTreeFactory<string, long>()
         .SetDataDirectory(path)
         .SetMutableSegmentMaxItemCount(mutableSegmentMaxItemCount)
-        .SetLogLevel(LogLevel.Error)
+        .SetLogLevel(ZoneTreeLogLevel.Error)
         .SetComparer(new StringOrdinalComparerAscending())
         .SetKeySerializer(new Utf8StringSerializer())
         .SetValueSerializer(new Int64Serializer())

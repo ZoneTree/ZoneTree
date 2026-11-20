@@ -1,5 +1,5 @@
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 using ZoneTree.WAL;

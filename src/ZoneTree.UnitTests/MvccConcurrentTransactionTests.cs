@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using ZoneTree.Exceptions;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Transactional;
 
 namespace ZoneTree.UnitTests;
@@ -28,7 +28,7 @@ public sealed class MvccConcurrentTransactionTests
 
   ITransactionalZoneTree<int, int> OpenTree() => new ZoneTreeFactory<int, int>()
       .SetDataDirectory(DataDirectory)
-      .SetLogger(new ConsoleLogger(LogLevel.Error))
+      .SetLogger(new ConsoleLogger(ZoneTreeLogLevel.Error))
       .SetMutableSegmentMaxItemCount(2_000)
       .OpenOrCreateTransactional();
 

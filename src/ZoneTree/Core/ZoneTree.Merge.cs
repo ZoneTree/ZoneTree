@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using ZoneTree.Collections;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Segments;
 using ZoneTree.Segments.Disk;
@@ -95,7 +96,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     }
     catch (Exception e)
     {
-      Logger.LogError(e);
+      Logger.LogError("Preparing the next mutable segment failed. The next move of the mutable segment prepares it instead.", e);
     }
   }
 
@@ -173,7 +174,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       }
       catch (Exception e)
       {
-        Logger.LogError(e);
+        Logger.LogError("Merging the read-only segments into the disk segment failed.", e);
         OnMergeOperationEnded?.Invoke(this, MergeResult.FAILURE);
       }
       finally
@@ -298,7 +299,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         }
         catch (Exception e)
         {
-          Logger.LogError(e);
+          Logger.LogError("Dropping the unfinished disk segment of a cancelled merge failed. Its files can stay on disk.", e);
           OnCannotDropDiskSegmentCreator?.Invoke(diskSegmentCreator, e);
         }
         // Do not remove null assignments because of GC issue!
@@ -409,7 +410,8 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
           }
         }
         ++dropCount;
-        Logger.LogTrace(new LogMergerDrop(part.SegmentId, dropCount, skipCount));
+        if (Logger.IsEnabled(ZoneTreeLogLevel.Trace))
+          Logger.LogTrace(GetPartRewriteMessage(part.SegmentId, dropCount, skipCount));
 
       }
 
@@ -467,7 +469,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       }
       catch (Exception e)
       {
-        Logger.LogError(e);
+        Logger.LogError("Dropping the previous disk segment after a merge failed. Its files can stay on disk.", e);
         OnCannotDropDiskSegment?.Invoke(oldDiskSegment, e);
       }
 
@@ -485,7 +487,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         }
         catch (Exception e)
         {
-          Logger.LogError(e);
+          Logger.LogError("Dropping a merged read-only segment failed. Its files can stay on disk.", e);
           OnCannotDropReadOnlySegment?.Invoke(segment, e);
         }
         --len;
@@ -494,13 +496,9 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
     TotalSkipCount += skipCount;
     TotalDropCount += dropCount;
-    Logger.LogTrace(
-        new LogMergerSuccess(
-            dropCount,
-            skipCount,
-            stopwatch.ElapsedMilliseconds,
-            TotalDropCount,
-            TotalSkipCount));
+    if (Logger.IsEnabled(ZoneTreeLogLevel.Trace))
+      Logger.LogTrace(GetMergeSummary(
+          dropCount, skipCount, stopwatch.ElapsedMilliseconds, TotalDropCount, TotalSkipCount));
 
     // Do not remove null assignments below and anywhere in this function!
     // GC does not collect local variables,
@@ -518,4 +516,21 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
   int TotalSkipCount;
   int TotalDropCount;
+
+  /// <summary>
+  /// Describes a finished merge: how many parts of the disk segment it rewrote, and how many
+  /// it reused as they were.
+  /// </summary>
+  static string GetMergeSummary(
+      int dropCount, int skipCount, long elapsedMilliseconds, int totalDropCount, int totalSkipCount)
+  {
+    var total = totalDropCount + totalSkipCount;
+    var rewrittenPercentage = total == 0 ? 0 : 100.0 * totalDropCount / total;
+    return $"Merge succeeded in {elapsedMilliseconds} ms. It rewrote {dropCount} of {dropCount + skipCount} " +
+        $"disk segment parts and reused the rest. All merges so far rewrote {totalDropCount} of {total} " +
+        $"parts ({rewrittenPercentage:0.##}%).";
+  }
+
+  static string GetPartRewriteMessage(long partSegmentId, int dropCount, int skipCount)
+    => $"Merge rewrites disk segment part {partSegmentId}: {dropCount} of {dropCount + skipCount} parts rewritten so far.";
 }

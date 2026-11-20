@@ -1,4 +1,4 @@
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Cluster;
 
@@ -11,13 +11,13 @@ namespace ZoneTree.Cluster;
 internal sealed class TimestampReservationWorker : IDisposable
 {
   readonly ClusterCatalog Catalog;
-  readonly ILogger Logger;
+  readonly IZoneTreeLogger Logger;
   readonly object Gate = new();
   readonly HashSet<DomainTimestampSource> Pending = [];
   Thread Worker;
   bool Stopping;
 
-  internal TimestampReservationWorker(ClusterCatalog catalog, ILogger logger)
+  internal TimestampReservationWorker(ClusterCatalog catalog, IZoneTreeLogger logger)
   {
     Catalog = catalog;
     Logger = logger;
@@ -74,7 +74,7 @@ internal sealed class TimestampReservationWorker : IDisposable
       }
       catch (Exception error)
       {
-        Logger.LogError(error);
+        Logger.LogError(error.Message, error);
         foreach (var source in sources)
           source.OnReservationFailed(error);
         continue;

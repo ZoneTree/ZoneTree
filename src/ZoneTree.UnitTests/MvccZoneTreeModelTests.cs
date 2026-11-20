@@ -1,5 +1,5 @@
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Transactional;
 
@@ -34,7 +34,7 @@ public sealed class MvccZoneTreeModelTests
   {
     return new ZoneTreeFactory<int, int>(provider)
         .SetDataDirectory("model")
-        .SetLogger(new ConsoleLogger(LogLevel.Error))
+        .SetLogger(new ConsoleLogger(ZoneTreeLogLevel.Error))
         .Configure(options =>
         {
           options.AllowUnsafeOptionValues = true;

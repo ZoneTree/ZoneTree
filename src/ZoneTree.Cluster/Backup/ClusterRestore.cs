@@ -1,6 +1,6 @@
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Backup;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Cluster;
 
@@ -65,7 +65,7 @@ internal static class ClusterRestore
       }
       catch (Exception error)
       {
-        options.Logger.LogError(error);
+        options.Logger.LogError(error.Message, error);
       }
       throw;
     }

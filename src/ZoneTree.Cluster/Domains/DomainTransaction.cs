@@ -1,4 +1,5 @@
 using System.Runtime.ExceptionServices;
+using ZoneTree.Logging;
 using ZoneTree.Transactional;
 using ZoneTree.Exceptions;
 

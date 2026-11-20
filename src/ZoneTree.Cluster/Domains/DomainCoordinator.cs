@@ -1,6 +1,6 @@
 using System.Runtime.ExceptionServices;
 using ZoneTree.Exceptions;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Cluster;
 
@@ -199,7 +199,7 @@ internal sealed class DomainCoordinator
       }
       catch (Exception error)
       {
-        Cluster.Logger.LogError(error);
+        Cluster.Logger.LogError(error.Message, error);
         FailWaiters(error);
         continue;
       }
@@ -341,7 +341,7 @@ internal sealed class DomainCoordinator
         while (await timer.WaitForNextTickAsync(cancellation.Token).ConfigureAwait(false))
         {
           try { await SyncAsync().ConfigureAwait(false); }
-          catch (Exception error) { Cluster.Logger.LogError(error); }
+          catch (Exception error) { Cluster.Logger.LogError(error.Message, error); }
         }
       }
       catch (OperationCanceledException) { }
@@ -391,7 +391,7 @@ internal sealed class DomainCoordinator
     }
     catch (Exception error)
     {
-      Cluster.Logger.LogError(error);
+      Cluster.Logger.LogError(error.Message, error);
     }
   }
 }

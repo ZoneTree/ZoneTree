@@ -1,5 +1,5 @@
 using FASTER.core;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.FasterBench;
 
@@ -31,7 +31,7 @@ public sealed class ZoneTreeEngine : IBenchmarkEngine
   {
     Tree = new ZoneTreeFactory<long, long>()
         .SetDataDirectory(path)
-        .SetLogLevel(LogLevel.Error)
+        .SetLogLevel(ZoneTreeLogLevel.Error)
         .ConfigureDiskSegmentOptions(x => x.DefaultSparseArrayStepSize = 16)
         .OpenOrCreate();
     Maintainer = Tree.CreateMaintainer();

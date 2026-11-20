@@ -1,6 +1,6 @@
 using ZoneTree.Comparers;
 using ZoneTree.Exceptions;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 using ZoneTree.Transactional;
@@ -33,7 +33,7 @@ public sealed class MvccZoneTreeTests
   {
     return new ZoneTreeFactory<int, int>()
         .SetDataDirectory(DataDirectory)
-        .SetLogger(new ConsoleLogger(LogLevel.Error))
+        .SetLogger(new ConsoleLogger(ZoneTreeLogLevel.Error))
         .Configure(options => options.AllowUnsafeOptionValues = true)
         .SetMutableSegmentMaxItemCount(mutableSegmentMaxItemCount)
         .ConfigureDiskSegmentOptions(options =>

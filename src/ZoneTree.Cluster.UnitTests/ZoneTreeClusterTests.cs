@@ -1,5 +1,5 @@
 using ZoneTree.Exceptions;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Transactional;
 using ZoneTree.Cluster;
@@ -33,7 +33,7 @@ public sealed class ZoneTreeClusterTests
   ZoneTreeClusterOptions Options(string directory = null) => new()
   {
     DataDirectory = directory ?? DataDirectory,
-    Logger = new ConsoleLogger(LogLevel.Error),
+    Logger = new ConsoleLogger(ZoneTreeLogLevel.Error),
     Domains =
     [
       new DomainDefinition(Domain)

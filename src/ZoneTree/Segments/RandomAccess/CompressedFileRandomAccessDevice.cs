@@ -1,7 +1,7 @@
 using System.Buffers;
 using System.Text;
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Segments.Block;
 
@@ -109,7 +109,7 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
   }
 
   public CompressedFileRandomAccessDevice(
-      ILogger logger,
+      IZoneTreeLogger logger,
       IFileStreamProvider fileStreamProvider,
       long segmentId,
       string category,

@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.WalSoak;
 
@@ -22,18 +22,22 @@ static class Json
   }
 }
 
-sealed class Wire : ILogger
+sealed class Wire : IZoneTreeLogger
 {
   readonly object sync = new();
-  public LogLevel LogLevel { get; set; } = LogLevel.Warning;
   public void Send(Message message)
   {
     lock (sync) { Console.Out.WriteLine(Json.Encode(message)); Console.Out.Flush(); }
   }
-  public void LogError(Exception error) => Send(new(error.ToString().Contains("soak injected", StringComparison.Ordinal) ? "expected-error" : "engine-error", Text: error.ToString()));
-  public void LogWarning(object message) => Send(new("warning", Text: message.ToString()));
-  public void LogInfo(object message) { }
-  public void LogTrace(object message) { }
+  public bool IsEnabled(ZoneTreeLogLevel level) => level >= ZoneTreeLogLevel.Warning;
+  public void Log(ZoneTreeLogLevel level, string message, Exception? exception = null)
+  {
+    var text = exception == null ? message : message + Environment.NewLine + exception;
+    if (level == ZoneTreeLogLevel.Error)
+      Send(new(text.Contains("soak injected", StringComparison.Ordinal) ? "expected-error" : "engine-error", Text: text));
+    else if (level == ZoneTreeLogLevel.Warning)
+      Send(new("warning", Text: text));
+  }
 }
 
 sealed class RunLog : IDisposable

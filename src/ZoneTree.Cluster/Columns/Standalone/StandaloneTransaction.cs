@@ -1,3 +1,4 @@
+using ZoneTree.Logging;
 using ZoneTree.Transactional;
 
 namespace ZoneTree.Cluster;

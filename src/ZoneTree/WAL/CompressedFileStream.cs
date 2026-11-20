@@ -1,6 +1,6 @@
 using System.Text;
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Segments.Block;
 
@@ -39,7 +39,7 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
   // before touching the main stream, without making the sync wait for SyncRoot.
   readonly object MainFileSyncRoot = new();
 
-  readonly ILogger Logger;
+  readonly IZoneTreeLogger Logger;
 
   long CheckpointOffset;
 
@@ -166,7 +166,7 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
   /// Disabling it costs a system call per write.
   /// </param>
   public CompressedFileStream(
-      ILogger logger,
+      IZoneTreeLogger logger,
       IFileStreamProvider fileStreamProvider,
       string filePath,
       int blockSize,

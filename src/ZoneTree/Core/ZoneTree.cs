@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using ZoneTree.Collections;
 using ZoneTree.Comparers;
 using ZoneTree.Hashers;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Segments;
 using ZoneTree.Segments.InMemory;
@@ -16,7 +16,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 {
   public const string SegmentWalCategory = "seg";
 
-  public ILogger Logger { get; }
+  public IZoneTreeLogger Logger { get; }
 
   readonly ZoneTreeMeta ZoneTreeMeta = new();
 

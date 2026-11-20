@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Transactional;
 
 namespace ZoneTree.Cluster;
@@ -71,7 +71,7 @@ internal abstract class Column : IDisposable
   /// Deletes a dropped column's storage: waits for running creations, ends its views,
   /// transactions and iterators, then drops the storage.
   /// </summary>
-  internal void DropStorage(ILogger logger)
+  internal void DropStorage(IZoneTreeLogger logger)
   {
     dropped = true;
     StopOperations();
@@ -81,7 +81,7 @@ internal abstract class Column : IDisposable
       foreach (var dependent in Dependents.Keys)
       {
         try { dependent.OnColumnDropped(); }
-        catch (Exception error) { logger.LogError(error); }
+        catch (Exception error) { logger.LogError(error.Message, error); }
       }
       Dependents.Clear();
     }
