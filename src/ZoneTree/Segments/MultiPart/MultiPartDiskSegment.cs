@@ -10,7 +10,7 @@ using ZoneTree.Segments.Block;
 using ZoneTree.Segments.Disk;
 using ZoneTree.Segments.RandomAccess;
 using ZoneTree.Serializers;
-using ZoneTree.Synchronization;
+using ZoneTree.Threading;
 
 namespace ZoneTree.Segments.MultiPart;
 
