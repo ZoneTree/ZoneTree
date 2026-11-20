@@ -1,6 +1,6 @@
 #undef USE_NODE_IDS
 
-namespace ZoneTree.Collections.BTree;
+namespace ZoneTree.Collections.BPlusTreeLocks;
 
 public interface ILocker
 {

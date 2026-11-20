@@ -1,20 +1,18 @@
 using ZoneTree.Collections;
-using ZoneTree.Collections.BTree;
-using ZoneTree.Collections.BTree.Lock;
 using ZoneTree.Comparers;
 
 namespace ZoneTree.UnitTests;
 
-public sealed class BTreeThreadSafetyTests
+public sealed class BPlusTreeThreadSafetyTests
 {
-  [TestCase(3_000_000, BTreeLockMode.TopLevelReaderWriter)]
-  [TestCase(3_000_000, BTreeLockMode.TopLevelMonitor)]
-  [TestCase(3_000_000, BTreeLockMode.NodeLevelMonitor)]
-  [TestCase(3_000_000, BTreeLockMode.NodeLevelReaderWriter)]
-  public void MassiveInsertsAndReads(int count, BTreeLockMode lockMode)
+  [TestCase(3_000_000, BPlusTreeLockMode.TopLevelReaderWriter)]
+  [TestCase(3_000_000, BPlusTreeLockMode.TopLevelMonitor)]
+  [TestCase(3_000_000, BPlusTreeLockMode.NodeLevelMonitor)]
+  [TestCase(3_000_000, BPlusTreeLockMode.NodeLevelReaderWriter)]
+  public void MassiveInsertsAndReads(int count, BPlusTreeLockMode lockMode)
   {
     var readCount = 0;
-    var tree = new BTree<long, long>(new Int64ComparerAscending(), lockMode);
+    var tree = new BPlusTree<long, long>(new Int64ComparerAscending(), lockMode);
     var task1 = Parallel.ForEachAsync(Enumerable.Range(0, count), (i, t) =>
     {
       tree.TryInsert(i, i, out _);

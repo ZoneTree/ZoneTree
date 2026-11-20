@@ -1,5 +1,5 @@
 using System;
-using ZoneTree.Collections.BTree.Lock;
+using ZoneTree.Collections;
 using ZoneTree.Comparers;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
@@ -210,9 +210,9 @@ public sealed class IteratorTests
       if (i != 24 && i % 2 == 0)
         ++i;
       /*
-       * New BTree works with forward reading method.
+       * New BPlusTree works with forward reading method.
        * This means inserts in the iterator position
-       * of BTree Leaf node does not reflect inserts.
+       * of BPlusTree Leaf node does not reflect inserts.
        * This is not a bug. Callers can always double check
        * with TryGetKey() if they want to read most recent values
        * for every key they read from iteration.
@@ -303,7 +303,7 @@ public sealed class IteratorTests
         .SetWriteAheadLogDirectory(dataPath)
         .Configure(x =>
         {
-          x.BTreeLockMode = BTreeLockMode.NodeLevelMonitor;
+          x.BPlusTreeLockMode = BPlusTreeLockMode.NodeLevelMonitor;
         })
         .OpenOrCreate();
 

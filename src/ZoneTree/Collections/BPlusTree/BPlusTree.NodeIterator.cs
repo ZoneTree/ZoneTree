@@ -1,8 +1,8 @@
 using ZoneTree.Comparers;
 
-namespace ZoneTree.Collections.BTree;
+namespace ZoneTree.Collections;
 
-public sealed partial class BTree<TKey, TValue>
+public sealed partial class BPlusTree<TKey, TValue>
 {
   public sealed class NodeIterator
   {
@@ -20,10 +20,10 @@ public sealed partial class BTree<TKey, TValue>
 
     int CurrentIndex = -1;
 
-    readonly BTree<TKey, TValue> Tree;
+    readonly BPlusTree<TKey, TValue> Tree;
 
     public NodeIterator(
-        BTree<TKey, TValue> tree,
+        BPlusTree<TKey, TValue> tree,
         LeafNode leafNode,
         TKey[] keys,
         TValue[] values)

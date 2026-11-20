@@ -69,9 +69,9 @@ public sealed class LockedIncrementTests
 
   [TestCase(WriteAheadLogMode.AsyncPrivate)]
   [TestCase(WriteAheadLogMode.Private)]
-  public void IntIntLockedIncrementForBTree(WriteAheadLogMode walMode)
+  public void IntIntLockedIncrementForBPlusTree(WriteAheadLogMode walMode)
   {
-    var dataPath = "data/IntIntLockedIncrementForBTree." + walMode;
+    var dataPath = "data/IntIntLockedIncrementForBPlusTree." + walMode;
     if (Directory.Exists(dataPath))
       Directory.Delete(dataPath, true);
 

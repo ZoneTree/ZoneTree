@@ -1,16 +1,15 @@
-using ZoneTree.Collections.BTree;
-using ZoneTree.Collections.BTree.Lock;
+using ZoneTree.Collections;
 using ZoneTree.Comparers;
 
 namespace ZoneTree.UnitTests;
 
-public sealed class BTreeVisitTests
+public sealed class BPlusTreeVisitTests
 {
   const int LeafSize = 8;
 
-  static BTree<int, int> CreateTree(BTreeLockMode lockMode = BTreeLockMode.NodeLevelMonitor)
+  static BPlusTree<int, int> CreateTree(BPlusTreeLockMode lockMode = BPlusTreeLockMode.NodeLevelMonitor)
   {
-    return new BTree<int, int>(new Int32ComparerAscending(), lockMode,
+    return new BPlusTree<int, int>(new Int32ComparerAscending(), lockMode,
         nodeSize: LeafSize, leafSize: LeafSize);
   }
 
@@ -38,7 +37,7 @@ public sealed class BTreeVisitTests
   }
 
   static (SegmentVisitAction Action, List<int> Keys) Visit(
-      BTree<int, int> tree, int from, int stopAt = -1, int skipSegmentAt = -1)
+      BPlusTree<int, int> tree, int from, int stopAt = -1, int skipSegmentAt = -1)
   {
     var visitor = new CollectingVisitor
     {
@@ -60,7 +59,7 @@ public sealed class BTreeVisitTests
 
     foreach (var from in Enumerable.Range(-1, 1003))
     {
-      var iterator = new BTreeSeekableIterator<int, int>(tree);
+      var iterator = new BPlusTreeSeekableIterator<int, int>(tree);
       var expected = new List<int>();
       if (iterator.SeekToFirstGreaterOrEqualElement(in from))
       {
@@ -117,11 +116,11 @@ public sealed class BTreeVisitTests
     }
   }
 
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  [TestCase(BTreeLockMode.TopLevelMonitor)]
-  [TestCase(BTreeLockMode.TopLevelReaderWriter)]
-  public void FailingVisitorReleasesTheLocks(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.TopLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.TopLevelReaderWriter)]
+  public void FailingVisitorReleasesTheLocks(BPlusTreeLockMode lockMode)
   {
     var tree = CreateTree(lockMode);
     for (var key = 0; key < 100; ++key)
@@ -155,11 +154,11 @@ public sealed class BTreeVisitTests
     }
   }
 
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  [TestCase(BTreeLockMode.TopLevelMonitor)]
-  [TestCase(BTreeLockMode.TopLevelReaderWriter)]
-  public async Task VisitFindsEveryPublishedKeyDuringSplits(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.TopLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.TopLevelReaderWriter)]
+  public async Task VisitFindsEveryPublishedKeyDuringSplits(BPlusTreeLockMode lockMode)
   {
     const int count = 40_000;
     var tree = CreateTree(lockMode);

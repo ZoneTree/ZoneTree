@@ -1,7 +1,6 @@
 using System.Diagnostics;
+using ZoneTree.Collections;
 using ZoneTree;
-using ZoneTree.Collections.BTree;
-using ZoneTree.Collections.BTree.Lock;
 using ZoneTree.Comparers;
 using ZoneTree.Core;
 using ZoneTree.Options;
@@ -133,10 +132,10 @@ public sealed class Test1
     Console.WriteLine($"All Time:{stopwatchAll.Elapsed}");
   }
 
-  public static void MassiveInsertsAndReads(long[] arr, BTreeLockMode lockMode = BTreeLockMode.NodeLevelMonitor)
+  public static void MassiveInsertsAndReads(long[] arr, BPlusTreeLockMode lockMode = BPlusTreeLockMode.NodeLevelMonitor)
   {
     var readCount = 0;
-    var tree = new BTree<long, long>(new Int64ComparerAscending(),
+    var tree = new BPlusTree<long, long>(new Int64ComparerAscending(),
         lockMode);
     var task1 = Parallel.ForEachAsync(arr, (i, t) =>
     {
@@ -231,8 +230,8 @@ public sealed class Test1
   public static void TestTreeIteratorBehavior()
   {
     int count = 10_000_000;
-    var tree = new BTree<int, int>(
-        new Int32ComparerAscending(), BTreeLockMode.NodeLevelMonitor);
+    var tree = new BPlusTree<int, int>(
+        new Int32ComparerAscending(), BPlusTreeLockMode.NodeLevelMonitor);
     var t1 = Task.Run(() =>
     {
       for (var i = 0; i < count; ++i)
@@ -246,7 +245,7 @@ public sealed class Test1
       var c = tree.Length;
       var s = 0;
       Console.WriteLine("count:" + c);
-      var it = new BTreeSeekableIterator<int, int>(tree);
+      var it = new BPlusTreeSeekableIterator<int, int>(tree);
 
       it.Next();
       ++s;
@@ -272,8 +271,8 @@ public sealed class Test1
   public static void TestTreeReverseIteratorBehavior()
   {
     int count = 10_000_000;
-    var tree = new BTree<int, int>(
-        new Int32ComparerAscending(), BTreeLockMode.NodeLevelMonitor);
+    var tree = new BPlusTree<int, int>(
+        new Int32ComparerAscending(), BPlusTreeLockMode.NodeLevelMonitor);
     var t1 = Task.Run(() =>
     {
       for (var i = 0; i < count; ++i)
@@ -287,7 +286,7 @@ public sealed class Test1
       var c = tree.Length;
       var s = 0;
       Console.WriteLine("count:" + c);
-      var it = new BTreeSeekableIterator<int, int>(tree);
+      var it = new BPlusTreeSeekableIterator<int, int>(tree);
       it.SeekEnd();
       ++s;
       var p = it.CurrentKey;

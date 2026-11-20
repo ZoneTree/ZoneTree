@@ -1,6 +1,5 @@
 using System.Reflection;
-using ZoneTree.Collections.BTree;
-using ZoneTree.Collections.BTree.Lock;
+using ZoneTree.Collections;
 using ZoneTree.Comparers;
 
 namespace ZoneTree.UnitTests;
@@ -8,7 +7,7 @@ namespace ZoneTree.UnitTests;
 /// <summary>
 /// Reads find their leaf without locking the inner nodes, while splits change them.
 /// </summary>
-public sealed class BTreeLockFreeSearchTests
+public sealed class BPlusTreeLockFreeSearchTests
 {
   /// <summary>
   /// A key whose fields always hold the same value, so a torn read is detectable.
@@ -47,17 +46,17 @@ public sealed class BTreeLockFreeSearchTests
     }
   }
 
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  public void ReadsDoNotWaitForALockedRoot(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  public void ReadsDoNotWaitForALockedRoot(BPlusTreeLockMode lockMode)
   {
-    var tree = new BTree<int, int>(new Int32ComparerAscending(), lockMode, nodeSize: 8, leafSize: 8);
+    var tree = new BPlusTree<int, int>(new Int32ComparerAscending(), lockMode, nodeSize: 8, leafSize: 8);
     for (var key = 0; key < 1000; ++key)
       tree.Upsert(key, key + 1, out _);
-    var root = (BTree<int, int>.Node)typeof(BTree<int, int>)
+    var root = (BPlusTree<int, int>.Node)typeof(BPlusTree<int, int>)
         .GetField("Root", BindingFlags.Instance | BindingFlags.NonPublic)
         .GetValue(tree);
-    Assert.That(root, Is.Not.InstanceOf<BTree<int, int>.LeafNode>());
+    Assert.That(root, Is.Not.InstanceOf<BPlusTree<int, int>.LeafNode>());
 
     root.WriteLock();
     try
@@ -71,7 +70,7 @@ public sealed class BTreeLockFreeSearchTests
         var visitor = new FindVisitor();
         tree.Visit(in key, ref visitor);
         Assert.That(visitor.IsVisited, Is.True);
-        var iterator = new BTreeSeekableIterator<int, int>(tree);
+        var iterator = new BPlusTreeSeekableIterator<int, int>(tree);
         Assert.That(iterator.SeekToFirstGreaterOrEqualElement(in key), Is.True);
         Assert.That(iterator.CurrentKey, Is.EqualTo(500));
       });
@@ -83,14 +82,14 @@ public sealed class BTreeLockFreeSearchTests
     }
   }
 
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  public void ReadsDoNotWaitForALockedLeaf(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  public void ReadsDoNotWaitForALockedLeaf(BPlusTreeLockMode lockMode)
   {
-    var tree = new BTree<int, int>(new Int32ComparerAscending(), lockMode, nodeSize: 8, leafSize: 8);
+    var tree = new BPlusTree<int, int>(new Int32ComparerAscending(), lockMode, nodeSize: 8, leafSize: 8);
     for (var key = 0; key < 1000; ++key)
       tree.Upsert(key, key + 1, out _);
-    var leaf = (BTree<int, int>.LeafNode)typeof(BTree<int, int>)
+    var leaf = (BPlusTree<int, int>.LeafNode)typeof(BPlusTree<int, int>)
         .GetField("FirstLeafNode", BindingFlags.Instance | BindingFlags.NonPublic)
         .GetValue(tree);
 
@@ -117,7 +116,7 @@ public sealed class BTreeLockFreeSearchTests
 
   struct WritingVisitor : ISegmentRecordVisitor<int, int>
   {
-    public BTree<int, int> Tree;
+    public BPlusTree<int, int> Tree;
 
     public SegmentVisitAction Visit(in int key, in int value)
     {
@@ -129,13 +128,13 @@ public sealed class BTreeLockFreeSearchTests
     }
   }
 
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  [TestCase(BTreeLockMode.TopLevelMonitor)]
-  [TestCase(BTreeLockMode.TopLevelReaderWriter)]
-  public void VisitorRunsOutsideTheLocks(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.TopLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.TopLevelReaderWriter)]
+  public void VisitorRunsOutsideTheLocks(BPlusTreeLockMode lockMode)
   {
-    var tree = new BTree<int, int>(new Int32ComparerAscending(), lockMode, nodeSize: 8, leafSize: 8);
+    var tree = new BPlusTree<int, int>(new Int32ComparerAscending(), lockMode, nodeSize: 8, leafSize: 8);
     for (var key = 0; key < 200; ++key)
       tree.Upsert(key, key + 1, out _);
 
@@ -175,12 +174,12 @@ public sealed class BTreeLockFreeSearchTests
     }
   }
 
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  public async Task ReadsNeverSeeATornValue(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  public async Task ReadsNeverSeeATornValue(BPlusTreeLockMode lockMode)
   {
     const int keyCount = 16;
-    var tree = new BTree<int, TwoFieldValue>(new Int32ComparerAscending(), lockMode);
+    var tree = new BPlusTree<int, TwoFieldValue>(new Int32ComparerAscending(), lockMode);
     for (var key = 0; key < keyCount; ++key)
       tree.Upsert(key, new TwoFieldValue(0), out _);
 
@@ -227,7 +226,7 @@ public sealed class BTreeLockFreeSearchTests
   [Test]
   public void FailingUpdaterLeavesTheValueAndTheReadsIntact()
   {
-    var tree = new BTree<int, TwoFieldValue>(new Int32ComparerAscending(), BTreeLockMode.NodeLevelMonitor);
+    var tree = new BPlusTree<int, TwoFieldValue>(new Int32ComparerAscending(), BPlusTreeLockMode.NodeLevelMonitor);
     tree.Upsert(1, new TwoFieldValue(10), out _);
 
     Assert.Throws<InvalidOperationException>(() => tree.AddOrUpdate(
@@ -286,7 +285,7 @@ public sealed class BTreeLockFreeSearchTests
   public void ComparerFailureOnALeafThatChangedIsRetried()
   {
     var comparer = new InterruptingComparer();
-    var tree = new BTree<int, int>(comparer, BTreeLockMode.NodeLevelMonitor);
+    var tree = new BPlusTree<int, int>(comparer, BPlusTreeLockMode.NodeLevelMonitor);
     tree.Upsert(1, 10, out _);
 
     var interruptions = 0;
@@ -304,7 +303,7 @@ public sealed class BTreeLockFreeSearchTests
   public void ComparerFailureOnAnInnerNodeThatChangedIsRetried()
   {
     var comparer = new InterruptingComparer();
-    var tree = new BTree<int, int>(comparer, BTreeLockMode.NodeLevelMonitor, nodeSize: 4, leafSize: 4);
+    var tree = new BPlusTree<int, int>(comparer, BPlusTreeLockMode.NodeLevelMonitor, nodeSize: 4, leafSize: 4);
     for (var i = 0; i < 100; ++i)
       tree.Upsert(i * 2, i * 2 + 1, out _);
 
@@ -325,14 +324,14 @@ public sealed class BTreeLockFreeSearchTests
     tree.Validate();
   }
 
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  public void ReadTakesTheLockWhenTheLeafKeepsChanging(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  public void ReadTakesTheLockWhenTheLeafKeepsChanging(BPlusTreeLockMode lockMode)
   {
     var comparer = new InterruptingComparer();
-    var tree = new BTree<int, int>(comparer, lockMode);
+    var tree = new BPlusTree<int, int>(comparer, lockMode);
     tree.Upsert(1, 0, out _);
-    var leaf = (BTree<int, int>.LeafNode)typeof(BTree<int, int>)
+    var leaf = (BPlusTree<int, int>.LeafNode)typeof(BPlusTree<int, int>)
         .GetField("FirstLeafNode", BindingFlags.Instance | BindingFlags.NonPublic)
         .GetValue(tree);
 
@@ -375,7 +374,7 @@ public sealed class BTreeLockFreeSearchTests
   public void ComparerFailureOnAnUnchangedLeafReachesTheCaller()
   {
     var comparer = new InterruptingComparer();
-    var tree = new BTree<int, int>(comparer, BTreeLockMode.NodeLevelMonitor);
+    var tree = new BPlusTree<int, int>(comparer, BPlusTreeLockMode.NodeLevelMonitor);
     tree.Upsert(1, 10, out _);
 
     comparer.ShouldInterrupt = () => true;
@@ -411,12 +410,12 @@ public sealed class BTreeLockFreeSearchTests
     }
   }
 
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  public async Task VisitDuringInsertsIsOrderedAndKeepsEveryExistingKey(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  public async Task VisitDuringInsertsIsOrderedAndKeepsEveryExistingKey(BPlusTreeLockMode lockMode)
   {
     const int keyCount = 20_000;
-    var tree = new BTree<int, int>(new Int32ComparerAscending(), lockMode, nodeSize: 8, leafSize: 8);
+    var tree = new BPlusTree<int, int>(new Int32ComparerAscending(), lockMode, nodeSize: 8, leafSize: 8);
     // The even keys stay in the tree, and writers insert the odd keys between them.
     for (var key = 0; key < keyCount; key += 2)
       tree.Upsert(key, key + 1, out _);
@@ -444,12 +443,12 @@ public sealed class BTreeLockFreeSearchTests
     await writer;
   }
 
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  public async Task ReadsOfTheNewestKeysSeeEveryPublishedWrite(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  public async Task ReadsOfTheNewestKeysSeeEveryPublishedWrite(BPlusTreeLockMode lockMode)
   {
     const int count = 300_000;
-    var tree = new BTree<TwoFieldKey, int>(new TwoFieldKeyComparer(), lockMode);
+    var tree = new BPlusTree<TwoFieldKey, int>(new TwoFieldKeyComparer(), lockMode);
     var published = -1;
     // Readers that start after the writer finished would check nothing.
     using var start = new Barrier(5);
@@ -485,15 +484,15 @@ public sealed class BTreeLockFreeSearchTests
     tree.Validate();
   }
 
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  [TestCase(BTreeLockMode.TopLevelMonitor)]
-  [TestCase(BTreeLockMode.TopLevelReaderWriter)]
-  public async Task ReadsFindEveryPublishedKeyDuringSplits(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.TopLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.TopLevelReaderWriter)]
+  public async Task ReadsFindEveryPublishedKeyDuringSplits(BPlusTreeLockMode lockMode)
   {
     const int count = 60_000;
     // Small nodes split the inner nodes often. Moving their keys is what can tear a key.
-    var tree = new BTree<TwoFieldKey, int>(new TwoFieldKeyComparer(), lockMode, nodeSize: 4, leafSize: 4);
+    var tree = new BPlusTree<TwoFieldKey, int>(new TwoFieldKeyComparer(), lockMode, nodeSize: 4, leafSize: 4);
     var published = -1;
     // Readers that start after the writer finished would check nothing.
     using var start = new Barrier(5);

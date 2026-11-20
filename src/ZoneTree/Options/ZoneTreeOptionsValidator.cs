@@ -89,8 +89,8 @@ internal static class ZoneTreeOptionsValidator
     }
 
     exception = ValidateDefinedEnum(
-        nameof(options.BTreeLockMode),
-        options.BTreeLockMode);
+        nameof(options.BPlusTreeLockMode),
+        options.BPlusTreeLockMode);
     if (exception != null)
       return exception;
 
@@ -237,15 +237,15 @@ internal static class ZoneTreeOptionsValidator
     if (exception != null)
       return exception;
 
-    exception = ZoneTreeOptionValidationRules.BTreeNodeSize.Validate(
-        nameof(options.BTreeNodeSize),
-        options.BTreeNodeSize);
+    exception = ZoneTreeOptionValidationRules.BPlusTreeNodeSize.Validate(
+        nameof(options.BPlusTreeNodeSize),
+        options.BPlusTreeNodeSize);
     if (exception != null)
       return exception;
 
-    exception = ZoneTreeOptionValidationRules.BTreeLeafSize.Validate(
-        nameof(options.BTreeLeafSize),
-        options.BTreeLeafSize);
+    exception = ZoneTreeOptionValidationRules.BPlusTreeLeafSize.Validate(
+        nameof(options.BPlusTreeLeafSize),
+        options.BPlusTreeLeafSize);
     if (exception != null)
       return exception;
 

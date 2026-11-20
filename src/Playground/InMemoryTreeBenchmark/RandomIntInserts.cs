@@ -1,6 +1,4 @@
 using ZoneTree.Collections;
-using ZoneTree.Collections.BTree;
-using ZoneTree.Collections.BTree.Lock;
 using ZoneTree.Comparers;
 
 namespace Playground.InMemoryTreeBenchmark;
@@ -9,7 +7,7 @@ public static class RandomIntInserts
 {
   static readonly Random Random = new(0);
 
-  static readonly BTreeLockMode BTreeLockMode = BTreeLockMode.NodeLevelMonitor;
+  static readonly BPlusTreeLockMode BPlusTreeLockMode = BPlusTreeLockMode.NodeLevelMonitor;
 
   public static int[] GetRandomArray(int count)
   {
@@ -35,11 +33,11 @@ public static class RandomIntInserts
     return arr;
   }
 
-  public static void InsertBTree(int[] arr)
+  public static void InsertBPlusTree(int[] arr)
   {
     var count = arr.Length;
-    var tree = new BTree<int, int>(new Int32ComparerAscending(),
-        BTreeLockMode.NoLock);
+    var tree = new BPlusTree<int, int>(new Int32ComparerAscending(),
+        BPlusTreeLockMode.NoLock);
     for (var i = 0; i < count; ++i)
     {
       var x = arr[i];
@@ -54,10 +52,10 @@ public static class RandomIntInserts
     }
   }
 
-  public static void InsertSafeBTree(int[] arr)
+  public static void InsertSafeBPlusTree(int[] arr)
   {
     var count = arr.Length;
-    var tree = new BTree<int, int>(new Int32ComparerAscending(), BTreeLockMode);
+    var tree = new BPlusTree<int, int>(new Int32ComparerAscending(), BPlusTreeLockMode);
     for (var i = 0; i < count; ++i)
     {
       var x = arr[i];

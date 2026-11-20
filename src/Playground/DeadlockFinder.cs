@@ -1,13 +1,12 @@
 using System.Diagnostics;
-using ZoneTree.Collections.BTree;
-using ZoneTree.Collections.BTree.Lock;
+using ZoneTree.Collections;
 using ZoneTree.Comparers;
 
 namespace Playground;
 
 public class DeadlockFinder
 {
-  BTree<long, long> Tree;
+  BPlusTree<long, long> Tree;
 
   Stopwatch Stopwatch;
 
@@ -31,7 +30,7 @@ public class DeadlockFinder
           {
             Console.WriteLine("Resetting tree." + tree.Length);
             Stopwatch.Restart();
-            tree = new BTree<long, long>(new Int64ComparerAscending(), BTreeLockMode.NodeLevelMonitor);
+            tree = new BPlusTree<long, long>(new Int64ComparerAscending(), BPlusTreeLockMode.NodeLevelMonitor);
           }
         }
       }
@@ -98,7 +97,7 @@ public class DeadlockFinder
 
   public void RunDeadLockFinder()
   {
-    Tree = new BTree<long, long>(new Int64ComparerAscending(), BTreeLockMode.NodeLevelMonitor);
+    Tree = new BPlusTree<long, long>(new Int64ComparerAscending(), BPlusTreeLockMode.NodeLevelMonitor);
     Stopwatch = Stopwatch.StartNew();
     Thread t0 = null;
     for (var i = 0; i < 100; ++i)

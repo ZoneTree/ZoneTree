@@ -1,8 +1,7 @@
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Diagnosers;
 using BenchmarkDotNet.Engines;
-using ZoneTree.Collections.BTree;
-using ZoneTree.Collections.BTree.Lock;
+using ZoneTree.Collections;
 using ZoneTree.Comparers;
 
 namespace Playground.InMemoryTreeBenchmark;
@@ -16,7 +15,7 @@ namespace Playground.InMemoryTreeBenchmark;
     HardwareCounter.TotalIssues,
     HardwareCounter.CacheMisses,
     HardwareCounter.Timer)]*/
-public class BTreeLockModeMassiveInsertTest
+public class BPlusTreeLockModeMassiveInsertTest
 {
   readonly int Count = 3_000_000;
   readonly bool Shuffled = true;
@@ -33,24 +32,24 @@ public class BTreeLockModeMassiveInsertTest
 
   [Benchmark]
   public void TopLevelMonitor() =>
-      MassiveInsertsAndReads(Data, BTreeLockMode.TopLevelMonitor);
+      MassiveInsertsAndReads(Data, BPlusTreeLockMode.TopLevelMonitor);
 
   [Benchmark]
   public void TopLevelReaderWriter() =>
-      MassiveInsertsAndReads(Data, BTreeLockMode.TopLevelReaderWriter);
+      MassiveInsertsAndReads(Data, BPlusTreeLockMode.TopLevelReaderWriter);
 
   [Benchmark]
   public void NodeLevelMonitor() =>
-      MassiveInsertsAndReads(Data, BTreeLockMode.NodeLevelMonitor);
+      MassiveInsertsAndReads(Data, BPlusTreeLockMode.NodeLevelMonitor);
 
   [Benchmark]
   public void NodeLevelReaderWriter() =>
-      MassiveInsertsAndReads(Data, BTreeLockMode.NodeLevelReaderWriter);
+      MassiveInsertsAndReads(Data, BPlusTreeLockMode.NodeLevelReaderWriter);
 
-  public static void MassiveInsertsAndReads(long[] arr, BTreeLockMode lockMode = BTreeLockMode.NodeLevelMonitor)
+  public static void MassiveInsertsAndReads(long[] arr, BPlusTreeLockMode lockMode = BPlusTreeLockMode.NodeLevelMonitor)
   {
     var readCount = 0;
-    var tree = new BTree<long, long>(new Int64ComparerAscending(),
+    var tree = new BPlusTree<long, long>(new Int64ComparerAscending(),
         lockMode);
     var task1 = Parallel.ForEachAsync(arr, (i, t) =>
     {

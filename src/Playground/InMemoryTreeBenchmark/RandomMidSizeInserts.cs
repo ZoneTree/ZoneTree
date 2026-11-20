@@ -1,5 +1,4 @@
-using ZoneTree.Collections.BTree;
-using ZoneTree.Collections.BTree.Lock;
+using ZoneTree.Collections;
 using ZoneTree.Comparers;
 
 namespace Playground.InMemoryTreeBenchmark;
@@ -21,11 +20,11 @@ public static class RandomMidSizeInserts
     return arr;
   }
 
-  public static void InsertBTree(MidSizeKey[] arr)
+  public static void InsertBPlusTree(MidSizeKey[] arr)
   {
     var count = arr.Length;
-    var tree = new BTree<MidSizeKey, MidSizeKey>(new MidSizeRefComparer(),
-        BTreeLockMode.NoLock);
+    var tree = new BPlusTree<MidSizeKey, MidSizeKey>(new MidSizeRefComparer(),
+        BPlusTreeLockMode.NoLock);
     for (var i = 0; i < count; ++i)
     {
       var x = arr[i];

@@ -30,7 +30,7 @@ public class BigKeyTreeBenchmark
   BigKey[] Data = [];
 
   [Benchmark]
-  public void InsertBTree() => RandomBigInserts.InsertBTree(Data);
+  public void InsertBPlusTree() => RandomBigInserts.InsertBPlusTree(Data);
 
   [Benchmark]
   public void InsertSortedDictionary() => RandomBigInserts.InsertSortedDictionary(Data);

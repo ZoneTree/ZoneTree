@@ -123,8 +123,8 @@ public sealed class ZoneTreeOptionsValidationTests
     options.AllowUnsafeOptionValues = true;
     options.MutableSegmentMaxItemCount = 1;
     options.DiskSegmentMaxItemCount = 1;
-    options.BTreeNodeSize = 2;
-    options.BTreeLeafSize = 2;
+    options.BPlusTreeNodeSize = 2;
+    options.BPlusTreeLeafSize = 2;
     options.WriteAheadLogOptions.CompressionBlockSize = 1;
     options.DiskSegmentOptions.CompressionBlockSize = 1;
     options.DiskSegmentOptions.MinimumRecordCount = 10;
@@ -257,16 +257,16 @@ public sealed class ZoneTreeOptionsValidationTests
         nameof(ZoneTreeOptions<int, int>.DiskSegmentMaxItemCount));
 
     yield return Invalid(
-        options => options.BTreeLockMode = (ZoneTree.Collections.BTree.Lock.BTreeLockMode)99,
-        nameof(ZoneTreeOptions<int, int>.BTreeLockMode));
+        options => options.BPlusTreeLockMode = (ZoneTree.Collections.BPlusTreeLockMode)99,
+        nameof(ZoneTreeOptions<int, int>.BPlusTreeLockMode));
 
     yield return Invalid(
-        options => options.BTreeNodeSize = 1,
-        nameof(ZoneTreeOptions<int, int>.BTreeNodeSize));
+        options => options.BPlusTreeNodeSize = 1,
+        nameof(ZoneTreeOptions<int, int>.BPlusTreeNodeSize));
 
     yield return Invalid(
-        options => options.BTreeLeafSize = 1,
-        nameof(ZoneTreeOptions<int, int>.BTreeLeafSize));
+        options => options.BPlusTreeLeafSize = 1,
+        nameof(ZoneTreeOptions<int, int>.BPlusTreeLeafSize));
 
     yield return Invalid(
         options => options.WriteAheadLogOptions.Mode = (WriteAheadLogMode)99,

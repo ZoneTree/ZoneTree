@@ -310,7 +310,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         return MergeResult.CANCELLED_BY_USER;
       }
 
-      var minEntry = heap.MinValue;
+      var minEntry = heap.Min;
       minSegmentIndex = minEntry.SegmentIndex;
       var minSegment = mergingSegments[minSegmentIndex];
 
@@ -379,11 +379,11 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
         {
           var lastKey = lastKeysOfEveryPart[currentPartIndex];
           var islastKeySmallerThanAllOtherKeys = true;
-          var heapKeys = heap.Keys;
-          var heapKeysLen = heapKeys.Length;
-          for (int i = 0; i < heapKeysLen; i++)
+          var heapItems = heap.Items;
+          var heapItemsLen = heapItems.Length;
+          for (int i = 0; i < heapItemsLen; i++)
           {
-            var s = heapKeys[i];
+            var s = heapItems[i];
             if (s.SegmentIndex == minSegmentIndex)
               continue;
             var key = s.Key;

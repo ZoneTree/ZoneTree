@@ -11,10 +11,10 @@ internal static class ZoneTreeOptionValidationRules
   public static readonly Rule DiskSegmentMaxItemCount =
       Rule.Min(10000);
 
-  public static readonly Rule BTreeNodeSize =
+  public static readonly Rule BPlusTreeNodeSize =
       Rule.Min(16);
 
-  public static readonly Rule BTreeLeafSize =
+  public static readonly Rule BPlusTreeLeafSize =
       Rule.Min(16);
 
   public static readonly Rule LockStripeCount =

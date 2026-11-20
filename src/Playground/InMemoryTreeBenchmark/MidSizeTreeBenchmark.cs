@@ -29,7 +29,7 @@ public class MidSizeTreeBenchmark
   MidSizeKey[] Data = [];
 
   [Benchmark]
-  public void InsertBTree() => RandomMidSizeInserts.InsertBTree(Data);
+  public void InsertBPlusTree() => RandomMidSizeInserts.InsertBPlusTree(Data);
 
   [Benchmark]
   public void InsertSortedDictionary() => RandomMidSizeInserts.InsertSortedDictionary(Data);

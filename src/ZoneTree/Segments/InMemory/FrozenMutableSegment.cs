@@ -1,5 +1,4 @@
 using ZoneTree.Collections;
-using ZoneTree.Collections.BTree;
 using ZoneTree.Core;
 using ZoneTree.Exceptions;
 using ZoneTree.Hashers;
@@ -67,7 +66,7 @@ public sealed class FrozenMutableSegment<TKey, TValue> : IMutableSegment<TKey, T
 
   public IIndexedReader<TKey, TValue> GetIndexedReader()
   {
-    throw new NotSupportedException("BTree Indexed Reader is not supported.");
+    throw new NotSupportedException("BPlusTree Indexed Reader is not supported.");
   }
 
   public ISeekableIterator<TKey, TValue> GetSeekableIterator(bool contributeToTheBlockCache = false)

@@ -1,4 +1,4 @@
-namespace ZoneTree.Synchronization;
+namespace ZoneTree.Threading;
 
 /// <summary>
 /// Coordinates leases with deferred, exactly-once resource retirement.

@@ -2,19 +2,19 @@ using ZoneTree.Comparers;
 
 namespace ZoneTree.Collections;
 
-public sealed class FixedSizeMinHeap<TKey>
+public sealed class FixedSizeMinHeap<T>
 {
-  readonly TKey[] keys;
+  readonly T[] items;
 
   int count;
 
-  readonly IRefComparer<TKey> comparer;
+  readonly IRefComparer<T> comparer;
 
   public int Count => count;
 
-  public int Size => keys.Length;
+  public int Capacity => items.Length;
 
-  public TKey MinValue
+  public T Min
   {
     get
     {
@@ -22,13 +22,13 @@ public sealed class FixedSizeMinHeap<TKey>
       {
         throw new InvalidOperationException("No elements in the heap.");
       }
-      return keys[0];
+      return items[0];
     }
   }
 
-  public FixedSizeMinHeap(int maximumSize, IRefComparer<TKey> comparer)
+  public FixedSizeMinHeap(int capacity, IRefComparer<T> comparer)
   {
-    keys = new TKey[maximumSize];
+    items = new T[capacity];
     this.comparer = comparer;
   }
 
@@ -39,30 +39,30 @@ public sealed class FixedSizeMinHeap<TKey>
 
   /// <summary>
   /// Inserts the new element, maintaining the heap property.
-  /// 
-  /// If the element is greater than the current min element, this function returns
-  ///     false without modifying the heap. Otherwise, it returns true.
+  ///
+  /// If the heap is full and the element is greater than the current min element, the
+  ///     element replaces the min element and this function returns true. If the heap is
+  ///     full otherwise, this function returns false without modifying the heap.
   /// </summary>
-  /// <param name="key"></param>
+  /// <param name="item"></param>
   /// <returns>true if inserted</returns>
-  public bool Insert(in TKey key)
+  public bool Insert(in T item)
   {
-    if (count < keys.Length)
+    if (count < items.Length)
     {
       // There is room. We can add it and then Min-heapify.
-      keys[count] = key;
+      items[count] = item;
       count++;
       HeapifyLastLeaf();
       return true;
     }
     else
     {
-      // No more room. The element might not even fit in the heap. The check
-      // is simple: if it's greater than the minimum element, then it can't be
-      // inserted. Otherwise, we replace the head with it and reheapify.
-      if (comparer.Compare(key, keys[0]) > 0)
+      // No more room. If the element is greater than the minimum element, it replaces
+      // the head and the heap is reheapified. Otherwise, it is not inserted.
+      if (comparer.Compare(item, items[0]) > 0)
       {
-        keys[0] = key;
+        items[0] = item;
         HeapifyRoot();
         return true;
       }
@@ -72,13 +72,13 @@ public sealed class FixedSizeMinHeap<TKey>
   }
 
   /// <summary>
-  /// Replaces the minimum value in the heap with the user-provided value, and restores
+  /// Replaces the minimum element in the heap with the given element, and restores
   /// the heap property.
   /// </summary>
-  /// <param name="newKey"></param>
-  public void ReplaceMin(TKey newKey)
+  /// <param name="newItem"></param>
+  public void ReplaceMin(T newItem)
   {
-    keys[0] = newKey;
+    items[0] = newItem;
     HeapifyRoot();
   }
 
@@ -88,14 +88,14 @@ public sealed class FixedSizeMinHeap<TKey>
 
     if (count > 0)
     {
-      keys[0] = keys[count];
+      items[0] = items[count];
       HeapifyRoot();
     }
   }
 
   void Swap(int i, int j)
   {
-    (keys[j], keys[i]) = (keys[i], keys[j]);
+    (items[j], items[i]) = (items[i], items[j]);
   }
 
   void HeapifyRoot()
@@ -110,11 +110,11 @@ public sealed class FixedSizeMinHeap<TKey>
       int n0 = (i + 1) * 2 - 1;
       int n1 = n0 + 1;
 
-      if (n0 < n && comparer.Compare(keys[i], keys[n0]) > 0)
+      if (n0 < n && comparer.Compare(items[i], items[n0]) > 0)
       {
         // We have to select the bigger of the two subtrees, and float
         // the current element down. This maintains the Min-heap property.
-        if (n1 < n && comparer.Compare(keys[n0], keys[n1]) > 0)
+        if (n1 < n && comparer.Compare(items[n0], items[n1]) > 0)
         {
           Swap(i, n1);
           i = n1;
@@ -125,7 +125,7 @@ public sealed class FixedSizeMinHeap<TKey>
           i = n0;
         }
       }
-      else if (n1 < n && comparer.Compare(keys[i], keys[n1]) > 0)
+      else if (n1 < n && comparer.Compare(items[i], items[n1]) > 0)
       {
         // Float down the "right" subtree. We needn't compare this subtree
         // to the "left", because if the element was smaller than that, the
@@ -135,7 +135,7 @@ public sealed class FixedSizeMinHeap<TKey>
       }
       else
       {
-        // Else, the current key is in its final position. Break out
+        // Else, the current element is in its final position. Break out
         // of the current loop and return.
         break;
       }
@@ -149,7 +149,7 @@ public sealed class FixedSizeMinHeap<TKey>
     {
       int j = (i + 1) / 2 - 1;
 
-      if (comparer.Compare(keys[i], keys[j]) < 0)
+      if (comparer.Compare(items[i], items[j]) < 0)
       {
         Swap(i, j);
         i = j;
@@ -161,5 +161,5 @@ public sealed class FixedSizeMinHeap<TKey>
     }
   }
 
-  public ReadOnlySpan<TKey> Keys => new ReadOnlySpan<TKey>(keys, 0, Count);
+  public ReadOnlySpan<T> Items => new ReadOnlySpan<T>(items, 0, Count);
 }

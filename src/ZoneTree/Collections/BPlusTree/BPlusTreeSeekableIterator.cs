@@ -1,6 +1,6 @@
-namespace ZoneTree.Collections.BTree;
+namespace ZoneTree.Collections;
 
-public sealed class FrozenBTreeSeekableIterator<TKey, TValue>
+public sealed class BPlusTreeSeekableIterator<TKey, TValue>
     : ISeekableIterator<TKey, TValue>
 {
   public TKey CurrentKey =>
@@ -21,26 +21,26 @@ public sealed class FrozenBTreeSeekableIterator<TKey, TValue>
 
   public bool IsEndOfAPart => false;
 
-  public bool IsFullyFrozen => BTree.IsReadOnly;
+  public bool IsFullyFrozen => BPlusTree.IsReadOnly;
 
-  readonly BTree<TKey, TValue> BTree;
+  readonly BPlusTree<TKey, TValue> BPlusTree;
 
-  BTree<TKey, TValue>.FrozenNodeIterator CurrentNode;
+  BPlusTree<TKey, TValue>.NodeIterator CurrentNode;
 
   // The first leaf is opened on first use. Iterators are usually positioned
   // by a seek, so opening it up front would be wasted work.
   bool IsPositioned;
 
-  public FrozenBTreeSeekableIterator(BTree<TKey, TValue> bTree)
+  public BPlusTreeSeekableIterator(BPlusTree<TKey, TValue> bTree)
   {
-    BTree = bTree;
+    BPlusTree = bTree;
   }
 
   void EnsurePositioned()
   {
     if (IsPositioned)
       return;
-    CurrentNode = BTree.GetFrozenFirstIterator();
+    CurrentNode = BPlusTree.GetFirstIterator();
     IsPositioned = true;
   }
 
@@ -67,15 +67,15 @@ public sealed class FrozenBTreeSeekableIterator<TKey, TValue>
     var prevNode = CurrentNode.GetPreviousNodeIterator();
     if (prevNode == null)
       return false;
-    CurrentNode = prevNode;
     prevNode.SeekEnd();
+    CurrentNode = prevNode;
     return prevNode.HasCurrent;
   }
 
   public bool SeekBegin()
   {
     IsPositioned = true;
-    CurrentNode = BTree.GetFrozenFirstIterator();
+    CurrentNode = BPlusTree.GetFirstIterator();
     CurrentNode.SeekBegin();
     return HasCurrent;
   }
@@ -83,7 +83,7 @@ public sealed class FrozenBTreeSeekableIterator<TKey, TValue>
   public bool SeekEnd()
   {
     IsPositioned = true;
-    CurrentNode = BTree.GetFrozenLastIterator();
+    CurrentNode = BPlusTree.GetLastIterator();
     CurrentNode.SeekEnd();
     return HasCurrent;
   }
@@ -91,14 +91,14 @@ public sealed class FrozenBTreeSeekableIterator<TKey, TValue>
   public bool SeekToFirstGreaterOrEqualElement(in TKey key)
   {
     IsPositioned = true;
-    CurrentNode = BTree.GetFrozenIteratorWithFirstKeyGreaterOrEqual(in key);
+    CurrentNode = BPlusTree.GetIteratorWithFirstKeyGreaterOrEqual(in key);
     return HasCurrent;
   }
 
   public bool SeekToLastSmallerOrEqualElement(in TKey key)
   {
     IsPositioned = true;
-    CurrentNode = BTree.GetFrozenIteratorWithLastKeySmallerOrEqual(in key);
+    CurrentNode = BPlusTree.GetIteratorWithLastKeySmallerOrEqual(in key);
     return HasCurrent;
   }
 

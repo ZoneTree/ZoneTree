@@ -1,5 +1,4 @@
 using ZoneTree.Collections;
-using ZoneTree.Collections.BTree;
 using ZoneTree.Comparers;
 using ZoneTree.Core;
 using ZoneTree.Hashers;
@@ -20,7 +19,7 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
 
   readonly int MutableSegmentMaxItemCount;
 
-  readonly BTree<TKey, TValue> BTree;
+  readonly BPlusTree<TKey, TValue> BPlusTree;
 
   readonly ConcurrentBloomFilter BloomFilter;
 
@@ -32,13 +31,13 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
 
   public bool IsFrozen => IsFrozenFlag;
 
-  public bool IsFullyFrozen => IsFrozenFlag && BTree.IsReadOnly;
+  public bool IsFullyFrozen => IsFrozenFlag && BPlusTree.IsReadOnly;
 
-  public long Length => BTree.Length;
+  public long Length => BPlusTree.Length;
 
-  public long MaximumOpIndex => BTree.LastOpIndex;
+  public long MaximumOpIndex => BPlusTree.LastOpIndex;
 
-  public IIncrementalIdProvider OpIndexProvider => BTree.OpIndexProvider;
+  public IIncrementalIdProvider OpIndexProvider => BPlusTree.OpIndexProvider;
 
   public MutableSegment(ZoneTreeOptions<TKey, TValue> options,
       long segmentId,
@@ -57,11 +56,11 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
     MutableSegmentMaxItemCount = options.MutableSegmentMaxItemCount;
     BloomFilter = CreateBloomFilter(options);
 
-    BTree = new(Comparer,
-        Options.BTreeLockMode,
+    BPlusTree = new(Comparer,
+        Options.BPlusTreeLockMode,
         indexOpProvider,
-        Options.BTreeNodeSize,
-        Options.BTreeLeafSize);
+        Options.BPlusTreeNodeSize,
+        Options.BPlusTreeLeafSize);
 
     MarkValueDeleted = options.MarkValueDeleted;
   }
@@ -82,12 +81,12 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
     MutableSegmentMaxItemCount = options.MutableSegmentMaxItemCount;
     BloomFilter = CreateBloomFilter(options);
 
-    BTree = new(
+    BPlusTree = new(
         Comparer,
-        Options.BTreeLockMode,
+        Options.BPlusTreeLockMode,
         null,
-        Options.BTreeNodeSize,
-        Options.BTreeLeafSize);
+        Options.BPlusTreeNodeSize,
+        Options.BPlusTreeLeafSize);
 
     MarkValueDeleted = options.MarkValueDeleted;
     if (collectGarbage)
@@ -101,7 +100,7 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
       LoadLogEntries(keys, values);
     }
     // set op index after loading entries.
-    BTree.SetNextOpIndex(nextOpIndex);
+    BPlusTree.SetNextOpIndex(nextOpIndex);
   }
 
   void LoadLogEntries(IReadOnlyList<TKey> keys, IReadOnlyList<TValue> values)
@@ -114,7 +113,7 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
       // TODO: Search if we can create faster construction
       // of mutable segment from log entries.
       AddToBloomFilter(in key);
-      BTree.Upsert(in key, in value, out var _);
+      BPlusTree.Upsert(in key, in value, out var _);
     }
   }
 
@@ -123,7 +122,7 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
       IReadOnlyList<TValue> values)
   {
     var distinctKeys =
-        new BTree<TKey, byte>(Options.Comparer, Collections.BTree.Lock.BTreeLockMode.NoLock);
+        new BPlusTree<TKey, byte>(Options.Comparer, Collections.BPlusTreeLockMode.NoLock);
 
     var isDeleted = Options.IsDeleted;
     for (var i = keys.Count - 1; i >= 0; --i)
@@ -138,28 +137,28 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
         continue;
       }
       AddToBloomFilter(in key);
-      BTree.Upsert(in key, in value, out var _);
+      BPlusTree.Upsert(in key, in value, out var _);
     }
   }
 
   public bool ContainsKey(in TKey key, ref KeyHashProvider<TKey> keyHashProvider)
   {
-    if (BTree.Length == 0 || BloomFilter != null &&
+    if (BPlusTree.Length == 0 || BloomFilter != null &&
         !BloomFilter.MightContain(keyHashProvider.GetHashCode(in key, Options.KeyHasher)))
       return false;
-    return BTree.ContainsKey(key);
+    return BPlusTree.ContainsKey(key);
   }
 
   public bool TryGet(in TKey key, out TValue value, ref KeyHashProvider<TKey> keyHashProvider)
   {
-    if (BTree.Length == 0 ||
+    if (BPlusTree.Length == 0 ||
         (BloomFilter != null &&
          !BloomFilter.MightContain(keyHashProvider.GetHashCode(in key, Options.KeyHasher))))
     {
       value = default;
       return false;
     }
-    return BTree.TryGetValue(key, out value);
+    return BPlusTree.TryGetValue(key, out value);
   }
 
   public AddOrUpdateResult Upsert(in TKey key, in TValue value, out long opIndex)
@@ -174,13 +173,13 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
         return AddOrUpdateResult.RETRY_SEGMENT_IS_FROZEN;
       }
 
-      if (BTree.Length >= MutableSegmentMaxItemCount)
+      if (BPlusTree.Length >= MutableSegmentMaxItemCount)
       {
         opIndex = 0;
         return AddOrUpdateResult.RETRY_SEGMENT_IS_FULL;
       }
       AddToBloomFilter(in key);
-      var result = BTree.Upsert(in key, in value, out opIndex);
+      var result = BPlusTree.Upsert(in key, in value, out opIndex);
       WriteAheadLog.Append(in key, in value, opIndex);
       return result ? AddOrUpdateResult.ADDED : AddOrUpdateResult.UPDATED;
     }
@@ -205,13 +204,13 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
         return AddOrUpdateResult.RETRY_SEGMENT_IS_FROZEN;
       }
 
-      if (BTree.Length >= MutableSegmentMaxItemCount)
+      if (BPlusTree.Length >= MutableSegmentMaxItemCount)
       {
         opIndex = 0;
         return AddOrUpdateResult.RETRY_SEGMENT_IS_FULL;
       }
       AddToBloomFilter(in key);
-      var result = BTree.Upsert(in key, valueGetter, out var value, out opIndex);
+      var result = BPlusTree.Upsert(in key, valueGetter, out var value, out opIndex);
       WriteAheadLog.Append(in key, in value, opIndex);
       return result ? AddOrUpdateResult.ADDED : AddOrUpdateResult.UPDATED;
     }
@@ -233,7 +232,7 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
         return AddOrUpdateResult.RETRY_SEGMENT_IS_FROZEN;
       }
 
-      if (BTree.Length >= MutableSegmentMaxItemCount)
+      if (BPlusTree.Length >= MutableSegmentMaxItemCount)
       {
         opIndex = 0;
         return AddOrUpdateResult.RETRY_SEGMENT_IS_FULL;
@@ -242,7 +241,7 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
       TValue insertedValue = default;
 
       AddToBloomFilter(in key);
-      var status = BTree
+      var status = BPlusTree
           .AddOrUpdate(key,
               void (ref TValue x) =>
               {
@@ -304,7 +303,7 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
       }
       // Freeze the tree before closing the WAL:
       // MoveMutableSegmentForward spins until IsFullyFrozen.
-      BTree.SetTreeReadOnlyAndLockFree();
+      BPlusTree.SetTreeReadOnlyAndLockFree();
       WriteAheadLog.MarkFrozen();
     }
     catch (Exception e)
@@ -321,20 +320,20 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
 
   public IIndexedReader<TKey, TValue> GetIndexedReader()
   {
-    throw new NotSupportedException("BTree Indexed Reader is not supported.");
+    throw new NotSupportedException("BPlusTree Indexed Reader is not supported.");
   }
 
   public ISeekableIterator<TKey, TValue> GetSeekableIterator(bool contributeToTheBlockCache)
   {
     return IsFullyFrozen ?
-        new FrozenBTreeSeekableIterator<TKey, TValue>(BTree) :
-        new BTreeSeekableIterator<TKey, TValue>(BTree);
+        new FrozenBPlusTreeSeekableIterator<TKey, TValue>(BPlusTree) :
+        new BPlusTreeSeekableIterator<TKey, TValue>(BPlusTree);
   }
 
   public SegmentVisitAction Visit<TVisitor>(in TKey key, ref TVisitor visitor)
       where TVisitor : struct, ISegmentRecordVisitor<TKey, TValue>
   {
-    return BTree.Visit(in key, ref visitor);
+    return BPlusTree.Visit(in key, ref visitor);
   }
 
   public void ReleaseResources()
