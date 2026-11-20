@@ -329,8 +329,6 @@ ZoneTree's local APIs give the node several useful choices:
 | Stable export | Snapshot iterator | The collected engine view |
 | Recovery of local writes | Configured WAL mode and storage provider | Local recovery according to that mode and provider |
 
-Ordinary `Upsert` does not take the key lock. When a key is updated from its current value, every writer of that key takes the lock. Transactions in one tree also do not commit changes across another tree or node. See [key locks](../usage/key-locks.mdx) and [transactions](../usage/transactions.mdx).
-
 Transactional trees expose `BeginTransaction`, `Commit` or `TryCommit`, and `Rollback`. There is no separate prepare step: a commit checks for conflicts and commits in one call, and a transaction that has not committed cannot be resumed after a restart. A distributed commit protocol must establish its own durable decision records and recovery rules above these local transactions.
 
 The database layer then defines when those local results become externally visible:

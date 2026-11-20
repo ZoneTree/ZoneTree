@@ -79,9 +79,9 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
     var bottomSegments = BottomSegmentQueue.ToLastInFirstArray();
 
-    if (to >= bottomSegments.Count)
-      to = bottomSegments.Count - 1;
-    var writeDeletedValues = to < bottomSegments.Count - 1;
+    if (to >= bottomSegments.Length)
+      to = bottomSegments.Length - 1;
+    var writeDeletedValues = to < bottomSegments.Length - 1;
 
     var selectedBottomSegments = bottomSegments
         .Skip(from)
@@ -98,7 +98,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     to = from + mergingSegments.Length - 1;
     var bottomDiskSegment = selectedBottomSegments[^1];
     if (Logger.IsEnabled(ZoneTreeLogLevel.Trace))
-      Logger.LogTrace($"Bottom segments merge started: segments {from} to {to} of {bottomSegments.Count}.");
+      Logger.LogTrace($"Bottom segments merge started: segments {from} to {to} of {bottomSegments.Length}.");
 
     if (IsCancelBottomSegmentsMergeRequested)
     {
@@ -321,7 +321,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     lock (ShortMergerLock)
     {
       bottomSegments = BottomSegmentQueue.ToLastInFirstArray();
-      var bottomSegmentsLength = bottomSegments.Count;
+      var bottomSegmentsLength = bottomSegments.Length;
       var currentFrom = IndexOfContiguousSegmentIds(
           bottomSegments,
           selectedBottomSegmentIds);
@@ -367,7 +367,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
           queue.Enqueue(bottomSegments[i]);
         }
       }
-      var newQueue = new SingleProducerSingleConsumerQueue<IDiskSegment<TKey, TValue>>(queue.Reverse());
+      var newQueue = new CopyOnWriteQueue<IDiskSegment<TKey, TValue>>(queue);
       BottomSegmentQueue = newQueue;
 
       for (var i = currentFrom; i <= currentTo; ++i)
@@ -407,13 +407,13 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
   }
 
   static int IndexOfContiguousSegmentIds(
-      List<IDiskSegment<TKey, TValue>> segments,
+      IDiskSegment<TKey, TValue>[] segments,
       long[] segmentIds)
   {
-    if (segmentIds.Length == 0 || segmentIds.Length > segments.Count)
+    if (segmentIds.Length == 0 || segmentIds.Length > segments.Length)
       return -1;
 
-    var lastStartIndex = segments.Count - segmentIds.Length;
+    var lastStartIndex = segments.Length - segmentIds.Length;
     for (var i = 0; i <= lastStartIndex; ++i)
     {
       var isMatch = true;

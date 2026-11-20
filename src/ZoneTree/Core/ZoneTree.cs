@@ -30,9 +30,9 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
   readonly IsDeletedDelegate<TKey, TValue> IsDeleted;
 
-  readonly SingleProducerSingleConsumerQueue<IReadOnlySegment<TKey, TValue>> ReadOnlySegmentQueue = new();
+  readonly CopyOnWriteQueue<IReadOnlySegment<TKey, TValue>> ReadOnlySegmentQueue;
 
-  volatile SingleProducerSingleConsumerQueue<IDiskSegment<TKey, TValue>> BottomSegmentQueue = new();
+  volatile CopyOnWriteQueue<IDiskSegment<TKey, TValue>> BottomSegmentQueue;
 
   readonly IncrementalIdProvider IncrementalIdProvider = new();
 
@@ -178,6 +178,8 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     KeyLocks = new KeyedLock<TKey>(options.KeyHasher, options.LockStripeCount);
     MutableSegment = new MutableSegment<TKey, TValue>(
         options, IncrementalIdProvider.NextId(), new IncrementalIdProvider());
+    ReadOnlySegmentQueue = new();
+    BottomSegmentQueue = new();
     IsDeleted = options.IsDeleted;
     FillZoneTreeMeta();
     ZoneTreeMeta.DbVersion = ZoneTreeInfo.DbVersion.ToString();
@@ -213,10 +215,9 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     MutableSegment = mutableSegment;
     DiskSegment = diskSegment;
     DiskSegment.DropFailureReporter = ReportDropFailure;
-    foreach (var ros in readOnlySegments.Reverse())
-      ReadOnlySegmentQueue.Enqueue(ros);
-    foreach (var bs in bottomSegments.Reverse())
-      BottomSegmentQueue.Enqueue(bs);
+    // The loader lists the segments from the newest to the oldest, the order the queues keep.
+    ReadOnlySegmentQueue = new(readOnlySegments);
+    BottomSegmentQueue = new(bottomSegments);
     IsDeleted = options.IsDeleted;
   }
 
