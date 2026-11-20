@@ -21,9 +21,9 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     // readable after they move forward or merge, as they must for iterators
     // that are already open.
     IMutableSegment<TKey, TValue> mutableSegment = null;
-    List<IReadOnlySegment<TKey, TValue>> roSegments;
+    IReadOnlySegment<TKey, TValue>[] roSegments;
     IDiskSegment<TKey, TValue> diskSegment = null;
-    List<IDiskSegment<TKey, TValue>> bottomSegments = null;
+    IDiskSegment<TKey, TValue>[] bottomSegments = null;
     lock (ShortMergerLock)
       lock (SegmentLock)
       {
@@ -51,9 +51,9 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     {
       var seekableIterators = new List<ISeekableIterator<TKey, TValue>>(
           (mutableSegment == null ? 0 : 1) +
-          roSegments.Count +
+          roSegments.Length +
           (diskSegment == null ? 0 : 1) +
-          (bottomSegments?.Count ?? 0));
+          (bottomSegments?.Length ?? 0));
       if (mutableSegment != null)
         seekableIterators.Add(mutableSegment.GetSeekableIterator());
       foreach (var roSegment in roSegments)

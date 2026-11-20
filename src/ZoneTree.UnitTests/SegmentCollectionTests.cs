@@ -6,7 +6,7 @@ namespace ZoneTree.UnitTests;
 
 /// <summary>
 /// Tests how iterators collect segments without the tree locks: a dropped tree refuses new iterators instead of
-/// retrying forever, and the read-only queue's newest-first walk never skips an item that stayed queued during it.
+/// retrying forever, and the segment queue loses no change and reads in order while it changes.
 /// </summary>
 public sealed class SegmentCollectionTests
 {
@@ -35,59 +35,70 @@ public sealed class SegmentCollectionTests
   }
 
   [Test]
-  public async Task TheNewestFirstWalkKeepsEveryItemThatStayedQueued()
+  public async Task TheCopyOnWriteQueueLosesNoChangeAndReadsInOrderDuringChanges()
   {
-    // A small queue that the producer and the consumer keep cycling, so its ring wraps around many times while
-    // readers walk it. The queue never fills, so it keeps its first chunk.
-    var queue = new SingleProducerSingleConsumerQueue<Item>();
-    long enqueued = 0;
-    long dequeued = 0;
-    using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-    var producer = Task.Run(() =>
+    // The producer and the consumer change the queue at the same time, as a segment move and a merge can, while
+    // readers check that every array they read holds consecutive items from the newest to the oldest. The
+    // consumer leaves a few items queued, so the reads have an order to check.
+    const int count = 100_000;
+    const int readerCount = 2;
+    var queue = new CopyOnWriteQueue<Item>();
+    // A lost change stops the consumer; the deadline ends the test with a failure instead of a hang.
+    using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+    var readersRunning = 0;
+    // Own threads, so no worker waits for the thread pool to grow.
+    var producer = Task.Factory.StartNew(() =>
     {
-      while (!stop.IsCancellationRequested)
+      while (Volatile.Read(ref readersRunning) < readerCount && !stop.IsCancellationRequested)
+        Thread.Yield();
+      for (var sequence = 0; sequence < count && !stop.IsCancellationRequested; ++sequence)
       {
-        if (Volatile.Read(ref enqueued) - Volatile.Read(ref dequeued) >= 8)
-          continue;
-        queue.Enqueue(new Item(enqueued));
-        Volatile.Write(ref enqueued, enqueued + 1);
+        while (queue.Length >= 8 && !stop.IsCancellationRequested)
+          Thread.Yield();
+        queue.Enqueue(new Item(sequence));
       }
-    });
-    var consumer = Task.Run(() =>
+    }, TaskCreationOptions.LongRunning);
+    var dequeued = new List<long>(count);
+    var consumer = Task.Factory.StartNew(() =>
     {
-      while (!stop.IsCancellationRequested)
+      while (dequeued.Count < count && !stop.IsCancellationRequested)
       {
-        if (Volatile.Read(ref dequeued) == Volatile.Read(ref enqueued))
+        if ((queue.Length < 4 && !producer.IsCompleted) || !queue.TryDequeue(out var item))
+        {
+          Thread.Yield();
           continue;
-        // Counted before the item leaves, so a reader never expects an item that is being dequeued.
-        Volatile.Write(ref dequeued, dequeued + 1);
-        queue.TryDequeue(out _);
+        }
+        dequeued.Add(item.Sequence);
       }
-    });
+    }, TaskCreationOptions.LongRunning);
     var failures = 0L;
-    var walks = 0L;
-    var readers = Enumerable.Range(0, Math.Max(2, Environment.ProcessorCount - 2)).Select(_ => Task.Run(() =>
+    var orderedReads = 0L;
+    var readers = Enumerable.Range(0, readerCount).Select(_ => Task.Factory.StartNew(() =>
     {
-      while (!stop.IsCancellationRequested)
+      Interlocked.Increment(ref readersRunning);
+      while (!consumer.IsCompleted)
       {
-        // Items enqueued before the walk and still queued after it were queued during the whole walk.
-        var enqueuedBefore = Volatile.Read(ref enqueued);
-        var items = queue.ToLastInFirstArray();
-        var dequeuedAfter = Volatile.Read(ref dequeued);
-        var expected = Math.Max(0, enqueuedBefore - dequeuedAfter);
-        var present = items.Count(item => item.Sequence >= dequeuedAfter && item.Sequence < enqueuedBefore);
-        var newestFirst = items.Zip(items.Skip(1)).All(pair => pair.First.Sequence > pair.Second.Sequence);
-        if (present != expected || !newestFirst)
-          Interlocked.Increment(ref failures);
-        Interlocked.Increment(ref walks);
+        var items = queue.Items;
+        for (var i = 1; i < items.Length; ++i)
+        {
+          if (items[i - 1].Sequence != items[i].Sequence + 1)
+            Interlocked.Increment(ref failures);
+        }
+        if (items.Length > 1)
+          Interlocked.Increment(ref orderedReads);
+        // Lets the producer and the consumer run on a machine with fewer cores than threads.
+        Thread.Yield();
       }
-    })).ToArray();
+    }, TaskCreationOptions.LongRunning)).ToArray();
     await Task.WhenAll(readers.Append(producer).Append(consumer));
 
     Assert.Multiple(() =>
     {
-      Assert.That(failures, Is.Zero, $"{failures} of {walks} walks lost an item or broke the order");
-      Assert.That(walks, Is.GreaterThan(1000));
+      Assert.That(stop.IsCancellationRequested, Is.False, "the test reached its deadline, so the queue lost a change");
+      Assert.That(dequeued, Is.EqualTo(Enumerable.Range(0, count).Select(sequence => (long)sequence)));
+      Assert.That(failures, Is.Zero, $"{failures} of {orderedReads} reads were not consecutive from the newest");
+      Assert.That(orderedReads, Is.GreaterThan(0), "no read saw more than one item");
+      Assert.That(queue.IsEmpty, Is.True);
     });
   }
 

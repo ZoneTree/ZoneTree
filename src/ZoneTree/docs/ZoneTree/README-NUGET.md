@@ -129,8 +129,6 @@ using (zoneTree.Lock(42))
 
 `LockMany(key1, key2)` locks several keys in a fixed order, so callers do not deadlock, and `LockAsync` can hold the lock across `await`. See [key locks](https://zonetree.dev/docs/usage/key-locks/) for timeouts and the rules.
 
-Plain `Upsert` is the fastest write path, and it does not take the key lock. When a key is updated from its current value, every writer of that key takes the lock.
-
 | Need | Use |
 | --- | --- |
 | Set or replace a value | `Upsert` |

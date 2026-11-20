@@ -21,16 +21,12 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       out TValue value,
       ref KeyHashProvider<TKey> keyHashProvider)
   {
-    // The queues are usually empty. Checking first avoids allocating an
-    // enumerator on every lookup.
-    if (!ReadOnlySegmentQueue.IsEmpty)
+    // One read of each queue gives an array that no writer changes, newest first.
+    foreach (var segment in ReadOnlySegmentQueue.Items)
     {
-      foreach (var segment in ReadOnlySegmentQueue)
+      if (segment.TryGet(key, out value, ref keyHashProvider))
       {
-        if (segment.TryGet(key, out value, ref keyHashProvider))
-        {
-          return !IsDeleted(key, value);
-        }
+        return !IsDeleted(key, value);
       }
     }
 
@@ -43,10 +39,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
           return !IsDeleted(key, value);
         }
 
-        var bottomSegments = BottomSegmentQueue;
-        if (bottomSegments.IsEmpty)
-          return false;
-        foreach (var segment in bottomSegments)
+        foreach (var segment in BottomSegmentQueue.Items)
         {
           if (segment.TryGet(key, out value, ref keyHashProvider))
           {
@@ -70,14 +63,11 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     // be read twice, but no record is missed.
     if (MutableSegment.Visit(in key, ref visitor) == SegmentVisitAction.Stop)
       return;
-    if (!ReadOnlySegmentQueue.IsEmpty)
+    foreach (var segment in ReadOnlySegmentQueue.Items)
     {
-      foreach (var segment in ReadOnlySegmentQueue)
-      {
-        if (VisitSeekableSegment(segment.GetSeekableIterator(), in key, ref visitor) ==
-            SegmentVisitAction.Stop)
-          return;
-      }
+      if (VisitSeekableSegment(segment.GetSeekableIterator(), in key, ref visitor) ==
+          SegmentVisitAction.Stop)
+        return;
     }
 
     while (true)
@@ -86,10 +76,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       {
         if (VisitDiskSegment(DiskSegment, in key, ref visitor) == SegmentVisitAction.Stop)
           return;
-        var bottomSegments = BottomSegmentQueue;
-        if (bottomSegments.IsEmpty)
-          return;
-        foreach (var segment in bottomSegments)
+        foreach (var segment in BottomSegmentQueue.Items)
         {
           if (VisitDiskSegment(segment, in key, ref visitor) == SegmentVisitAction.Stop)
             return;

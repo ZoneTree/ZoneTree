@@ -446,8 +446,8 @@ public sealed class BottomSegmentMergeTests
         .Concat(bottomSegments)
         .ToArray();
     var newQueue =
-        new SingleProducerSingleConsumerQueue<IDiskSegment<int, int>>(
-            newBottomSegments.Reverse());
+        new CopyOnWriteQueue<IDiskSegment<int, int>>(
+            newBottomSegments);
     var field = typeof(ZoneTree<int, int>).GetField(
         "BottomSegmentQueue",
         BindingFlags.Instance | BindingFlags.NonPublic);
