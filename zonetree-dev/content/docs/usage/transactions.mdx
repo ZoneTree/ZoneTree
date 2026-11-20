@@ -92,7 +92,7 @@ Use them for keys that need no coordination with other keys. For several keys, p
 | Data rule | API |
 | --- | --- |
 | Replace a value without reading its previous state. | [Ordinary writes](reads-and-writes.mdx). |
-| Compute one key's new value from its current value. | [Atomic operations](atomic-operations.mdx). |
+| Compute one key's new value from its current value. | [Key locks](key-locks.mdx). |
 | Read or change several related keys as one transaction. | Transactional tree. |
 
 Concurrent application threads alone do not require transactions. Use them for a multi-key invariant, and make the reads that decide the writes part of that transaction.

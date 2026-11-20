@@ -1,0 +1,189 @@
+---
+title: Key Locks
+description: Lock a key around a read-then-write, such as a counter or a conditional replacement; lock several keys without deadlocks; wait asynchronously; and choose the number of lock stripes.
+---
+
+<SectionHeader
+  class="zt-guide-intro"
+  eyebrow="USAGE / READ-THEN-WRITE"
+  title="Update a key from its current value"
+  titleTag="h1"
+  titleId="key-locks-title"
+  subtitle="Lock the key around the read and the write, for counters, conditional replacements, and initialize-or-update logic. No other caller that locks the key can write it in between."/>
+
+<AlertBox
+  class="zt-guide-callout"
+  tone="accent"
+  title="Every writer of the key takes the lock"
+  icon="tabler:shield-check"
+>
+  <p>
+    The lock only orders callers that take it. <code>Upsert</code>,
+    <code>TryAdd</code>, <code>TryGetAndUpdate</code>, <code>TryDelete</code>,
+    and <code>ForceDelete</code> do not take it. If a read-then-write of a key
+    must not lose updates, every writer of that key takes the key lock.
+  </p>
+</AlertBox>
+
+## Build a counter
+
+This complete program uses string keys and `long` values. The counter starts at `1` when it is absent and increments when it exists:
+
+```csharp
+using ZoneTree;
+
+using var tree = new ZoneTreeFactory<string, long>()
+    .SetDataDirectory("data/key-lock-example")
+    .OpenOrCreate();
+using var maintainer = tree.CreateMaintainer();
+
+var key = "stats:user:42:views";
+using (tree.Lock(key))
+{
+    tree.TryGet(key, out var views);
+    tree.Upsert(key, views + 1);
+}
+```
+
+Run it again against the same directory to increment the persisted counter. Without the lock, two threads can read the same count, and one increment is lost.
+
+## How the locks work
+
+The newest value of a key may be in mutable memory, a read-only segment, or a disk layer. `TryGet` finds it in any of them, and `Upsert` writes the new value to the mutable segment. The lock keeps other locked writers of the key out between the two calls, so no other locked write of the key happens in between. A segment can move forward or merge in between: that does not change the newest value of the key.
+
+The tree has `LockStripeCount` locks, 1024 by default, and a key takes the lock of its stripe. The [key hasher](../concepts/key-ordering.mdx) chooses the stripe, so keys that the comparer considers equal, such as `"a"` and `"A"` under a case-insensitive comparer, share a lock. Different keys can share a stripe too, and then they wait for each other. More stripes make that rarer:
+
+| `LockStripeCount` | Chance that two keys share a lock | Memory once the tree locks keys |
+| --- | --- | --- |
+| `1` | Always: one lock for every key. | One lock. |
+| `1024` (default) | 1 in 1,024. | About 80 KB. |
+| `16384` | 1 in 16,384. | About 1.3 MB. |
+
+The value is rounded up to a power of two. A tree that never locks a key allocates no locks.
+
+```csharp
+using var tree = new ZoneTreeFactory<string, long>()
+    .Configure(options => options.LockStripeCount = 16384)
+    .OpenOrCreate();
+```
+
+## Choose a call
+
+| Call | When to use it |
+| --- | --- |
+| `Lock(key)` | Lock one key. |
+| `LockMany(key1, key2, ...)` | Lock several keys at once, written out or as an array. |
+| `TryLock(key, timeout, out scope)` | Give up when the lock is not free in time. Zero does not wait. |
+| `LockAsync(key, cancellationToken)` | Wait without blocking the thread, and hold the lock across `await`. |
+| `LockManyAsync(keys, cancellationToken)` | The same for several keys. |
+
+Each call returns a scope that releases the locks when it is disposed. Dispose it once, with a `using` statement.
+
+## Compare before replacing
+
+This example advances a stored revision only when the current revision is `3`:
+
+```csharp
+var key = "job:42:revision";
+bool replaced;
+using (tree.Lock(key))
+{
+    replaced = tree.TryGet(key, out var revision) && revision == 3;
+    if (replaced)
+        tree.Upsert(key, 4);
+}
+Console.WriteLine($"Replaced: {replaced}");
+```
+
+## Lock several keys
+
+Locking two keys one after the other can deadlock: one caller locks `a` and waits for `b` while another locks `b` and waits for `a`. Lock them with one `LockMany` call instead. It takes the lock of each key once, in a fixed order, so callers that name the same keys in another order do not deadlock, and keys that share a lock do not wait for themselves:
+
+```csharp
+using (tree.LockMany("account:1", "account:2"))
+{
+    tree.TryGet("account:1", out var from);
+    tree.TryGet("account:2", out var to);
+    tree.Upsert("account:1", from - 10);
+    tree.Upsert("account:2", to + 10);
+}
+```
+
+The lock keeps other locked writers out, but it does not make the writes one commit: a crash between the two upserts can keep one and lose the other. Use a [transaction](transactions.mdx) when the keys must change together.
+
+## Wait asynchronously
+
+`LockAsync` waits without blocking the thread. The lock can be held across `await`, and sync and async callers of the same key exclude each other. A released lock goes to a waiting synchronous caller first, so on a key that synchronous callers lock without pause, an asynchronous caller can wait a long time. A cancelled wait throws `OperationCanceledException` and holds nothing:
+
+```csharp
+using (await tree.LockAsync(key, cancellationToken))
+{
+    tree.TryGet(key, out var views);
+    await auditLog.WriteAsync(key, views + 1);
+    tree.Upsert(key, views + 1);
+}
+```
+
+## Cost, and when a plain lock is faster
+
+The key locks are semaphores, because they serve sync and async callers alike and can be held across `await`. Measured uncontended, on one thread with .NET 10:
+
+| Operation | Time per call | Allocation |
+| --- | --- | --- |
+| `lock (object)` | ~14 ns | none |
+| `tree.Lock(key)` | ~35 ns | none |
+| `await tree.LockAsync(key)` | ~42 ns | none |
+| `tree.LockMany(a, b)` | ~75 ns | none |
+| `TryGet` and `Upsert`, for comparison | ~115 ns | none |
+
+When every writer of the keys is synchronous, a plain `lock` on your own objects is faster. Keep these rules, which `tree.Lock` handles for you:
+
+- Every writer of a key uses the same lock objects, so create them once per tree and share them.
+- Pick the lock with a hash that matches the comparer: keys the comparer considers equal must take the same lock.
+- A plain lock cannot be held across `await`.
+- Lock several keys in a fixed order, and take a shared lock once.
+
+```csharp
+// One lock object per stripe, shared by every writer of the tree.
+var locks = Enumerable.Range(0, 1024).Select(_ => new object()).ToArray();
+object LockOf(int key) => locks[(uint)key.GetHashCode() % (uint)locks.Length];
+
+lock (LockOf(key))
+{
+    tree.TryGet(key, out var count);
+    tree.Upsert(key, count + 1);
+}
+```
+
+Plain locks and key locks do not exclude each other, so use one of them for all writers of a key.
+
+## Rules
+
+- The lock is not reentrant. Locking a key whose lock the caller already holds, even a different key on the same stripe, waits forever. Lock all keys with one `LockMany` call.
+- Keep the locked section short. Other writers of keys on the same stripe wait for it.
+- Dispose the scope once. A copy of the scope holds the same locks.
+- A null key locks like any other key, through the key hasher. A null list of keys throws `ArgumentNullException`.
+- A tree whose key type has no key hasher needs `LockStripeCount` of `1`, or a configured `KeyHasher`. Opening the tree tells you which to set.
+
+## Replace mutable objects instead of changing them in place
+
+If `TValue` is a reference type, `TryGet` returns the stored object, not a copy. Changing its properties changes the stored value before any write, and another reader can see the change. Prefer immutable values: build a replacement, for a record with a `with` expression, and write it with `Upsert`. See [value mutability](../concepts/value-mutability.mdx).
+
+<Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
+  <strong>Need more than one key to change together?</strong>
+  <p>
+    Transactions add a commit boundary, conflict handling, and explicit retry
+    decisions for related keys in one tree.
+  </p>
+  <Flex wrap="true" class="gap-3"
+    ><BtnLink
+      href="/docs/usage/transactions/"
+      tone="accent"
+      icon="tabler:arrow-right"
+      iconPosition="end"
+      >Transactions</BtnLink><BtnLink
+      href="/docs/usage/reads-and-writes/"
+      tone="neutral"
+      variant="outline"
+      >Ordinary writes</BtnLink></Flex>
+</Panel>

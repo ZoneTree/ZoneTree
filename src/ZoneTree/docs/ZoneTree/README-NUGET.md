@@ -44,7 +44,7 @@ ZoneTree gives you the core pieces expected from a serious storage engine:
 * Configurable durability/performance trade-offs
 * Forward and reverse iterators
 * Seekable range scans
-* Atomic read-modify-write operations
+* Key locks for read-modify-write operations
 * Serializable and snapshot transactions with range reads
 * Custom serializers
 * Custom comparers
@@ -115,30 +115,21 @@ while (iterator.Next())
 
 ---
 
-## Atomic add or update
+## Update a key from its current value
 
-ZoneTree provides atomic operations for read-modify-write scenarios across LSM-tree segments.
+Lock the key around the read and the write. No other caller that locks the key can write it in between.
 
 ```csharp
-zoneTree.TryAtomicAddOrUpdate(
-    key: 42,
-    valueToAdd: 1,
-    valueUpdater: (ref int value) =>
-    {
-        value++;
-        return true;
-    },
-    result: (in int value, long opIndex, OperationResult result) =>
-    {
-        Console.WriteLine($"{result}: {value} at {opIndex}");
-    });
+using (zoneTree.Lock(42))
+{
+    zoneTree.TryGet(42, out var count);
+    zoneTree.Upsert(42, count + 1);
+}
 ```
 
-For mutable reference values, assigning a new object in the updater is the safest pattern. Add/update delegates may be retried, so in-place mutations should be idempotent and side effects should be repeatable.
+`LockMany(key1, key2)` locks several keys in a fixed order, so callers do not deadlock, and `LockAsync` can hold the lock across `await`. The tree has `LockStripeCount` locks, 1024 by default, and the key hasher chooses the lock of a key.
 
-Plain `Upsert` is the fastest write path. Atomic methods are synchronized with other atomic methods and are intended for operations that must read, decide, and write as one logical action.
-
-For normal concurrent writes, use the regular write APIs. They are designed for high-throughput use. Choose atomic methods only when the new value depends on the existing value.
+Plain `Upsert` is the fastest write path, and it does not take the key lock. When a key is updated from its current value, every writer of that key takes the lock.
 
 | Need | Use |
 | --- | --- |
@@ -146,10 +137,11 @@ For normal concurrent writes, use the regular write APIs. They are designed for 
 | Add only if the key does not exist | `TryAdd` |
 | Delete a key if it exists | `TryDelete` |
 | Write a deletion marker without checking existence | `ForceDelete` |
-| Increment, append, compare-and-set, or update from the current value | Atomic methods |
+| Increment, append, compare-and-set, or update from the current value | `Lock` around `TryGet` and `Upsert` |
 | Coordinate changes across multiple keys | Transactions |
 
-You can mix these write modes in the same ZoneTree. For example, hot counter keys can use atomic read-modify-write operations, while ordinary records continue to use fast `Upsert`. This lets each workflow pay only for the coordination it needs.
+You can mix these write modes in the same ZoneTree. For example, hot counter keys can take their key locks, while ordinary records continue to use fast `Upsert`. This lets each workflow pay only for the coordination it needs.
+
 
 ---
 

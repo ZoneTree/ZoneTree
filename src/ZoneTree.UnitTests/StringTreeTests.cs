@@ -103,18 +103,16 @@ public sealed class StringTreeTests
       .SetValueSerializer(new Utf8StringSerializer())
       .OpenOrCreate();
 
-    // atomic (thread-safe) on single mutable-segment.
     zoneTree.Upsert(39, "Hello Zone Tree!");
 
     zoneTree.TryGet(39, out var value);
     Assert.That(value, Is.EqualTo("Hello Zone Tree!"));
-    // atomic across all segments
-    zoneTree.TryAtomicAddOrUpdate(39, "a",
-        bool (ref string x) =>
-        {
-          x += "b";
-          return true;
-        });
+    // The lock keeps other locked writers of the key out between the read and the write.
+    using (zoneTree.Lock(39))
+    {
+      zoneTree.TryGet(39, out var current);
+      zoneTree.Upsert(39, current + "b");
+    }
     zoneTree.TryGet(39, out value);
     Assert.That(value, Is.EqualTo("Hello Zone Tree!b"));
   }

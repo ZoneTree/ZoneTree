@@ -25,7 +25,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     IDiskSegment<TKey, TValue> diskSegment = null;
     List<IDiskSegment<TKey, TValue>> bottomSegments = null;
     lock (ShortMergerLock)
-      lock (AtomicUpdateLock)
+      lock (SegmentLock)
       {
         if (includeMutableSegment)
           mutableSegment = MutableSegment;
@@ -107,7 +107,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     try
     {
       lock (ShortMergerLock)
-        lock (AtomicUpdateLock)
+        lock (SegmentLock)
         {
           IDiskSegment<TKey, TValue> attachedDiskSegment = null;
           var attachedBottomSegments = new List<IDiskSegment<TKey, TValue>>();

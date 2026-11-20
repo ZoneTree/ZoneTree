@@ -457,18 +457,17 @@ elements, so it is a safe value for an index entry too.
 ### Change one element
 
 `With` replaces one element, and `Append` adds one at the end. Both copy the other elements as bytes, without
-decoding them, into one new array. In an atomic update, a field changes even while other threads write:
+decoding them, into one new array. Under a key lock, a field changes even while other threads write the row:
 
 ```csharp
 var key = Orders.Rows.Create(42);
-tree.TryAtomicAddOrUpdate(
-    key,
-    CompositeValue.Create("bob", placed, 15.99m),  // added if the order is missing
-    (ref byte[] row) =>
-    {
-        row = CompositeValue.With(row, 2, 15.99m);  // only the total changes
-        return true;
-    });
+using (tree.Lock(key))
+{
+    var row = tree.TryGet(key, out var stored)
+        ? CompositeValue.With(stored, 2, 15.99m)          // only the total changes
+        : CompositeValue.Create("bob", placed, 15.99m);  // added if the order is missing
+    tree.Upsert(key, row);
+}
 ```
 
 ### Let rows grow

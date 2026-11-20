@@ -1,6 +1,6 @@
 ---
 title: Usage
-description: Choose a ZoneTree API by coordination scope, and find guides for initialization, reads and writes, atomic operations, transactions, ordered scans, and maintenance.
+description: Choose a ZoneTree API by coordination scope, and find guides for initialization, reads and writes, key locks, transactions, ordered scans, and maintenance.
 layout:
   fullWidth: true
   showToc: false
@@ -25,7 +25,7 @@ layout:
     <Panel tone="accent" variant="surface" class="p-0" bodyClass="p-4"
       ><strong>One-key decisions</strong>
       <p>
-        Use atomic methods when the current value determines the accepted
+        Lock the key when the current value determines the accepted
         update.
       </p></Panel>
     <Panel class="p-0" bodyClass="p-4"
@@ -53,9 +53,9 @@ layout:
       label="Choose a write API"/>
     <DocCard
       number="03 / ONE KEY"
-      title="Atomic operations"
-      summary="Implement counters and conditional replacements, interpret cancellation, and keep competing writers on the same atomic path."
-      href="/docs/usage/atomic-operations/"
+      title="Key locks"
+      summary="Implement counters and conditional replacements, lock several keys without deadlocks, and wait asynchronously."
+      href="/docs/usage/key-locks/"
       icon="tabler:shield-check"
       label="Coordinate one key"/>
     <DocCard

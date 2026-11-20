@@ -35,11 +35,15 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
   readonly IncrementalIdProvider IncrementalIdProvider = new();
 
-  readonly Lock AtomicUpdateLock = new();
+  // Guards changes to the segments, such as moving the mutable segment forward,
+  // and the snapshots of them that iterators and backups take.
+  readonly Lock SegmentLock = new();
+
+  readonly KeyLocks<TKey> KeyLocks;
 
   /// <summary>
   /// The segment that follows the mutable one, already recorded in the meta WAL, or null.
-  /// Changed under the atomic update lock.
+  /// Changed under the segment lock.
   /// </summary>
   IMutableSegment<TKey, TValue> NextMutableSegment;
 
@@ -98,7 +102,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
   {
     get
     {
-      lock (AtomicUpdateLock)
+      lock (SegmentLock)
       {
         return MutableSegment.Length + ReadOnlySegmentsRecordCount;
       }
@@ -170,6 +174,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     Options = options;
     MinHeapEntryComparer = new MinHeapEntryRefComparer<TKey, TValue>(options.Comparer);
     MaxHeapEntryComparer = new MaxHeapEntryRefComparer<TKey, TValue>(options.Comparer);
+    KeyLocks = new KeyLocks<TKey>(options.KeyHasher, options.LockStripeCount);
     MutableSegment = new MutableSegment<TKey, TValue>(
         options, IncrementalIdProvider.NextId(), new IncrementalIdProvider());
     IsDeleted = options.IsDeleted;
@@ -203,6 +208,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     Options = options;
     MinHeapEntryComparer = new MinHeapEntryRefComparer<TKey, TValue>(options.Comparer);
     MaxHeapEntryComparer = new MaxHeapEntryRefComparer<TKey, TValue>(options.Comparer);
+    KeyLocks = new KeyLocks<TKey>(options.KeyHasher, options.LockStripeCount);
     MutableSegment = mutableSegment;
     DiskSegment = diskSegment;
     DiskSegment.DropFailureReporter = ReportDropFailure;
@@ -242,7 +248,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
   public void SaveMetadata()
   {
     lock (ShortMergerLock)
-      lock (AtomicUpdateLock)
+      lock (SegmentLock)
       {
         ZoneTreeMeta.MaximumOpIndex = MutableSegment.OpIndexProvider.LastId;
         // A next mutable segment is recorded already, with the mutable segment as read-only;
@@ -417,7 +423,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     try
     {
       lock (ShortMergerLock)
-        lock (AtomicUpdateLock)
+        lock (SegmentLock)
         {
           // 2 things to synchronize with
           // MoveSegmentForward and disk merger segment swap.
@@ -513,6 +519,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
       MutableSegmentBloomFilterBitsPerItem =
           options.MutableSegmentBloomFilterBitsPerItem,
       MutableSegmentMaxItemCount = options.MutableSegmentMaxItemCount,
+      LockStripeCount = options.LockStripeCount,
       RandomAccessDeviceManager = options.RandomAccessDeviceManager,
       ValueSerializer = options.ValueSerializer,
       WriteAheadLogOptions = options.WriteAheadLogOptions.Clone(),

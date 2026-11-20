@@ -42,9 +42,19 @@ internal static class ZoneTreeOptionsValidator
     {
       return new MissingOptionException(
           nameof(options.KeyHasher),
-          $"Configure a compatible key hasher or set " +
+          $"Configure a compatible key hasher, or set " +
           $"{nameof(options.MutableSegmentBloomFilterBitsPerItem)} to 0 " +
-          "to disable the mutable-segment Bloom filter.");
+          "to disable the mutable-segment Bloom filter and " +
+          $"{nameof(options.LockStripeCount)} to 1 to use one lock for every key.");
+    }
+
+    if (options.LockStripeCount > 1 && options.KeyHasher == null)
+    {
+      return new MissingOptionException(
+          nameof(options.KeyHasher),
+          "The key locks choose the lock of a key with the key hasher. Configure a KeyHasher " +
+          $"that matches the Comparer, or set {nameof(options.LockStripeCount)} to 1 to use " +
+          "one lock for every key.");
     }
 
     if (options.IsDeleted == null)
@@ -69,7 +79,9 @@ internal static class ZoneTreeOptionsValidator
       return new MissingOptionException(nameof(options.DiskSegmentOptions));
 
     Exception exception = null;
-    if (mutableSegmentBloomFilterEnabled)
+    // The Bloom filter and the key locks both rely on equal keys hashing the same.
+    if (options.KeyHasher != null &&
+        (mutableSegmentBloomFilterEnabled || options.LockStripeCount > 1))
     {
       exception = ValidateCommonKeyHasherCompatibility(options);
       if (exception != null)
@@ -79,6 +91,13 @@ internal static class ZoneTreeOptionsValidator
     exception = ValidateDefinedEnum(
         nameof(options.BTreeLockMode),
         options.BTreeLockMode);
+    if (exception != null)
+      return exception;
+
+    // The tree allocates the stripes, so even unsafe values must fit in memory.
+    exception = ZoneTreeOptionValidationRules.LockStripeCount.Validate(
+        nameof(options.LockStripeCount),
+        options.LockStripeCount);
     if (exception != null)
       return exception;
 
@@ -115,7 +134,8 @@ internal static class ZoneTreeOptionsValidator
     return new InvalidOptionValueException(
         nameof(options.KeyHasher),
         options.KeyHasher.GetType().Name,
-        "Keys considered equal by Comparer must produce the same hash code");
+        "Keys considered equal by Comparer must produce the same hash code. " +
+        "Configure a KeyHasher that matches the Comparer");
   }
 
   static Exception ValidateWriteAheadLogOptions(WriteAheadLogOptions options)

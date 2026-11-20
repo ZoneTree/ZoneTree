@@ -15,7 +15,7 @@ public sealed class ReproWalLockTest
       using var data = new ZoneTreeFactory<int, string>()
           .SetDataDirectory(dataPath)
           .OpenOrCreate();
-      data.TryAtomicAdd(1, "1", out _);
+      data.TryAdd(1, "1", out _);
       data.Maintenance.MoveMutableSegmentForward();
     }
 

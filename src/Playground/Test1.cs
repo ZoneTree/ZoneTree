@@ -81,11 +81,11 @@ public sealed class Test1
         zoneTree1.Upsert(i, string.Join('+',
             Enumerable.Repeat(Guid.NewGuid().ToString(), 4)));
         if (i % 100 == 0)
-          zoneTree1.TryAtomicAddOrUpdate(i, "a", bool (ref string x) =>
+          using (zoneTree1.Lock(i))
           {
-            x += " ooops!";
-            return true;
-          });
+            zoneTree1.TryGet(i, out var current);
+            zoneTree1.Upsert(i, current + " ooops!");
+          }
       }
       maintainer.WaitForBackgroundThreads();
     }

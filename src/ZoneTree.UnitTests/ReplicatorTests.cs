@@ -1,4 +1,7 @@
+using ZoneTree.AbstractFileStream;
+using ZoneTree.Comparers;
 using ZoneTree.Core;
+using ZoneTree.Serializers;
 
 namespace ZoneTree.UnitTests;
 
@@ -156,5 +159,54 @@ public sealed class ReplicatorTests
       CreateData();
       TestEqual();
     }
+  }
+  readonly record struct Point(int X);
+
+  sealed class PointComparer : IRefComparer<Point>
+  {
+    public int Compare(in Point x, in Point y) => x.X.CompareTo(y.X);
+  }
+
+  sealed class PointSerializer : ISerializer<Point>
+  {
+    readonly Int32Serializer Inner = new();
+
+    public Point Deserialize(Memory<byte> bytes) => new(Inner.Deserialize(bytes));
+
+    public Memory<byte> Serialize(in Point entry) => Inner.Serialize(entry.X);
+
+    public int GetMaxByteCount(in Point entry) => Inner.GetMaxByteCount(entry.X);
+
+    public int Serialize(in Point entry, Span<byte> destination) => Inner.Serialize(entry.X, destination);
+  }
+
+  [Test]
+  public void ReplicatorWorksWithoutAKeyHasher()
+  {
+    // A custom key type has no default key hasher, so the index locks every key with one lock.
+    var dataPath = "data/ReplicatorWorksWithoutAKeyHasher";
+    if (Directory.Exists(dataPath))
+      Directory.Delete(dataPath, true);
+    using var replica = new ZoneTreeFactory<Point, int>(new InMemoryFileStreamProvider())
+        .SetDataDirectory("replica")
+        .SetLogger(SilentTestLogger.Instance)
+        .SetComparer(new PointComparer())
+        .SetKeySerializer(new PointSerializer())
+        .SetMutableSegmentBloomFilterBitsPerItem(0)
+        .Configure(options => options.LockStripeCount = 1)
+        .OpenOrCreate();
+    using (var replicator = new Replicator<Point, int>(replica, dataPath, false, factory => factory
+        .SetLogger(SilentTestLogger.Instance)
+        .SetComparer(new PointComparer())
+        .SetKeySerializer(new PointSerializer())
+        .SetMutableSegmentBloomFilterBitsPerItem(0)))
+    {
+      replicator.OnUpsert(new Point(1), 10, 2);
+      // An older operation index does not replace the newer value.
+      replicator.OnUpsert(new Point(1), 5, 1);
+    }
+    Assert.That(replica.TryGet(new Point(1), out var value), Is.True);
+    Assert.That(value, Is.EqualTo(10));
+    Directory.Delete(dataPath, true);
   }
 }

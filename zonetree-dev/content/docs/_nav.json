@@ -23,7 +23,7 @@
     "usage/index.mdx",
     "usage/opening-a-tree.mdx",
     "usage/reads-and-writes.mdx",
-    "usage/atomic-operations.mdx",
+    "usage/key-locks.mdx",
     "usage/transactions.mdx",
     "usage/iteration-and-range-scans.mdx",
     "usage/maintenance.mdx",
