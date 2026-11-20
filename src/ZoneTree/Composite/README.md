@@ -457,7 +457,8 @@ elements, so it is a safe value for an index entry too.
 ### Change one element
 
 `With` replaces one element, and `Append` adds one at the end. Both copy the other elements as bytes, without
-decoding them, into one new array. Under a key lock, a field changes even while other threads write the row:
+decoding them, into one new array. Under a key lock, changing one field loses no other change to the row, as
+long as every writer of the row takes the lock:
 
 ```csharp
 var key = Orders.Rows.Create(42);
@@ -481,7 +482,12 @@ var (customer, placed, total) = CompositeValue.Decode<string, DateTime, decimal>
 var coupon = CompositeValue.TryGet(row, 3, out string code) ? code : "none";
 
 // Give an old row its coupon: the other elements are copied as they are.
-tree.Upsert(key, CompositeValue.Append(row, "WELCOME10"));
+// The lock keeps the read of the current row and the write together.
+using (tree.Lock(key))
+{
+    if (tree.TryGet(key, out var current) && !CompositeValue.TryGet(current, 3, out string _))
+        tree.Upsert(key, CompositeValue.Append(current, "WELCOME10"));
+}
 ```
 
 ### Build and project values

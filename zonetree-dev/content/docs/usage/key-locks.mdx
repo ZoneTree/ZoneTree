@@ -1,33 +1,31 @@
 ---
 title: Key Locks
-description: Lock a key around a read-then-write, such as a counter or a conditional replacement; lock several keys without deadlocks; wait asynchronously; and choose the number of lock stripes.
+description: Lock a key around a read and a write so that concurrent updates are never lost. Counters, compare-and-replace, claiming a key, several keys at once, asynchronous waits, timeouts, and the rules every writer follows.
 ---
 
 <SectionHeader
   class="zt-guide-intro"
-  eyebrow="USAGE / READ-THEN-WRITE"
+  eyebrow="USAGE / ONE KEY"
   title="Update a key from its current value"
   titleTag="h1"
   titleId="key-locks-title"
-  subtitle="Lock the key around the read and the write, for counters, conditional replacements, and initialize-or-update logic. No other caller that locks the key can write it in between."/>
+  subtitle="Lock the key around the read and the write. No other caller that locks the key can write it in between, so concurrent updates of the key are never lost."/>
 
-<AlertBox
-  class="zt-guide-callout"
-  tone="accent"
-  title="Every writer of the key takes the lock"
-  icon="tabler:shield-check"
->
-  <p>
-    The lock only orders callers that take it. <code>Upsert</code>,
-    <code>TryAdd</code>, <code>TryGetAndUpdate</code>, <code>TryDelete</code>,
-    and <code>ForceDelete</code> do not take it. If a read-then-write of a key
-    must not lose updates, every writer of that key takes the key lock.
-  </p>
-</AlertBox>
+## Why a read and a write need a lock
 
-## Build a counter
+Every ZoneTree call is safe to make from many threads, but two calls are not one step. When two threads increment the same counter at the same time, both can read `5`, both write `6`, and one increment is lost:
 
-This complete program uses string keys and `long` values. The counter starts at `1` when it is absent and increments when it exists:
+```csharp
+// Two threads can run these lines at the same time.
+tree.TryGet(key, out var count);
+tree.Upsert(key, count + 1);
+```
+
+A key lock turns the read and the write into one step for every caller that takes the lock.
+
+## Count from many threads
+
+This complete console program increments one counter from eight threads, 1,000 times each. Run it in a console project with the `ZoneTree` package installed:
 
 ```csharp
 using ZoneTree;
@@ -37,143 +35,212 @@ using var tree = new ZoneTreeFactory<string, long>()
     .OpenOrCreate();
 using var maintainer = tree.CreateMaintainer();
 
-var key = "stats:user:42:views";
-using (tree.Lock(key))
+var key = "page:home:views";
+// Start from zero, so every run prints the same total.
+tree.Upsert(key, 0);
+
+Parallel.For(0, 8, _ =>
 {
-    tree.TryGet(key, out var views);
-    tree.Upsert(key, views + 1);
-}
+    for (var i = 0; i < 1000; ++i)
+    {
+        using (tree.Lock(key))
+        {
+            tree.TryGet(key, out var views);
+            tree.Upsert(key, views + 1);
+        }
+    }
+});
+
+tree.TryGet(key, out var total);
+Console.WriteLine($"Views: {total}");
 ```
 
-Run it again against the same directory to increment the persisted counter. Without the lock, two threads can read the same count, and one increment is lost.
+It prints `Views: 8000`. Without the `using (tree.Lock(key))` line, most increments are lost: the threads overwrite each other's writes, and the total comes out far below 8000.
 
-## How the locks work
+`tree.Lock(key)` returns a scope that holds the lock until it is disposed, so the `using` statement releases the lock even when the code inside throws. When the key is absent, `TryGet` sets `views` to `0`, so the same code also starts a new counter. Maintenance can move and merge data in the background while you hold the lock. That never changes the key's newest value, so the read and the write stay correct.
 
-The newest value of a key may be in mutable memory, a read-only segment, or a disk layer. `TryGet` finds it in any of them, and `Upsert` writes the new value to the mutable segment. The lock keeps other locked writers of the key out between the two calls, so no other locked write of the key happens in between. A segment can move forward or merge in between: that does not change the newest value of the key.
-
-The tree has `LockStripeCount` locks, 1024 by default, and a key takes the lock of its stripe. The [key hasher](../concepts/key-ordering.mdx) chooses the stripe, so keys that the comparer considers equal, such as `"a"` and `"A"` under a case-insensitive comparer, share a lock. Different keys can share a stripe too, and then they wait for each other. More stripes make that rarer:
-
-| `LockStripeCount` | Chance that two keys share a lock | Memory once the tree locks keys |
-| --- | --- | --- |
-| `1` | Always: one lock for every key. | One lock. |
-| `1024` (default) | 1 in 1,024. | About 80 KB. |
-| `16384` | 1 in 16,384. | About 1.3 MB. |
-
-The value is rounded up to a power of two. A tree that never locks a key allocates no locks.
-
-```csharp
-using var tree = new ZoneTreeFactory<string, long>()
-    .Configure(options => options.LockStripeCount = 16384)
-    .OpenOrCreate();
-```
+<AlertBox
+  class="zt-guide-callout"
+  tone="accent"
+  title="Every writer of the key takes the lock"
+  icon="tabler:shield-check"
+>
+  <p>
+    The lock only holds back callers that take it. <code>Upsert</code>,
+    <code>TryAdd</code>, <code>TryGetAndUpdate</code>, <code>TryDelete</code>,
+    and <code>ForceDelete</code> do not take it themselves. A writer that skips
+    the lock can write between another caller's read and write, and that caller
+    then overwrites the change. When a key's updates must not be lost, every
+    code path that writes the key takes its lock.
+  </p>
+</AlertBox>
 
 ## Choose a call
 
-| Call | When to use it |
+| Call | Use it to |
 | --- | --- |
-| `Lock(key)` | Lock one key. |
-| `LockMany(key1, key2, ...)` | Lock several keys at once, written out or as an array. |
-| `TryLock(key, timeout, out scope)` | Give up when the lock is not free in time. Zero does not wait. |
-| `LockAsync(key, cancellationToken)` | Wait without blocking the thread, and hold the lock across `await`. |
-| `LockManyAsync(keys, cancellationToken)` | The same for several keys. |
+| `using (tree.Lock(key))` | Lock one key, waiting until it is free. |
+| `using (tree.LockMany(key1, key2))` | Lock several keys at once, without deadlocks. |
+| `tree.TryLock(key, timeout, out var scope)` | Give up when the key stays locked for longer than the timeout. |
+| `using (await tree.LockAsync(key, cancellationToken))` | Wait without blocking the thread, and await inside the lock. |
+| `using (await tree.LockManyAsync([key1, key2], cancellationToken))` | Lock several keys asynchronously. |
 
-Each call returns a scope that releases the locks when it is disposed. Dispose it once, with a `using` statement.
+Each call returns a scope that releases its locks when it is disposed. Dispose it exactly once, with a `using` statement.
 
-## Compare before replacing
+## Replace a value only when it matches
 
-This example advances a stored revision only when the current revision is `3`:
+This method advances a job's revision only when the stored revision is the one the caller expects, so two workers cannot both advance it from the same revision:
 
 ```csharp
-var key = "job:42:revision";
-bool replaced;
-using (tree.Lock(key))
+bool TryAdvanceRevision(string job, long expected)
 {
-    replaced = tree.TryGet(key, out var revision) && revision == 3;
-    if (replaced)
-        tree.Upsert(key, 4);
+    var key = $"job:{job}:revision";
+    using (tree.Lock(key))
+    {
+        if (!tree.TryGet(key, out var revision) || revision != expected)
+            return false;
+        tree.Upsert(key, expected + 1);
+        return true;
+    }
 }
-Console.WriteLine($"Replaced: {replaced}");
+```
+
+## Claim a key once
+
+`TryAdd` checks that the key is absent and then writes it, in two steps. Under the key lock, only one of several callers that claim the same name succeeds:
+
+```csharp
+bool TryClaimUserName(string userName, long userId)
+{
+    var key = $"username:{userName}";
+    using (tree.Lock(key))
+        return tree.TryAdd(key, userId, out _);
+}
 ```
 
 ## Lock several keys
 
-Locking two keys one after the other can deadlock: one caller locks `a` and waits for `b` while another locks `b` and waits for `a`. Lock them with one `LockMany` call instead. It takes the lock of each key once, in a fixed order, so callers that name the same keys in another order do not deadlock, and keys that share a lock do not wait for themselves:
+Locking two keys one after the other can deadlock: one caller locks `a` and waits for `b`, while another locks `b` and waits for `a`. Lock them with one `LockMany` call instead. It takes the locks in a fixed order, so callers that name the same keys in a different order do not deadlock:
 
 ```csharp
-using (tree.LockMany("account:1", "account:2"))
+bool TryTransfer(string from, string to, long amount)
 {
-    tree.TryGet("account:1", out var from);
-    tree.TryGet("account:2", out var to);
-    tree.Upsert("account:1", from - 10);
-    tree.Upsert("account:2", to + 10);
+    using (tree.LockMany(from, to))
+    {
+        tree.TryGet(from, out var fromBalance);
+        if (fromBalance < amount)
+            return false;
+        tree.Upsert(from, fromBalance - amount);
+        tree.TryGet(to, out var toBalance);
+        tree.Upsert(to, toBalance + amount);
+        return true;
+    }
 }
 ```
 
-The lock keeps other locked writers out, but it does not make the writes one commit: a crash between the two upserts can keep one and lose the other. Use a [transaction](transactions.mdx) when the keys must change together.
+The lock keeps other writers out while the method runs, but the two writes are still two writes: a crash between them can keep one and lose the other. When keys must change together or not at all, use a [transaction](transactions.mdx).
 
 ## Wait asynchronously
 
-`LockAsync` waits without blocking the thread. The lock can be held across `await`, and sync and async callers of the same key exclude each other. A released lock goes to a waiting synchronous caller first, so on a key that synchronous callers lock without pause, an asynchronous caller can wait a long time. A cancelled wait throws `OperationCanceledException` and holds nothing:
+`LockAsync` waits for the key without blocking the thread, and the code inside the lock can await. Synchronous and asynchronous callers of the same key exclude each other. This method reserves stock and records the reservation in another service while it holds the lock:
 
 ```csharp
-using (await tree.LockAsync(key, cancellationToken))
+async Task<bool> TryReserveAsync(string sku, long quantity, CancellationToken cancellationToken)
 {
-    tree.TryGet(key, out var views);
-    await auditLog.WriteAsync(key, views + 1);
-    tree.Upsert(key, views + 1);
+    var key = $"stock:{sku}";
+    using (await tree.LockAsync(key, cancellationToken))
+    {
+        if (!tree.TryGet(key, out var stock) || stock < quantity)
+            return false;
+        await reservations.RecordAsync(sku, quantity, cancellationToken);
+        tree.Upsert(key, stock - quantity);
+        return true;
+    }
 }
 ```
 
-## Cost, and when a plain lock is faster
+A cancelled wait throws `OperationCanceledException` and holds nothing. `LockManyAsync` locks several keys the same way:
 
-The key locks are semaphores, because they serve sync and async callers alike and can be held across `await`. Measured uncontended, on one thread with .NET 10:
+```csharp
+using (await tree.LockManyAsync([from, to], cancellationToken))
+{
+    // Both keys are locked.
+}
+```
 
-| Operation | Time per call | Allocation |
+Take the lock with `LockAsync` or `LockManyAsync` whenever the code inside awaits. A lock from `Lock` or `TryLock` belongs to the thread that took it: while the code awaits, that thread runs other work, which gets a `LockRecursionException` if it locks the same key.
+
+## Give up after a timeout
+
+`TryLock` waits up to the timeout and returns `false` if the key is still locked. Then it holds nothing:
+
+```csharp
+bool TryIncrement(string key)
+{
+    if (!tree.TryLock(key, TimeSpan.FromMilliseconds(100), out var scope))
+        return false; // The key stayed busy. Try again later.
+    using (scope)
+    {
+        tree.TryGet(key, out var count);
+        tree.Upsert(key, count + 1);
+        return true;
+    }
+}
+```
+
+A zero timeout does not wait at all, and `Timeout.InfiniteTimeSpan` waits until the key is free.
+
+## How keys share locks
+
+A tree has a fixed number of locks, set by `LockStripeCount`: 1,024 by default. Each key takes one of them, chosen by the [key hasher](../concepts/key-ordering.mdx). Keys that the comparer considers equal always take the same lock, such as `"a"` and `"A"` under a case-insensitive comparer.
+
+Two different keys can also take the same lock. Then they wait for each other, which is still correct but slower. More locks make that rarer, for a little memory:
+
+| `LockStripeCount` | Chance that two keys share a lock | Memory once keys are locked |
 | --- | --- | --- |
-| `lock (object)` | ~14 ns | none |
-| `tree.Lock(key)` | ~35 ns | none |
-| `await tree.LockAsync(key)` | ~42 ns | none |
-| `tree.LockMany(a, b)` | ~75 ns | none |
-| `TryGet` and `Upsert`, for comparison | ~115 ns | none |
+| `1` | Always: one lock for every key. | One lock. |
+| `1024` (default) | 1 in 1,024. | About 64 KB. |
+| `16384` | 1 in 16,384. | About 1 MB. |
 
-When every writer of the keys is synchronous, a plain `lock` on your own objects is faster. Keep these rules, which `tree.Lock` handles for you:
-
-- Every writer of a key uses the same lock objects, so create them once per tree and share them.
-- Pick the lock with a hash that matches the comparer: keys the comparer considers equal must take the same lock.
-- A plain lock cannot be held across `await`.
-- Lock several keys in a fixed order, and take a shared lock once.
+The value is rounded up to a power of two. A tree that never locks a key uses no memory for locks.
 
 ```csharp
-// One lock object per stripe, shared by every writer of the tree.
-var locks = Enumerable.Range(0, 1024).Select(_ => new object()).ToArray();
-object LockOf(int key) => locks[(uint)key.GetHashCode() % (uint)locks.Length];
-
-lock (LockOf(key))
-{
-    tree.TryGet(key, out var count);
-    tree.Upsert(key, count + 1);
-}
+using var tree = new ZoneTreeFactory<string, long>()
+    .SetDataDirectory("data/key-lock-example")
+    .Configure(options => options.LockStripeCount = 16384)
+    .OpenOrCreate();
 ```
 
-Plain locks and key locks do not exclude each other, so use one of them for all writers of a key.
+Common key types have a key hasher built in. A custom key type needs a hasher that gives keys the comparer considers equal the same hash, as in [implementing a custom key type](../concepts/key-ordering.mdx#implement-a-custom-key-type), or a `LockStripeCount` of `1`. Opening the tree tells you when the hasher is missing, and for string keys it refuses a hasher that tells apart keys the comparer considers equal. Beyond that, ZoneTree cannot check your hasher: if it disagrees with the comparer, equal keys can take different locks and do not wait for each other.
 
 ## Rules
 
-- The lock is not reentrant. Locking a key whose lock the caller already holds, even a different key on the same stripe, waits forever. Lock all keys with one `LockMany` call.
-- Keep the locked section short. Other writers of keys on the same stripe wait for it.
-- Dispose the scope once. A copy of the scope holds the same locks.
-- A null key locks like any other key, through the key hasher. A null list of keys throws `ArgumentNullException`.
-- A tree whose key type has no key hasher needs `LockStripeCount` of `1`, or a configured `KeyHasher`. Opening the tree tells you which to set.
+- **The lock is not reentrant.** While a thread holds a key's lock, locking that key again, or a key that shares its lock, throws `LockRecursionException`. Code that holds a lock from `LockAsync` and locks the key again waits forever instead. Lock all the keys you need with one `LockMany` call.
+- **Await only inside an asynchronous lock.** Use `LockAsync` or `LockManyAsync` when the code inside the lock awaits.
+- **Keep the locked section short.** Other writers of the key, and of keys that share its lock, wait for it.
+- **Dispose each scope once.** Disposing it twice releases a lock that another caller may hold by then.
+- **Write the new value.** Changing a stored object in place is not a write. Build a replacement and write it with `Upsert`. See [value mutability](../concepts/value-mutability.mdx).
+- **The locks live in memory, in one tree object.** They do not coordinate other processes or other trees, and they are not saved with the data.
+- **A null key locks like any other key.** A null array or list of keys throws `ArgumentNullException`.
 
-## Replace mutable objects instead of changing them in place
+## Cost
 
-If `TValue` is a reference type, `TryGet` returns the stored object, not a copy. Changing its properties changes the stored value before any write, and another reader can see the change. Prefer immutable values: build a replacement, for a record with a `with` expression, and write it with `Upsert`. See [value mutability](../concepts/value-mutability.mdx).
+A key lock costs about as much as a `lock` statement, and much less than a `SemaphoreSlim` when callers wait asynchronously. Measured with .NET 11:
+
+| Lock | One thread | 8 threads on one key | Allocation |
+| --- | --- | --- | --- |
+| `lock` statement | ~16 ns | ~100 ns | none |
+| `tree.Lock(key)` | ~13 ns | ~86 ns | none |
+| `await semaphore.WaitAsync()` | ~32 ns | ~595 ns | 192 B per contended wait |
+| `await tree.LockAsync(key)` | ~24 ns | ~105 ns | none |
+
+One thread: taking and releasing a free lock. 8 threads: the time per increment when 8 threads increment one key, with `TryGet` and `Upsert` inside the lock.
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
-  <strong>Need more than one key to change together?</strong>
+  <strong>Need several keys to change together?</strong>
   <p>
-    Transactions add a commit boundary, conflict handling, and explicit retry
-    decisions for related keys in one tree.
+    A transaction commits related keys together, or not at all, and retries
+    when it conflicts.
   </p>
   <Flex wrap="true" class="gap-3"
     ><BtnLink
@@ -185,5 +252,5 @@ If `TValue` is a reference type, `TryGet` returns the stored object, not a copy.
       href="/docs/usage/reads-and-writes/"
       tone="neutral"
       variant="outline"
-      >Ordinary writes</BtnLink></Flex>
+      >Reads and writes</BtnLink></Flex>
 </Panel>

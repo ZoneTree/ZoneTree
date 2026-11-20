@@ -8,6 +8,7 @@ using ZoneTree.Segments;
 using ZoneTree.Segments.InMemory;
 using ZoneTree.Segments.NullDisk;
 using ZoneTree.Serializers;
+using ZoneTree.Threading;
 
 namespace ZoneTree.Core;
 
@@ -39,7 +40,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
   // and the snapshots of them that iterators and backups take.
   readonly Lock SegmentLock = new();
 
-  readonly KeyLocks<TKey> KeyLocks;
+  readonly KeyedLock<TKey> KeyLocks;
 
   /// <summary>
   /// The segment that follows the mutable one, already recorded in the meta WAL, or null.
@@ -174,7 +175,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     Options = options;
     MinHeapEntryComparer = new MinHeapEntryRefComparer<TKey, TValue>(options.Comparer);
     MaxHeapEntryComparer = new MaxHeapEntryRefComparer<TKey, TValue>(options.Comparer);
-    KeyLocks = new KeyLocks<TKey>(options.KeyHasher, options.LockStripeCount);
+    KeyLocks = new KeyedLock<TKey>(options.KeyHasher, options.LockStripeCount);
     MutableSegment = new MutableSegment<TKey, TValue>(
         options, IncrementalIdProvider.NextId(), new IncrementalIdProvider());
     IsDeleted = options.IsDeleted;
@@ -208,7 +209,7 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
     Options = options;
     MinHeapEntryComparer = new MinHeapEntryRefComparer<TKey, TValue>(options.Comparer);
     MaxHeapEntryComparer = new MaxHeapEntryRefComparer<TKey, TValue>(options.Comparer);
-    KeyLocks = new KeyLocks<TKey>(options.KeyHasher, options.LockStripeCount);
+    KeyLocks = new KeyedLock<TKey>(options.KeyHasher, options.LockStripeCount);
     MutableSegment = mutableSegment;
     DiskSegment = diskSegment;
     DiskSegment.DropFailureReporter = ReportDropFailure;

@@ -18,7 +18,7 @@ internal static class ZoneTreeOptionValidationRules
       Rule.Min(16);
 
   public static readonly Rule LockStripeCount =
-      Rule.Min(1).Max(Core.KeyLocks<object>.MaximumStripeCount);
+      Rule.Min(1).Max(Threading.KeyedLock<object>.MaximumStripeCount);
 
   public static readonly Rule WriteAheadLogCompressionBlockSize =
       Rule.MinKB(1).MaxMB(16);

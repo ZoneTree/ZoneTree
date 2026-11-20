@@ -2,6 +2,7 @@ using ZoneTree.Collections.BTree;
 using ZoneTree.Comparers;
 using ZoneTree.Logger;
 using ZoneTree.Serializers;
+using ZoneTree.Threading;
 
 namespace ZoneTree;
 
@@ -164,16 +165,27 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// considers equal share a lock, and different keys can share a lock too.
   /// </para>
   /// <para>
-  /// The lock is not reentrant: locking a key whose lock the caller already holds waits
-  /// forever. Lock several keys with one <see cref="LockMany(ReadOnlySpan{TKey})"/> call
-  /// instead. Sync and async callers exclude each other, and the lock can be held across
-  /// an await.
+  /// The lock is not reentrant. A thread that holds the lock of a key from this method or
+  /// <see cref="TryLock(in TKey, TimeSpan, out HybridLockScope)"/> and locks the key again,
+  /// synchronously or asynchronously, gets a <see cref="LockRecursionException"/>. A lock from
+  /// <see cref="LockAsync(TKey, CancellationToken)"/> has no thread, so locking its key again
+  /// waits forever. Lock several keys with one <see cref="LockMany(ReadOnlySpan{TKey})"/>
+  /// call instead.
   /// </para>
   /// <para>
-  /// The locks are semaphores, so an uncontended lock costs about twice a plain lock statement.
-  /// When every writer of the keys is synchronous, a plain lock on objects that all writers share
-  /// is faster. Plain locks and key locks do not exclude each other: use one of them for all
-  /// writers of a key.
+  /// Sync and async callers exclude each other and wait in one queue. A running caller can
+  /// take a freed lock before a woken waiter does, but a waiter that loses it for about a
+  /// millisecond gets it handed over, so no caller starves.
+  /// </para>
+  /// <para>
+  /// A lock from this method or <see cref="TryLock(in TKey, TimeSpan, out HybridLockScope)"/>
+  /// belongs to its thread. Code that awaits while it holds the lock takes it with
+  /// <see cref="LockAsync(TKey, CancellationToken)"/>: while it awaits, its thread runs other
+  /// code, which gets a <see cref="LockRecursionException"/> if it locks a key of the same lock.
+  /// </para>
+  /// <para>
+  /// A lock costs about as much as a plain lock statement, contended or not. Plain locks and
+  /// key locks do not exclude each other: use one of them for all writers of a key.
   /// </para>
   /// </remarks>
   /// <example>
@@ -187,7 +199,7 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// </example>
   /// <param name="key">The key to lock.</param>
   /// <returns>The scope that releases the lock when it is disposed.</returns>
-  KeyLockScope Lock(in TKey key);
+  HybridLockScope Lock(in TKey key);
 
   /// <summary>
   /// Locks the keys until the returned scope is disposed.
@@ -199,7 +211,7 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// </remarks>
   /// <param name="keys">The keys to lock.</param>
   /// <returns>The scope that releases the locks when it is disposed.</returns>
-  KeyLockScope LockMany(params ReadOnlySpan<TKey> keys);
+  HybridLockScope LockMany(params ReadOnlySpan<TKey> keys);
 
   /// <summary>
   /// Locks the keys until the returned scope is disposed. C# 13 and later choose
@@ -210,43 +222,91 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// <param name="keys">The keys to lock.</param>
   /// <returns>The scope that releases the locks when it is disposed.</returns>
   /// <exception cref="ArgumentNullException">The keys are null.</exception>
-  KeyLockScope LockMany(params TKey[] keys);
+  HybridLockScope LockMany(params TKey[] keys);
 
   /// <summary>
   /// Locks the key until the returned scope is disposed, if its lock is free within the timeout.
   /// See <see cref="Lock(in TKey)"/> for how the locks work.
   /// </summary>
   /// <param name="key">The key to lock.</param>
-  /// <param name="timeout">How long to wait for the lock. Zero does not wait.</param>
+  /// <param name="timeout">How long to wait for the lock, rounded up to whole milliseconds.
+  /// Zero does not wait, and <see cref="Timeout.InfiniteTimeSpan"/> waits until the lock is
+  /// free.</param>
   /// <param name="scope">The scope that releases the lock when it is disposed, or the default
   /// value, which holds nothing, if the timeout passed.</param>
   /// <returns>true if the key is locked; otherwise, false.</returns>
-  bool TryLock(in TKey key, TimeSpan timeout, out KeyLockScope scope);
+  /// <exception cref="ArgumentOutOfRangeException">The timeout is negative but not
+  /// <see cref="Timeout.InfiniteTimeSpan"/>, or longer than <see cref="int.MaxValue"/>
+  /// milliseconds.</exception>
+  bool TryLock(in TKey key, TimeSpan timeout, out HybridLockScope scope);
 
   /// <summary>
   /// Locks the key until the returned scope is disposed, without blocking the thread while
   /// it waits. See <see cref="Lock(in TKey)"/> for how the locks work.
   /// </summary>
   /// <remarks>
-  /// A released lock goes to a waiting synchronous caller first. On a key that synchronous
-  /// callers lock without pause, an asynchronous caller can wait a long time.
+  /// A held lock is often free again within microseconds, so the call spins for up to about
+  /// 23 microseconds before it waits without the thread.
   /// </remarks>
   /// <param name="key">The key to lock.</param>
   /// <param name="cancellationToken">Cancels the wait for the lock.</param>
   /// <returns>The scope that releases the lock when it is disposed.</returns>
   /// <exception cref="OperationCanceledException">The wait was cancelled, and nothing is locked.</exception>
-  ValueTask<KeyLockScope> LockAsync(TKey key, CancellationToken cancellationToken = default);
+  /// <exception cref="LockRecursionException">The thread holds a lock that the call would wait for,
+  /// from <see cref="Lock(in TKey)"/> or <see cref="TryLock(in TKey, TimeSpan, out HybridLockScope)"/>,
+  /// and nothing is locked.</exception>
+  ValueTask<HybridLockScope> LockAsync(TKey key, CancellationToken cancellationToken = default);
 
   /// <summary>
   /// Locks the keys until the returned scope is disposed, without blocking the thread while
   /// it waits. See <see cref="LockMany(ReadOnlySpan{TKey})"/> for how several keys are locked.
   /// </summary>
+  /// <remarks>
+  /// A collection expression such as <c>[a, b]</c> calls this overload, which needs no
+  /// collection for the keys. Holding more than two distinct locks allocates an array for them.
+  /// </remarks>
   /// <param name="keys">The keys to lock.</param>
   /// <param name="cancellationToken">Cancels the wait for the locks.</param>
   /// <returns>The scope that releases the locks when it is disposed.</returns>
   /// <exception cref="OperationCanceledException">The wait was cancelled, and nothing is locked.</exception>
+  /// <exception cref="LockRecursionException">The thread holds a lock that the call would wait for,
+  /// from <see cref="Lock(in TKey)"/> or <see cref="TryLock(in TKey, TimeSpan, out HybridLockScope)"/>,
+  /// and nothing is locked.</exception>
+  ValueTask<HybridLockScope> LockManyAsync(ReadOnlySpan<TKey> keys, CancellationToken cancellationToken = default);
+
+  /// <summary>
+  /// Locks the keys until the returned scope is disposed, without blocking the thread while
+  /// it waits. See <see cref="LockMany(ReadOnlySpan{TKey})"/> for how several keys are locked.
+  /// </summary>
+  /// <remarks>
+  /// An array calls this overload, which reads the keys in place.
+  /// </remarks>
+  /// <param name="keys">The keys to lock.</param>
+  /// <param name="cancellationToken">Cancels the wait for the locks.</param>
+  /// <returns>The scope that releases the locks when it is disposed.</returns>
+  /// <exception cref="OperationCanceledException">The wait was cancelled, and nothing is locked.</exception>
+  /// <exception cref="LockRecursionException">The thread holds a lock that the call would wait for,
+  /// from <see cref="Lock(in TKey)"/> or <see cref="TryLock(in TKey, TimeSpan, out HybridLockScope)"/>,
+  /// and nothing is locked.</exception>
   /// <exception cref="ArgumentNullException">The keys are null.</exception>
-  ValueTask<KeyLockScope> LockManyAsync(IEnumerable<TKey> keys, CancellationToken cancellationToken = default);
+  ValueTask<HybridLockScope> LockManyAsync(TKey[] keys, CancellationToken cancellationToken = default);
+
+  /// <summary>
+  /// Locks the keys until the returned scope is disposed, without blocking the thread while
+  /// it waits. See <see cref="LockMany(ReadOnlySpan{TKey})"/> for how several keys are locked.
+  /// </summary>
+  /// <remarks>
+  /// A list is read in place. Another sequence is copied to an array first.
+  /// </remarks>
+  /// <param name="keys">The keys to lock.</param>
+  /// <param name="cancellationToken">Cancels the wait for the locks.</param>
+  /// <returns>The scope that releases the locks when it is disposed.</returns>
+  /// <exception cref="OperationCanceledException">The wait was cancelled, and nothing is locked.</exception>
+  /// <exception cref="LockRecursionException">The thread holds a lock that the call would wait for,
+  /// from <see cref="Lock(in TKey)"/> or <see cref="TryLock(in TKey, TimeSpan, out HybridLockScope)"/>,
+  /// and nothing is locked.</exception>
+  /// <exception cref="ArgumentNullException">The keys are null.</exception>
+  ValueTask<HybridLockScope> LockManyAsync(IEnumerable<TKey> keys, CancellationToken cancellationToken = default);
 
   /// <summary>
   /// Counts Keys in the entire database.
