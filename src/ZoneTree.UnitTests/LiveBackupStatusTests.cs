@@ -473,6 +473,8 @@ public sealed class LiveBackupStatusTests
   }
   sealed class ErrorLogger : IZoneTreeLogger
   {
+    public ZoneTreeLogLevel Level { get; set; }
+
     public TaskCompletionSource ErrorObserved { get; } = Signal();
     public bool IsEnabled(ZoneTreeLogLevel level) => level == ZoneTreeLogLevel.Error;
     public void Log(ZoneTreeLogLevel level, string message, Exception exception = null)

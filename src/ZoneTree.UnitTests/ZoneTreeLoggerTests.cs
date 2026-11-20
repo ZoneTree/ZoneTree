@@ -49,31 +49,36 @@ public sealed class ZoneTreeLoggerTests
     Assert.That(((ConsoleLogger)factory.Options.Logger).Level, Is.EqualTo(ZoneTreeLogLevel.Trace));
   }
 
-  [Test]
-  public void SetLogLevelRefusesAnotherLogger()
-  {
-    var factory = new ZoneTreeFactory<int, int>().SetLogger(SilentTestLogger.Instance);
-    var exception = Assert.Throws<InvalidOperationException>(() => factory.SetLogLevel(ZoneTreeLogLevel.Trace));
-    Assert.That(exception.Message, Does.Contain("Set the level on that logger instead"));
-  }
-
   sealed class CountingLogger(ZoneTreeLogLevel level) : IZoneTreeLogger
   {
     public int Count;
 
-    public bool IsEnabled(ZoneTreeLogLevel entryLevel) => entryLevel >= level;
+    public ZoneTreeLogLevel Level { get; set; } = level;
+
+    public bool IsEnabled(ZoneTreeLogLevel entryLevel) => entryLevel != ZoneTreeLogLevel.None && entryLevel >= Level;
 
     public void Log(ZoneTreeLogLevel entryLevel, string message, Exception exception = null) => ++Count;
   }
 
   [Test]
-  public void TheShortCallsSkipEntriesTheLoggerDoesNotWrite()
+  public void SetLogLevelSetsTheLevelOfAnyLogger()
+  {
+    var logger = new CountingLogger(ZoneTreeLogLevel.Error);
+    new ZoneTreeFactory<int, int>().SetLogger(logger).SetLogLevel(ZoneTreeLogLevel.Info);
+    Assert.That(logger.Level, Is.EqualTo(ZoneTreeLogLevel.Info));
+  }
+
+  [Test]
+  public void TheShortCallsSkipEntriesBelowTheLevel()
   {
     var logger = new CountingLogger(ZoneTreeLogLevel.Error);
     logger.LogTrace("trace");
     logger.LogInfo("info");
     logger.LogWarning("warning");
     Assert.That(logger.Count, Is.Zero);
+    logger.LogError("error");
+    Assert.That(logger.Count, Is.EqualTo(1));
+    logger.Level = ZoneTreeLogLevel.None;
     logger.LogError("error");
     Assert.That(logger.Count, Is.EqualTo(1));
   }

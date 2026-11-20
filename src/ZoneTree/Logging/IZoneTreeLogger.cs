@@ -11,15 +11,24 @@ namespace ZoneTree.Logging;
 /// thread-safe.
 /// </para>
 /// <para>
-/// To send the entries to another logging library, implement the two members by forwarding
-/// them. <see cref="ZoneTreeLoggerExtensions"/> adds short calls for each level.
+/// An implementation keeps <see cref="Level"/>, answers <see cref="IsEnabled"/> from it, and
+/// writes the entries in <see cref="Log"/>. An implementation that forwards the entries to
+/// another logging library can also ask that library in <see cref="IsEnabled"/>.
+/// <see cref="ZoneTreeLoggerExtensions"/> adds short calls for each level.
 /// </para>
 /// </remarks>
 public interface IZoneTreeLogger
 {
   /// <summary>
-  /// Returns whether the logger writes entries of the level. ZoneTree asks before it builds
-  /// a message that costs something to build.
+  /// The least severe level the logger writes.
+  /// <see cref="ZoneTreeFactory{TKey, TValue}.SetLogLevel(ZoneTreeLogLevel)"/> sets it.
+  /// </summary>
+  ZoneTreeLogLevel Level { get; set; }
+
+  /// <summary>
+  /// Returns whether the logger writes entries of the level: usually whether the level is
+  /// <see cref="Level"/> or more severe, and not <see cref="ZoneTreeLogLevel.None"/>. ZoneTree
+  /// asks before it builds a message that costs something to build.
   /// </summary>
   /// <param name="level">The level of an entry.</param>
   /// <returns>true if the logger writes entries of the level; otherwise, false.</returns>

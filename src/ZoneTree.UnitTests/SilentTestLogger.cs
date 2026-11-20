@@ -8,6 +8,8 @@ namespace ZoneTree.UnitTests;
 /// </summary>
 internal sealed class SilentTestLogger : IZoneTreeLogger
 {
+  public ZoneTreeLogLevel Level { get; set; }
+
   public static readonly SilentTestLogger Instance = new();
 
   public bool IsEnabled(ZoneTreeLogLevel level) => false;

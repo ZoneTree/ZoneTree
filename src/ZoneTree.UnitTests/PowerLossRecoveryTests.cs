@@ -611,6 +611,8 @@ public sealed class PowerLossRecoveryTests
 
   sealed class RecordingLogger : IZoneTreeLogger
   {
+    public ZoneTreeLogLevel Level { get; set; }
+
     readonly List<string> Warnings = new();
 
     public string[] GetWarnings()

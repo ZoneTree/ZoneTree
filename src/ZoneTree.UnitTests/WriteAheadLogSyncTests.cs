@@ -412,6 +412,8 @@ public sealed class WriteAheadLogSyncTests
 
   sealed class ThrowingLogger : IZoneTreeLogger
   {
+    public ZoneTreeLogLevel Level { get; set; }
+
     public bool IsEnabled(ZoneTreeLogLevel level) => level >= ZoneTreeLogLevel.Warning;
 
     public void Log(ZoneTreeLogLevel level, string message, Exception exception = null)

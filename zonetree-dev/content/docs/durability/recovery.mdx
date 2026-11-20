@@ -57,7 +57,7 @@ For private WALs, `ReadLogEntries()` by itself only reports the result. The stan
 
 ## Capture diagnostics in your application
 
-A tree reports reader warnings and errors, and the failures of its background work, through its logger. The default `ConsoleLogger` writes warnings and errors to the standard error stream. Pass another `IZoneTreeLogger` to `SetLogger()`, or `SetLogLevel()` to change what the console logger writes. Also log `WriteAheadLogCorruptionException` from opening: its `Exceptions` dictionary carries checksum and other per-record failures.
+A tree reports reader warnings and errors, and the failures of its background work, through its logger. The default `ConsoleLogger` writes warnings and errors to the standard error stream. Pass another `IZoneTreeLogger` to `SetLogger()`, and `SetLogLevel()` to change the least severe level the logger writes. Also log `WriteAheadLogCorruptionException` from opening: its `Exceptions` dictionary carries checksum and other per-record failures.
 
 This integration example uses the built-in console logger for an existing database:
 
@@ -83,7 +83,7 @@ catch (WriteAheadLogCorruptionException error)
 }
 ```
 
-To send the entries to `Microsoft.Extensions.Logging`, forward the two members of `IZoneTreeLogger`. ZoneTree calls the logger from background threads, so an adapter must be thread-safe, as the loggers of `Microsoft.Extensions.Logging` are:
+To send the entries to `Microsoft.Extensions.Logging`, keep the level and forward the entries. The adapter also asks the logging library whether it writes a level, so ZoneTree does not build messages that the library's configuration filters out. ZoneTree calls the logger from background threads, so an adapter must be thread-safe, as the loggers of `Microsoft.Extensions.Logging` are:
 
 ```csharp
 using Microsoft.Extensions.Logging;
@@ -91,8 +91,10 @@ using ZoneTree.Logging;
 
 sealed class ZoneTreeLoggerAdapter(ILogger logger) : IZoneTreeLogger
 {
+    public ZoneTreeLogLevel Level { get; set; } = ZoneTreeLogLevel.Trace;
+
     public bool IsEnabled(ZoneTreeLogLevel level) =>
-        level != ZoneTreeLogLevel.None && logger.IsEnabled(ToLogLevel(level));
+        level != ZoneTreeLogLevel.None && level >= Level && logger.IsEnabled(ToLogLevel(level));
 
     public void Log(ZoneTreeLogLevel level, string message, Exception? exception = null) =>
         logger.Log(ToLogLevel(level), exception, "{Message}", message);

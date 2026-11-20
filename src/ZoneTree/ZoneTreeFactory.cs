@@ -71,18 +71,15 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   }
 
   /// <summary>
-  /// Sets the level of the built-in <see cref="ConsoleLogger"/>, which is the default logger.
+  /// Sets the level of the logger: the least severe level it writes. It sets the logger that
+  /// is set at the time, so call it after <see cref="SetLogger(IZoneTreeLogger)"/> to set the
+  /// level of your own logger.
   /// </summary>
   /// <param name="level">The least severe level to write.</param>
   /// <returns>ZoneTree Factory</returns>
-  /// <exception cref="InvalidOperationException">The logger is not a <see cref="ConsoleLogger"/>.</exception>
   public ZoneTreeFactory<TKey, TValue> SetLogLevel(ZoneTreeLogLevel level)
   {
-    if (Options.Logger is not ConsoleLogger consoleLogger)
-      throw new InvalidOperationException(
-          "SetLogLevel sets the level of the built-in ConsoleLogger, and the tree has another " +
-          "logger. Set the level on that logger instead.");
-    consoleLogger.Level = level;
+    Options.Logger.Level = level;
     return this;
   }
 

@@ -427,6 +427,7 @@ public static class CrashWorkload
 
   sealed class SilentLogger : IZoneTreeLogger
   {
+    public ZoneTreeLogLevel Level { get; set; }
     public bool IsEnabled(ZoneTreeLogLevel level) => false;
 
     public void Log(ZoneTreeLogLevel level, string message, Exception exception = null) { }

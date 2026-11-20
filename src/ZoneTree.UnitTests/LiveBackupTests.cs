@@ -1136,6 +1136,8 @@ public sealed class LiveBackupTests
 
   sealed class NullLogger : IZoneTreeLogger
   {
+    public ZoneTreeLogLevel Level { get; set; }
+
     readonly List<Exception> ErrorList = [];
 
     public Exception[] Errors => [.. ErrorList];

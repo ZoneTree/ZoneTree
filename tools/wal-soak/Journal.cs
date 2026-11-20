@@ -24,6 +24,7 @@ static class Json
 
 sealed class Wire : IZoneTreeLogger
 {
+  public ZoneTreeLogLevel Level { get; set; }
   readonly object sync = new();
   public void Send(Message message)
   {
