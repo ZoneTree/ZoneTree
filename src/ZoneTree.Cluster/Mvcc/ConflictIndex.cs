@@ -1,5 +1,4 @@
-using ZoneTree.Collections.BTree;
-using ZoneTree.Collections.BTree.Lock;
+using ZoneTree.Collections;
 using ZoneTree.Comparers;
 
 namespace ZoneTree.Cluster;
@@ -51,7 +50,7 @@ internal sealed class ConflictIndex<TKey>
 
   sealed class Generation(IRefComparer<TKey> comparer, long newestCommit)
   {
-    public readonly BTree<TKey, long> Keys = new(comparer, BTreeLockMode.NodeLevelMonitor);
+    public readonly BPlusTree<TKey, long> Keys = new(comparer, BPlusTreeLockMode.NodeLevelMonitor);
 
     public volatile Batch RecentBatch;
 
@@ -93,7 +92,7 @@ internal sealed class ConflictIndex<TKey>
         var countBatch = batch != null && batch.Timestamp > horizon;
         if (countBatch)
           count += batch.Keys.Length;
-        var iterator = new BTreeSeekableIterator<TKey, long>(generation.Keys);
+        var iterator = new BPlusTreeSeekableIterator<TKey, long>(generation.Keys);
         for (var found = iterator.SeekBegin(); found; found = iterator.Next())
         {
           var key = iterator.CurrentKey;
@@ -155,7 +154,7 @@ internal sealed class ConflictIndex<TKey>
     var batch = generation.RecentBatch;
     if (batch != null && batch.Timestamp > timestamp && HasKeyInRange(batch.Keys, in range))
       return true;
-    var iterator = new BTreeSeekableIterator<TKey, long>(generation.Keys);
+    var iterator = new BPlusTreeSeekableIterator<TKey, long>(generation.Keys);
     var found = range.HasLow ?
         iterator.SeekToFirstGreaterOrEqualElement(in range.Low) :
         iterator.SeekBegin();
@@ -307,7 +306,7 @@ internal sealed class ConflictIndex<TKey>
     var merged = new Generation(Comparer, Volatile.Read(ref run[^1].NewestCommit));
     foreach (var generation in run)
     {
-      var iterator = new BTreeSeekableIterator<TKey, long>(generation.Keys);
+      var iterator = new BPlusTreeSeekableIterator<TKey, long>(generation.Keys);
       for (var found = iterator.SeekBegin(); found; found = iterator.Next())
       {
         var commitTimestamp = iterator.CurrentValue;

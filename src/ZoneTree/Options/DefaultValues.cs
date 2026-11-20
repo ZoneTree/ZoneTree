@@ -1,5 +1,5 @@
 using System.Collections.ObjectModel;
-using ZoneTree.Collections.BTree.Lock;
+using ZoneTree.Collections;
 
 namespace ZoneTree.Options;
 
@@ -11,11 +11,11 @@ public static class DefaultValues
 
   public static readonly int DiskSegmentMaxItemCount = 20_000_000;
 
-  public static readonly BTreeLockMode BTreeLockMode = BTreeLockMode.NodeLevelMonitor;
+  public static readonly BPlusTreeLockMode BPlusTreeLockMode = BPlusTreeLockMode.NodeLevelMonitor;
 
-  public static readonly int BTreeNodeSize = 128;
+  public static readonly int BPlusTreeNodeSize = 128;
 
-  public static readonly int BTreeLeafSize = 128;
+  public static readonly int BPlusTreeLeafSize = 128;
 
   public static readonly int LockStripeCount = 1024;
 }

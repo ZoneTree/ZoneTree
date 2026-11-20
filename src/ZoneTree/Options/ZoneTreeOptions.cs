@@ -1,5 +1,5 @@
+using ZoneTree.Collections;
 using ZoneTree.WAL;
-using ZoneTree.Collections.BTree.Lock;
 using ZoneTree.Logger;
 using ZoneTree.Serializers;
 using ZoneTree.Comparers;
@@ -162,22 +162,22 @@ public sealed class ZoneTreeOptions<TKey, TValue>
   public DiskSegmentOptions DiskSegmentOptions { get; set; } = new();
 
   /// <summary>
-  /// Controls lock granularity of in-memory BTree that represents the
+  /// Controls lock granularity of in-memory BPlusTree that represents the
   /// mutable segment.
   /// </summary>
-  public BTreeLockMode BTreeLockMode { get; set; } = DefaultValues.BTreeLockMode;
+  public BPlusTreeLockMode BPlusTreeLockMode { get; set; } = DefaultValues.BPlusTreeLockMode;
 
   /// <summary>
   /// The B+Tree node size.
   /// Larger values can reduce tree height, but each node holds more keys in memory.
   /// </summary>
-  public int BTreeNodeSize { get; set; } = DefaultValues.BTreeNodeSize;
+  public int BPlusTreeNodeSize { get; set; } = DefaultValues.BPlusTreeNodeSize;
 
   /// <summary>
   /// The B+Tree leaf size.
   /// Larger values can improve scan locality, but each leaf holds more records in memory.
   /// </summary>
-  public int BTreeLeafSize { get; set; } = DefaultValues.BTreeLeafSize;
+  public int BPlusTreeLeafSize { get; set; } = DefaultValues.BPlusTreeLeafSize;
 
   /// <summary>
   /// The number of locks that <see cref="IZoneTree{TKey, TValue}.Lock(in TKey)"/> chooses from.

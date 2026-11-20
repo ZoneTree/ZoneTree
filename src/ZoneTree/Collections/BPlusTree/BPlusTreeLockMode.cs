@@ -1,10 +1,10 @@
-namespace ZoneTree.Collections.BTree.Lock;
+namespace ZoneTree.Collections;
 
 /// <summary>
-/// Available BTree lock modes.
+/// Available BPlusTree lock modes.
 /// </summary>
 /// <remarks>
-/// The 3M shuffled parallel inserts and reads test results per BTree lock mode.
+/// The 3M shuffled parallel inserts and reads test results per BPlusTree lock mode.
 /// The best lock mode might change depend on your hardware, data, key length etc.
 /// 
 /// |                Method |    Mean | Error |     Min |     Max |  Median |      Gen 0 |     Gen 1 |     Gen 2 | Allocated |
@@ -14,7 +14,7 @@ namespace ZoneTree.Collections.BTree.Lock;
 /// |      NodeLevelMonitor | 2.067 s |    NA | 2.067 s | 2.067 s | 2.067 s | 12000.0000 | 7000.0000 | 2000.0000 |     71 MB |
 /// | NodeLevelReaderWriter | 3.608 s |    NA | 3.608 s | 3.608 s | 3.608 s | 10000.0000 | 5000.0000 |         - |     74 MB |
 /// </remarks>
-public enum BTreeLockMode
+public enum BPlusTreeLockMode
 {
   /// <summary>
   /// There is no locking at all.

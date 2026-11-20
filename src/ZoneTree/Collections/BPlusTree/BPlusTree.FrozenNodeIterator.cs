@@ -1,8 +1,8 @@
 using ZoneTree.Comparers;
 
-namespace ZoneTree.Collections.BTree;
+namespace ZoneTree.Collections;
 
-public sealed partial class BTree<TKey, TValue>
+public sealed partial class BPlusTree<TKey, TValue>
 {
   public sealed class FrozenNodeIterator
   {

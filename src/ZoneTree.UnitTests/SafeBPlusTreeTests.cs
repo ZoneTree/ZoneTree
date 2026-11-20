@@ -1,27 +1,25 @@
 using ZoneTree.Collections;
-using ZoneTree.Collections.BTree;
-using ZoneTree.Collections.BTree.Lock;
 using ZoneTree.Comparers;
 using ZoneTree.Core;
 
 namespace ZoneTree.UnitTests;
 
-public sealed class SafeBTreeTests
+public sealed class SafeBPlusTreeTests
 {
-  [TestCase(BTreeLockMode.NoLock)]
-  [TestCase(BTreeLockMode.TopLevelReaderWriter)]
-  [TestCase(BTreeLockMode.TopLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  public void BTreeIteration(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NoLock)]
+  [TestCase(BPlusTreeLockMode.TopLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.TopLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  public void BPlusTreeIteration(BPlusTreeLockMode lockMode)
   {
     var n = 2000;
-    var tree = new BTree<int, int>(
+    var tree = new BPlusTree<int, int>(
         new Int32ComparerAscending(), lockMode);
     for (var i = 0; i < n; ++i)
       tree.TryInsert(i, i + i, out _);
 
-    var iterator = new BTreeSeekableIterator<int, int>(tree);
+    var iterator = new BPlusTreeSeekableIterator<int, int>(tree);
     var j = 0;
     while (iterator.Next())
     {
@@ -41,20 +39,20 @@ public sealed class SafeBTreeTests
 
   }
 
-  [TestCase(BTreeLockMode.NoLock)]
-  [TestCase(BTreeLockMode.TopLevelReaderWriter)]
-  [TestCase(BTreeLockMode.TopLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  public void SafeBTreeIteration2(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NoLock)]
+  [TestCase(BPlusTreeLockMode.TopLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.TopLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  public void SafeBPlusTreeIteration2(BPlusTreeLockMode lockMode)
   {
     var n = 3;
-    var tree = new BTree<int, int>(
+    var tree = new BPlusTree<int, int>(
         new Int32ComparerAscending(), lockMode);
     for (var i = 0; i < n; ++i)
       tree.TryInsert(i, i + i, out _);
 
-    var iterator = new BTreeSeekableIterator<int, int>(tree);
+    var iterator = new BPlusTreeSeekableIterator<int, int>(tree);
     iterator.SeekEnd();
     for (var i = n - 1; i >= 0; --i)
     {
@@ -73,19 +71,19 @@ public sealed class SafeBTreeTests
     Assert.That(iterator.Next(), Is.False);
   }
 
-  [TestCase(BTreeLockMode.NoLock)]
-  [TestCase(BTreeLockMode.TopLevelReaderWriter)]
-  [TestCase(BTreeLockMode.TopLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  public void BTreeLowerOrEqualBound(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NoLock)]
+  [TestCase(BPlusTreeLockMode.TopLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.TopLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  public void BPlusTreeLowerOrEqualBound(BPlusTreeLockMode lockMode)
   {
     int n = 10;
-    var tree = new BTree<int, int>(
+    var tree = new BPlusTree<int, int>(
         new Int32ComparerAscending(), lockMode);
     for (var i = 1; i < n; i += 2)
       tree.TryInsert(i, i, out _);
-    var iterator = new BTreeSeekableIterator<int, int>(tree);
+    var iterator = new BPlusTreeSeekableIterator<int, int>(tree);
     Assert.Multiple(() =>
     {
       // 1 3 5 7 9
@@ -118,18 +116,18 @@ public sealed class SafeBTreeTests
   }
 
   [Test]
-  public void FrozenBTreeSeekPastTheLastKeyOfALeaf()
+  public void FrozenBPlusTreeSeekPastTheLastKeyOfALeaf()
   {
     // Splits leave leaves partly filled. A key greater than every key of the
     // leaf it routes to must continue in the next leaf.
     var n = 2000;
-    var tree = new BTree<int, int>(
-        new Int32ComparerAscending(), BTreeLockMode.NodeLevelMonitor);
+    var tree = new BPlusTree<int, int>(
+        new Int32ComparerAscending(), BPlusTreeLockMode.NodeLevelMonitor);
     for (var i = 0; i < n; ++i)
       tree.TryInsert(i * 2, i, out _);
     tree.SetTreeReadOnlyAndLockFree();
 
-    var iterator = new FrozenBTreeSeekableIterator<int, int>(tree);
+    var iterator = new FrozenBPlusTreeSeekableIterator<int, int>(tree);
     for (var key = -1; key < n * 2 - 1; key += 2)
     {
       Assert.That(iterator.SeekToFirstGreaterOrEqualElement(in key), Is.True, $"seek {key}");
@@ -143,8 +141,8 @@ public sealed class SafeBTreeTests
   [TestCase(3)]
   public void SmallestNodesSplitCorrectly(int size)
   {
-    var tree = new BTree<int, int>(
-        new Int32ComparerAscending(), BTreeLockMode.NodeLevelReaderWriter,
+    var tree = new BPlusTree<int, int>(
+        new Int32ComparerAscending(), BPlusTreeLockMode.NodeLevelReaderWriter,
         nodeSize: size, leafSize: size);
     var keys = Enumerable.Range(0, 1000).ToArray();
     new Random(size).Shuffle(keys);
@@ -152,7 +150,7 @@ public sealed class SafeBTreeTests
       tree.Upsert(key, key, out _);
     tree.Validate();
     tree.ValidateLeafs();
-    var iterator = new BTreeSeekableIterator<int, int>(tree);
+    var iterator = new BPlusTreeSeekableIterator<int, int>(tree);
     for (var key = 0; key < keys.Length; ++key)
     {
       Assert.That(iterator.Next(), Is.True);
@@ -166,9 +164,9 @@ public sealed class SafeBTreeTests
   {
     var comparer = new Int32ComparerAscending();
     Assert.Throws<ArgumentOutOfRangeException>(() =>
-        new BTree<int, int>(comparer, BTreeLockMode.NoLock, nodeSize: 1));
+        new BPlusTree<int, int>(comparer, BPlusTreeLockMode.NoLock, nodeSize: 1));
     Assert.Throws<ArgumentOutOfRangeException>(() =>
-        new BTree<int, int>(comparer, BTreeLockMode.NoLock, leafSize: 1));
+        new BPlusTree<int, int>(comparer, BPlusTreeLockMode.NoLock, leafSize: 1));
   }
 
   [TestCase(false, 0)]
@@ -179,16 +177,16 @@ public sealed class SafeBTreeTests
   {
     // As in the indexed iterators, a failed forward seek ends after the last
     // key, and a failed reverse seek before the first key.
-    var tree = new BTree<int, int>(
-        new Int32ComparerAscending(), BTreeLockMode.NodeLevelReaderWriter,
+    var tree = new BPlusTree<int, int>(
+        new Int32ComparerAscending(), BPlusTreeLockMode.NodeLevelReaderWriter,
         nodeSize: 4, leafSize: 4);
     for (var i = 0; i < count; ++i)
       tree.Upsert(i, i, out _);
     if (isFrozen)
       tree.SetTreeReadOnlyAndLockFree();
     ISeekableIterator<int, int> iterator = isFrozen
-        ? new FrozenBTreeSeekableIterator<int, int>(tree)
-        : new BTreeSeekableIterator<int, int>(tree);
+        ? new FrozenBPlusTreeSeekableIterator<int, int>(tree)
+        : new BPlusTreeSeekableIterator<int, int>(tree);
     var hasKeys = count > 0;
 
     var afterLast = count;
@@ -210,29 +208,29 @@ public sealed class SafeBTreeTests
       Assert.That(iterator.CurrentKey, Is.EqualTo(0));
   }
 
-  int GetLastNodeSmallerOrEqual(BTreeSeekableIterator<int, int> iterator, int key)
+  int GetLastNodeSmallerOrEqual(BPlusTreeSeekableIterator<int, int> iterator, int key)
   {
     iterator.SeekToLastSmallerOrEqualElement(in key);
     return iterator.CurrentKey;
   }
 
-  int GetFirstNodeGreaterOrEqual(BTreeSeekableIterator<int, int> iterator, int key)
+  int GetFirstNodeGreaterOrEqual(BPlusTreeSeekableIterator<int, int> iterator, int key)
   {
     iterator.SeekToFirstGreaterOrEqualElement(in key);
     return iterator.CurrentKey;
   }
 
-  [TestCase(BTreeLockMode.TopLevelReaderWriter)]
-  [TestCase(BTreeLockMode.TopLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  public void BTreeIteratorParallelInserts(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.TopLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.TopLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  public void BPlusTreeIteratorParallelInserts(BPlusTreeLockMode lockMode)
   {
     var random = Random.Shared;
     var insertCount = 100000;
     var iteratorCount = 1000;
 
-    var tree = new BTree<int, int>(
+    var tree = new BPlusTree<int, int>(
         new Int32ComparerAscending(), lockMode);
 
     var task = Task.Factory.StartNew(() =>
@@ -255,7 +253,7 @@ public sealed class SafeBTreeTests
     Parallel.For(0, iteratorCount, (x) =>
     {
       var initialCount = tree.Length;
-      var iterator = new BTreeSeekableIterator<int, int>(tree);
+      var iterator = new BPlusTreeSeekableIterator<int, int>(tree);
       var counter = 0;
       var isValidData = true;
       while (iterator.Next())
@@ -275,17 +273,17 @@ public sealed class SafeBTreeTests
     task.Wait();
   }
 
-  [TestCase(BTreeLockMode.TopLevelReaderWriter)]
-  [TestCase(BTreeLockMode.TopLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  public void BTreeReverseIteratorParallelInserts(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.TopLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.TopLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  public void BPlusTreeReverseIteratorParallelInserts(BPlusTreeLockMode lockMode)
   {
     var random = Random.Shared;
     var insertCount = 100000;
     var iteratorCount = 1550;
 
-    var tree = new BTree<int, int>(
+    var tree = new BPlusTree<int, int>(
         new Int32ComparerAscending(), lockMode);
 
     var task = Task.Factory.StartNew(() =>
@@ -307,7 +305,7 @@ public sealed class SafeBTreeTests
     Parallel.For(0, iteratorCount, (x) =>
     {
       var initialCount = tree.Length;
-      var iterator = new BTreeSeekableIterator<int, int>(tree);
+      var iterator = new BPlusTreeSeekableIterator<int, int>(tree);
       var counter = iterator.SeekEnd() ? 1 : 0;
       var isValidData = true;
       while (iterator.Prev())
@@ -336,17 +334,17 @@ public sealed class SafeBTreeTests
     task.Wait();
   }
 
-  [TestCase(BTreeLockMode.TopLevelReaderWriter)]
-  [TestCase(BTreeLockMode.TopLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  public void IntIntDuplicateRecords(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.TopLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.TopLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  public void IntIntDuplicateRecords(BPlusTreeLockMode lockMode)
   {
     var random = Random.Shared;
     var insertCount = 1000000;
     var iteratorCount = 1000;
 
-    var tree = new BTree<int, int>(new Int32ComparerAscending(), lockMode);
+    var tree = new BPlusTree<int, int>(new Int32ComparerAscending(), lockMode);
     var task = Task.Run(() =>
     {
       Parallel.For(0, insertCount, (x) =>
@@ -359,7 +357,7 @@ public sealed class SafeBTreeTests
     Parallel.For(0, iteratorCount, (x) =>
     {
       var initialCount = tree.Length;
-      var iterator = new BTreeSeekableIterator<int, int>(tree);
+      var iterator = new BPlusTreeSeekableIterator<int, int>(tree);
       var counter = iterator.SeekBegin() ? 1 : 0;
       var isValidData = true;
       var previousKey = int.MinValue;
@@ -380,17 +378,17 @@ public sealed class SafeBTreeTests
     task.Wait();
   }
 
-  [TestCase(BTreeLockMode.TopLevelReaderWriter)]
-  [TestCase(BTreeLockMode.TopLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  public void IntIntDuplicateReverseRecords(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.TopLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.TopLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  public void IntIntDuplicateReverseRecords(BPlusTreeLockMode lockMode)
   {
     var random = Random.Shared;
     var insertCount = 1000000;
     var iteratorCount = 1000;
 
-    var tree = new BTree<int, int>(new Int32ComparerAscending(), lockMode);
+    var tree = new BPlusTree<int, int>(new Int32ComparerAscending(), lockMode);
     var task = Task.Run(() =>
     {
       Parallel.For(0, insertCount, (x) =>
@@ -403,7 +401,7 @@ public sealed class SafeBTreeTests
     Parallel.For(0, iteratorCount, (x) =>
     {
       var initialCount = tree.Length;
-      var iterator = new BTreeSeekableIterator<int, int>(tree);
+      var iterator = new BPlusTreeSeekableIterator<int, int>(tree);
       var counter = iterator.SeekEnd() ? 1 : 0;
       var isValidData = true;
       var previousKey = int.MaxValue;
@@ -425,12 +423,12 @@ public sealed class SafeBTreeTests
   }
 
   [Test]
-  public void BTreeValidation()
+  public void BPlusTreeValidation()
   {
     var n = 2000;
-    var tree = new BTree<int, int>(
+    var tree = new BPlusTree<int, int>(
         new Int32ComparerAscending(),
-        BTreeLockMode.NoLock,
+        BPlusTreeLockMode.NoLock,
         new IncrementalIdProvider(),
         32, 32);
     for (var i = 0; i < n; ++i)

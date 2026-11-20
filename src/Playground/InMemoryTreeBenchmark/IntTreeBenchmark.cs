@@ -30,7 +30,7 @@ public class IntTreeBenchmark
   int[] Data = Array.Empty<int>();
 
   [Benchmark]
-  public void InsertBTree() => RandomIntInserts.InsertBTree(Data);
+  public void InsertBPlusTree() => RandomIntInserts.InsertBPlusTree(Data);
 
   [Benchmark]
   public void InsertSortedDictionary() => RandomIntInserts.InsertSortedDictionary(Data);

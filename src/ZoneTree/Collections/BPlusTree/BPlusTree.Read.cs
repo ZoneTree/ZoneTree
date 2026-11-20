@@ -1,6 +1,6 @@
-using ZoneTree.Collections.BTree.Lock;
+using ZoneTree.Collections.BPlusTreeLocks;
 
-namespace ZoneTree.Collections.BTree;
+namespace ZoneTree.Collections;
 
 /// <summary>
 /// In memory B+Tree.
@@ -8,7 +8,7 @@ namespace ZoneTree.Collections.BTree;
 /// </summary>
 /// <typeparam name="TKey">Key Type</typeparam>
 /// <typeparam name="TValue">Value Type</typeparam>
-public sealed partial class BTree<TKey, TValue>
+public sealed partial class BPlusTree<TKey, TValue>
 {
   // Writes are short and a leaf rarely changes twice during a read, so a read
   // that fails this many times is competing with a stalled or very busy writer.
@@ -228,7 +228,7 @@ public sealed partial class BTree<TKey, TValue>
   }
 
   /// <summary>
-  /// Converts BTree to lock-free BTree by removing top level locks and
+  /// Converts BPlusTree to lock-free BPlusTree by removing top level locks and
   /// all locks from nodes. It is caller's responsibility
   /// to not to modify the tree after this method is called.
   /// It is also caller's responsibility to ensure all ongoing writes

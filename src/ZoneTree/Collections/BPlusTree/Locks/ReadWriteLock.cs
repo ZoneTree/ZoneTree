@@ -1,4 +1,4 @@
-namespace ZoneTree.Collections.BTree.Lock;
+namespace ZoneTree.Collections.BPlusTreeLocks;
 
 #pragma warning disable CA1001
 

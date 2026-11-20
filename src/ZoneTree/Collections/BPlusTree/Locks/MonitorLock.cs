@@ -1,6 +1,6 @@
-namespace ZoneTree.Collections.BTree.Lock;
+namespace ZoneTree.Collections.BPlusTreeLocks;
 
-[System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2002:Do not lock on objects with weak identity", Justification = "Best memory footprint for BTree nodes. Avoid allocation of a new lock object per BTree node.")]
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2002:Do not lock on objects with weak identity", Justification = "Best memory footprint for BPlusTree nodes. Avoid allocation of a new lock object per BPlusTree node.")]
 public sealed class MonitorLock : ILocker
 {
   // Nodes are held very briefly, so writers on the same leaf get it sooner by

@@ -1,4 +1,4 @@
-namespace ZoneTree.Collections.BTree.Lock;
+namespace ZoneTree.Collections.BPlusTreeLocks;
 
 public sealed class NoLock : ILocker
 {

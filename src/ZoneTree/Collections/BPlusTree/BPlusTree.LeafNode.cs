@@ -1,8 +1,8 @@
-using ZoneTree.Collections.BTree.Lock;
+using ZoneTree.Collections.BPlusTreeLocks;
 
-namespace ZoneTree.Collections.BTree;
+namespace ZoneTree.Collections;
 
-public sealed partial class BTree<TKey, TValue>
+public sealed partial class BPlusTree<TKey, TValue>
 {
   public sealed class LeafNode : Node
   {
@@ -61,7 +61,7 @@ public sealed partial class BTree<TKey, TValue>
     /// iterators created at the same time do not queue on the leaf's lock. A copy that a concurrent change may have
     /// torn is discarded. Only a leaf that writers keep changing is copied under its lock.
     /// </summary>
-    public NodeIterator GetIterator(BTree<TKey, TValue> tree)
+    public NodeIterator GetIterator(BPlusTree<TKey, TValue> tree)
     {
       var spinWait = new SpinWait();
       for (var i = 0; i < MaximumOptimisticReadCount; ++i)

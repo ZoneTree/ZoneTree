@@ -502,9 +502,9 @@ public sealed partial class ZoneTree<TKey, TValue> : IZoneTree<TKey, TValue>, IZ
 
     var clone = new ZoneTreeOptions<TKey, TValue>()
     {
-      BTreeLeafSize = options.BTreeLeafSize,
-      BTreeLockMode = options.BTreeLockMode,
-      BTreeNodeSize = options.BTreeNodeSize,
+      BPlusTreeLeafSize = options.BPlusTreeLeafSize,
+      BPlusTreeLockMode = options.BPlusTreeLockMode,
+      BPlusTreeNodeSize = options.BPlusTreeNodeSize,
       Comparer = options.Comparer,
       AllowUnsafeOptionValues = options.AllowUnsafeOptionValues,
       DiskSegmentMaxItemCount = options.DiskSegmentMaxItemCount,

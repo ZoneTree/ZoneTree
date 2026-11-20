@@ -1,20 +1,19 @@
-using ZoneTree.Collections.BTree;
-using ZoneTree.Collections.BTree.Lock;
+using ZoneTree.Collections;
 using ZoneTree.Comparers;
 
 namespace ZoneTree.UnitTests;
 
-public sealed class BTreeConcurrentLeafWriteTests
+public sealed class BPlusTreeConcurrentLeafWriteTests
 {
-  [TestCase(BTreeLockMode.NodeLevelMonitor, 4)]
-  [TestCase(BTreeLockMode.NodeLevelMonitor, 32)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter, 4)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter, 32)]
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor, 4)]
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor, 32)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter, 4)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter, 32)]
   public async Task ParallelLeafWritesPreserveBothIteratorDirections(
-      BTreeLockMode lockMode, int nodeSize)
+      BPlusTreeLockMode lockMode, int nodeSize)
   {
     const int count = 20_000;
-    var tree = new BTree<int, long>(new Int32ComparerAscending(), lockMode,
+    var tree = new BPlusTree<int, long>(new Int32ComparerAscending(), lockMode,
         nodeSize: nodeSize, leafSize: nodeSize);
     for (var key = 0; key < count; key += 4)
       tree.Upsert(key, Value(key), out _);
@@ -58,7 +57,7 @@ public sealed class BTreeConcurrentLeafWriteTests
       do
       {
         var minimumCount = tree.Length;
-        var iterator = new BTreeSeekableIterator<int, long>(tree);
+        var iterator = new BPlusTreeSeekableIterator<int, long>(tree);
         var found = reverse ? iterator.SeekEnd() : iterator.SeekBegin();
         var previous = reverse ? int.MaxValue : int.MinValue;
         var seen = 0;
@@ -89,12 +88,12 @@ public sealed class BTreeConcurrentLeafWriteTests
     }
   }
 
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  public void ConcurrentAtomicUpdatesSurviveRootAndLeafReplacement(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  public void ConcurrentAtomicUpdatesSurviveRootAndLeafReplacement(BPlusTreeLockMode lockMode)
   {
     const int count = 20_000;
-    var tree = new BTree<int, int>(new Int32ComparerAscending(), lockMode,
+    var tree = new BPlusTree<int, int>(new Int32ComparerAscending(), lockMode,
         nodeSize: 4, leafSize: 4);
     tree.Upsert(-1, 0, out _);
     Parallel.For(0, count, new ParallelOptions { MaxDegreeOfParallelism = 8 }, key =>
@@ -110,11 +109,11 @@ public sealed class BTreeConcurrentLeafWriteTests
     tree.ValidateLeafs();
   }
 
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  public async Task ThrowingCallbacksReleaseAFullLeafForOtherWriters(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  public async Task ThrowingCallbacksReleaseAFullLeafForOtherWriters(BPlusTreeLockMode lockMode)
   {
-    var tree = new BTree<int, int>(new Int32ComparerAscending(), lockMode,
+    var tree = new BPlusTree<int, int>(new Int32ComparerAscending(), lockMode,
         nodeSize: 4, leafSize: 4);
     for (var key = 0; key < 4; ++key)
       tree.Upsert(key, key, out _);
@@ -133,15 +132,15 @@ public sealed class BTreeConcurrentLeafWriteTests
 
   static long Value(int key) => 7L * key + 1;
 
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  [TestCase(BTreeLockMode.TopLevelMonitor)]
-  [TestCase(BTreeLockMode.TopLevelReaderWriter)]
-  public async Task ThrowingInsertionCallbacksReleaseSplitLocks(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.TopLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.TopLevelReaderWriter)]
+  public async Task ThrowingInsertionCallbacksReleaseSplitLocks(BPlusTreeLockMode lockMode)
   {
     foreach (var useAdder in new[] { false, true })
     {
-      var tree = new BTree<int, int>(new Int32ComparerAscending(), lockMode,
+      var tree = new BPlusTree<int, int>(new Int32ComparerAscending(), lockMode,
           nodeSize: 4, leafSize: 4);
       for (var key = 0; key < 4; ++key)
         tree.Upsert(key, key, out _);
@@ -163,13 +162,13 @@ public sealed class BTreeConcurrentLeafWriteTests
     }
   }
 
-  [TestCase(BTreeLockMode.NodeLevelMonitor)]
-  [TestCase(BTreeLockMode.NodeLevelReaderWriter)]
-  [TestCase(BTreeLockMode.TopLevelMonitor)]
-  [TestCase(BTreeLockMode.TopLevelReaderWriter)]
-  public async Task ThrowingCallbacksBelowTheRootReleaseTheLeaf(BTreeLockMode lockMode)
+  [TestCase(BPlusTreeLockMode.NodeLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.NodeLevelReaderWriter)]
+  [TestCase(BPlusTreeLockMode.TopLevelMonitor)]
+  [TestCase(BPlusTreeLockMode.TopLevelReaderWriter)]
+  public async Task ThrowingCallbacksBelowTheRootReleaseTheLeaf(BPlusTreeLockMode lockMode)
   {
-    var tree = new BTree<int, int>(new Int32ComparerAscending(), lockMode,
+    var tree = new BPlusTree<int, int>(new Int32ComparerAscending(), lockMode,
         nodeSize: 4, leafSize: 4);
     for (var key = 0; key < 64; key += 2)
       tree.Upsert(key, key, out _);

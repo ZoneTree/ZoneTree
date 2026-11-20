@@ -1,4 +1,4 @@
-using ZoneTree.Collections.BTree;
+using ZoneTree.Collections;
 using ZoneTree.Comparers;
 using ZoneTree.Logger;
 using ZoneTree.Serializers;

@@ -1,6 +1,6 @@
 using ZoneTree.Exceptions;
 
-namespace ZoneTree.Collections.BTree;
+namespace ZoneTree.Collections;
 
 public delegate TValue GetValueDelegate<TKey, TValue>(long opIndex);
 
@@ -10,12 +10,12 @@ public delegate TValue GetValueDelegate<TKey, TValue>(long opIndex);
 /// </summary>
 /// <typeparam name="TKey">Key Type</typeparam>
 /// <typeparam name="TValue">Value Type</typeparam>
-public sealed partial class BTree<TKey, TValue>
+public sealed partial class BPlusTree<TKey, TValue>
 {
   public bool Upsert(in TKey key, GetValueDelegate<TKey, TValue> valueGetter, out TValue value, out long opIndex)
   {
     if (IsReadOnly)
-      throw new BTreeIsReadOnlyException();
+      throw new BPlusTreeIsReadOnlyException();
     var leaf = TryLockLeafWithRoom(in key);
     if (leaf != null)
       return UpsertNonFull(leaf, in key, valueGetter, out value, out opIndex);

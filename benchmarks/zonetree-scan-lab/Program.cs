@@ -2,8 +2,8 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Text;
 using RocksDbSharp;
+using ZoneTree.Collections;
 using ZoneTree;
-using ZoneTree.Collections.BTree.Lock;
 using ZoneTree.Comparers;
 using ZoneTree.Logger;
 using ZoneTree.Options;
@@ -13,7 +13,7 @@ var config = ScanLabConfig.Parse(args).WithDefaults();
 Console.WriteLine("ZoneTree Scan Lab");
 Console.WriteLine($"engine={config.Engine}; mode={config.Mode}; scan={config.Scan}; profiles={FormatCount(config.Profiles)}; scan-count={FormatCount(config.ScanCount)}; limit={config.Limit}; parallelism={config.Parallelism}");
 Console.WriteLine($"prefetch={config.PrefetchSize}");
-Console.WriteLine($"btree-lock={config.BTreeLockMode}");
+Console.WriteLine($"btree-lock={config.BPlusTreeLockMode}");
 Console.WriteLine($"created-at={config.CreatedAtMode}");
 Console.WriteLine($"read-order={config.ReadOrder}");
 Console.WriteLine($"reuse-iterator={config.ReuseIterator}");
@@ -588,7 +588,7 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
         .SetComparer(new Int64ComparerAscending())
         .SetKeySerializer(new Int64Serializer())
         .SetValueSerializer(new Utf8StringSerializer())
-        .Configure(options => options.BTreeLockMode = config.BTreeLockMode)
+        .Configure(options => options.BPlusTreeLockMode = config.BPlusTreeLockMode)
         .ConfigureDiskSegmentOptions(options =>
         {
           options.DefaultSparseArrayStepSize = config.SparseArrayStepSize;
@@ -610,7 +610,7 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
         .SetComparer(new StringOrdinalComparerAscending())
         .SetKeySerializer(new Utf8StringSerializer())
         .SetValueSerializer(new Int64Serializer())
-        .Configure(options => options.BTreeLockMode = config.BTreeLockMode)
+        .Configure(options => options.BPlusTreeLockMode = config.BPlusTreeLockMode)
         .ConfigureDiskSegmentOptions(options =>
         {
           options.DefaultSparseArrayStepSize = config.SparseArrayStepSize;
@@ -1451,7 +1451,7 @@ sealed record ScanLabConfig
   // Negative keeps the library default; zero disables the cache.
   public int MaterializedEntryCacheSize { get; init; } = -1;
   public int PrefetchSize { get; init; } = 16;
-  public BTreeLockMode BTreeLockMode { get; init; } = BTreeLockMode.NodeLevelMonitor;
+  public BPlusTreeLockMode BPlusTreeLockMode { get; init; } = BPlusTreeLockMode.NodeLevelMonitor;
   public CreatedAtQueryMode CreatedAtMode { get; init; } = CreatedAtQueryMode.Random;
   public ProfileReadOrder ReadOrder { get; init; } = ProfileReadOrder.Random;
   public double BlockCacheLifetimeMinutes { get; init; } = 1222;
@@ -1494,7 +1494,7 @@ sealed record ScanLabConfig
         "--value-cache" => config with { ValueCacheSize = ParseCount(next()) },
         "--materialized-cache" => config with { MaterializedEntryCacheSize = ParseCount(next()) },
         "--prefetch" => config with { PrefetchSize = ParseCount(next()) },
-        "--btree-lock" => config with { BTreeLockMode = ParseBTreeLockMode(next()) },
+        "--btree-lock" => config with { BPlusTreeLockMode = ParseBPlusTreeLockMode(next()) },
         "--created-at" => config with { CreatedAtMode = ParseCreatedAtMode(next()) },
         "--read-order" => config with { ReadOrder = ParseReadOrder(next()) },
         "--block-cache-minutes" => config with { BlockCacheLifetimeMinutes = double.Parse(next()) },
@@ -1521,15 +1521,15 @@ sealed record ScanLabConfig
         _ => throw new ArgumentException($"Unknown engine: {value}")
       };
 
-  static BTreeLockMode ParseBTreeLockMode(string value) =>
+  static BPlusTreeLockMode ParseBPlusTreeLockMode(string value) =>
       value.ToLowerInvariant() switch
       {
-        "no-lock" or "nolock" => BTreeLockMode.NoLock,
-        "node-monitor" or "nodelevelmonitor" => BTreeLockMode.NodeLevelMonitor,
-        "node-reader-writer" or "nodelevelreaderwriter" => BTreeLockMode.NodeLevelReaderWriter,
-        "top-monitor" or "toplevelmonitor" => BTreeLockMode.TopLevelMonitor,
-        "top-reader-writer" or "toplevelreaderwriter" => BTreeLockMode.TopLevelReaderWriter,
-        _ => throw new ArgumentException($"Unknown BTree lock mode: {value}")
+        "no-lock" or "nolock" => BPlusTreeLockMode.NoLock,
+        "node-monitor" or "nodelevelmonitor" => BPlusTreeLockMode.NodeLevelMonitor,
+        "node-reader-writer" or "nodelevelreaderwriter" => BPlusTreeLockMode.NodeLevelReaderWriter,
+        "top-monitor" or "toplevelmonitor" => BPlusTreeLockMode.TopLevelMonitor,
+        "top-reader-writer" or "toplevelreaderwriter" => BPlusTreeLockMode.TopLevelReaderWriter,
+        _ => throw new ArgumentException($"Unknown BPlusTree lock mode: {value}")
       };
 
   static RunMode ParseMode(string value) =>

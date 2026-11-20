@@ -2,8 +2,6 @@ using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Diagnosers;
 using BenchmarkDotNet.Engines;
 using ZoneTree.Collections;
-using ZoneTree.Collections.BTree;
-using ZoneTree.Collections.BTree.Lock;
 using ZoneTree.Comparers;
 
 namespace Playground.InMemoryTreeBenchmark;
@@ -22,7 +20,7 @@ public class ParallelMassiveInsertTests
   readonly int Count = 3_000_000;
   readonly bool Shuffled = true;
 
-  static readonly BTreeLockMode BTreeLockMode = BTreeLockMode.NodeLevelMonitor;
+  static readonly BPlusTreeLockMode BPlusTreeLockMode = BPlusTreeLockMode.NodeLevelMonitor;
 
   [GlobalSetup]
   public void Setup()
@@ -35,11 +33,11 @@ public class ParallelMassiveInsertTests
   public long[] Data = Array.Empty<long>();
 
   [Benchmark]
-  public void Parallel_BTree() => MassiveInsertsAndReadsBTree();
+  public void Parallel_BPlusTree() => MassiveInsertsAndReadsBPlusTree();
 
-  public void MassiveInsertsAndReadsBTree()
+  public void MassiveInsertsAndReadsBPlusTree()
   {
-    var tree = new BTree<long, long>(new Int64ComparerAscending(), BTreeLockMode);
+    var tree = new BPlusTree<long, long>(new Int64ComparerAscending(), BPlusTreeLockMode);
     var task1 = Parallel.ForEachAsync(Enumerable.Range(0, Count), (i, t) =>
     {
       tree.TryInsert(i, i, out _);

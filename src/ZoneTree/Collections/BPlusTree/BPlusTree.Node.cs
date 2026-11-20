@@ -1,11 +1,11 @@
 #undef USE_NODE_IDS
 
-using ZoneTree.Collections.BTree.Lock;
+using ZoneTree.Collections.BPlusTreeLocks;
 using ZoneTree.Comparers;
 
-namespace ZoneTree.Collections.BTree;
+namespace ZoneTree.Collections;
 
-public sealed partial class BTree<TKey, TValue>
+public sealed partial class BPlusTree<TKey, TValue>
 {
   public class Node
   {

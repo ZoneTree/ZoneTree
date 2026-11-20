@@ -1,6 +1,4 @@
 using ZoneTree.Collections;
-using ZoneTree.Collections.BTree;
-using ZoneTree.Collections.BTree.Lock;
 using ZoneTree.Comparers;
 
 namespace Playground.InMemoryTreeBenchmark;
@@ -22,11 +20,11 @@ public static class RandomLongInserts
     return arr;
   }
 
-  public static void InsertBTree(long[] arr)
+  public static void InsertBPlusTree(long[] arr)
   {
     var count = arr.Length;
-    var tree = new BTree<long, long>(new Int64ComparerAscending(),
-        BTreeLockMode.NoLock);
+    var tree = new BPlusTree<long, long>(new Int64ComparerAscending(),
+        BPlusTreeLockMode.NoLock);
     for (var i = 0; i < count; ++i)
     {
       var x = arr[i];
@@ -57,11 +55,11 @@ public static class RandomLongInserts
     }
   }
 
-  public static void InsertAndValidateIteratorBTree(long[] arr)
+  public static void InsertAndValidateIteratorBPlusTree(long[] arr)
   {
     var count = arr.Length;
-    var tree = new BTree<long, long>(new Int64ComparerAscending(),
-        BTreeLockMode.NoLock);
+    var tree = new BPlusTree<long, long>(new Int64ComparerAscending(),
+        BPlusTreeLockMode.NoLock);
     for (var i = 0; i < count; ++i)
     {
       var x = arr[i];

@@ -1,8 +1,8 @@
-using ZoneTree.Collections.BTree.Lock;
+using ZoneTree.Collections.BPlusTreeLocks;
 using ZoneTree.Comparers;
 using ZoneTree.Core;
 
-namespace ZoneTree.Collections.BTree;
+namespace ZoneTree.Collections;
 
 /// <summary>
 /// In memory B+Tree.
@@ -10,7 +10,7 @@ namespace ZoneTree.Collections.BTree;
 /// </summary>
 /// <typeparam name="TKey">Key Type</typeparam>
 /// <typeparam name="TValue">Value Type</typeparam>
-public sealed partial class BTree<TKey, TValue>
+public sealed partial class BPlusTree<TKey, TValue>
 {
   ILocker TopLevelLocker;
 
@@ -34,7 +34,7 @@ public sealed partial class BTree<TKey, TValue>
 
   public int Length => _length;
 
-  public readonly BTreeLockMode LockMode;
+  public readonly BPlusTreeLockMode LockMode;
 
   readonly bool HasNodeLocks;
 
@@ -44,9 +44,9 @@ public sealed partial class BTree<TKey, TValue>
 
   public bool IsReadOnly { get => _isReadOnly; set => _isReadOnly = value; }
 
-  public BTree(
+  public BPlusTree(
       IRefComparer<TKey> comparer,
-      BTreeLockMode lockMode,
+      BPlusTreeLockMode lockMode,
       IIncrementalIdProvider indexOpProvider = null,
       int nodeSize = 128,
       int leafSize = 128)
@@ -63,13 +63,13 @@ public sealed partial class BTree<TKey, TValue>
     OpIndexProvider = indexOpProvider ?? new IncrementalIdProvider();
     TopLevelLocker = lockMode switch
     {
-      BTreeLockMode.TopLevelMonitor => new MonitorLock(),
-      BTreeLockMode.TopLevelReaderWriter => new ReadWriteLock(),
-      BTreeLockMode.NoLock or BTreeLockMode.NodeLevelMonitor or BTreeLockMode.NodeLevelReaderWriter => NoLock.Instance,
+      BPlusTreeLockMode.TopLevelMonitor => new MonitorLock(),
+      BPlusTreeLockMode.TopLevelReaderWriter => new ReadWriteLock(),
+      BPlusTreeLockMode.NoLock or BPlusTreeLockMode.NodeLevelMonitor or BPlusTreeLockMode.NodeLevelReaderWriter => NoLock.Instance,
       _ => throw new NotSupportedException(),
     };
     LockMode = lockMode;
-    HasNodeLocks = lockMode is BTreeLockMode.NodeLevelMonitor or BTreeLockMode.NodeLevelReaderWriter;
+    HasNodeLocks = lockMode is BPlusTreeLockMode.NodeLevelMonitor or BPlusTreeLockMode.NodeLevelReaderWriter;
     Root = new LeafNode(GetNodeLocker(), leafSize);
     FirstLeafNode = Root as LeafNode;
     LastLeafNode = FirstLeafNode;
@@ -78,12 +78,12 @@ public sealed partial class BTree<TKey, TValue>
 
   ILocker GetNodeLocker() => LockMode switch
   {
-    BTreeLockMode.TopLevelMonitor or
-    BTreeLockMode.TopLevelReaderWriter or
-    BTreeLockMode.NoLock => NoLock.Instance,
+    BPlusTreeLockMode.TopLevelMonitor or
+    BPlusTreeLockMode.TopLevelReaderWriter or
+    BPlusTreeLockMode.NoLock => NoLock.Instance,
 
-    BTreeLockMode.NodeLevelMonitor => new MonitorLock(),
-    BTreeLockMode.NodeLevelReaderWriter => new ReadWriteLock(),
+    BPlusTreeLockMode.NodeLevelMonitor => new MonitorLock(),
+    BPlusTreeLockMode.NodeLevelReaderWriter => new ReadWriteLock(),
     _ => throw new NotSupportedException(),
   };
 

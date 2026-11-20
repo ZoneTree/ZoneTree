@@ -370,7 +370,7 @@ The behaviors described here can be traced to these implementations:
 
 * [Write path](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Core/ZoneTree.ReadWrite.cs)
 * [Key locks](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Threading/KeyedLock.cs)
-* [Operation-index allocation during value construction](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Collections/BTree/BTree.Write.OpIndex.cs)
+* [Operation-index allocation during value construction](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Collections/BPlusTree/BPlusTree.Write.OpIndex.cs)
 * [Replica apply and its companion index](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Core/Replicator.cs)
 * [Local transaction commit and rollback](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Transactional/Mvcc/MvccZoneTree.cs)
 * [Snapshot and backup segment collection](https://github.com/ZoneTree/ZoneTree/blob/main/src/ZoneTree/Core/ZoneTree.Iterators.cs)

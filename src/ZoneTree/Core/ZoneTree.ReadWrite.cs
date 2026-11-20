@@ -1,5 +1,4 @@
 using ZoneTree.Collections;
-using ZoneTree.Collections.BTree;
 using ZoneTree.Exceptions;
 using ZoneTree.Hashers;
 using ZoneTree.Segments;
