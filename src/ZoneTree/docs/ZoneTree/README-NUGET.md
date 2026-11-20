@@ -127,21 +127,20 @@ using (zoneTree.Lock(42))
 }
 ```
 
-`LockMany(key1, key2)` locks several keys in a fixed order, so callers do not deadlock, and `LockAsync` can hold the lock across `await`. The tree has `LockStripeCount` locks, 1024 by default, and the key hasher chooses the lock of a key.
+`LockMany(key1, key2)` locks several keys in a fixed order, so callers do not deadlock, and `LockAsync` can hold the lock across `await`. See [key locks](https://zonetree.dev/docs/usage/key-locks/) for timeouts and the rules.
 
 Plain `Upsert` is the fastest write path, and it does not take the key lock. When a key is updated from its current value, every writer of that key takes the lock.
 
 | Need | Use |
 | --- | --- |
 | Set or replace a value | `Upsert` |
-| Add only if the key does not exist | `TryAdd` |
+| Add only if the key does not exist | `TryAdd`, under the key lock when callers race for the key |
 | Delete a key if it exists | `TryDelete` |
 | Write a deletion marker without checking existence | `ForceDelete` |
 | Increment, append, compare-and-set, or update from the current value | `Lock` around `TryGet` and `Upsert` |
-| Coordinate changes across multiple keys | Transactions |
+| Change several keys together, all or nothing | Transactions |
 
 You can mix these write modes in the same ZoneTree. For example, hot counter keys can take their key locks, while ordinary records continue to use fast `Upsert`. This lets each workflow pay only for the coordination it needs.
-
 
 ---
 
@@ -318,6 +317,8 @@ Official documentation:
 * [Docs home](https://zonetree.dev/docs/)
 * [Getting started](https://zonetree.dev/docs/getting-started/)
 * [Reads and writes](https://zonetree.dev/docs/usage/reads-and-writes/)
+* [Key locks](https://zonetree.dev/docs/usage/key-locks/)
+* [Transactions](https://zonetree.dev/docs/usage/transactions/)
 * [Value mutability](https://zonetree.dev/docs/concepts/value-mutability/)
 * [Memory usage](https://zonetree.dev/docs/storage/memory-usage/)
 * [WAL modes](https://zonetree.dev/docs/durability/wal-modes/)

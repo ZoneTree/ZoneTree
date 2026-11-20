@@ -1,32 +1,34 @@
-namespace ZoneTree;
+
+namespace ZoneTree.Threading;
 
 /// <summary>
-/// Holds the key locks that <see cref="IZoneTree{TKey, TValue}.Lock(in TKey)"/> took,
-/// until it is disposed.
+/// Holds the locks that a call such as <see cref="HybridLock.Lock"/>
+/// or <see cref="IZoneTree{TKey, TValue}.Lock(in TKey)"/> took, until it is disposed.
 /// </summary>
 /// <remarks>
 /// Dispose it exactly once, for example with a using statement. A copy holds the same locks,
-/// so disposing a copy as well would release locks that another caller took in between.
+/// so disposing a copy as well would release locks that another caller took in between, or
+/// throw a <see cref="SynchronizationLockException"/> when nobody holds them.
 /// Disposing the default value does nothing.
 /// </remarks>
 [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1815", Justification = "Scopes are not compared.")]
-public readonly struct KeyLockScope : IDisposable
+public readonly struct HybridLockScope : IDisposable
 {
-  readonly SemaphoreSlim First;
+  readonly HybridLock First;
 
-  readonly SemaphoreSlim Second;
+  readonly HybridLock Second;
 
   // Set instead of First and Second when the scope holds more than two locks.
-  readonly SemaphoreSlim[] All;
+  readonly HybridLock[] All;
 
-  internal KeyLockScope(SemaphoreSlim first, SemaphoreSlim second = null)
+  internal HybridLockScope(HybridLock first, HybridLock second = null)
   {
     First = first;
     Second = second;
     All = null;
   }
 
-  internal KeyLockScope(SemaphoreSlim[] all)
+  internal HybridLockScope(HybridLock[] all)
   {
     First = null;
     Second = null;
@@ -41,10 +43,10 @@ public readonly struct KeyLockScope : IDisposable
     if (All != null)
     {
       for (var i = All.Length - 1; i >= 0; --i)
-        All[i].Release();
+        All[i].Exit();
       return;
     }
-    Second?.Release();
-    First?.Release();
+    Second?.Exit();
+    First?.Exit();
   }
 }

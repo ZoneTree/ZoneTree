@@ -42,10 +42,10 @@ For setup and resource lifetime, see [opening a tree](opening-a-tree.mdx).
 | --- | --- | --- |
 | Read the latest live value. | `TryGet` | Returns `false` when missing or considered deleted. |
 | Insert or replace without consulting the old value. | `Upsert` | The ordinary write path for independent updates. |
-| Check for absence, then add. | `TryAdd` | The check and write are not serialized with competing writers. |
+| Check for absence, then add. | `TryAdd` | Another writer can add the key between the check and the write, unless both take the key lock. |
 | Check for existence, then delete. | `TryDelete` | Also uses a separate existence check and write. |
 | Write a deletion marker without checking. | `ForceDelete` | Avoids the existence read, even if the key was already absent. |
-| Make a conditional change that competing writers cannot interleave. | `Lock` around the read and the write | Every competing writer of the key takes the lock. |
+| Change a key based on its current value. | `Lock` around the read and the write | Every writer of the key takes the lock. |
 | Coordinate changes to several keys in one tree. | Transactional API | `Execute` commits and retries conflicts. |
 
 ## Insert or replace with Upsert
@@ -95,7 +95,7 @@ if (!tree.TryAdd(99, "New record", out var opIndex))
 
 If the key exists at that check, `TryAdd` returns `false` and sets the operation index to `0`. It does not protect the check-and-write sequence from another writer.
 
-When concurrent inserts must agree on a single winner, lock the key around `TryAdd`, and have competing writers lock it too:
+When several callers can add the same key at once and only one may win, lock the key around `TryAdd`, and have every writer of the key lock it too:
 
 ```csharp
 using (tree.Lock(100))
@@ -120,11 +120,11 @@ A deletion marker does not immediately remove old values from every segment. Mai
 
 ## Concurrency and value design
 
-The ordinary APIs support concurrent use, but a sequence of calls is not a single atomic action. A `TryGet` followed by `Upsert` can lose an intervening update. Lock the key with a [key lock](key-locks.mdx) when the next value depends on the current value.
+Every API is safe to call from many threads, but two calls are not one step. Another writer can change the key between a `TryGet` and the `Upsert` that follows it, and that change is then lost. When the new value depends on the current one, take the [key lock](key-locks.mdx) around both calls, and have every writer of that key take it too.
 
-Use [transactions](transactions.mdx) when the invariant spans several keys in one transactional tree. Choose immutable structs, records, or replacement objects so values are not modified through shared references.
+When several keys must change together, or not at all, use a [transaction](transactions.mdx) in a transactional tree. Choose immutable structs, records, or replacement objects, so stored values are not changed through shared references.
 
-Different key groups can use different write disciplines. For example, profile replacement can use `Upsert` while a separate counter takes its key lock. Keep the discipline consistent for every writer that can change the same invariant.
+Keys can follow different rules in the same tree. For example, profiles can be replaced with plain `Upsert` while a counter is updated under its key lock. What matters is that every writer of one key follows the same rule.
 
 <Panel class="p-0 zt-guide-next-panel" bodyClass="p-5">
   <strong>Range scans and coordinated updates</strong>
