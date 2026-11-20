@@ -1,4 +1,4 @@
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Cluster;
 
@@ -24,5 +24,5 @@ public sealed class ZoneTreeClusterConnectionOptions
   public TimeSpan OperationTimeout { get; init; } = TimeSpan.FromSeconds(30);
 
   /// <summary>The client logger.</summary>
-  public ILogger Logger { get; init; } = new ConsoleLogger();
+  public IZoneTreeLogger Logger { get; init; } = new ConsoleLogger();
 }

@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Segments.Block;
 

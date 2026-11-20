@@ -4,7 +4,7 @@ using ZoneTree.Backup;
 using ZoneTree.Comparers;
 using ZoneTree.Core;
 using ZoneTree.Exceptions;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Transactional.Conflicts;
 using ZoneTree.Transactional.Versioning;
@@ -810,7 +810,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
       catch (Exception e)
       {
         // Versions may lack their deletions, so the entry stays for good.
-        Logger.LogError(e);
+        Logger.LogError($"Deleting the versions of rolled-back transaction {transaction.TransactionId} failed. Its entry stays, so readers keep ignoring those versions.", e);
       }
     }
     lock (StateLock)
@@ -1031,7 +1031,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
           }
           catch (Exception e)
           {
-            Logger.LogError(e);
+            Logger.LogError("Syncing the WAL failed. The automatic sync tries again at its next interval.", e);
           }
         }
       }
@@ -1065,7 +1065,7 @@ public sealed class MvccZoneTree<TKey, TValue> :
     set => Storage.IsReadOnly = value;
   }
 
-  public ILogger Logger => Storage.Logger;
+  public IZoneTreeLogger Logger => Storage.Logger;
 
   public ITransactionalZoneTreeMaintenance<TKey, TValue> Maintenance => this;
 

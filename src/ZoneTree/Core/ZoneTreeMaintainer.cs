@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Threading;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Segments;
 using ZoneTree.Segments.Disk;
 
@@ -20,7 +20,7 @@ public sealed class ZoneTreeMaintainer<TKey, TValue> : IMaintainer, IDisposable
 {
   readonly Lock SyncRoot = new();
 
-  readonly ILogger Logger;
+  readonly IZoneTreeLogger Logger;
 
   volatile bool RestartMerge;
 
@@ -73,7 +73,7 @@ public sealed class ZoneTreeMaintainer<TKey, TValue> : IMaintainer, IDisposable
   /// <param name="logger">The logger</param>
   public ZoneTreeMaintainer(IZoneTree<TKey, TValue> zoneTree,
       bool startJobForCleaningInactiveBlockCaches = true,
-      ILogger logger = null)
+      IZoneTreeLogger logger = null)
   {
     Logger = logger ?? zoneTree.Logger;
     ZoneTree = zoneTree;
@@ -278,9 +278,10 @@ public sealed class ZoneTreeMaintainer<TKey, TValue> : IMaintainer, IDisposable
       var releasedCount = zoneTreeMaintenance.ReleaseReadBuffers(ticks);
       var releasedCacheKeyRecordCount = zoneTreeMaintenance.ReleaseKeyCacheRecords();
       var releasedCacheValueRecordCount = zoneTreeMaintenance.ReleaseValueCacheRecords();
-      Trace($"Released read buffers: {releasedCount}, " +
-          $"cached key records: {releasedCacheKeyRecordCount}, " +
-          $"cached value records: {releasedCacheValueRecordCount}");
+      if (Logger.IsEnabled(ZoneTreeLogLevel.Trace))
+        Trace($"Released read buffers: {releasedCount}, " +
+            $"cached key records: {releasedCacheKeyRecordCount}, " +
+            $"cached value records: {releasedCacheValueRecordCount}");
     }
   }
 

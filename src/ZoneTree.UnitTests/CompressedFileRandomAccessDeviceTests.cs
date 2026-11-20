@@ -1,5 +1,5 @@
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Segments.RandomAccess;
 
@@ -22,7 +22,7 @@ public sealed class CompressedFileRandomAccessDeviceTests
   {
     var files = new InMemoryFileStreamProvider();
     files.CreateDirectory("devices");
-    var manager = new RandomAccessDeviceManager(new ConsoleLogger(LogLevel.Error), files, "devices");
+    var manager = new RandomAccessDeviceManager(new ConsoleLogger(ZoneTreeLogLevel.Error), files, "devices");
     // Bytes that compress and differ from block to block, so a block holding another block's bytes is caught.
     var random = new Random(length);
     var expected = new byte[length];

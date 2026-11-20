@@ -1,6 +1,6 @@
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Core;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Segments.RandomAccess;
 using ZoneTree.Serializers;
@@ -34,7 +34,7 @@ internal static class SharedJournalReader
   /// metadata or no shared journal.
   /// </summary>
   internal static List<Record> ReadLiveRecords(
-      ILogger logger, IFileStreamProvider files, string dataDirectory, WriteAheadLogOptions walOptions)
+      IZoneTreeLogger logger, IFileStreamProvider files, string dataDirectory, WriteAheadLogOptions walOptions)
   {
     var records = new List<Record>();
     if (!files.DirectoryExists(dataDirectory))
@@ -68,7 +68,7 @@ internal static class SharedJournalReader
   /// The live segments of the tree, the read-only ones from the oldest, then the mutable one.
   /// The metadata and its log are only read.
   /// </summary>
-  static List<long> ReadLiveSegments(ILogger logger, IFileStreamProvider files, string dataDirectory)
+  static List<long> ReadLiveSegments(IZoneTreeLogger logger, IFileStreamProvider files, string dataDirectory)
   {
     var deviceManager = new RandomAccessDeviceManager(logger, files, dataDirectory);
     try

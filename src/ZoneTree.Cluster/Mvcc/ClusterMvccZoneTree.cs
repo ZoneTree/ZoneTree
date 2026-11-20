@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 using ZoneTree.Comparers;
 using ZoneTree.Core;
 using ZoneTree.Exceptions;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Transactional.Versioning;
 
@@ -653,7 +653,7 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
       catch (Exception e)
       {
         // Versions may lack their deletions, so the entry stays for good.
-        Logger.LogError(e);
+        Logger.LogError(e.Message, e);
       }
     }
     // The deletion of a commit record must be durable before the domain's durable timestamp
@@ -889,7 +889,7 @@ internal sealed class ClusterMvccZoneTree<TKey, TValue> :
     set => Storage.IsReadOnly = value;
   }
 
-  public ILogger Logger => Storage.Logger;
+  public IZoneTreeLogger Logger => Storage.Logger;
 
   public ITransactionalZoneTreeMaintenance<TKey, TValue> Maintenance => this;
 

@@ -2,6 +2,7 @@ using ZoneTree.Collections;
 using ZoneTree.Comparers;
 using ZoneTree.Core;
 using ZoneTree.Hashers;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.WAL;
 
@@ -308,7 +309,7 @@ public sealed class MutableSegment<TKey, TValue> : IMutableSegment<TKey, TValue>
     }
     catch (Exception e)
     {
-      Options.Logger.LogError(e);
+      Options.Logger.LogError($"Freezing the WAL of mutable segment {SegmentId} failed.", e);
     }
   }
 

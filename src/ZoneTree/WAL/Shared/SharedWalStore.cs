@@ -3,7 +3,7 @@ using System.Globalization;
 using System.IO.Hashing;
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Exceptions;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 
@@ -35,7 +35,7 @@ internal sealed partial class SharedWalStore<TKey, TValue> : ISharedWalStore, ID
   readonly Lock StorageLock = new();
   readonly Lock SyncLock = new();
   readonly IFileStreamProvider Files;
-  readonly ILogger Logger;
+  readonly IZoneTreeLogger Logger;
   readonly WriteAheadLogOptions Options;
   readonly ISerializer<TKey> KeySerializer;
   readonly ISerializer<TValue> ValueSerializer;
@@ -92,7 +92,7 @@ internal sealed partial class SharedWalStore<TKey, TValue> : ISharedWalStore, ID
     internal List<SharedWalRecord> Pending;
   }
 
-  internal SharedWalStore(ILogger logger, IFileStreamProvider files, string directory,
+  internal SharedWalStore(IZoneTreeLogger logger, IFileStreamProvider files, string directory,
       WriteAheadLogOptions options, ISerializer<TKey> keySerializer, ISerializer<TValue> valueSerializer)
   {
     Logger = logger;
@@ -218,7 +218,7 @@ internal sealed partial class SharedWalStore<TKey, TValue> : ISharedWalStore, ID
   void Fail(Exception error)
   {
     Interlocked.CompareExchange(ref Failure, error, null);
-    try { Logger?.LogError(error); }
+    try { Logger?.LogError($"The shared WAL in {DirectoryPath} failed. Its later writes and syncs fail with this error.", error); }
     catch { /* Logging cannot strand queued sync requests. */ }
   }
 

@@ -5,7 +5,7 @@ using RocksDbSharp;
 using ZoneTree.Collections;
 using ZoneTree;
 using ZoneTree.Comparers;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 
@@ -584,7 +584,7 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
     return new ZoneTreeFactory<long, string>()
         .SetDataDirectory(path)
         .SetMutableSegmentMaxItemCount(config.MutableSegmentMaxItemCount)
-        .SetLogLevel(LogLevel.Error)
+        .SetLogLevel(ZoneTreeLogLevel.Error)
         .SetComparer(new Int64ComparerAscending())
         .SetKeySerializer(new Int64Serializer())
         .SetValueSerializer(new Utf8StringSerializer())
@@ -606,7 +606,7 @@ sealed class ZoneTreeScanStore(ScanLabConfig config) : IScanStore
     return new ZoneTreeFactory<string, long>()
         .SetDataDirectory(path)
         .SetMutableSegmentMaxItemCount(config.MutableSegmentMaxItemCount)
-        .SetLogLevel(LogLevel.Error)
+        .SetLogLevel(ZoneTreeLogLevel.Error)
         .SetComparer(new StringOrdinalComparerAscending())
         .SetKeySerializer(new Utf8StringSerializer())
         .SetValueSerializer(new Int64Serializer())

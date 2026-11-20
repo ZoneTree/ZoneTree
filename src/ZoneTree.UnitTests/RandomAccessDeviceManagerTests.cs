@@ -1,5 +1,5 @@
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Segments.RandomAccess;
 
@@ -34,7 +34,7 @@ public sealed class RandomAccessDeviceManagerTests(bool onDisk)
   [Test]
   public void ADeviceCreatedInPlaceOfAFileKeepsThatFileAsABackup()
   {
-    var manager = new RandomAccessDeviceManager(new ConsoleLogger(LogLevel.Error), Files, Root);
+    var manager = new RandomAccessDeviceManager(new ConsoleLogger(ZoneTreeLogLevel.Error), Files, Root);
     var path = manager.GetFilePath(1, ".data");
     Files.GetDurableFileOperations().WriteAllBytes(path, [1, 2, 3]);
 

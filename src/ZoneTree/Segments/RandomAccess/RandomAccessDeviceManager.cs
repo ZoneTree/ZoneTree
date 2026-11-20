@@ -1,5 +1,5 @@
 using ZoneTree.AbstractFileStream;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 
 namespace ZoneTree.Segments.RandomAccess;
@@ -8,7 +8,7 @@ public sealed class RandomAccessDeviceManager : IRandomAccessDeviceManager
 {
   readonly Lock SyncRoot = new();
 
-  public ILogger Logger { get; }
+  public IZoneTreeLogger Logger { get; }
 
   public IFileStreamProvider FileStreamProvider { get; }
 
@@ -25,7 +25,7 @@ public sealed class RandomAccessDeviceManager : IRandomAccessDeviceManager
   public int WritableDeviceCount => WritableDevices.Count;
 
   public RandomAccessDeviceManager(
-      ILogger logger,
+      IZoneTreeLogger logger,
       IFileStreamProvider fileStreamProvider,
       string dataDirectory = "data")
   {

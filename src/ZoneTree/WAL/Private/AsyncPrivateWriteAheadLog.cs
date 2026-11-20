@@ -3,7 +3,7 @@ using System.Text;
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Exceptions;
 using ZoneTree.Exceptions.WAL;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 
@@ -15,7 +15,7 @@ public sealed class AsyncPrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKe
 {
   readonly Lock SyncRoot = new();
 
-  readonly ILogger Logger;
+  readonly IZoneTreeLogger Logger;
 
   readonly IFileStreamProvider FileStreamProvider;
 
@@ -124,7 +124,7 @@ public sealed class AsyncPrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKe
   public int InitialLength { get; private set; }
 
   public AsyncPrivateWriteAheadLog(
-      ILogger logger,
+      IZoneTreeLogger logger,
       IFileStreamProvider fileStreamProvider,
       ISerializer<TKey> keySerializer,
       ISerializer<TValue> valueSerializer,
@@ -246,7 +246,7 @@ public sealed class AsyncPrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKe
         }
         catch (Exception e)
         {
-          LogWriterError(e);
+          LogWriterError($"Syncing the WAL file {FilePath} to disk failed. The writer tries again later.", e);
         }
         if (!isRunning)
           break;
@@ -280,7 +280,7 @@ public sealed class AsyncPrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKe
     catch (Exception e)
     {
       RecordWriteFailure ??= e;
-      LogWriterError(e);
+      LogWriterError($"Writing a record to the WAL file {FilePath} failed. The file keeps the records before it and takes no later ones.", e);
     }
   }
 
@@ -291,11 +291,11 @@ public sealed class AsyncPrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKe
   /// A failing logger must not stop the writer or skip completing sync
   /// requests, or queued records and sync requests would wait forever.
   /// </remarks>
-  void LogWriterError(Exception e)
+  void LogWriterError(string message, Exception e)
   {
     try
     {
-      Logger.LogError(e);
+      Logger.LogError(message, e);
     }
     catch
     {
@@ -344,7 +344,7 @@ public sealed class AsyncPrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKe
       CompleteSyncRequest(syncRequest, failure);
     // Log after completing, so callers get the failure even if logging fails.
     if (failure != null)
-      LogWriterError(failure);
+      LogWriterError($"Syncing the WAL file {FilePath} to disk failed. The waiting sync requests fail with this error.", failure);
   }
 
   Exception TrySyncToDisk()
@@ -490,7 +490,7 @@ public sealed class AsyncPrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKe
         }
         catch (Exception e)
         {
-          Logger.LogError(e);
+          Logger.LogError($"Replacing the content of the WAL file {FilePath} failed. The file keeps its previous content.", e);
           FileStream.Dispose();
           CreateFileStream();
           return existingLength - FileStream.Length;
@@ -518,7 +518,7 @@ public sealed class AsyncPrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKe
     }
     catch (Exception e)
     {
-      Logger.LogError(e);
+      Logger.LogError($"Closing the WAL file {FilePath} while freezing its segment failed.", e);
     }
   }
 

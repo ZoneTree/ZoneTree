@@ -1,7 +1,7 @@
 using System.Text.Json.Nodes;
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Exceptions;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 using ZoneTree.WAL;
@@ -609,11 +609,11 @@ public sealed class PowerLossRecoveryTests
     Assert.That(MissingKeys(reopened, syncedCount), Is.Empty);
   }
 
-  sealed class RecordingLogger : ILogger
+  sealed class RecordingLogger : IZoneTreeLogger
   {
-    readonly List<string> Warnings = new();
+    public ZoneTreeLogLevel Level { get; set; }
 
-    public LogLevel LogLevel { get; set; } = LogLevel.Warning;
+    readonly List<string> Warnings = new();
 
     public string[] GetWarnings()
     {
@@ -621,22 +621,14 @@ public sealed class PowerLossRecoveryTests
         return Warnings.ToArray();
     }
 
-    public void LogError(Exception log)
-    {
-    }
+    public bool IsEnabled(ZoneTreeLogLevel level) => level == ZoneTreeLogLevel.Warning;
 
-    public void LogWarning(object log)
+    public void Log(ZoneTreeLogLevel level, string message, Exception exception = null)
     {
+      if (level != ZoneTreeLogLevel.Warning)
+        return;
       lock (Warnings)
-        Warnings.Add(log.ToString());
-    }
-
-    public void LogInfo(object log)
-    {
-    }
-
-    public void LogTrace(object log)
-    {
+        Warnings.Add(exception == null ? message : $"{message} {exception}");
     }
   }
 

@@ -1,5 +1,5 @@
 using ZoneTree.Backup;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Cluster;
 
@@ -150,7 +150,7 @@ internal sealed class ClusterLiveBackup : ILiveBackup
     catch (OperationCanceledException) when (token.IsCancellationRequested) { }
     catch (Exception error)
     {
-      Cluster.Logger.LogError(error);
+      Cluster.Logger.LogError(error.Message, error);
     }
     finally
     {
@@ -222,7 +222,7 @@ internal sealed class ClusterLiveBackup : ILiveBackup
       var cause = exception.GetBaseException();
       error = ReferenceEquals(cause, exception) ? exception.Message : $"{exception.Message} {cause.Message}";
       if (logFailure)
-        Cluster.Logger.LogError(exception);
+        Cluster.Logger.LogError(exception.Message, exception);
       else
         throw;
     }

@@ -1,7 +1,7 @@
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Backup;
 using ZoneTree.Core;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Segments.Disk;
 
@@ -471,14 +471,17 @@ public sealed class LiveBackupStatusTests
     public void Refresh() { }
     public void Dispose() => dispose();
   }
-  sealed class ErrorLogger : ILogger
+  sealed class ErrorLogger : IZoneTreeLogger
   {
+    public ZoneTreeLogLevel Level { get; set; }
+
     public TaskCompletionSource ErrorObserved { get; } = Signal();
-    public LogLevel LogLevel { get; set; }
-    public void LogError(Exception error) => ErrorObserved.TrySetResult();
-    public void LogInfo(object message) { }
-    public void LogWarning(object message) { }
-    public void LogTrace(object message) { }
+    public bool IsEnabled(ZoneTreeLogLevel level) => level == ZoneTreeLogLevel.Error;
+    public void Log(ZoneTreeLogLevel level, string message, Exception exception = null)
+    {
+      if (level == ZoneTreeLogLevel.Error)
+        ErrorObserved.TrySetResult();
+    }
   }
   sealed class Fixture : IDisposable
   {
@@ -486,7 +489,7 @@ public sealed class LiveBackupStatusTests
     public string BackupPath => Path.Combine(Root, "backup");
     public IZoneTree<int, int> Plain { get; }
     readonly ITransactionalZoneTree<int, int> Transactional;
-    public Fixture(bool transactional = false, ILogger logger = null)
+    public Fixture(bool transactional = false, IZoneTreeLogger logger = null)
     {
       var factory = new ZoneTreeFactory<int, int>(new InMemoryFileStreamProvider()).SetDataDirectory("source")
           .SetLogger(logger ?? SilentTestLogger.Instance)

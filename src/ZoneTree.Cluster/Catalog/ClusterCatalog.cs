@@ -1,7 +1,7 @@
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Backup;
 using ZoneTree.Exceptions;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Transactional;
 
 namespace ZoneTree.Cluster;
@@ -43,7 +43,7 @@ internal sealed class ClusterCatalog : IDisposable
   /// </summary>
   /// <exception cref="DatabaseNotFoundException">The catalog does not exist and cannot be created.</exception>
   /// <exception cref="DatabaseAlreadyExistsException">The catalog exists and cannot be opened.</exception>
-  internal static ClusterCatalog Open(string clusterDirectory, ILogger logger, IFileStreamProvider files,
+  internal static ClusterCatalog Open(string clusterDirectory, IZoneTreeLogger logger, IFileStreamProvider files,
       bool canCreate, bool canOpen)
   {
     var path = Path.Combine(clusterDirectory, "catalog");
@@ -103,7 +103,7 @@ internal sealed class ClusterCatalog : IDisposable
   /// Writes the catalog of a restored cluster, with the records of a backup, in one durable
   /// commit. The cluster opens it afterward.
   /// </summary>
-  internal static void Restore(string clusterDirectory, ILogger logger, IFileStreamProvider files,
+  internal static void Restore(string clusterDirectory, IZoneTreeLogger logger, IFileStreamProvider files,
       ClusterRecord cluster, IEnumerable<DomainRecord> domains, IEnumerable<ColumnRecord> columns)
   {
     using var tree = new ZoneTreeFactory<string, Memory<byte>>(files)

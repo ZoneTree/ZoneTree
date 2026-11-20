@@ -1,4 +1,5 @@
 using ZoneTree.Exceptions;
+using ZoneTree.Logging;
 
 namespace ZoneTree.WAL;
 
@@ -101,7 +102,7 @@ public sealed unsafe partial class CompressedFileStream
       }
       catch (Exception e)
       {
-        Logger.LogError(e);
+        Logger.LogError($"Syncing the WAL file {FilePath} to disk failed. The sync job tries again.", e);
       }
       if (SyncJobInterval == TimeSpan.Zero)
         Thread.Yield();

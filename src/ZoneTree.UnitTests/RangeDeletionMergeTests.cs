@@ -2,7 +2,7 @@ using ZoneTree.AbstractFileStream;
 using ZoneTree.Comparers;
 using ZoneTree.Core;
 using ZoneTree.Hashers;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Segments;
 using ZoneTree.Segments.Disk;
@@ -356,7 +356,7 @@ public sealed class RangeDeletionMergeTests
 
   static ZoneTreeOptions<int, int> CreateOptions(TrackingValueSerializer values)
   {
-    var logger = new ConsoleLogger(LogLevel.Error);
+    var logger = new ConsoleLogger(ZoneTreeLogLevel.Error);
     return new ZoneTreeOptions<int, int>
     {
       Comparer = new Int32ComparerAscending(),

@@ -1,5 +1,5 @@
 using ZoneTree.Cluster;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Cluster.UnitTests;
 

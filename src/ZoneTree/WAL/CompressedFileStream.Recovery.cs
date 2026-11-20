@@ -1,4 +1,5 @@
 using ZoneTree.Compression;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Segments.Block;
 using ZoneTree.Serializers;

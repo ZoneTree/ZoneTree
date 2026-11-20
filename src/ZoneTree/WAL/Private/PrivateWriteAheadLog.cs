@@ -1,7 +1,7 @@
 using System.Text;
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Exceptions.WAL;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 
@@ -14,7 +14,7 @@ public sealed class PrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TV
 {
   readonly Lock SyncRoot = new();
 
-  readonly ILogger Logger;
+  readonly IZoneTreeLogger Logger;
 
   readonly IFileStreamProvider FileStreamProvider;
 
@@ -41,7 +41,7 @@ public sealed class PrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TV
   public int InitialLength { get; private set; }
 
   public PrivateWriteAheadLog(
-      ILogger logger,
+      IZoneTreeLogger logger,
       IFileStreamProvider fileStreamProvider,
       ISerializer<TKey> keySerializer,
       ISerializer<TValue> valueSerializer,
@@ -167,7 +167,7 @@ public sealed class PrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TV
       }
       catch (Exception e)
       {
-        Logger.LogError(e);
+        Logger.LogError($"Replacing the content of the WAL file {FilePath} failed. The file keeps its previous content.", e);
         FileStream.Dispose();
         CreateFileStream();
         return existingLength - FileStream.Length;
@@ -190,7 +190,7 @@ public sealed class PrivateWriteAheadLog<TKey, TValue> : IWriteAheadLog<TKey, TV
     }
     catch (Exception e)
     {
-      Logger.LogError(e);
+      Logger.LogError($"Closing the WAL file {FilePath} while freezing its segment failed.", e);
     }
   }
 

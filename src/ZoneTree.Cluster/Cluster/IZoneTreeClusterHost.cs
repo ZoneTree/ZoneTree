@@ -1,5 +1,5 @@
 using ZoneTree.Backup;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Cluster;
 
@@ -24,7 +24,7 @@ public interface IZoneTreeClusterHost : IZoneTreeCluster
   bool IsReadOnly { get; set; }
 
   /// <summary>The cluster logger.</summary>
-  ILogger Logger { get; }
+  IZoneTreeLogger Logger { get; }
 
   /// <summary>Cluster-wide maintenance and diagnostics.</summary>
   IZoneTreeClusterMaintenance Maintenance { get; }

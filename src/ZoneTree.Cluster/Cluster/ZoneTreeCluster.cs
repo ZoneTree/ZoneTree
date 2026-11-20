@@ -4,7 +4,7 @@ using ZoneTree.Transactional;
 using ZoneTree.Backup;
 using ZoneTree.Core;
 using ZoneTree.Exceptions;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Options;
 using ArgumentOutOfRangeException = System.ArgumentOutOfRangeException;
@@ -50,7 +50,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
   /// <summary>The settings that prepare the columns' storage.</summary>
   internal ColumnStorageSettings StorageSettings { get; }
   internal string DataDirectory { get; }
-  public ILogger Logger { get; }
+  public IZoneTreeLogger Logger { get; }
   public IClusterSchema Schema { get; }
 
   internal ZoneTreeCluster(string directory, ZoneTreeClusterOptions options, FileStream lease, ClusterCatalog catalog)
@@ -207,7 +207,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
       foreach (var maintainer in maintainers)
       {
         try { maintainer.Remove(column); }
-        catch (Exception error) { Logger.LogError(error); }
+        catch (Exception error) { Logger.LogError(error.Message, error); }
       }
       if (!MakeDurableBeforeDeleting(record))
       {
@@ -242,7 +242,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     }
     catch (Exception error)
     {
-      Logger.LogError(error);
+      Logger.LogError(error.Message, error);
       return false;
     }
   }
@@ -464,7 +464,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     foreach (var maintainer in Maintainers)
     {
       try { maintainer.Add(column); }
-      catch (Exception error) { Logger.LogError(error); }
+      catch (Exception error) { Logger.LogError(error.Message, error); }
     }
     return column;
   }
@@ -621,7 +621,7 @@ internal sealed class ZoneTreeCluster : IZoneTreeClusterHost, IZoneTreeClusterMa
     List<Exception> errors = null;
     DisposeLiveBackups(ref errors);
     RollBackOpenTransactions(ref errors);
-    errors?.ForEach(Logger.LogError);
+    errors?.ForEach(error => Logger.LogError(error.Message, error));
     try
     {
       foreach (var domain in Domains.Values)

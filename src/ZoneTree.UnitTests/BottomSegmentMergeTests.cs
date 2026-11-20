@@ -4,7 +4,7 @@ using ZoneTree.Collections;
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Comparers;
 using ZoneTree.Core;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Hashers;
 using ZoneTree.Options;
 using ZoneTree.Segments;
@@ -319,7 +319,7 @@ public sealed class BottomSegmentMergeTests
   static ZoneTreeOptions<int, int> CreateMultiPartBottomMergeOptions(
       string dataDirectory = "data/PartialMultiPartBottomMerge")
   {
-    var logger = new ConsoleLogger(LogLevel.Error);
+    var logger = new ConsoleLogger(ZoneTreeLogLevel.Error);
     var options = new ZoneTreeOptions<int, int>
     {
       Comparer = new Int32ComparerAscending(),
@@ -360,7 +360,7 @@ public sealed class BottomSegmentMergeTests
 
   static ZoneTreeOptions<int, int> CreateSingleDiskBottomMergeOptions()
   {
-    var logger = new ConsoleLogger(LogLevel.Error);
+    var logger = new ConsoleLogger(ZoneTreeLogLevel.Error);
     var options = new ZoneTreeOptions<int, int>
     {
       Comparer = new Int32ComparerAscending(),

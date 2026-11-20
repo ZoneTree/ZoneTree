@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using ZoneTree.Logging;
 
 namespace ZoneTree.WAL;
 

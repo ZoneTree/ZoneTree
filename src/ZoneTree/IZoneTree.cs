@@ -1,6 +1,6 @@
 using ZoneTree.Collections;
 using ZoneTree.Comparers;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Serializers;
 using ZoneTree.Threading;
 
@@ -476,7 +476,7 @@ public interface IZoneTree<TKey, TValue> : IDisposable
   /// <summary>
   /// ZoneTree Logger.
   /// </summary>
-  ILogger Logger { get; }
+  IZoneTreeLogger Logger { get; }
 
   /// <summary>
   /// Creates the default ZoneTree Maintainer.

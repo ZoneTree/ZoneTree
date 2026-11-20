@@ -1,7 +1,7 @@
 using ZoneTree.Collections.TimSort;
 using ZoneTree.Comparers;
 using ZoneTree.Exceptions.WAL;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.WAL;
 
@@ -22,7 +22,7 @@ public static class WriteAheadLogEntryReader
   public delegate bool IsUnsyncedTailDelegate(long recordPosition, long readPosition);
 
   public static WriteAheadLogReadLogEntriesResult<TKey, TValue> ReadLogEntries<TKey, TValue, TLogEntry>(
-      ILogger logger,
+      IZoneTreeLogger logger,
       Stream stream,
       bool stopReadOnException,
       bool stopReadOnChecksumFailure,
@@ -42,7 +42,7 @@ public static class WriteAheadLogEntryReader
   }
 
   public static WriteAheadLogReadLogEntriesResult<TKey, TValue> ReadLogEntries<TKey, TValue, TLogEntry>(
-      ILogger logger,
+      IZoneTreeLogger logger,
       Stream stream,
       bool stopReadOnException,
       bool stopReadOnChecksumFailure,
@@ -83,7 +83,7 @@ public static class WriteAheadLogEntryReader
         if (isUnsyncedTail != null && result.Success && !isUnsyncedTail(logEntryPosition, length))
         {
           var corruption = new InvalidDataException($"ReadLogEntry failed. Index={i}", e);
-          logger.LogError(corruption);
+          logger.LogError($"Reading WAL entry {i} failed.", corruption);
           result.Exceptions.Add(i, corruption);
           result.Success = false;
           break;
@@ -94,7 +94,7 @@ public static class WriteAheadLogEntryReader
           RecordPosition = logEntryPosition,
           RecordIndex = i
         };
-        logger.LogWarning(ex);
+        logger.LogWarning($"WAL entry {i} is an incomplete record at the end of the log. Loading truncates it.", ex);
         result.Exceptions.Add(i, ex);
         result.Success = false;
         break;
@@ -102,7 +102,7 @@ public static class WriteAheadLogEntryReader
       catch (ObjectDisposedException e)
       {
         var ex = new ObjectDisposedException($"ReadLogEntry failed. Index={i}", e);
-        logger.LogError(ex);
+        logger.LogError($"Reading WAL entry {i} failed.", ex);
         result.Exceptions.Add(i, ex);
         result.Success = false;
         break;
@@ -110,7 +110,7 @@ public static class WriteAheadLogEntryReader
       catch (IOException e)
       {
         var ex = new IOException($"ReadLogEntry failed. Index={i}", e);
-        logger.LogError(ex);
+        logger.LogError($"Reading WAL entry {i} failed.", ex);
         result.Exceptions.Add(i, ex);
         result.Success = false;
         if (stopReadOnException) break;
@@ -120,7 +120,7 @@ public static class WriteAheadLogEntryReader
         if (StopAtUnsyncedTail(logger, stream, result, isUnsyncedTail, e, logEntryPosition, length, i))
           break;
         var ex = new InvalidOperationException($"ReadLogEntry failed. Index={i}", e);
-        logger.LogError(ex);
+        logger.LogError($"Reading WAL entry {i} failed.", ex);
         result.Exceptions.Add(i, ex);
         result.Success = false;
         if (stopReadOnException) break;
@@ -149,7 +149,7 @@ public static class WriteAheadLogEntryReader
       catch (Exception e)
       {
         var ex = new InvalidDataException($"Deserialization of log entry failed. Index={i}", e);
-        logger.LogError(ex);
+        logger.LogError($"Deserializing WAL entry {i} failed.", ex);
         if (!result.Exceptions.ContainsKey(i))
           result.Exceptions.Add(i, ex);
         result.Success = false;
@@ -190,7 +190,7 @@ public static class WriteAheadLogEntryReader
   /// when it can be an unsynced tail, which loading truncates.
   /// </summary>
   static bool StopAtUnsyncedTail<TKey, TValue>(
-      ILogger logger,
+      IZoneTreeLogger logger,
       Stream stream,
       WriteAheadLogReadLogEntriesResult<TKey, TValue> result,
       IsUnsyncedTailDelegate isUnsyncedTail,
@@ -207,7 +207,7 @@ public static class WriteAheadLogEntryReader
       RecordPosition = recordPosition,
       RecordIndex = recordIndex
     };
-    logger.LogWarning(ex);
+    logger.LogWarning($"WAL entry {recordIndex} is an incomplete record at the end of the log. Loading truncates it.", ex);
     result.Exceptions.Add(recordIndex, ex);
     result.Success = false;
     return true;

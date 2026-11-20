@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using ZoneTree.AbstractFileStream;
 using ZoneTree.Exceptions;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Serializers;
 using ZoneTree.WAL;
@@ -410,20 +410,16 @@ public sealed class WriteAheadLogSyncTests
     Assert.ThrowsAsync<WriteAheadLogSyncFailedException>(() => laterSync);
   }
 
-  sealed class ThrowingLogger : ILogger
+  sealed class ThrowingLogger : IZoneTreeLogger
   {
-    public LogLevel LogLevel { get; set; } = LogLevel.Error;
+    public ZoneTreeLogLevel Level { get; set; }
 
-    public void LogError(Exception log) => throw new InvalidOperationException("The logger failed.");
+    public bool IsEnabled(ZoneTreeLogLevel level) => level >= ZoneTreeLogLevel.Warning;
 
-    public void LogWarning(object log) => throw new InvalidOperationException("The logger failed.");
-
-    public void LogInfo(object log)
+    public void Log(ZoneTreeLogLevel level, string message, Exception exception = null)
     {
-    }
-
-    public void LogTrace(object log)
-    {
+      if (level >= ZoneTreeLogLevel.Warning)
+        throw new InvalidOperationException("The logger failed.");
     }
   }
 
@@ -446,7 +442,7 @@ public sealed class WriteAheadLogSyncTests
     var options = new WriteAheadLogOptions { CompressionBlockSize = WalBlockSize };
     options.EmptyQueuePollInterval = TimeSpan.FromMinutes(10);
     using var wal = new AsyncPrivateWriteAheadLog<int, int>(
-        new ConsoleLogger(LogLevel.Error),
+        new ConsoleLogger(ZoneTreeLogLevel.Error),
         new PowerLossFileStreamProvider(),
         new Int32Serializer(),
         new Int32Serializer(),

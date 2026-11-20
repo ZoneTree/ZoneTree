@@ -1,4 +1,5 @@
 using ZoneTree.AbstractFileStream;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 using ZoneTree.Segments;
 using ZoneTree.Segments.Disk;
@@ -264,7 +265,7 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
     }
     catch (Exception e)
     {
-      LogBackupError(e);
+      LogBackupError("The live backup schedule stopped after an error.", e);
     }
     finally
     {
@@ -320,7 +321,7 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
     }
     catch (Exception e)
     {
-      LogBackupError(e);
+      LogBackupError("Starting a live backup after a merge failed.", e);
     }
   }
 
@@ -403,7 +404,7 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
     {
       var cause = exception.GetBaseException();
       error = ReferenceEquals(cause, exception) ? exception.Message : $"{exception.Message} {cause.Message}";
-      if (logFailure) LogBackupError(exception);
+      if (logFailure) LogBackupError("A background live backup failed. Its status records the error.", exception);
       else throw;
     }
     finally
@@ -689,9 +690,9 @@ public sealed class LiveBackup<TKey, TValue> : ILiveBackup
         TaskCreationOptions.RunContinuationsAsynchronously);
   }
 
-  void LogBackupError(Exception exception)
+  void LogBackupError(string message, Exception exception)
   {
-    ZoneTree.Logger.LogError(exception);
+    ZoneTree.Logger.LogError(message, exception);
   }
 
   void ThrowIfDisposed()

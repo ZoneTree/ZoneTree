@@ -6,7 +6,7 @@ using ZoneTree.AbstractFileStream;
 using ZoneTree.Comparers;
 using ZoneTree.Serializers;
 using ZoneTree.Options;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Segments.RandomAccess;
 using ZoneTree.PresetTypes;
 using ZoneTree.Backup;
@@ -64,20 +64,22 @@ public sealed class ZoneTreeFactory<TKey, TValue>
   /// </summary>
   /// <param name="logger"></param>
   /// <returns>ZoneTree Factory</returns>
-  public ZoneTreeFactory<TKey, TValue> SetLogger(ILogger logger)
+  public ZoneTreeFactory<TKey, TValue> SetLogger(IZoneTreeLogger logger)
   {
     Options.Logger = logger;
     return this;
   }
 
   /// <summary>
-  /// Sets log level of current ZoneTree logger.
+  /// Sets the level of the logger: the least severe level it writes. It sets the logger that
+  /// is set at the time, so call it after <see cref="SetLogger(IZoneTreeLogger)"/> to set the
+  /// level of your own logger.
   /// </summary>
-  /// <param name="logLevel"></param>
+  /// <param name="level">The least severe level to write.</param>
   /// <returns>ZoneTree Factory</returns>
-  public ZoneTreeFactory<TKey, TValue> SetLogLevel(LogLevel logLevel)
+  public ZoneTreeFactory<TKey, TValue> SetLogLevel(ZoneTreeLogLevel level)
   {
-    Options.Logger.LogLevel = logLevel;
+    Options.Logger.Level = level;
     return this;
   }
 
