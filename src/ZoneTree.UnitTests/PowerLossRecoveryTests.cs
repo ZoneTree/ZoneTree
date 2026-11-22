@@ -440,6 +440,27 @@ public sealed class PowerLossRecoveryTests
     Assert.Throws<WriteAheadLogCorruptionException>(() => SmallBlockFactory(provider, mode, compressionMethod).Open());
   }
 
+  // The first sector holds blocks, so it persisted, and its invalid metadata byte is damage.
+  [TestCase(WriteAheadLogMode.Private, (byte)0)]
+  [TestCase(WriteAheadLogMode.AsyncPrivate, byte.MaxValue)]
+  public async Task WalWithAnInvalidMetadataByteIsReportedAsCorrupted(WriteAheadLogMode mode, byte metadata)
+  {
+    var provider = new InMemoryFileStreamProvider();
+    using (var tree = SmallBlockFactory(provider, mode).OpenOrCreate())
+    {
+      UpsertKeys(tree, 0, 1000);
+      await tree.SyncWalAsync();
+    }
+    var mainPath = MainWalPath(provider);
+    var bytes = provider.ReadAllBytes(mainPath);
+    bytes[0] = metadata;
+    Overwrite(provider, mainPath, bytes);
+
+    var exception = Assert.Throws<WriteAheadLogCorruptionException>(() => SmallBlockFactory(provider, mode).Open());
+    Assert.That(exception.Exceptions.Values.Single(), Is.InstanceOf<InvalidDataException>());
+    Assert.That(provider.ReadAllBytes(mainPath), Is.EqualTo(bytes));
+  }
+
   [TestCase(WriteAheadLogMode.Private)]
   [TestCase(WriteAheadLogMode.AsyncPrivate)]
   public async Task RecoveryFromATornTailWorksWithLocalFiles(WriteAheadLogMode mode)

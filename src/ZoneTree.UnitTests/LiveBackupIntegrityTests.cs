@@ -14,7 +14,8 @@ public sealed class LiveBackupIntegrityTests
     using var fixture = new BackupFixture(disk: true);
     fixture.Backup(codec);
     var catalog = fixture.Catalog;
-    Assert.That(catalog.Version, Is.EqualTo(2));
+    Assert.That(catalog.Version, Is.EqualTo(3));
+    Assert.That(catalog.TreeKind, Is.EqualTo(LiveBackupTreeKind.Plain));
     foreach (var file in catalog.Files)
       Assert.That(file.Sha256, Is.EqualTo(Digest(File.ReadAllBytes(fixture.PathOf(file.BackupPath)))));
     Assert.That(catalog.RecordBatch.Sha256, Is.EqualTo(Digest(File.ReadAllBytes(fixture.BatchPath))));
@@ -51,15 +52,12 @@ public sealed class LiveBackupIntegrityTests
     Assert.That(error.Message, Does.Contain("SHA-256"));
   }
 
-  [TestCase(false, false)]
-  [TestCase(true, false)]
-  [TestCase(false, true)]
-  [TestCase(true, true)]
-  public void TruncationAtRecordOrBlockBoundaryFailsRestore(bool compressed, bool version1Catalog)
+  [TestCase(false)]
+  [TestCase(true)]
+  public void TruncationAtRecordOrBlockBoundaryFailsRestore(bool compressed)
   {
     using var fixture = new BackupFixture();
     fixture.Backup(compressed ? CompressionMethod.Zstd : CompressionMethod.None);
-    if (version1Catalog) fixture.MakeVersion1Catalog();
     var path = fixture.BatchPath;
     var bytes = File.ReadAllBytes(path);
     // Fixture blocks hold one 25-byte record. Keep exactly one complete record/block.
@@ -99,27 +97,67 @@ public sealed class LiveBackupIntegrityTests
     Assert.ThrowsAsync<LiveBackupIntegrityException>(async () => await fixture.Restore());
   }
 
+  // A version 2 catalog is of a plain tree, and restores like version 3.
   [Test]
-  public async Task Version1CatalogRestoresWithLengthAndCountValidation()
+  public async Task AVersion2CatalogOfAPlainTreeRestores()
   {
     using var fixture = new BackupFixture(disk: true);
     fixture.Backup();
-    fixture.MakeVersion1Catalog();
+    var catalog = fixture.Catalog;
+    catalog.Version = 2;
+    fixture.SaveCatalog(catalog);
     await fixture.AssertRestores(25);
   }
 
   [Test]
-  public async Task NewGenerationRecopiesTheFilesOfAVersion1Catalog()
+  public void AVersion2CatalogOfATransactionalTreeFailsRestore()
   {
     using var fixture = new BackupFixture(disk: true);
     fixture.Backup();
-    fixture.MakeVersion1Catalog();
-    FlipLastByte(fixture.PathOf(fixture.Catalog.Files.OrderByDescending(x => x.ByteLength).First().BackupPath));
-    // A fresh store must not hash the damaged bytes of a version 1 catalog and call them valid.
+    var catalog = fixture.Catalog;
+    catalog.Version = 2;
+    catalog.TreeKind = LiveBackupTreeKind.Transactional;
+    fixture.SaveCatalog(catalog);
+    var error = Assert.ThrowsAsync<LiveBackupIntegrityException>(async () => await fixture.Restore());
+    Assert.That(error.Message, Does.Contain("Invalid tree kind"));
+  }
+
+  [TestCase(0)]
+  [TestCase(1)]
+  [TestCase(4)]
+  public void ACatalogOfAnotherVersionFailsRestore(int version)
+  {
+    using var fixture = new BackupFixture(disk: true);
     fixture.Backup();
-    Assert.That(fixture.Catalog.Version, Is.EqualTo(2));
-    Assert.That(fixture.Catalog.Files.All(x => x.Sha256?.Length == 64), Is.True);
-    await fixture.AssertRestores(25);
+    var catalog = fixture.Catalog;
+    catalog.Version = version;
+    fixture.SaveCatalog(catalog);
+    var error = Assert.ThrowsAsync<NotSupportedException>(async () => await fixture.Restore());
+    Assert.That(error.Message, Does.Contain($"catalog version {version}"));
+  }
+
+  [Test]
+  public void ACatalogWithAnInvalidTreeKindFailsRestore()
+  {
+    using var fixture = new BackupFixture(disk: true);
+    fixture.Backup();
+    var catalog = fixture.Catalog;
+    catalog.TreeKind = (LiveBackupTreeKind)7;
+    fixture.SaveCatalog(catalog);
+    var error = Assert.ThrowsAsync<LiveBackupIntegrityException>(async () => await fixture.Restore());
+    Assert.That(error.Message, Does.Contain("Invalid tree kind"));
+  }
+
+  [Test]
+  public void AReusedFileWithoutAChecksumFailsTheNextGeneration()
+  {
+    using var fixture = new BackupFixture(disk: true);
+    fixture.Backup();
+    var catalog = fixture.Catalog;
+    foreach (var file in catalog.Files) file.Sha256 = null;
+    fixture.SaveCatalog(catalog);
+    var error = Assert.Throws<LiveBackupIntegrityException>(() => fixture.Backup());
+    Assert.That(error.Message, Does.Contain("SHA-256"));
   }
 
   [Test]
@@ -271,14 +309,6 @@ public sealed class LiveBackupIntegrityTests
     }
     public void SaveCatalog(LocalLiveBackupGenerationCatalog catalog) => File.WriteAllText(
         Path.Combine(BackupPath, "generations", catalog.GenerationId.ToString("D20") + ".json"), JsonSerializer.Serialize(catalog));
-    public void MakeVersion1Catalog()
-    {
-      var catalog = Catalog;
-      catalog.Version = 1;
-      foreach (var file in catalog.Files) file.Sha256 = null;
-      if (catalog.RecordBatch != null) catalog.RecordBatch.Sha256 = null;
-      SaveCatalog(catalog);
-    }
     public ZoneTreeFactory<int, int> Factory() => new ZoneTreeFactory<int, int>().DisableDeletion().SetDataDirectory(Path.Combine(Root, "restore"));
     public async Task Restore() { using var restored = await Factory().RestoreFromLatestLiveBackup(BackupPath); }
     public async Task AssertRestores(int count)

@@ -466,11 +466,15 @@ public sealed class KeyLockTests
   {
     using var tree = CreateTree();
     (await tree.LockManyAsync([1, 2])).Dispose();
+    // Unoptimized code allocates each time it makes the span of a collection expression of
+    // ints, and optimized code reads the static data. The keys are made once, so only the
+    // locks are measured.
+    ReadOnlySpan<int> keys = [1, 2];
     var completed = 0;
     var allocated = GC.GetAllocatedBytesForCurrentThread();
     for (var i = 0; i < 100; ++i)
     {
-      var pending = tree.LockManyAsync([1, 2]);
+      var pending = tree.LockManyAsync(keys);
       if (pending.IsCompletedSuccessfully)
         ++completed;
       pending.Result.Dispose();

@@ -31,8 +31,6 @@ public static class DataCompression
   public static Memory<byte> Decompress(
       CompressionMethod method, Memory<byte> compressedBytes, int decompressedLength)
   {
-    if (compressedBytes.Length == 0 && decompressedLength == 0)
-      return Array.Empty<byte>();
     return method switch
     {
       CompressionMethod.Zstd => ZstdDataCompression.Decompress(compressedBytes, decompressedLength),
@@ -44,8 +42,6 @@ public static class DataCompression
   public static void DecompressInto(
       CompressionMethod method, Memory<byte> compressedBytes, Memory<byte> destination)
   {
-    if (compressedBytes.Length == 0 && destination.Length == 0)
-      return;
     switch (method)
     {
       case CompressionMethod.Zstd:

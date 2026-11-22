@@ -41,6 +41,11 @@ public sealed class LiveBackupRestore<TKey, TValue>
           $"This is a {generation.TreeKind} backup; restore requires the matching plain or transactional API.");
     if (generation.DbVersion == null || Version.Parse(generation.DbVersion) < ZoneTreeInfo.MinimumDbVersion)
       throw new LiveBackupVersionIsNotCompatibleException(generation.GenerationId, generation.DbVersion);
+    // Checked before anything is restored, so a damaged catalog leaves no files behind.
+    var recordBatch = generation.RecordBatch;
+    if (recordBatch != null && recordBatch.CompressionMethod is not (CompressionMethod.Zstd or CompressionMethod.None))
+      throw new LiveBackupIntegrityException($"record batch {recordBatch.BatchId}",
+          $"Its compression method {(byte)recordBatch.CompressionMethod} is not valid.");
     if (ZoneTreeMetaWal<TKey, TValue>.Exists(Options))
       throw new LiveBackupRestoreTargetAlreadyExistsException();
 

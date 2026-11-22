@@ -9,7 +9,7 @@ namespace ZoneTree.UnitTests;
 /// Tests a compressed device written in appends of varying sizes and read after it is sealed. The device fills one
 /// block buffer and compresses into one buffer for every block, so each block must still come back with its own
 /// bytes. The lengths cover a device that ends exactly at a block boundary, one that ends inside a block, one byte,
-/// and nothing.
+/// and nothing. A file that records a compression method other than Zstd or None is damaged.
 /// </summary>
 public sealed class CompressedFileRandomAccessDeviceTests
 {
@@ -51,6 +51,43 @@ public sealed class CompressedFileRandomAccessDeviceTests
       Assert.That(reopened.Length, Is.EqualTo(length));
       Assert.That(reopened.GetBytes(0, length).ToArray(), Is.EqualTo(expected));
     });
+    manager.CloseAllDevices();
+  }
+
+  [TestCase((byte)0)]
+  [TestCase((byte)2)]
+  [TestCase(byte.MaxValue)]
+  public void AFileThatRecordsAnotherCompressionMethodIsDamage(byte method)
+  {
+    var files = new InMemoryFileStreamProvider();
+    files.CreateDirectory("devices");
+    var manager = new RandomAccessDeviceManager(new ConsoleLogger(ZoneTreeLogLevel.Error), files, "devices");
+    var expected = Enumerable.Range(0, 100).Select(i => (byte)i).ToArray();
+    var device = manager.CreateWritableDevice(1, ".data", isCompressed: true, BlockSize,
+        deleteIfExists: true, backupIfDelete: false, CompressionMethod.Zstd, compressionLevel: 0);
+    device.AppendBytesReturnPosition(expected);
+    device.SealDevice();
+    device.Close();
+    var path = files.GetFiles("devices").Single();
+    var bytes = files.ReadAllBytes(path);
+    var original = bytes[sizeof(int)];
+    void WriteMethod(byte value)
+    {
+      bytes[sizeof(int)] = value;
+      using var stream = files.CreateFileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+      stream.Write(bytes, 0, bytes.Length);
+      stream.Flush(true);
+    }
+
+    WriteMethod(method);
+    var exception = Assert.Throws<InvalidDataException>(() =>
+        manager.GetReadOnlyDevice(1, ".data", isCompressed: true, BlockSize, CompressionMethod.Zstd, compressionLevel: 0));
+    Assert.That(exception.Message, Does.Contain("is damaged"));
+
+    // The failed open released the file, and the device opens once the byte is repaired.
+    WriteMethod(original);
+    var reopened = manager.GetReadOnlyDevice(1, ".data", isCompressed: true, BlockSize, CompressionMethod.Zstd, compressionLevel: 0);
+    Assert.That(reopened.GetBytes(0, expected.Length).ToArray(), Is.EqualTo(expected));
     manager.CloseAllDevices();
   }
 }

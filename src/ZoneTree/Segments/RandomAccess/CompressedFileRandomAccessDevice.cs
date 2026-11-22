@@ -146,36 +146,49 @@ public sealed class CompressedFileRandomAccessDevice : IRandomAccessDevice
     BinaryReader = new BinaryReader(FileStream.ToStream(), Encoding.UTF8, true);
     if (writable)
       BinaryWriter = new BinaryWriter(FileStream.ToStream(), Encoding.UTF8, true);
-    if (FileStream.Length > 0)
+    try
     {
-      var meta = ReadMetadata();
-      BlockSize = meta.BlockSize;
-      CompressionMethod = meta.CompressionMethod;
+      if (FileStream.Length > 0)
+      {
+        var meta = ReadMetadata();
+        BlockSize = meta.BlockSize;
+        CompressionMethod = meta.CompressionMethod;
 
-      (CompressedBlockPositions,
-       CompressedBlockLengths,
-       DecompressedBlockLengths) =
-          ReadCompressedBlockPositionsAndLengths();
-      NextBlockIndex = CompressedBlockPositions.Count - 1;
-      if (NextBlockIndex == -1)
-        NextBlockIndex = 0;
+        (CompressedBlockPositions,
+         CompressedBlockLengths,
+         DecompressedBlockLengths) =
+            ReadCompressedBlockPositionsAndLengths();
+        NextBlockIndex = CompressedBlockPositions.Count - 1;
+        if (NextBlockIndex == -1)
+          NextBlockIndex = 0;
+        else
+        {
+          LastBlockLength = DecompressedBlockLengths.LastOrDefault();
+        }
+      }
       else
       {
-        LastBlockLength = DecompressedBlockLengths.LastOrDefault();
+        WriteMetadata();
       }
     }
-    else
+    catch
     {
-      WriteMetadata();
+      // A file that fails to open must not stay locked by a failed constructor.
+      FileStream.Dispose();
+      throw;
     }
   }
 
   CompressedFileMeta ReadMetadata()
   {
     FileStream.Position = 0;
-    return new CompressedFileMeta(
-        BinaryReader.ReadInt32(),
-        (CompressionMethod)BinaryReader.ReadByte());
+    var blockSize = BinaryReader.ReadInt32();
+    var method = (CompressionMethod)BinaryReader.ReadByte();
+    // Only Zstd or uncompressed files are valid.
+    if (method is not (CompressionMethod.Zstd or CompressionMethod.None))
+      throw new InvalidDataException(
+          $"The compressed file {FilePath} is damaged: its compression method {(byte)method} is not valid.");
+    return new CompressedFileMeta(blockSize, method);
   }
 
   void WriteMetadata()

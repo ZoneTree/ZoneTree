@@ -30,10 +30,11 @@ public sealed class ZoneTreeClusterTests
 
   const string Domain = ClusterTestDomains.Name;
 
-  ZoneTreeClusterOptions Options(string directory = null) => new()
+  ZoneTreeClusterOptions Options(string directory = null, IZoneTreeLogger logger = null) => new()
   {
     DataDirectory = directory ?? DataDirectory,
-    Logger = new ConsoleLogger(ZoneTreeLogLevel.Error),
+    // Unexpected errors print. A test that injects a fault records the errors it expects.
+    Logger = logger ?? new ConsoleLogger(ZoneTreeLogLevel.Error),
     Domains =
     [
       new DomainDefinition(Domain)
@@ -552,7 +553,8 @@ public sealed class ZoneTreeClusterTests
   [Test]
   public void AColumnFailureDuringCommitRollsBackEveryColumn()
   {
-    using var cluster = Factory.CreateInProcess(Options());
+    var errors = new ErrorRecorder();
+    using var cluster = Factory.CreateInProcess(Options(logger: errors));
     var domain = cluster.GetDomain(Domain);
     var numbers = domain.GetColumn<int, int>("numbers");
     var names = domain.GetColumn<long, string>("names");
@@ -563,6 +565,10 @@ public sealed class ZoneTreeClusterTests
     namesTree.IsReadOnly = true;
     // The failure is not a conflict, and no column keeps the transaction's writes.
     Assert.Throws<ZoneTreeIsReadOnlyException>(() => transaction.TryCommit());
+    // The rollback cannot delete the versions in the read-only column. It logs that, and
+    // keeps the transaction's entry, so the versions stay invisible.
+    Assert.That(errors.Exceptions, Has.Length.EqualTo(1));
+    Assert.That(errors.Exceptions[0], Is.InstanceOf<ZoneTreeIsReadOnlyException>());
     Assert.That(transaction.State, Is.EqualTo(TransactionState.Aborted));
     Assert.That(transaction.HasConflict, Is.False);
     Assert.Throws<TransactionAbortedException>(() => transaction.GetColumn(numbers));
@@ -599,5 +605,32 @@ public sealed class ZoneTreeClusterTests
     Assert.Throws<DatabaseNotFoundException>(() => Factory.OpenInProcess(options));
     using var recreated = Factory.CreateInProcess(options);
     Assert.That(recreated.GetDomain(Domain).GetColumn<int, int>("numbers").ContainsKey(1), Is.False);
+  }
+
+  /// <summary>Records the exceptions of the errors that a test expects, instead of printing them.</summary>
+  sealed class ErrorRecorder : IZoneTreeLogger
+  {
+    readonly List<Exception> RecordedExceptions = [];
+
+    public ZoneTreeLogLevel Level { get; set; } = ZoneTreeLogLevel.Error;
+
+    public Exception[] Exceptions
+    {
+      get
+      {
+        lock (RecordedExceptions)
+          return [.. RecordedExceptions];
+      }
+    }
+
+    public bool IsEnabled(ZoneTreeLogLevel level) => level >= Level;
+
+    public void Log(ZoneTreeLogLevel level, string message, Exception exception = null)
+    {
+      if (level < Level)
+        return;
+      lock (RecordedExceptions)
+        RecordedExceptions.Add(exception);
+    }
   }
 }

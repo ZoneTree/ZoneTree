@@ -432,17 +432,12 @@ Use one coordinator and one normal writer per backup destination. A coordinator 
     restore boundaries.
   </p>
   <p>
-    Local catalogs use version 2 for plain trees and version 3 for transactional
-    trees. They store SHA-256 digests for segment files and memory batches; the
-    catalogs themselves are not checksummed. Restore also checks lengths, record
-    counts, and consecutive record indexes. Reused files keep their original
-    digest.
-  </p>
-  <p>
-    Version 1 local catalogs are readable with length and record-count
-    checks, but lack stored content digests. A new generation recopies their
-    files from the source to establish checksums. Local and object-storage
-    layouts are separate formats.
+    Local catalogs use version 3 and record whether the tree is plain or
+    transactional. They store SHA-256 digests for segment files and memory
+    batches; the catalogs themselves are not checksummed. Restore also checks
+    lengths, record counts, and consecutive record indexes. Reused files keep
+    their original digest. Local and object-storage layouts are separate
+    formats.
   </p>
   <p>
     Existing database metadata causes

@@ -146,8 +146,6 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
 
   const int MetadataSize = sizeof(byte);
 
-  const int SectorSize = 512;
-
   const int TailHeaderSize = MappedTailFile.HeaderSize;
 
   /// <param name="logger">The logger.</param>
@@ -233,14 +231,21 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
   /// sector, which then reads as zeros. The first disk sync of a main file covers
   /// that sector, so no sync completed and the file starts over as a new one.
   /// </summary>
+  /// <remarks>
+  /// It reads the metadata byte and the first byte of the first block header, the first
+  /// byte of its magic, and neither is zero once written. A sector persists whole, so a
+  /// nonzero one shows that the first sector persisted, and an invalid metadata byte in it
+  /// is damage. When both are zeros, the first block header has no magic, so recovery keeps
+  /// no block of the file that starts over.
+  /// </remarks>
   bool IsFirstSectorUnwritten()
   {
-    Span<byte> sector = stackalloc byte[SectorSize];
+    Span<byte> bytes = stackalloc byte[MetadataSize + 1];
     FileStream.Position = 0;
-    var length = ReadMainFileAtMost(sector);
+    var length = ReadMainFileAtMost(bytes);
     for (var i = 0; i < length; ++i)
     {
-      if (sector[i] != 0)
+      if (bytes[i] != 0)
         return false;
     }
     return true;
@@ -251,16 +256,11 @@ public sealed unsafe partial class CompressedFileStream : Stream, IDisposable
     FileStream.Position = 0;
     var metadata = BinaryReader.ReadByte();
     var method = (CompressionMethod)(metadata & ~WalBlockFrame.MetadataFlag);
-    if ((metadata & WalBlockFrame.MetadataFlag) == 0)
-      throw new NotSupportedException(
-          $"The WAL file {FilePath} was written by a ZoneTree version before 2.1.0, which ZoneTree " +
-          $"{Core.ZoneTreeInfo.ProductVersion} does not read. Open the database once with ZoneTree " +
-          $"{Core.ZoneTreeInfo.MinimumDbVersion} and ZoneTreeFactory.EnableZstdMigration() to migrate it.");
-    if (method is not (CompressionMethod.Zstd or CompressionMethod.None))
-      throw new NotSupportedException(
-          $"The WAL file {FilePath} uses compression method {(byte)method}, which ZoneTree " +
-          $"{Core.ZoneTreeInfo.ProductVersion} does not support. Open the database once with ZoneTree " +
-          $"{Core.ZoneTreeInfo.MinimumDbVersion} and ZoneTreeFactory.EnableZstdMigration() to migrate it.");
+    // Only framed Zstd or uncompressed WALs are valid.
+    if ((metadata & WalBlockFrame.MetadataFlag) == 0 ||
+        method is not (CompressionMethod.Zstd or CompressionMethod.None))
+      throw new InvalidDataException(
+          $"The WAL file {FilePath} is damaged: its metadata byte 0x{metadata:X2} is not valid.");
     return method;
   }
 

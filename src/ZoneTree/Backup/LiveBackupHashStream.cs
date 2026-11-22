@@ -30,7 +30,7 @@ internal sealed class LiveBackupHashStream(Stream inner, bool leaveOpen = false)
   {
     if (length < 0 || BytesTransferred != length)
       throw new LiveBackupIntegrityException(file, $"Expected {length} bytes, read {BytesTransferred}.");
-    if (checksum != null && !string.Equals(GetChecksum(), checksum, StringComparison.OrdinalIgnoreCase))
+    if (!string.Equals(GetChecksum(), checksum, StringComparison.OrdinalIgnoreCase))
       throw new LiveBackupIntegrityException(file, "SHA-256 checksum mismatch.");
   }
 

@@ -61,8 +61,8 @@ internal static class MultiPartMetadataCodec
 
   public static Memory<byte> Decode(Memory<byte> bytes)
   {
-    if (!HasEnvelope(bytes))
-      throw new InvalidDataException("Multipart metadata has no envelope.");
+    if (!HasMagic(bytes))
+      throw new InvalidDataException("Multipart metadata is damaged: its magic is invalid.");
 
     var envelope = ReadEnvelope(bytes);
     return DataCompression.Decompress(
@@ -71,7 +71,7 @@ internal static class MultiPartMetadataCodec
         envelope.DecompressedLength);
   }
 
-  static bool HasEnvelope(Memory<byte> bytes)
+  static bool HasMagic(Memory<byte> bytes)
   {
     if (bytes.Length < MagicSize)
       return false;

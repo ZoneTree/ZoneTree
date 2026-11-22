@@ -129,18 +129,21 @@ public sealed class CompressedFileStreamTests
     Assert.That(provider.DiskSyncCount, Is.EqualTo(syncCount));
   }
 
-  // A WAL without the frame flag, or with an unsupported compression method, is refused.
+  // A first sector that persisted with a metadata byte that is not framed Zstd or None is damage.
+  [TestCase((byte)0)]
   [TestCase((byte)CompressionMethod.Zstd)]
-  [TestCase((byte)(2 | WalBlockFrame.MetadataFlag))]
-  public void UnsupportedWalMetadataIsRefused(byte metadata)
+  [TestCase(WalBlockFrame.MetadataFlag)]
+  [TestCase(byte.MaxValue)]
+  public void InvalidWalMetadataIsDamage(byte metadata)
   {
     var provider = new InMemoryFileStreamProvider();
     using (var file = provider.CreateFileStream("old", FileMode.Create, FileAccess.ReadWrite, FileShare.None))
       file.Write(new[] { metadata, (byte)7 }, 0, 2);
 
-    var exception = Assert.Throws<NotSupportedException>(() => new CompressedFileStream(
+    var exception = Assert.Throws<InvalidDataException>(() => new CompressedFileStream(
         SilentTestLogger.Instance, provider, "old", BlockSize, false, TimeSpan.Zero, CompressionMethod.Zstd, 0));
-    Assert.That(exception.Message, Does.Contain("EnableZstdMigration()"));
+    Assert.That(exception.Message, Does.Contain("is damaged"));
+    Assert.That(provider.ReadAllBytes("old"), Is.EqualTo(new[] { metadata, (byte)7 }));
   }
 
   [Test]
@@ -901,6 +904,48 @@ public sealed class CompressedFileStreamTests
 
     CompressedFileStream Open() => new(
         SilentTestLogger.Instance, provider, "unwritten", BlockSize, false, TimeSpan.Zero, CompressionMethod.Zstd, 0);
+
+    void Put(string path, byte[] bytes)
+    {
+      using var file = provider.CreateFileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+      file.Write(bytes);
+    }
+  }
+
+  // The metadata byte and the first byte of the first block's magic are never zero once
+  // written. A zero metadata byte alone is damage. When the magic's first byte is zero too,
+  // the file starts over, and none of its old blocks is kept under the new metadata byte.
+  [TestCase(1, false)]
+  [TestCase(2, true)]
+  public void ZeroFirstBytesStartOverOnlyWithoutTheMagic(int zeroedLength, bool startsOver)
+  {
+    const byte metadata = (byte)CompressionMethod.Zstd | WalBlockFrame.MetadataFlag;
+    var provider = new InMemoryFileStreamProvider();
+    using (var stream = Open())
+    {
+      stream.Write(Content(3 * BlockSize + 100));
+      stream.SyncToDisk();
+    }
+    var main = provider.ReadAllBytes("zeros");
+    Assert.That(WalBlockFrame.HasMagic(main.AsSpan(1)), Is.True);
+    Array.Clear(main, 0, zeroedLength);
+    Put("zeros", main);
+    // No sync completed: only the tail header persisted.
+    Put("zeros.tail", provider.ReadAllBytes("zeros.tail")[..(2 * sizeof(int))]);
+
+    if (!startsOver)
+    {
+      var exception = Assert.Throws<InvalidDataException>(() => Open().Dispose());
+      Assert.That(exception.Message, Does.Contain("is damaged"));
+      Assert.That(provider.ReadAllBytes("zeros"), Is.EqualTo(main));
+      return;
+    }
+    using (var recovered = Open())
+      Assert.That(ReadAll(recovered), Is.Empty);
+    Assert.That(provider.ReadAllBytes("zeros"), Is.EqualTo(new[] { metadata }));
+
+    CompressedFileStream Open() => new(
+        SilentTestLogger.Instance, provider, "zeros", BlockSize, false, TimeSpan.Zero, CompressionMethod.Zstd, 0);
 
     void Put(string path, byte[] bytes)
     {
