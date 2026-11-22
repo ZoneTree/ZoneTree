@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ZoneTree.Backup;
 using ZoneTree.Logging;
 using ZoneTree.Options;
@@ -174,6 +175,64 @@ public sealed class LiveBackupTests
     }
 
     DeleteDirectory(backupPath);
+  }
+
+  // A catalog whose record batch has a compression method other than Zstd or None is damaged.
+  [TestCase((byte)0)]
+  [TestCase((byte)2)]
+  [TestCase(byte.MaxValue)]
+  public void RestoreRefusesAnInvalidRecordBatchCompressionBeforeRestoringAnything(byte method)
+  {
+    var dataPath = "data/RestoreRefusesAnInvalidRecordBatchCompression";
+    var backupPath = dataPath + ".Backup";
+    var restorePath = dataPath + ".Restore";
+    DeleteDirectory(dataPath);
+    DeleteDirectory(backupPath);
+    DeleteDirectory(restorePath);
+    try
+    {
+      using (var zoneTree = new ZoneTreeFactory<int, int>()
+          .SetDataDirectory(dataPath)
+          .SetWriteAheadLogDirectory(dataPath)
+          .OpenOrCreate())
+      {
+        for (var i = 0; i < 10; ++i)
+          zoneTree.Upsert(i, i);
+        zoneTree.Maintenance.MoveMutableSegmentForward();
+        zoneTree.Maintenance.StartMergeOperation().Join();
+        for (var i = 10; i < 15; ++i)
+          zoneTree.Upsert(i, i);
+
+        using var backup = zoneTree.CreateLiveBackup(backupPath);
+        backup.Start();
+        backup.CreateGeneration();
+        backup.Stop();
+        zoneTree.Maintenance.Drop();
+      }
+      var catalogPath = Directory.GetFiles(Path.Combine(backupPath, "generations"), "*.json").Single();
+      var catalog = JsonNode.Parse(File.ReadAllText(catalogPath)).AsObject();
+      var recordBatch = catalog["RecordBatch"];
+      Assert.That(recordBatch, Is.Not.Null);
+      recordBatch["CompressionMethod"] = method;
+      File.WriteAllText(catalogPath, catalog.ToJsonString());
+
+      var exception = Assert.ThrowsAsync<LiveBackupIntegrityException>(async () =>
+          (await new ZoneTreeFactory<int, int>()
+              .SetDataDirectory(restorePath)
+              .SetWriteAheadLogDirectory(restorePath)
+              .RestoreFromLatestLiveBackup(backupPath)).Dispose());
+      Assert.That(exception.Message, Does.Contain($"compression method {method} is not valid"));
+      var restored = Directory.Exists(restorePath)
+          ? Directory.GetFiles(restorePath, "*", SearchOption.AllDirectories)
+          : Array.Empty<string>();
+      Assert.That(restored, Is.Empty);
+    }
+    finally
+    {
+      DeleteDirectory(dataPath);
+      DeleteDirectory(backupPath);
+      DeleteDirectory(restorePath);
+    }
   }
 
   [Test]
@@ -657,78 +716,6 @@ public sealed class LiveBackupTests
     }
   }
 
-  [Test]
-  public void LocalLiveBackupReadsVersion1JsonMetadata()
-  {
-    var backupPath = "data/LocalLiveBackupReadsVersion1JsonMetadata.Backup";
-    DeleteDirectory(backupPath);
-    try
-    {
-      var generationsPath = Path.Combine(backupPath, "generations");
-      Directory.CreateDirectory(generationsPath);
-      File.WriteAllText(
-          Path.Combine(backupPath, "manifest.json"),
-          """
-          {
-            "Version": 1,
-            "CreatedAtUtc": "2024-01-02T03:04:05.0000000Z",
-            "UpdatedAtUtc": "2024-01-02T03:05:06.0000000Z",
-            "CurrentGenerationId": 7
-          }
-          """);
-      File.WriteAllText(
-          Path.Combine(generationsPath, "00000000000000000007.json"),
-          """
-          {
-            "GenerationId": 7,
-            "LastOpIndex": 42,
-            "StartedAtUtc": "2024-01-02T03:04:10.0000000Z",
-            "SegmentIds": [101, 102],
-            "Files": [
-              {
-                "SegmentId": 101,
-                "Order": 0,
-                "FileName": "segment-101.dat",
-                "BackupPath": "data/segment-101.dat",
-                "RecordCount": 12,
-                "ByteLength": 3456,
-                "CopiedAtUtc": "2024-01-02T03:04:11.0000000Z"
-              }
-            ],
-            "RecordBatch": {
-              "BatchId": 9,
-              "BackupPath": "records/00000000000000000009.bin",
-              "RecordCount": 2,
-              "CompressionMethod": 1,
-              "CompressionLevel": 3,
-              "CompressionBlockSize": 4096,
-              "UncompressedLength": 100,
-              "StoredLength": 80,
-              "StartedAtUtc": "2024-01-02T03:04:12.0000000Z",
-              "CompletedAtUtc": "2024-01-02T03:04:13.0000000Z",
-              "Completed": true
-            }
-          }
-          """);
-
-      var provider = new LocalLiveBackupProvider(backupPath);
-      var catalog = provider.ReadCurrentGeneration();
-
-      Assert.That(catalog.GenerationId, Is.EqualTo(7));
-      Assert.That(catalog.LastOpIndex, Is.EqualTo(42));
-      Assert.That(catalog.SegmentIds, Is.EqualTo(new[] { 101L, 102L }));
-      Assert.That(catalog.Files, Has.Count.EqualTo(1));
-      Assert.That(catalog.Files[0].BackupPath, Is.EqualTo("data/segment-101.dat"));
-      Assert.That(catalog.RecordBatch, Is.Not.Null);
-      Assert.That(catalog.RecordBatch.CompressionMethod, Is.EqualTo(CompressionMethod.Zstd));
-      Assert.That(catalog.RecordBatch.Completed, Is.True);
-      Assert.That(provider.ReadGeneration(7).RecordBatch.StoredLength, Is.EqualTo(80));
-    }
-    finally
-    {
-      DeleteDirectory(backupPath);
-    }
-  }
 
   [Test]
   public void LiveBackupEveryScheduleCreatesAdditionalGenerations()

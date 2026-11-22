@@ -23,6 +23,9 @@ public sealed class LocalLiveBackupProvider
 
   const string GenerationsDirectory = "generations";
 
+  // The format of the generation catalogs. Their TreeKind tells the kind of the tree.
+  const int CatalogVersion = 3;
+
   readonly Lock SyncRoot = new();
 
   readonly string BackupDirectory;
@@ -198,7 +201,7 @@ public sealed class LocalLiveBackupProvider
     {
       ActiveGeneration = new LocalLiveBackupGenerationCatalog
       {
-        Version = treeKind == LiveBackupTreeKind.Transactional ? 3 : 2,
+        Version = CatalogVersion,
         TreeKind = treeKind,
         GenerationId = generationId,
         StartedAtUtc = startedAtUtc.ToString("O")
@@ -222,7 +225,7 @@ public sealed class LocalLiveBackupProvider
       AddSegmentId(catalog, file.SegmentId);
       var backupFile = CreateCatalogFile(file);
       var path = GetFullPath(backupFile.BackupPath);
-      if (File.Exists(path) && KnownFiles.TryGetValue(backupFile.BackupPath, out var known) && known.Sha256 != null)
+      if (File.Exists(path) && KnownFiles.TryGetValue(backupFile.BackupPath, out var known))
       {
         RequireChecksum(known.Sha256, file.FileName);
         if (new FileInfo(path).Length != known.ByteLength)
@@ -635,10 +638,12 @@ public sealed class LocalLiveBackupProvider
         BackupJsonSerializerContext.Default.LocalLiveBackupGenerationCatalogJsonModel);
     if (model == null)
       return null;
-    if (model.Version is not (1 or 2 or 3))
+    // ZoneTree 2.1.10 wrote version 2 for plain trees, with the same fields.
+    if (model.Version is not (2 or CatalogVersion))
       throw new NotSupportedException($"Unsupported live backup catalog version {model.Version}.");
-    if (model.TreeKind != (model.Version == 3 ? LiveBackupTreeKind.Transactional : LiveBackupTreeKind.Plain))
-      throw new LiveBackupIntegrityException($"generation {model.GenerationId}", "Invalid tree kind for catalog version.");
+    if (model.TreeKind is not (LiveBackupTreeKind.Plain or LiveBackupTreeKind.Transactional) ||
+        (model.Version == 2 && model.TreeKind != LiveBackupTreeKind.Plain))
+      throw new LiveBackupIntegrityException($"generation {model.GenerationId}", "Invalid tree kind.");
     var catalog = new LocalLiveBackupGenerationCatalog
     {
       Version = model.Version,
@@ -742,11 +747,8 @@ public sealed class LocalLiveBackupProvider
   static LiveBackupGeneration ToLiveBackupGeneration(
       LocalLiveBackupGenerationCatalog catalog)
   {
-    if (catalog.Version >= 2)
-    {
-      foreach (var file in catalog.Files) RequireChecksum(file.Sha256, file.FileName);
-      if (catalog.RecordBatch != null) RequireChecksum(catalog.RecordBatch.Sha256, $"record batch {catalog.RecordBatch.BatchId}");
-    }
+    foreach (var file in catalog.Files) RequireChecksum(file.Sha256, file.FileName);
+    if (catalog.RecordBatch != null) RequireChecksum(catalog.RecordBatch.Sha256, $"record batch {catalog.RecordBatch.BatchId}");
     if (catalog.RecordBatch != null && !catalog.RecordBatch.Completed)
       throw new LiveBackupIntegrityException($"generation {catalog.GenerationId}", "Record batch is incomplete.");
     return new LiveBackupGeneration
@@ -882,7 +884,7 @@ internal sealed partial class BackupJsonSerializerContext : JsonSerializerContex
 
 internal sealed class LocalLiveBackupGenerationCatalogJsonModel
 {
-  public int Version { get; set; } = 1;
+  public int Version { get; set; }
 
   public LiveBackupTreeKind TreeKind { get; set; }
 
@@ -903,8 +905,8 @@ internal sealed class LocalLiveBackupGenerationCatalogJsonModel
 
 public sealed class LocalLiveBackupGenerationCatalog
 {
-  /// <summary>Version 2 requires SHA-256 digests; version 3 identifies transactional storage. A catalog without a version is version 1.</summary>
-  public int Version { get; set; } = 1;
+  /// <summary>The format version of the catalog.</summary>
+  public int Version { get; set; }
 
   public LiveBackupTreeKind TreeKind { get; set; }
 

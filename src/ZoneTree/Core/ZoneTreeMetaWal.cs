@@ -429,7 +429,7 @@ public struct MetaWalRecord : IEquatable<MetaWalRecord>
 {
   public MetaWalOperation Operation;
 
-  // Generation and Checksum fill the alignment gaps of the sequential layout.
+  // The five fields fill 24 bytes without padding.
   public uint Generation;
 
   public long SegmentId;

@@ -180,9 +180,9 @@ public sealed unsafe partial class CompressedFileStream
       {
         var header = ReadMainBlockHeader();
         var end = position + WalBlockFrame.HeaderSize + (long)header.CompressedLength;
-        // Blocks are never empty. An empty block is the zeros of a header whose
-        // sectors did not persist.
-        if (header.CompressedLength <= 0 || header.Length <= 0 || end > length ||
+        // The header has a valid magic, checksum and lengths: a header whose sectors did
+        // not persist reads as zeros and fails there.
+        if (end > length ||
             (CompressionMethod == CompressionMethod.None && header.CompressedLength != header.Length) ||
             header.Index != lastIndex + 1)
           throw new InvalidDataException("Incomplete or invalid WAL block.");
